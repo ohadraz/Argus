@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from argus_core.models import Alert
+from argus_core.models.alert import Alert
 
 
 def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:

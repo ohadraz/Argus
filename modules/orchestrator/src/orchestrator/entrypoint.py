@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from argus_core.config import get_settings
 from argus_core.db import connect
-from argus_core.models import Alert, IncidentState
+from argus_core.models.alert import Alert
+from argus_core.models.incident_state import IncidentState
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_core.models import Alert
+from argus_core.models.alert import Alert
 
 STUB_CONFIDENCE = 0.9
 

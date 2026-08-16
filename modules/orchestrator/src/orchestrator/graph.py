@@ -8,7 +8,8 @@ from agent_investigator import investigate
 from agent_mitigation import mitigate
 from agent_postmortem import write_postmortem
 from argus_core.db import connect
-from argus_core.models import IncidentState, IncidentStatus
+from argus_core.models.incident_state import IncidentState
+from argus_core.models.incident_status import IncidentStatus
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph

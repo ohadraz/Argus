@@ -99,9 +99,10 @@
   `tests/` carries an `e2e` marker
 - [x] 7.3 Run `tests/e2e/test_incident_lifecycle.py` via `uv run nox -s e2e`
   and confirm it passes (green)
-- [ ] 7.4 Confirm `uv run nox -s test_module -- <name>` passes cleanly for
-  each of the eight new modules - **blocked**: no `modules/*/tests/` directories
-  exist yet, since Claude cannot create files under any `tests/` path
-  (`AGENTS.md`/§18.3) and no human has added module-level unit/integration
-  tests for these stub modules. Each currently fails with "file or directory
-  not found." Unblocks once real per-module tests are added by hand.
+- [x] 7.4 Confirm `uv run nox -s test_module -- <name>` passes cleanly for
+  each of the eight new modules - unblocked: human-authored unit tests now
+  exist in every `modules/*/tests/` directory (real tests for modules with
+  input-dependent behavior - `agent_investigator`, `argus_core`, `argus_web`,
+  `orchestrator`; placeholder scaffolding tests for pure stubs whose output
+  doesn't depend on input - `agent_codefix`, `agent_communicator`,
+  `agent_mitigation`, `agent_postmortem`). All eight pass.
