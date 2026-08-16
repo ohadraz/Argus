@@ -1,0 +1,63 @@
+name: CI
+
+on: [push, pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: lint
+        run: nox -s lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: typecheck
+        run: nox -s typecheck
+
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.filter.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4  # clones the repo onto the runner
+        with:
+          fetch-depth: 0  # fetch full history for diff
+      - id: filter
+        run: |
+          BASE="${{ github.event.before }}"
+
+          # if first commit/push (00...0 SHA, or empty BASE, or doesn't exist in the repo),
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null
+          then
+            # then set it to the empty tree SHA
+            BASE=$(git hash-object -t tree /dev/null)  # empty tree: first commit / first push on a branch
+          fi
+
+          all_modules=$(ls modules)
+          changed=()
+          for m in $all_modules
+          do
+            if git diff --name-only "$BASE" HEAD | grep -q "^modules/$m/"
+            then
+              changed+=("\"$m\"")
+            fi
+          done
+          echo "modules=[$(IFS=,; echo "${changed[*]}")]" >> "$GITHUB_OUTPUT"
+ 
+  test:
+    needs: detect-changes  # only run if there are changed modules
+    if: needs.detect-changes.outputs.modules != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: ${{ fromJSON(needs.detect-changes.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v4  # clones the repo onto the runner
+      - uses: astral-sh/setup-uv@v3  # installs `uv` onto the runner
+
+      - name: test changed modules
+        run: nox -s test_module -- ${{ matrix.module }}

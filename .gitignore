@@ -1,0 +1,53 @@
+#==============================================================================
+# General Rules
+#==============================================================================
+# Ignore hidden files
+.*
+
+
+#==============================================================================
+# GitIgnore Configuration (Whitelist)
+#==============================================================================
+# Allow the .gitignore file
+!.gitignore
+
+
+#==============================================================================
+# Claude Configuration (Whitelist)
+#==============================================================================
+# Allow the .claude directory, but only track shared project configs
+!.claude/
+!.claude/settings.json
+!.claude/commands/
+!.claude/agents/
+!.claude/skills/
+# ... but ignore the local settings file
+.claude/settings.local.json
+
+
+
+#==============================================================================
+# GitHub Configuration (Whitelist)
+#==============================================================================
+# Allow the .github directory, but only track shared project configs
+!.github/
+!.github/workflows/
+
+
+#==============================================================================
+# Python Artifacts
+#==============================================================================
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+
+
+#==============================================================================
+# pre-commit framework (Whitelist)
+# run a set of checks automatically, right before git commit actually creates
+# the commit, and block the commit if any check fails
+#==============================================================================
+# Allow the .pre-commit-config.yaml file
+!.pre-commit-config.yaml

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(tests/**)",
+      "Edit(**/tests/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python .claude/hooks/block_test_writes.py"
+          }
+        ]
+      }
+    ]
+  }
+}

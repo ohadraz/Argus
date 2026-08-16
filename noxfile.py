@@ -1,0 +1,194 @@
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import nox
+
+# fixes warning message:
+#    warning: `VIRTUAL_ENV=.nox/e2e` does not match the project environment 
+#    path `.venv` and will be ignored
+# 
+# every session dispatches real work `uv run ...`, which manages its own 
+# environment (the project's `.venv`) - nox's own per-session venv is never 
+# used, so skip creating it entirely.
+nox.options.default_venv_backend = "none"
+
+
+def _discover_modules() -> list[str]:
+    """
+    Any subdirectory of `modules/` containing a `pyproject.toml` is a module.
+    """
+    current_dir = Path(__file__).parent
+
+    if not (current_dir / "modules").exists():
+        return []
+    
+    modules_dir = current_dir / "modules"
+
+    return sorted(
+        path.name for path in modules_dir.iterdir()
+        if path.is_dir() and (path / "pyproject.toml").exists()
+    )
+
+
+MODULES: list[str] = _discover_modules()
+
+
+@nox.session
+def lint(session: nox.Session) -> None:
+    """ 
+    Registers `lint` as a nox session, i.e., runnable via `nox -s lint`.
+    Runs ruff linter on the entire workspace.
+    """
+    session.run("uv", "run", "ruff", "check", ".", external=True)
+
+@nox.session
+def typecheck(session: nox.Session) -> None:
+    """
+    Registers `typecheck` as a nox session, i.e., runnable via `nox -s typecheck`.
+    Runs mypy --strict (via pyproject.toml's `[tool.mypy]`) on the entire modules/
+    directory. Skips gracefully if no modules exist yet.
+    """
+    if not MODULES:
+        session.skip("no modules/ yet - nothing to type-check")
+    session.run("uv", "run", "mypy", "modules", external=True)
+
+@nox.session
+@nox.parametrize("module", MODULES)
+def test_module(session: nox.Session, module: str) -> None:
+    """
+    Registers `test_module` as a nox session, parametrized once per discovered module,
+    i.e., runnable via `nox -s test_module -- <module-name>`.
+    Runs that module's `unit` and `integration` tests in isolation, using only its own
+    declared dependencies (via `uv run --package`).
+    """
+    session.run(
+        "uv", "run", "--package", f"argus-{module}",
+        "pytest", f"modules/{module}/tests", "-m", "unit or integration", "-v",
+        external=True,
+    )
+
+@nox.session
+def test_all(session: nox.Session) -> None:
+    """
+    Registers `test_all` as a nox session, i.e., runnable via `nox -s test_all`
+    (fail-fast, default) or `nox -s test_all -- --ci` or `--aggregate` (continue past failures,
+    aggregate and report at the end).
+    Runs every discovered module's full test suite. Fail-fast stops at the first
+    failing module - fast local feedback. --ci mode runs every module regardless
+    of earlier failures, then fails the session with a summary if any failed -
+    full-picture visibility, intended for CI.
+    """
+    ci_mode = "--ci" in session.posargs or "--aggregate" in session.posargs
+    failed_modules: list[str] = []
+
+    for module in MODULES:
+        try:
+            session.run(
+                "uv", "run", "--package", f"argus-{module}",
+                "pytest", f"modules/{module}/tests", "-v", external=True,
+            )
+        except Exception:
+            if not ci_mode:
+                raise  # fail-fast: propagate immediately, stop the loop
+            failed_modules.append(module)
+
+    if failed_modules:
+        session.error(f"Failed modules: {', '.join(failed_modules)}")
+
+@nox.session
+def guard_e2e_boundary(session: nox.Session) -> None:
+    """
+    Registers `guard_e2e_boundary` as a nox session, i.e., runnable via
+    `nox -s guard_e2e_boundary`.
+    Fails if any test under modules/*/tests/ carries the `e2e` pytest marker -
+    those need the docker-compose stack that only `nox -s e2e` brings up, and
+    only for root tests/e2e/.
+    """
+    session.run("uv", "run", "python", "scripts/guard_e2e_boundary.py", external=True)
+
+@nox.session
+def contract(session: nox.Session) -> None:
+    """
+    Registers `contract` as a nox session, i.e., runnable via `nox -s contract`.
+    Runs the top-level contract tests that verify agent-exposed tool schemas still
+    match what the orchestrator expects to call (catches cross-module drift).
+    """
+    session.run("uv", "run", "pytest", "tests/contract", "-v", external=True)
+
+def _argus_web_binary() -> str:
+    """Path to the workspace venv's own `uvicorn` entry point - invoked
+    directly (not via `uv run uvicorn ...`) so the process this session
+    starts *is* uvicorn, not a wrapper that spawns it as a child. That
+    wrapper hop is what breaks signal delivery on shutdown (§ below)."""
+    venv_bin = "Scripts" if sys.platform == "win32" else "bin"
+    exe = "uvicorn.exe" if sys.platform == "win32" else "uvicorn"
+    return str(Path(".venv") / venv_bin / exe)
+
+
+def _start_argus_web() -> subprocess.Popen[bytes]:
+    # CREATE_NEW_PROCESS_GROUP is required on Windows for CTRL_BREAK_EVENT
+    # (the graceful-shutdown signal below) to be deliverable to this process.
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    return subprocess.Popen(
+        [_argus_web_binary(), "argus_web.app:app", "--port", "8000"],
+        creationflags=creationflags,
+    )
+
+
+def _stop_argus_web(process: subprocess.Popen[bytes], timeout: float = 10.0) -> None:
+    """Graceful shutdown via the signal uvicorn's own asyncio server already
+    handles - SIGTERM on POSIX, `CTRL_BREAK_EVENT` on Windows (Windows has no
+    deliverable SIGTERM equivalent for an arbitrary child process). Falls
+    back to a hard kill only if the process hasn't exited within `timeout`.
+    """
+    if sys.platform == "win32":
+        process.send_signal(signal.CTRL_BREAK_EVENT)
+    else:
+        process.terminate()
+
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _wait_for_argus_web(timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen("http://localhost:8000/openapi.json", timeout=1.0)
+            return
+        except (urllib.error.URLError, ConnectionError):
+            time.sleep(0.5)
+    raise TimeoutError("argus_web did not become ready within the timeout")
+
+
+@nox.session
+def e2e(session: nox.Session) -> None:
+    """
+    Registers `e2e` as a nox session, i.e., runnable via `nox -s e2e`.
+    Brings up docker-compose's Postgres service and a local `argus_web`
+    uvicorn process (not containerized - design.md's decision keeps
+    docker-compose scoped to Postgres only), runs the end-to-end suite (plus
+    `tests/integration` once that directory exists) against them, then tears
+    both back down - even if the tests fail, so nothing is left running.
+    """
+    test_paths = ["tests/e2e"]
+    if Path("tests/integration").exists():
+        test_paths.append("tests/integration")
+
+    session.run("docker", "compose", "up", "-d", "--wait", external=True)
+    web_process = _start_argus_web()
+
+    try:
+        _wait_for_argus_web()
+        session.run("uv", "run", "pytest", *test_paths, "-v", external=True)
+    finally:
+        _stop_argus_web(web_process)
+        session.run("docker", "compose", "down", external=True)

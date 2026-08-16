@@ -1,0 +1,23 @@
+name: E2E Nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC every day
+  workflow_dispatch:        # allows manual trigger from the Actions tab
+
+jobs:
+  full-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Full test sweep (all modules, continue past failures)
+        run: nox -s test_all -- --ci
+
+      - name: Contract tests
+        run: nox -s contract
+
+      - name: End-to-end tests (full stack via docker-compose)
+        run: nox -s e2e

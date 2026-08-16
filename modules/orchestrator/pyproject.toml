@@ -1,0 +1,30 @@
+[project]
+name = "argus-orchestrator"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "argus-argus_core",
+    "argus-agent_investigator",
+    "argus-agent_mitigation",
+    "argus-agent_codefix",
+    "argus-agent_communicator",
+    "argus-agent_postmortem",
+    "langgraph>=0.2",
+    "langgraph-checkpoint-postgres>=2.0",
+    "psycopg[binary]>=3.1",
+]
+
+[tool.uv.sources]
+argus-argus_core = { workspace = true }
+argus-agent_investigator = { workspace = true }
+argus-agent_mitigation = { workspace = true }
+argus-agent_codefix = { workspace = true }
+argus-agent_communicator = { workspace = true }
+argus-agent_postmortem = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orchestrator"]

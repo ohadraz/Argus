@@ -1,0 +1,59 @@
+[project]
+name = "argus-workspace"
+version = "0.0.1"
+requires-python = ">=3.14"
+
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "nox",
+    "pre-commit",
+    "httpx",
+    "psycopg[binary]",
+]
+
+
+# uv
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["modules/*"]
+
+
+# ruff (linter and code formatter)
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+# linter config
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle Errors (basic style: spacing, indentation)
+    "F",   # pyFlakes (real bugs: unused imports, undefined names)
+    "I",   # Isort (import statement ordering/grouping)
+    "UP",  # pyUPgrade (flags old-style syntax and suggests newer Python features)
+    "B",   # flake8-Bugbear (common bug-prone patterns)
+    "SIM"  # flake8-SIMplify (flags code that could be written more simply)
+]
+
+
+# mypy (static type checker)
+[tool.mypy]
+strict = true
+
+
+# pytest config
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "unit: fast, isolated tests",
+    "integration: cross-component, in-process",
+    "e2e: full stack, hits docker-compose services",
+    "contract: MCP tool schema contract tests",
+]

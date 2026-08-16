@@ -1,0 +1,21 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit  # ruff's repo of pre-commit hook definitions
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]  # automatically fix issues where possible
+      - id: ruff-format  # runs ruff's code formatter, rewriting files to consistent style.
+  
+  - repo: local
+    hooks:
+      - id: nox-lint
+        name: mypy (via nox)
+        entry: nox -s typecheck  # the actual command pre-commit executes
+        language: system  # uses the system's Python interpreter, which is already installed on the machine
+        pass_filenames: false  # no filenames - it always lints/typechecks everything.
+
+      - id: guard-e2e-boundary
+        name: e2e test boundary (via nox)
+        entry: nox -s guard_e2e_boundary  # fails if a module's tests/ contains an e2e-marked test
+        language: system
+        pass_filenames: false  # no filenames - it always scans modules/*/tests/ in full.

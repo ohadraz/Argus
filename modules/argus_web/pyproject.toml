@@ -1,0 +1,21 @@
+[project]
+name = "argus-argus_web"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "argus-argus_core",
+    "argus-orchestrator",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+[tool.uv.sources]
+argus-argus_core = { workspace = true }
+argus-orchestrator = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/argus_web"]
