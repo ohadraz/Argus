@@ -8,7 +8,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - name: lint
-        run: nox -s lint
+        run: uv run nox -s lint
 
   typecheck:
     runs-on: ubuntu-latest
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - name: typecheck
-        run: nox -s typecheck
+        run: uv run nox -s typecheck
 
   detect-changes:
     runs-on: ubuntu-latest
@@ -60,4 +60,4 @@ jobs:
       - uses: astral-sh/setup-uv@v3  # installs `uv` onto the runner
 
       - name: test changed modules
-        run: nox -s test_module -- ${{ matrix.module }}
+        run: uv run nox -s test_module -- ${{ matrix.module }}

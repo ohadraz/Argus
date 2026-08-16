@@ -14,10 +14,10 @@ jobs:
       - uses: astral-sh/setup-uv@v3
 
       - name: Full test sweep (all modules, continue past failures)
-        run: nox -s test_all -- --ci
+        run: uv run nox -s test_all -- --ci
 
       - name: Contract tests
-        run: nox -s contract
+        run: uv run nox -s contract
 
       - name: End-to-end tests (full stack via docker-compose)
-        run: nox -s e2e
+        run: uv run nox -s e2e
