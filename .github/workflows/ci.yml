@@ -15,15 +15,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
+
       - name: Sync workspace
         run: uv sync --all-packages
+
       - name: typecheck
         run: uv run nox -s typecheck
 
   detect-changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # needed to walk prior workflow runs in the history-fallback step below
     outputs:
-      modules: ${{ steps.filter.outputs.modules }}
+      modules: ${{ steps.combine.outputs.modules }}
     steps:
       - uses: actions/checkout@v4  # clones the repo onto the runner
         with:
@@ -40,6 +45,7 @@ jobs:
           fi
 
           all_modules=$(ls modules)
+
           changed=()
           for m in $all_modules
           do
@@ -48,10 +54,105 @@ jobs:
               changed+=("\"$m\"")
             fi
           done
+
+          all=()
+          for m in $all_modules
+          do
+            all+=("\"$m\"")
+          done
+
+          tests_changed=false
+          if git diff --name-only "$BASE" HEAD | grep -q "^tests/"
+          then
+            tests_changed=true
+          fi
+
           echo "modules=[$(IFS=,; echo "${changed[*]}")]" >> "$GITHUB_OUTPUT"
- 
+          echo "all_modules=[$(IFS=,; echo "${all[*]}")]" >> "$GITHUB_OUTPUT"
+          echo "tests_changed=$tests_changed" >> "$GITHUB_OUTPUT"
+
+      # Fallback for pushes that touch neither modules/ nor tests/ (e.g. CI config,
+      # docs): walk backwards through this branch's prior *push*-triggered, completed
+      # CI runs looking for the most recent one where `test` actually ran (not
+      # skipped). If it passed, nothing to do. If it failed, or no such run exists
+      # all the way back to the first push, we still need a green test run - run it.
+      - id: history
+        if: steps.filter.outputs.modules == '[]' && steps.filter.outputs.tests_changed == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = context.ref.replace('refs/heads/', '');
+            const currentRunNumber = context.runNumber;
+
+            let needsRun = true;
+
+            outer:
+            for (let page = 1; page <= 20; page++) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo,
+                workflow_id: 'ci.yml',
+                branch,
+                event: 'push',
+                status: 'completed',
+                per_page: 30,
+                page,
+              });
+
+              if (data.workflow_runs.length === 0) {
+                // exhausted history without ever finding a completed test run
+                needsRun = true;
+                break;
+              }
+
+              const priorRuns = data.workflow_runs
+                .filter(r => r.run_number < currentRunNumber)
+                .sort((a, b) => b.run_number - a.run_number);
+
+              for (const run of priorRuns) {
+                const { data: jobsData } = await github.rest.actions.listJobsForWorkflowRun({
+                  owner, repo, run_id: run.id, per_page: 100,
+                });
+
+                const testJobs = jobsData.jobs.filter(
+                  j => j.name === 'test' || j.name.startsWith('test (')
+                );
+
+                if (testJobs.length === 0 || testJobs.every(j => j.conclusion === 'skipped')) {
+                  continue; // this run's test job was skipped too - keep looking further back
+                }
+
+                needsRun = testJobs.some(
+                  j => !['success'].includes(j.conclusion)
+                );
+                break outer;
+              }
+            }
+
+            core.setOutput('needs_run', needsRun ? 'true' : 'false');
+
+      - id: combine
+        run: |
+          changed='${{ steps.filter.outputs.modules }}'
+          all='${{ steps.filter.outputs.all_modules }}'
+          tests_changed='${{ steps.filter.outputs.tests_changed }}'
+          needs_run='${{ steps.history.outputs.needs_run }}'
+
+          if [ "$changed" != "[]" ]; then
+            modules="$changed"          # targeted: only the modules this push touched
+          elif [ "$tests_changed" = "true" ]; then
+            modules="$all"              # a shared/root test changed - can't attribute it to one module
+          elif [ "$needs_run" = "true" ]; then
+            modules="$all"              # history-fallback says the suite isn't known-green
+          else
+            modules="[]"                # nothing changed and history is known-green - skip
+          fi
+
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
+
   test:
-    needs: detect-changes  # only run if there are changed modules
+    needs: detect-changes  # only run if there are modules to test
     if: needs.detect-changes.outputs.modules != '[]'
     runs-on: ubuntu-latest
     strategy:
