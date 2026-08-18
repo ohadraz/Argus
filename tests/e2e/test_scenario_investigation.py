@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import psycopg
 import pytest
+from argus_core.models.cause import CauseType
 
 from tests.e2e.framework.assertions import Assertion, eventually
 from tests.e2e.framework.builders import a_grafana_style_alert_with
@@ -24,7 +25,6 @@ def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
     some_service = "kukibuki-service"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
-    expected_cause_type = "feature-flag-toggle"
     some_alert = a_grafana_style_alert_with(service=some_service,
                                             alert_name=some_alert_name,
                                             severity=some_severity)
@@ -39,7 +39,7 @@ def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
             ) \
             .then(
                 eventually(
-                    _argus_diagnosed_the_cause_as(expected_cause_type)
+                    _argus_diagnosed_the_cause_as(CauseType.FEATURE_FLAG_TOGGLE)
                 )
             )
     finally:
@@ -67,7 +67,7 @@ def _incident_id_from(response: httpx.Response) -> str | None:
     return response.json().get("incident_id")
 
 
-def _argus_diagnosed_the_cause_as(expected_cause_type: str) -> Assertion:
+def _argus_diagnosed_the_cause_as(expected_cause_type: CauseType) -> Assertion:
     def assertion(response: httpx.Response) -> bool:
         incident_id = _incident_id_from(response)
 
@@ -90,10 +90,11 @@ def _argus_diagnosed_the_cause_as(expected_cause_type: str) -> Assertion:
                 raise AssertionError(f"no hypothesis found for incident [{incident_id}].")
 
             actual_cause_type = row[0]
+            expected_value = expected_cause_type.value
 
-            if actual_cause_type != expected_cause_type:
+            if actual_cause_type != expected_value:
                 raise AssertionError(
-                    f"Expected cause_type [{expected_cause_type!r}], got [{actual_cause_type!r}]."
+                    f"Expected cause_type [{expected_value!r}], got [{actual_cause_type!r}]."
                 )
 
             return True
