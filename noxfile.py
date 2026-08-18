@@ -44,7 +44,7 @@ def lint(session: nox.Session) -> None:
     Registers `lint` as a nox session, i.e., runnable via `nox -s lint`.
     Runs ruff linter on the entire workspace.
     """
-    session.run("uv", "run", "ruff", "check", ".", external=True)
+    session.run("uv", "run", "python", "-m", "ruff", "check", ".", external=True)
 
 @nox.session
 def typecheck(session: nox.Session) -> None:
@@ -55,7 +55,7 @@ def typecheck(session: nox.Session) -> None:
     """
     if not MODULES:
         session.skip("no modules/ yet - nothing to type-check")
-    session.run("uv", "run", "mypy", "modules", external=True)
+    session.run("uv", "run", "python", "-m", "mypy", "modules", external=True)
 
 @nox.session
 @nox.parametrize("module", MODULES)
@@ -68,7 +68,7 @@ def test_module(session: nox.Session, module: str) -> None:
     """
     session.run(
         "uv", "run", "--package", f"argus-{module}",
-        "pytest", f"modules/{module}/tests", "-m", "unit or integration", "-v",
+        "python", "-m", "pytest", f"modules/{module}/tests", "-m", "unit or integration", "-v",
         external=True,
     )
 
@@ -90,7 +90,7 @@ def test_all(session: nox.Session) -> None:
         try:
             session.run(
                 "uv", "run", "--package", f"argus-{module}",
-                "pytest", f"modules/{module}/tests", "-v", external=True,
+                "python", "-m", "pytest", f"modules/{module}/tests", "-v", external=True,
             )
         except Exception:
             if not ci_mode:
@@ -118,15 +118,19 @@ def contract(session: nox.Session) -> None:
     Runs the top-level contract tests that verify agent-exposed tool schemas still
     match what the orchestrator expects to call (catches cross-module drift).
     """
-    session.run("uv", "run", "pytest", "tests/contract", "-v", external=True)
+    session.run("uv", "run", "python", "-m", "pytest", "tests/contract", "-v", external=True)
 
-def _argus_web_binary() -> str:
-    """Path to the workspace venv's own `uvicorn` entry point - invoked
-    directly (not via `uv run uvicorn ...`) so the process this session
-    starts *is* uvicorn, not a wrapper that spawns it as a child. That
-    wrapper hop is what breaks signal delivery on shutdown (§ below)."""
+def _venv_python_binary() -> str:
+    """Path to the workspace venv's own Python interpreter - uvicorn is run
+    via `-m uvicorn` (not the `uvicorn` console-script entry point, and not
+    `uv run uvicorn ...`) so the process this session starts *is* the
+    interpreter running uvicorn, not a wrapper that spawns it as a child.
+    That wrapper hop is what breaks signal delivery on shutdown (§ below) -
+    it also avoids Windows Smart App Control blocking the locally generated,
+    unsigned `uvicorn.exe` console-script stub (the interpreter binary itself
+    is signed and doesn't get flagged)."""
     venv_bin = "Scripts" if sys.platform == "win32" else "bin"
-    exe = "uvicorn.exe" if sys.platform == "win32" else "uvicorn"
+    exe = "python.exe" if sys.platform == "win32" else "python"
     return str(Path(".venv") / venv_bin / exe)
 
 
@@ -135,7 +139,7 @@ def _start_argus_web() -> subprocess.Popen[bytes]:
     # (the graceful-shutdown signal below) to be deliverable to this process.
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     return subprocess.Popen(
-        [_argus_web_binary(), "argus_web.app:app", "--port", "8000"],
+        [_venv_python_binary(), "-m", "uvicorn", "argus_web.app:app", "--port", "8000"],
         creationflags=creationflags,
     )
 
@@ -183,12 +187,13 @@ def e2e(session: nox.Session) -> None:
     if Path("tests/integration").exists():
         test_paths.append("tests/integration")
 
-    session.run("docker", "compose", "up", "-d", "--wait", external=True)
-    web_process = _start_argus_web()
-
+    web_process: subprocess.Popen[bytes] | None = None
     try:
+        session.run("docker", "compose", "up", "-d", "--wait", external=True)
+        web_process = _start_argus_web()
         _wait_for_argus_web()
-        session.run("uv", "run", "pytest", *test_paths, "-v", external=True)
+        session.run("uv", "run", "python", "-m", "pytest", *test_paths, "-v", external=True)
     finally:
-        _stop_argus_web(web_process)
+        if web_process is not None:
+            _stop_argus_web(web_process)
         session.run("docker", "compose", "down", external=True)

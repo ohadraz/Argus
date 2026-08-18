@@ -10,8 +10,16 @@ Every `@nox.session` function gets:
   1. First line(s): what it registers as and how to invoke it.
   2. Following line(s): what it actually does, factually - don't claim behavior
      the code doesn't have.
-- Prefer `uv run <tool> ...` inside `session.run(..., external=True)` over calling
-  a tool directly, so the session always uses the workspace's resolved environment.
+- Prefer `uv run python -m <tool> ...` inside `session.run(..., external=True)` over
+  calling a tool's console-script entry point directly (`uv run <tool> ...`, or the
+  bare binary) - same resolved workspace environment either way, but going through
+  the interpreter avoids Windows Smart App Control blocking the locally generated,
+  unsigned console-script stub in `.venv/Scripts/` (observed blocking `nox.exe` and
+  `uvicorn.exe`; the venv's `python.exe` itself isn't affected). Doesn't apply to
+  non-Python binaries (e.g. `docker`) - only tools installed as Python console
+  scripts. Same principle for any `subprocess.Popen`/direct-binary-path calls
+  (e.g. a background process a session starts and later signals) - invoke the
+  venv's `python.exe` with `-m <tool>` rather than that tool's own `.exe`.
 
 **Teardown**: if a session brings up an external resource (docker-compose, a
 container, a temp service, etc.), wrap setup + the work in `try` and put teardown
