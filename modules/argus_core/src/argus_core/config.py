@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     database_host: str = Field(default="localhost")
     database_port: int = Field(default=5432)
 
+    target_service_url: str = Field(default="http://localhost:8080")
+
     @property
     def database_url(self) -> str:
         return (

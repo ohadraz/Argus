@@ -6,9 +6,7 @@ TBD - covers the end-to-end lifecycle of an incident: alert ingestion via webhoo
 Orchestrator invocation, the FSM's status transitions, timeline auditing, and state
 persistence across the sub-agent graph (Investigator, Mitigation, Code-Fix,
 Communicator, Postmortem) and the tier-gate node.
-
 ## Requirements
-
 ### Requirement: `argus_web` receives the alert webhook and invokes the Orchestrator in-process
 The system SHALL expose an alert webhook endpoint on `argus_web` (spec §7.9) that validates
 the incoming payload and invokes the Orchestrator's entrypoint in-process (spec §7.1),
@@ -22,15 +20,17 @@ which creates a new `Incident` row and invokes the graph.
   the graph with that incident's state
 
 ### Requirement: FSM completes the investigating → mitigating → resolved happy path
-The system SHALL transition an incident through `investigating` → `mitigating` →
-`resolved` (spec §10) using stub sub-agent logic, with no manual intervention.
+The system SHALL transition an incident through `investigating` → `mitigating` → `resolved` (spec §10) with no manual intervention, using stub sub-agent logic for Mitigation, Code-Fix, Communicator, and Postmortem. The Investigator performs real cause detection (deterministic log-based matching against the Target Service's `/logs`) for at least the `feature-flag-toggle` scenario, and falls back to the same fixed-confidence stub behavior as before when no known scenario is active.
 
-#### Scenario: Stub happy path resolves an incident end-to-end
-- **GIVEN** a new `Incident` in `investigating` status
+#### Scenario: Stub happy path resolves an incident end-to-end with no scenario seeded
+- **GIVEN** a new `Incident` in `investigating` status, and no scenario active on the Target Service
 - **WHEN** the graph runs to completion
-- **THEN** the Investigator stub returns a fixed hypothesis at confidence >= 0.75, the
-  Mitigation stub reports the hypothesis `confirmed`, and the incident's final status is
-  `resolved`
+- **THEN** the Investigator falls back to its pre-existing fixed-confidence behavior (no determined cause), the Mitigation stub reports the hypothesis `confirmed`, and the incident's final status is `resolved`
+
+#### Scenario: Happy path resolves an incident with a real diagnosed cause
+- **GIVEN** a new `Incident` in `investigating` status, and the `feature-flag-toggle` scenario active on the Target Service
+- **WHEN** the graph runs to completion
+- **THEN** the Investigator determines `cause_type = "feature-flag-toggle"` at a confidence >= 0.75, the Mitigation stub reports the hypothesis `confirmed`, and the incident's final status is `resolved`
 
 ### Requirement: Every FSM transition is recorded as a TimelineEvent row
 The system SHALL write a `TimelineEvent` row (spec §11.1) for every `Incident.status`
@@ -62,3 +62,4 @@ Mitigation, Code-Fix, Communicator, Postmortem) and the tier-gate node (spec §1
 - **THEN** a node exists for each of the five sub-agents and the tier-gate node, and edges
   exist for every transition in spec §10's state diagram, including `fixing` and
   `escalated`
+

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import psycopg
 from argus_core.models.alert import Alert
+from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
 from psycopg.types.json import Jsonb
 
@@ -50,13 +51,17 @@ def transition(
 
 
 def record_hypothesis(
-    conn: psycopg.Connection, incident_id: str, description: str, confidence: float
+    conn: psycopg.Connection,
+    incident_id: str,
+    description: str,
+    confidence: float,
+    cause_type: CauseType | None,
 ) -> None:
     with conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO hypothesis (incident_id, description, tested, confidence) "
-            "VALUES (%s, %s, %s, %s)",
-            (incident_id, description, True, confidence),
+            "INSERT INTO hypothesis (incident_id, description, cause_type, tested, confidence) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (incident_id, description, cause_type, True, confidence),
         )
     conn.commit()
 

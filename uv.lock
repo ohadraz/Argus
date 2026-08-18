@@ -86,10 +86,14 @@ version = "0.1.0"
 source = { editable = "modules/agent_investigator" }
 dependencies = [
     { name = "argus-argus-core" },
+    { name = "httpx" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "httpx" },
+]
 
 [[package]]
 name = "argus-agent-mitigation"

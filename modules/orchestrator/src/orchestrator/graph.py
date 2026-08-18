@@ -26,10 +26,10 @@ def tier_gate_node(state: IncidentState) -> dict[str, Any]:
 
 
 def investigator_node(state: IncidentState) -> dict[str, Any]:
-    hypothesis, confidence = investigate(state.alert)
+    hypothesis, confidence, cause_type = investigate(state.alert)
     next_status: IncidentStatus = "mitigating" if confidence >= MITIGATE_THRESHOLD else "escalated"
     with connect() as conn:
-        persistence.record_hypothesis(conn, state.incident_id, hypothesis, confidence)
+        persistence.record_hypothesis(conn, state.incident_id, hypothesis, confidence, cause_type)
         persistence.transition(
             conn,
             state.incident_id,
