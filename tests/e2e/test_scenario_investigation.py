@@ -8,6 +8,7 @@ import httpx
 import psycopg
 import pytest
 from argus_core.models.cause import CauseType
+from orchestrator.repository import hypotheses
 
 from tests.e2e.framework.assertions import Assertion, eventually
 from tests.e2e.framework.builders import a_grafana_style_alert_with
@@ -74,27 +75,16 @@ def _argus_diagnosed_the_cause_as(expected_cause_type: CauseType) -> Assertion:
         if not incident_id:
             raise AssertionError("no incident_id in response")
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT cause_type "
-                "  FROM hypothesis "
-                " WHERE incident_id = %s "
-                "ORDER BY created_at "
-                " LIMIT 1",
-                (incident_id,)
-            )
+        with psycopg.connect(DATABASE_URL) as conn:
+            hypothesis = hypotheses.get_latest_by_incident(conn, incident_id)
 
-            row = cursor.fetchone()
-
-            if row is None:
+            if hypothesis is None:
                 raise AssertionError(f"no hypothesis found for incident [{incident_id}].")
 
-            actual_cause_type = row[0]
-            expected_value = expected_cause_type.value
-
-            if actual_cause_type != expected_value:
+            if hypothesis.cause_type != expected_cause_type:
                 raise AssertionError(
-                    f"Expected cause_type [{expected_value!r}], got [{actual_cause_type!r}]."
+                    f"Expected cause_type [{expected_cause_type!r}], "
+                    f"got [{hypothesis.cause_type!r}]."
                 )
 
             return True

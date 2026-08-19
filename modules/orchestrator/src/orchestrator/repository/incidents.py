@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import psycopg
 from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
+from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
+from pydantic import BaseModel
+
+from orchestrator.repository._types import UuidStr
 
 
-def create_incident(conn: psycopg.Connection, alert: Alert) -> str:
+class Incident(BaseModel):
+    id: UuidStr
+    alert_payload: dict[str, object]
+    status: IncidentStatus
+    slack_channel_id: str | None
+    pr_url: str | None
+    created_at: datetime
+
+
+def create(conn: psycopg.Connection, alert: Alert) -> str:
     """Creates the Incident row and its initial TimelineEvent in the same
     transaction (spec §7.1's single-writer rule, §11.1; spec §10's
     `[*] --> investigating` edge counts as a transition)."""
@@ -50,48 +64,12 @@ def transition(
     conn.commit()
 
 
-def record_hypothesis(
-    conn: psycopg.Connection,
-    incident_id: str,
-    description: str,
-    confidence: float,
-    cause_type: CauseType | None,
-) -> None:
-    with conn.cursor() as cursor:
+def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
+    with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "INSERT INTO hypothesis (incident_id, description, cause_type, tested, confidence) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (incident_id, description, cause_type, True, confidence),
+            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at "
+            "  FROM incident "
+            " WHERE id = %s",
+            (incident_id,),
         )
-    conn.commit()
-
-
-def record_action(
-    conn: psycopg.Connection, incident_id: str, action_type: str, outcome: str
-) -> None:
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO action (incident_id, type, reversible, outcome) VALUES (%s, %s, %s, %s)",
-            (incident_id, action_type, True, outcome),
-        )
-    conn.commit()
-
-
-def record_postmortem(
-    conn: psycopg.Connection, incident_id: str, content: dict[str, object]
-) -> None:
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO postmortem "
-            "(incident_id, root_cause, cost_estimate, assumptions, executive_summary, "
-            "checklist_complete) VALUES (%s, %s, %s, %s, %s, %s)",
-            (
-                incident_id,
-                content["root_cause"],
-                Jsonb(content["cost_estimate"]),
-                Jsonb(content["assumptions"]),
-                content["executive_summary"],
-                content["checklist_complete"],
-            ),
-        )
-    conn.commit()
+        return cursor.fetchone()

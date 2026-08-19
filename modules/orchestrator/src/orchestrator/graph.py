@@ -14,7 +14,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from orchestrator import persistence
+from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
 MITIGATE_THRESHOLD = 0.75
 
@@ -29,8 +29,8 @@ def investigator_node(state: IncidentState) -> dict[str, Any]:
     hypothesis, confidence, cause_type = investigate(state.alert)
     next_status: IncidentStatus = "mitigating" if confidence >= MITIGATE_THRESHOLD else "escalated"
     with connect() as conn:
-        persistence.record_hypothesis(conn, state.incident_id, hypothesis, confidence, cause_type)
-        persistence.transition(
+        hypotheses.record(conn, state.incident_id, hypothesis, confidence, cause_type)
+        incidents.transition(
             conn,
             state.incident_id,
             next_status,
@@ -55,10 +55,10 @@ def mitigation_node(state: IncidentState) -> dict[str, Any]:
     else:
         next_status = "escalated"
     with connect() as conn:
-        persistence.record_action(
+        actions.record(
             conn, state.incident_id, action_type="reversible-mitigation", outcome=outcome
         )
-        persistence.transition(
+        incidents.transition(
             conn,
             state.incident_id,
             next_status,
@@ -98,7 +98,7 @@ def communicator_node(state: IncidentState) -> dict[str, Any]:
 def postmortem_node(state: IncidentState) -> dict[str, Any]:
     content = write_postmortem(state.incident_id)
     with connect() as conn:
-        persistence.record_postmortem(conn, state.incident_id, content)
+        postmortems.record(conn, state.incident_id, content)
     return {}
 
 

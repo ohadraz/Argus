@@ -51,11 +51,15 @@ def typecheck(session: nox.Session) -> None:
     """
     Registers `typecheck` as a nox session, i.e., runnable via `nox -s typecheck`.
     Runs mypy --strict (via pyproject.toml's `[tool.mypy]`) on the entire modules/
-    directory. Skips gracefully if no modules exist yet.
+    directory. Skips gracefully if no modules exist yet. Uses `--all-packages` so
+    every workspace member's dependencies are installed regardless of what a prior
+    plain `uv sync`/`uv run` happened to resolve (without it, mypy can spuriously
+    report "Cannot find implementation or library stub" for a dependency that's
+    declared but wasn't actually installed into the shared venv yet).
     """
     if not MODULES:
         session.skip("no modules/ yet - nothing to type-check")
-    session.run("uv", "run", "python", "-m", "mypy", "modules", external=True)
+    session.run("uv", "run", "--all-packages", "python", "-m", "mypy", "modules", external=True)
 
 @nox.session
 @nox.parametrize("module", MODULES)
@@ -177,11 +181,14 @@ def _wait_for_argus_web(timeout: float = 30.0) -> None:
 def e2e(session: nox.Session) -> None:
     """
     Registers `e2e` as a nox session, i.e., runnable via `nox -s e2e`.
-    Brings up docker-compose's Postgres service and a local `argus_web`
-    uvicorn process (not containerized - design.md's decision keeps
-    docker-compose scoped to Postgres only), runs the end-to-end suite (plus
-    `tests/integration` once that directory exists) against them, then tears
-    both back down - even if the tests fail, so nothing is left running.
+    Brings up docker-compose's `postgres` service (always-on, base
+    definition) plus `target-service` (the `e2e` Compose profile - it's a
+    demo/test fixture, not something Argus itself depends on, so it stays
+    out of the default `docker compose up`) and a local `argus_web` uvicorn
+    process (not containerized - design.md's decision), runs the end-to-end
+    suite (plus `tests/integration` once that directory exists) against
+    them, then tears both back down - even if the tests fail, so nothing is
+    left running.
     """
     test_paths = ["tests/e2e"]
     if Path("tests/integration").exists():
@@ -189,11 +196,13 @@ def e2e(session: nox.Session) -> None:
 
     web_process: subprocess.Popen[bytes] | None = None
     try:
-        session.run("docker", "compose", "up", "-d", "--wait", external=True)
+        session.run(
+            "docker", "compose", "--profile", "e2e", "up", "-d", "--wait", external=True
+        )
         web_process = _start_argus_web()
         _wait_for_argus_web()
         session.run("uv", "run", "python", "-m", "pytest", *test_paths, "-v", external=True)
     finally:
         if web_process is not None:
             _stop_argus_web(web_process)
-        session.run("docker", "compose", "down", external=True)
+        session.run("docker", "compose", "--profile", "e2e", "down", external=True)

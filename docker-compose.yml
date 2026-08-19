@@ -14,6 +14,7 @@ services:
       retries: 15
 
   target-service:
+    profiles: ["e2e"]
     build:
       context: ../Argus-Demo-Target-App
     ports:

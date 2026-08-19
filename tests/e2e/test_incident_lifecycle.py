@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import psycopg
 import pytest
+from orchestrator.repository import incidents, postmortems, timeline
 
 from tests.e2e.framework.assertions import Assertion, all_of, eventually
 from tests.e2e.framework.builders import a_grafana_style_alert_with
@@ -18,7 +19,6 @@ DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 WEBHOOK_PATH = "/webhooks/alerts"
 
 TERMINAL_STATUSES = {"resolved", "escalated"}
-
 
 
 @pytest.mark.e2e
@@ -63,19 +63,13 @@ def _argus_registered_an_incident_for_the_alert(alert_payload: dict[str, Any]) -
 
         alert = alert_payload["alerts"][0]
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT alert_payload " 
-                "  FROM incident " 
-                " WHERE id = %s",
-                (incident_id,),
-            )
+        with psycopg.connect(DATABASE_URL) as conn:
+            incident = incidents.get(conn, incident_id)
 
-            row = cursor.fetchone()
-            if row is None:
+            if incident is None:
                 raise AssertionError(f"no incident found with id [{incident_id}].")
 
-            alert_in_db: dict[str, Any] = row[0]
+            alert_in_db = incident.alert_payload
             expected_service = alert["labels"]["service"]
             actual_service = alert_in_db['service']
             expected_alertname = alert["labels"]["alertname"]
@@ -105,16 +99,10 @@ def _argus_went_through_statuses(*expected: str) -> Assertion:
         if not incident_id:
             raise AssertionError("no incident_id in response")
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT to_status "
-                "  FROM timeline_event "
-                " WHERE incident_id = %s "
-                "ORDER BY created_at",
-                (incident_id,),
-            )
+        with psycopg.connect(DATABASE_URL) as conn:
+            events = timeline.get_timeline_events(conn, incident_id)
 
-            actual = [row[0] for row in cursor.fetchall()]
+        actual = [event.to_status for event in events]
 
         if actual != list(expected):
             raise AssertionError(
@@ -134,21 +122,15 @@ def _argus_resolved_the_incident() -> Assertion:
         if not incident_id:
             raise AssertionError("no incident_id in response.")
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT status " 
-                "  FROM incident "
-                " WHERE id = %s",
-                (incident_id,),
-            )
+        with psycopg.connect(DATABASE_URL) as conn:
+            incident = incidents.get(conn, incident_id)
 
-            row = cursor.fetchone()
-
-            if row is None:
+            if incident is None:
                 raise AssertionError(f"No incident found with id [{incident_id}].")
-            if row[0] != "resolved":
+            if incident.status != "resolved":
                 raise AssertionError(
-                    f"Expected incident [{incident_id}] to be resolved, but got status [{row[0]}]."
+                    f"Expected incident [{incident_id}] to be resolved, "
+                    f"but got status [{incident.status}]."
                 )
 
             return True
@@ -163,15 +145,8 @@ def _argus_created_a_postmortem_for_the_incident() -> Assertion:
         if not incident_id:
             raise AssertionError("no incident_id in response")
 
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT id " 
-                "  FROM postmortem "
-                " WHERE incident_id = %s",
-                (incident_id,),
-            )
-
-            if cursor.fetchone() is None:
+        with psycopg.connect(DATABASE_URL) as conn:
+            if postmortems.get_by_incident(conn, incident_id) is None:
                 raise AssertionError(
                     f"no postmortem exists for incident {incident_id}"
                 )
