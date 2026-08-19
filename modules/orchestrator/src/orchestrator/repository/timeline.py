@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import psycopg
+from argus_core.models.actor import Actor
 from argus_core.models.incident_status import IncidentStatus
 from psycopg.rows import class_row
 from pydantic import BaseModel
@@ -14,7 +15,7 @@ class TimelineEvent(BaseModel):
     id: UuidStr
     incident_id: UuidStr
     to_status: IncidentStatus
-    actor: str | None
+    actor: Actor | None
     action: str | None
     result: str | None
     confidence: float | None

@@ -38,6 +38,7 @@ Always via `uv run ...` (uses the workspace `.venv`, no manual activation needed
 - **Module boundaries**: don't reach into another module's `src/` directly - depend on it as a workspace package (`{ workspace = true }`) and import its public API only. If two agent modules need to share logic, that logic belongs in `modules/common/`, not copy-pasted (or expossed via API).
 - **Reversible vs. irreversible actions** (see spec §13): code that touches the sandbox's flag/deploy APIs must be tagged/logged as reversible mitigation. Anything resembling "merge a PR" or an infra apply must never be autonomous - always require explicit human approval in the code path, no exceptions, even in test/demo code.
 - **No duplicate tool invocations across pre-commit and nox.** Before adding a new pre-commit hook, see the `pre-commit-hook-style` skill.
+- **Test doubles: `unittest.mock` (`create_autospec`, `Mock(spec=...)`) is fine, `patch()` is not.** Dependencies get injected via a default-argument parameter (or, for 2+ related collaborators reused across calls, a constructor) - never via monkeypatching a module-level import. See the `test-mocking-style` skill for the full reasoning and known `create_autospec` gotchas before writing test doubles.
 
 ## Things NOT to do
 - Don't add a module to `noxfile.py`'s module list manually - it's auto-discovered from `modules/*/pyproject.toml`. If a module isn't showing up in `nox --list`, the fix is adding its `pyproject.toml`, not editing `noxfile.py`.

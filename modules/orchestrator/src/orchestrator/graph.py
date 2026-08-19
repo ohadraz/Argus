@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from agent_codefix import propose_fix
 from agent_communicator import notify
-from agent_investigator import investigate
+from agent_investigator import investigate as _investigate
 from agent_mitigation import mitigate
 from agent_postmortem import write_postmortem
+from argus_core.config import get_settings
 from argus_core.db import connect
+from argus_core.models.actor import Actor
+from argus_core.models.alert import Alert
+from argus_core.models.cause import CauseType
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -16,7 +21,47 @@ from langgraph.graph.state import CompiledStateGraph
 
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
-MITIGATE_THRESHOLD = 0.75
+Investigate = Callable[[Alert], tuple[str, float, CauseType | None]]
+
+
+class RecordHypothesis(Protocol):
+    def __call__(
+        self, incident_id: str, hypothesis: str, confidence: float, cause_type: CauseType | None
+    ) -> None: ...
+
+
+class TransitionIncident(Protocol):
+    def __call__(
+        self,
+        incident_id: str,
+        to_status: IncidentStatus,
+        actor: Actor,
+        action: str,
+        result: str | None = None,
+        confidence: float | None = None,
+    ) -> None: ...
+
+
+def _record_hypothesis(
+    incident_id: str, hypothesis: str, confidence: float, cause_type: CauseType | None
+) -> None:
+    with connect() as conn:
+        hypotheses.record(conn, incident_id, hypothesis, confidence, cause_type)
+
+
+def _transition_incident(
+    incident_id: str,
+    to_status: IncidentStatus,
+    actor: Actor,
+    action: str,
+    result: str | None = None,
+    confidence: float | None = None,
+) -> None:
+    with connect() as conn:
+        incidents.transition(
+            conn, incident_id, to_status, actor=actor, action=action,
+            result=result, confidence=confidence,
+        )
 
 
 def tier_gate_node(state: IncidentState) -> dict[str, Any]:
@@ -25,35 +70,49 @@ def tier_gate_node(state: IncidentState) -> dict[str, Any]:
     return {}
 
 
-def investigator_node(state: IncidentState) -> dict[str, Any]:
+def investigator_node(
+    state: IncidentState,
+    investigate: Investigate = _investigate,
+    record_hypothesis: RecordHypothesis = _record_hypothesis,
+    transition_incident: TransitionIncident = _transition_incident,
+) -> dict[str, Any]:
+    """Forms a hypothesis, decides mitigate-vs-escalate by confidence, and
+    persists both the hypothesis and the resulting status transition
+    (spec §7.2, §10). `investigate`/`record_hypothesis`/`transition_incident`
+    default to the real investigation call and repository writes,
+    injectable so this node's routing/persistence logic can be unit
+    tested without a live Target Service or database - mirroring the seam
+    `agent_investigator.investigate()`'s own `fetch_logs` parameter already
+    established."""
     hypothesis, confidence, cause_type = investigate(state.alert)
-    next_status: IncidentStatus = "mitigating" if confidence >= MITIGATE_THRESHOLD else "escalated"
-    with connect() as conn:
-        hypotheses.record(conn, state.incident_id, hypothesis, confidence, cause_type)
-        incidents.transition(
-            conn,
-            state.incident_id,
-            next_status,
-            actor="investigator",
-            action="hypothesis formed",
-            result=hypothesis,
-            confidence=confidence,
-        )
+    mitigate_threshold = get_settings().mitigate_threshold
+    next_status: IncidentStatus = (
+        IncidentStatus.MITIGATING if confidence >= mitigate_threshold else IncidentStatus.ESCALATED
+    )
+    record_hypothesis(state.incident_id, hypothesis, confidence, cause_type)
+    transition_incident(
+        state.incident_id,
+        next_status,
+        actor=Actor.INVESTIGATOR,
+        action="hypothesis formed",
+        result=hypothesis,
+        confidence=confidence,
+    )
     return {"hypothesis": hypothesis, "confidence": confidence, "status": next_status}
 
 
 def route_after_investigation(state: IncidentState) -> str:
-    return "mitigating" if state.status == "mitigating" else "escalated"
+    return "mitigating" if state.status == IncidentStatus.MITIGATING else "escalated"
 
 
 def mitigation_node(state: IncidentState) -> dict[str, Any]:
     outcome = mitigate(state.hypothesis or "")
     if outcome == "confirmed":
-        next_status: IncidentStatus = "resolved"
+        next_status: IncidentStatus = IncidentStatus.RESOLVED
     elif outcome == "refuted":
-        next_status = "fixing"
+        next_status = IncidentStatus.FIXING
     else:
-        next_status = "escalated"
+        next_status = IncidentStatus.ESCALATED
     with connect() as conn:
         actions.record(
             conn, state.incident_id, action_type="reversible-mitigation", outcome=outcome
@@ -62,7 +121,7 @@ def mitigation_node(state: IncidentState) -> dict[str, Any]:
             conn,
             state.incident_id,
             next_status,
-            actor="mitigation",
+            actor=Actor.MITIGATION,
             action="mitigation attempted",
             result=outcome,
         )
@@ -70,9 +129,9 @@ def mitigation_node(state: IncidentState) -> dict[str, Any]:
 
 
 def route_after_mitigation(state: IncidentState) -> str:
-    if state.status == "resolved":
+    if state.status == IncidentStatus.RESOLVED:
         return "resolved"
-    if state.status == "fixing":
+    if state.status == IncidentStatus.FIXING:
         return "fixing"
     return "escalated"
 
@@ -85,7 +144,7 @@ def codefix_node(state: IncidentState) -> dict[str, Any]:
 
 
 def route_after_codefix(state: IncidentState) -> str:
-    return "resolved" if state.status == "resolved" else "escalated"
+    return "resolved" if state.status == IncidentStatus.RESOLVED else "escalated"
 
 
 def communicator_node(state: IncidentState) -> dict[str, Any]:

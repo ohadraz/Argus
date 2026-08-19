@@ -1,5 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal
+from enum import StrEnum
 
-IncidentStatus = Literal["investigating", "mitigating", "resolved", "fixing", "escalated"]
+
+class IncidentStatus(StrEnum):
+    INVESTIGATING = "investigating"
+    MITIGATING = "mitigating"
+    RESOLVED = "resolved"
+    FIXING = "fixing"
+    ESCALATED = "escalated"

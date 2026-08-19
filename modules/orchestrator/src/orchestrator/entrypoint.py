@@ -4,6 +4,7 @@ from argus_core.config import get_settings
 from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
+from argus_core.models.incident_status import IncidentStatus
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 
@@ -38,7 +39,9 @@ def create_incident_and_run(alert: Alert) -> str:
         incident_id = incidents.create(conn, alert)
 
     graph = _get_graph()
-    initial_state = IncidentState(incident_id=incident_id, alert=alert, status="investigating")
+    initial_state = IncidentState(
+        incident_id=incident_id, alert=alert, status=IncidentStatus.INVESTIGATING
+    )
     graph.invoke(initial_state, config={"configurable": {"thread_id": incident_id}})
 
     return incident_id

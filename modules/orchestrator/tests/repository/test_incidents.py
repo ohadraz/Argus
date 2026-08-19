@@ -4,7 +4,9 @@ from functools import partial
 
 import psycopg
 import pytest
+from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
+from argus_core.models.incident_status import IncidentStatus
 from orchestrator.repository import incidents, timeline
 
 from .framework.assertions import Assertion, all_of
@@ -47,8 +49,8 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
                 lambda: incidents.transition(
                     conn,
                     incident_id,
-                    "mitigating",
-                    actor="investigator",
+                    IncidentStatus.MITIGATING,
+                    actor=Actor.INVESTIGATOR,
                     action="hypothesis formed",
                     result="some hypothesis",
                     confidence=0.9,

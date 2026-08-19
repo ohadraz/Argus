@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
+from argus_core.models.incident_status import IncidentStatus
 from pydantic import ValidationError
 
 
@@ -22,9 +23,14 @@ def test_alert_missing_required_field_raises() -> None:
 
 @pytest.mark.unit
 def test_incident_state_requires_alert() -> None:
-    alert = Alert(service="checkout", alert_name="HighErrorRate")
+    some_service = "kuki-service"
+    some_alert_name = "HighErrorRate"
+    some_incident_id = "buki-123"
+    some_alert = Alert(service=some_service, alert_name=some_alert_name)
 
-    state = IncidentState(incident_id="abc-123", alert=alert, status="investigating")
+    state = IncidentState(incident_id=some_incident_id, 
+                          alert=some_alert, 
+                          status=IncidentStatus.INVESTIGATING)
 
     assert state.hypothesis is None
     assert state.confidence is None

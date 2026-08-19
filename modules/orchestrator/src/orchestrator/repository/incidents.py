@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import psycopg
+from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from psycopg.rows import class_row
@@ -28,7 +29,7 @@ def create(conn: psycopg.Connection, alert: Alert) -> str:
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO incident (alert_payload, status) VALUES (%s, %s) RETURNING id",
-            (Jsonb(alert.model_dump(mode="json")), "investigating"),
+            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.INVESTIGATING),
         )
         row = cursor.fetchone()
         assert row is not None
@@ -36,7 +37,7 @@ def create(conn: psycopg.Connection, alert: Alert) -> str:
         cursor.execute(
             "INSERT INTO timeline_event (incident_id, to_status, actor, action) "
             "VALUES (%s, %s, %s, %s)",
-            (incident_id, "investigating", "orchestrator", "incident created"),
+            (incident_id, IncidentStatus.INVESTIGATING, Actor.ORCHESTRATOR, "incident created"),
         )
     conn.commit()
     return incident_id
@@ -46,7 +47,7 @@ def transition(
     conn: psycopg.Connection,
     incident_id: str,
     to_status: IncidentStatus,
-    actor: str,
+    actor: Actor,
     action: str,
     result: str | None = None,
     confidence: float | None = None,

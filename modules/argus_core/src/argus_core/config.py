@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     target_service_url: str = Field(default="http://localhost:8080")
 
+    mitigate_threshold: float = Field(default=0.75)
+
     @property
     def database_url(self) -> str:
         return (
