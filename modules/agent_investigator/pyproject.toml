@@ -5,12 +5,13 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-argus_core",
-    "httpx",
+    "argus-read_mcp_client",
 ]
 
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-read_mcp_client = { workspace = true }
 
 
 [build-system]

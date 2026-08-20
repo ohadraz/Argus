@@ -136,19 +136,19 @@ Responsibilities:
 
 ### 7.2 Investigator agent
 
-Runs the ReAct loop (§9, §8). Tools: `memory-mcp` (read), `metrics-mcp` (read), `logs-mcp` (read), `flags-mcp` (read-only). No mutating tool is bound to this node. Hints reach it as `TIMELINE_EVENT` rows (§11.1), written by the Orchestrator from hints the Communicator (§7.5) surfaces - not via direct Slack access.
+Runs the ReAct loop (§9, §8). Tools: memory read, metrics read, log read, and flag evaluation - all from `argus-read-mcp` (§12.1). Nothing from `argus-write-mcp` is bound to this node. Hints reach it as `TIMELINE_EVENT` rows (§11.1), written by the Orchestrator from hints the Communicator (§7.5) surfaces - not via direct Slack access.
 
 ### 7.3 Mitigation agent
 
-Takes a confirmed/high-confidence hypothesis and proposes a reversible action: revert a flag (`flags-mcp` write) or roll back a deployment (`git-mcp`'s `push_revert_commit`, §12.1). Every action carries an undo descriptor, checked by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
+Takes a confirmed/high-confidence hypothesis and proposes a reversible action: revert a flag or roll back a deployment (`push_revert_commit`) - both from `argus-write-mcp` (§12.1). Every action carries an undo descriptor, checked by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
 
 ### 7.4 Code-Fix agent
 
-Invoked when mitigation fails, or the scenario is bug/config-drift from the start. RAG over the Target Service repo to localize the bug, drafts a patch **plus a regression test**, opens a branch + PR via `git-mcp`'s `open_pull_request`. Writing tests is normal for this agent - unrestricted except for one path: the **seeded ground-truth fixture test** that grades its patch (§15.2; §13 explains why it's protected). Its `git-mcp` binding has **no `merge_pull_request` function at all** (tier enforcement by absence).
+Invoked when mitigation fails, or the scenario is bug/config-drift from the start. RAG over the Target Service repo to localize the bug, drafts a patch **plus a regression test**, opens a branch + PR via `argus-write-mcp`'s `open_pull_request`. Writing tests is normal for this agent - unrestricted except for one path: the **seeded ground-truth fixture test** that grades its patch (§15.2; §13 explains why it's protected). Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence).
 
 ### 7.5 Communicator agent
 
-Owns all Slack writes (creates the incident channel, posts structured status updates) via `slack-mcp`, all outbound email (postmortem, exec summary) via `email-mcp`, and is the only agent that reads Slack for human hints, converting them into a structured hint returned to the Orchestrator, which writes it as a `TIMELINE_EVENT` (§7.1).
+Owns all Slack writes (creates the incident channel, posts structured status updates) and all outbound email (postmortem, exec summary) via `argus-write-mcp`, and is the only agent that reads Slack for human hints (via `argus-read-mcp`), converting them into a structured hint returned to the Orchestrator, which writes it as a `TIMELINE_EVENT` (§7.1).
 
 ### 7.6 Postmortem agent
 
@@ -191,9 +191,9 @@ The `investigating` phase (§10) looks like one node from outside, but runs a Re
 ```mermaid
 flowchart TD
     A[Alert received, T0 known] --> B[Query Chroma for similar past incidents]
-    B --> C[Query metrics-mcp: aggregated summary for window]
+    B --> C[Query get_metrics_summary: aggregated summary for window]
     C --> D[Identify anomalous buckets]
-    D --> E[Query logs-mcp: raw lines scoped to anomalous buckets only]
+    D --> E[Query get_log_lines: raw lines scoped to anomalous buckets only]
     E --> F[Form/update hypothesis + confidence]
     F --> G{Confidence >= threshold?}
     G -->|Yes| H[Exit to mitigating]
@@ -327,10 +327,10 @@ Retrieval filters by `alert_type` metadata first, then ranks by embedding simila
 ```
 INTEGRATION_CONFIG {
     uuid id PK
-    jsonb git_config           -- git-mcp: repo URL, branch, etc.
-    jsonb flag_config          -- flags-mcp: adapter-specific (e.g. base URL)
-    jsonb metrics_config       -- metrics-mcp: adapter-specific (e.g. base URL)
-    jsonb log_config           -- logs-mcp: adapter-specific (e.g. URL, shared path, or bucket/key)
+    jsonb git_config           -- git tools: repo URL, branch, etc.
+    jsonb flag_config          -- flag tools: adapter-specific (e.g. base URL)
+    jsonb metrics_config       -- metrics tools: adapter-specific (e.g. base URL)
+    jsonb log_config           -- log tools: adapter-specific (e.g. URL, shared path, or bucket/key)
     text slack_workspace_id
     text slack_default_channel_prefix
     jsonb postmortem_recipients      -- array of email addresses
@@ -364,28 +364,29 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 | Integration | Read/query standard | Write/mutate standard | Demo adapter |
 |---|---|---|---|
 | Feature flags | **Yes - OFREP** (OpenFeature Remote Evaluation Protocol): single/bulk flag evaluation, `ETag` caching, bearer-token auth | No - flag management (create/toggle/target) is vendor-specific (LaunchDarkly, Unleash, Flagsmith all differ) | **Unleash**, self-hosted: OFREP for reads, Unleash's admin REST API for the toggle/revert Mitigation performs |
-| Deployment state / rollback | No | No - GitOps tools (ArgoCD, Flux) reconcile from Git with their own rollback commands; CI tools (GitHub Actions, CircleCI) each have their own trigger API; nothing shared | **Git revert + push**, GitOps-style, via `git-mcp`. "Currently deployed" = current HEAD of a designated branch. Reuses the MCP server Code-Fix needs, at a different tool/tier (§13) |
-| Logs | No - format and storage both vary per team, no interop standard | N/A - Argus never writes to Target Service logs | Target Service HTTP log endpoint (`GET /logs`, no params - returns full log), windowing/filtering done in `logs-mcp` itself (§16) |
-| Metrics | **De facto - Prometheus-compatible query API** (PromQL); emission standardized via **OTLP**, but OTel isn't a backend itself | N/A - Argus only reads metrics | Target Service → OTel SDK → local **OTel Collector** → **Prometheus**; `metrics-mcp` queries Prometheus's HTTP API |
-| Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API via `slack-mcp` |
-| Email | SMTP is already the standard | - | `email-mcp` via configured SMTP relay |
-| Long-term memory | N/A - internal to Argus | - | Chroma directly via `memory-mcp` |
+| Deployment state / rollback | No | No - GitOps tools (ArgoCD, Flux) reconcile from Git with their own rollback commands; CI tools (GitHub Actions, CircleCI) each have their own trigger API; nothing shared | **Git revert + push**, GitOps-style, via `argus-write-mcp`. "Currently deployed" = current HEAD of a designated branch. Reuses the git tooling Code-Fix needs, at a different tool/tier (§13) |
+| Logs | No - format and storage both vary per team, no interop standard | N/A - Argus never writes to Target Service logs | Target Service HTTP log endpoint (`GET /logs`, no params - returns full log), windowing/filtering done in `argus-read-mcp` itself (§16) |
+| Metrics | **De facto - Prometheus-compatible query API** (PromQL); emission standardized via **OTLP**, but OTel isn't a backend itself | N/A - Argus only reads metrics | Target Service → OTel SDK → local **OTel Collector** → **Prometheus**; `argus-read-mcp` queries Prometheus's HTTP API |
+| Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API - reads via `argus-read-mcp`, writes via `argus-write-mcp` |
+| Email | SMTP is already the standard | - | `argus-write-mcp` via configured SMTP relay |
+| Long-term memory | N/A - internal to Argus | - | Chroma directly - queries via `argus-read-mcp`, writes via `argus-write-mcp` |
 
 ### 12.1 MCP server topology
 
-Each row above (excluding Chroma/Slack/email, which don't need ports-and-adapters) becomes its own **FastMCP server** - a network-facing, independently deployable module (§20.1):
+Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - each a network-facing, independently deployable module (§20.1):
 
 | Server | Exposes |
 |---|---|
-| `flags-mcp` | OFREP evaluation (read); Unleash admin toggle + revert (write, reversible tier) |
-| `git-mcp` | `open_pull_request` (Code-Fix, no test-path writes); `push_revert_commit` (Mitigation, reversible tier); deliberately **no `merge_pull_request` function exists** |
-| `logs-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in `logs-mcp` itself |
-| `metrics-mcp` | `get_metrics_summary(window)` - Prometheus range query |
-| `slack-mcp` | read channel/thread, post message, create channel |
-| `email-mcp` | send email via configured SMTP relay |
-| `memory-mcp` | Chroma query/write |
+| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; OFREP flag evaluation; Chroma memory query; Slack channel/thread reads |
+| `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**; Slack post/create-channel; email send via SMTP relay; Chroma memory write |
 
-Each agent's LangGraph node binds only to the tool functions its role needs - e.g. the Investigator (§7.2) gets `logs-mcp`, `metrics-mcp`, `flags-mcp` (read-only), `memory-mcp` (read), and no write-capable function.
+**Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
+
+A single combined server would collapse that boundary; per-integration servers pay six extra processes for a partition that doesn't line up with any real risk difference. Two is the cut where the guardrail is real and the operational cost isn't.
+
+Each agent's LangGraph node still binds only the individual tool functions its role needs - e.g. the Investigator (§7.2) binds the log, metrics, flag-read and memory-read functions from `argus-read-mcp`, and nothing from `argus-write-mcp`. Tool binding controls what an agent is *offered*; the server split controls what the process is *capable of* - only the second survives a compromised caller, which is why both exist.
+
+**Each server is paired with a typed client package** (§20.1): `read_mcp_client`, `write_mcp_client`. A server is a deployed process; its client is a library installed into whichever agent calls it. The client exposes each tool as a real typed Python function (`get_log_lines(window, filters) -> list[str]`), rather than agents calling a generic `call_tool(name, **kwargs)` with a stringly-typed tool name and an untyped payload - so a mistyped tool name or argument is a static type error, not a runtime failure discovered in an incident. The generic streamable-HTTP transport underneath is shared, and lives once in `argus_core`.
 
 ## 13. Guardrails: Autonomy Tier Enforcement
 
@@ -402,16 +403,16 @@ Enforced redundantly at four layers:
 
 | Layer | Mechanism |
 |---|---|
-| **MCP server boundary** | A read-only server (`logs-mcp`, `metrics-mcp`) has no code path to mutate anything - enforced at the server, not the caller. |
-| **LangGraph node tool binding** | Each node's tool list is scoped at graph-definition time (§12.1). Code-Fix has no `merge_pull_request` function bound - because it doesn't exist anywhere in `git-mcp`. |
+| **MCP server boundary** | `argus-read-mcp` (§12.1) has no code path to mutate anything, and holds no credential that could authorize one - enforced at the server, not the caller. The tier split *is* the process split, so "read-only" is a property of the running process, not a convention. |
+| **LangGraph node tool binding** | Each node's tool list is scoped at graph-definition time (§12.1). Code-Fix has no `merge_pull_request` function bound - because it doesn't exist anywhere in `argus-write-mcp`. |
 | **Orchestrator gate node** | Before any `ACTION` with `tier=reversible` reaches its MCP call, a gate node requires a populated `undo_descriptor` (§11.1). `tier=irreversible` actions go straight to "notify human," never to a mutating call. |
-| **Path-scoped write access** | `git-mcp`'s write functions are restricted per calling agent to specific file-path patterns. Code-Fix has normal write access across the repo (including its own regression tests) - except the seeded **ground-truth fixture test** for the active scenario, which protects **evaluation integrity**: without this, nothing would stop it from "passing" by weakening the grading test instead of fixing the bug. |
+| **Path-scoped write access** | `argus-write-mcp`'s git write functions are restricted per calling agent to specific file-path patterns. Code-Fix has normal write access across the repo (including its own regression tests) - except the seeded **ground-truth fixture test** for the active scenario, which protects **evaluation integrity**: without this, nothing would stop it from "passing" by weakening the grading test instead of fixing the bug. |
 
 This four-layer redundancy is what lets the eval suite (§21) claim "zero irreversible actions without human approval" as a hard, testable metric.
 
 ## 14. Secrets and Configuration
 
-**Secrets** (GitHub PAT, Slack bot token, Unleash admin token, SMTP credentials) live in **HashiCorp Vault**. Each MCP server authenticates to Vault at startup (or per-request, for short-lived leases) and reads only its own secret path - `flags-mcp` never has access to the GitHub PAT, a fifth, incidental guardrail layer (§13).
+**Secrets** (GitHub PAT, Slack bot token, Unleash admin token, SMTP credentials) live in **HashiCorp Vault**. Each MCP server authenticates to Vault at startup (or per-request, for short-lived leases) and reads only its own secret path. Every write credential belongs to `argus-write-mcp` alone; `argus-read-mcp` is issued none of them, and reads only what its read paths require (e.g. the OFREP evaluation token) - so the tier boundary in §12.1 is enforced by credential possession as well as by code, a fifth guardrail layer (§13).
 
 **Non-secret registration data** (repo, Slack workspace, email recipients, flag/metrics/log endpoints) lives in `INTEGRATION_CONFIG` (§11.3), edited by a human through the Backoffice (§7.8). The table stores **Vault paths**, never secret values - the database itself can't leak secrets. This gives real secrets management (not hardcoded, not committed to git, editable without redeploy) without an identity platform like Keycloak.
 
@@ -424,7 +425,7 @@ This four-layer redundancy is what lets the eval suite (§21) claim "zero irreve
 A real, small, runnable app (e.g. a toy checkout/orders API) in its own repo, `argus-target-service`:
 
 - **Business logic** - real endpoints with real feature-flag checkpoints, reading live flag state through an OFREP client pointed at Unleash (§12).
-- **A log endpoint** - `GET /logs`, returns the full log with no filtering; windowing/capping logic lives in `logs-mcp` (§16), not the adapter.
+- **A log endpoint** - `GET /logs`, returns the full log with no filtering; windowing/capping logic lives in `argus-read-mcp` (§16), not the adapter.
 - **A committed test suite**, including, per scenario, a **ground-truth fixture test** that fails against the seeded "bad" commit and passes once correctly patched. This is what Code-Fix's PRs are graded against, and the one file it can't modify (§13) - everything else, including new tests it adds, is unrestricted.
 - **A scenario-control module**, under its own route prefix (e.g. `/demo-control/*`), structurally separate from business-logic routes so the business logic never needs to know a control panel exists.
 
@@ -449,7 +450,7 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
 | Scenario | Seeded state | Anomaly stops when | Correct Argus behavior |
 |---|---|---|---|
 | Feature flag | flag set to bad value | flag reverted to good value | toggle it back, confirm recovery |
-| Bad deploy | deploy-record at bad commit | deploy-record points at previous commit | roll back via `git-mcp` revert+push, confirm recovery |
+| Bad deploy | deploy-record at bad commit | deploy-record points at previous commit | roll back via `argus-write-mcp` revert+push, confirm recovery |
 | Bug / config drift | buggy commit checked out, a test fails against it | repo's test suite passes against Code-Fix's PR branch | open PR, human merges (out of Argus's autonomy) |
 | No evidence | nothing correlated | never, automatically | exhaust reversible options, escalate |
 | Upstream dependency failure | simulated downstream failure, no controllable cause | never, automatically | exhaust reversible options, escalate |
@@ -462,10 +463,10 @@ Unbounded logs are slow and a poor use of context, so retrieval is windowed in t
 **Time window.** Given alert timestamp `T0`: lookback `X` (config, e.g. 30 min) captures the likely-causal change; lookahead `Y_max` (config, e.g. 10 min) - the window at ReAct iteration `i` is `[T0 - X, min(now_i, T0 + Y_max)]`, re-evaluated each iteration since "now" keeps moving.
 
 **Two-phase retrieval:**
-1. `metrics-mcp.get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first every iteration.
-2. `logs-mcp.get_log_lines(window, filters, bucket_ids?)` - raw lines, scoped to the anomalous buckets from the summary, hard-capped (paginated if exceeded).
+1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first every iteration.
+2. `get_log_lines(window, filters, bucket_ids?)` - raw lines, scoped to the anomalous buckets from the summary, hard-capped (paginated if exceeded).
 
-Windowing and filtering are `logs-mcp`'s responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic.
+Both live in `argus-read-mcp` (§12.1). Windowing and filtering are the server's responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic.
 
 The Investigator's default path (§9): aggregate → spot the anomaly → drill into only the anomalous slice - never a full dump. `X`, `Y_max`, and the per-call line cap are environment-driven config, tunable per benchmark scenario.
 
@@ -522,7 +523,7 @@ Each module under `modules/` has its own test suite and CI pipeline (lint → ty
 flowchart TB
     subgraph ArgusDeploy["Argus - Docker Compose / Railway"]
         WEB[argus_web service<br/>HTTP + Orchestrator + sub-agents, in-process]
-        MCPS[flags-mcp, git-mcp, logs-mcp,<br/>metrics-mcp, slack-mcp,<br/>email-mcp, memory-mcp]
+        MCPS[argus-read-mcp,<br/>argus-write-mcp]
         PG[(Postgres)]
         CHROMA[(Chroma)]
         FE[argus_dashboard<br/>FastAPI + Jinja2/HTMX]
@@ -564,7 +565,7 @@ The Target Environment deploys independently of Argus, reflecting that in a real
 
 A `uv` workspace covers `modules/*` (§20.2): the Orchestrator, Web Application, Dashboard, each sub-agent package, each MCP server, the Backoffice, and `argus_core` are each their own installable Python package with its own `pyproject.toml`, independently versioned. A root workspace `pyproject.toml` (`[tool.uv.workspace]`, members = `modules/*`) ties these together for local dev (`uv sync` installs everything editable) without forcing a shared version or deploy lifecycle; `uv`'s lockfile covers the whole workspace.
 
-Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Dashboard, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, and each `agent_*` package have no deployment image; they're installed as dependencies into the Web Application, the only place they run (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
+Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Dashboard, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each `agent_*` package, and each MCP *client* package have no deployment image; they're installed as dependencies into the Web Application, the only place they run (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
 
 The benchmark harness sits outside the workspace entirely: its own `pyproject.toml`, not deployed as a service (§19) - a script/CLI run against an already-deployed Argus stack (§21.4), consuming `argus_core` schemas as a regular dependency.
 
@@ -591,13 +592,10 @@ argus/
 │   ├── agent_codefix/
 │   ├── agent_communicator/
 │   ├── agent_postmortem/
-│   ├── mcp_flags/
-│   ├── mcp_git/
-│   ├── mcp_logs/
-│   ├── mcp_metrics/
-│   ├── mcp_slack/
-│   ├── mcp_email/
-│   ├── mcp_memory/
+│   ├── read_mcp_server/             # argus-read-mcp: log, metrics, flag-eval, memory-query, Slack-read tools
+│   ├── read_mcp_client/             # typed client for argus-read-mcp, imported by consuming agents
+│   ├── write_mcp_server/            # argus-write-mcp: flag toggle, git revert/PR, Slack post, email, memory write
+│   ├── write_mcp_client/            # typed client for argus-write-mcp, imported by consuming agents
 │   ├── backoffice/                  # admin UI only - no HTTP of its own, calls argus_web's config API
 │   └── argus_dashboard/             # FastAPI + Jinja2/HTMX read-only UI, calls argus_web's incident read API
 └── benchmark/                       # scenario runner + evaluator harness, own pyproject.toml
@@ -697,9 +695,9 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Long-term memory | Chroma (§11.2) | Simple to run embedded for dev and as one container for the demo; no managed service needed |
 | Secrets | HashiCorp Vault (§14) | Real secrets management without hardcoding or committing credentials |
 | Feature flags | Unleash, OFREP for reads, Unleash admin API for writes (§12) | OFREP is a genuine adopted standard for reads; Unleash is a solid free adapter |
-| Deploy/rollback | Git revert + push via `git-mcp`, GitOps-style (§12) | No cross-vendor standard exists; reuses the MCP server Code-Fix already needs |
+| Deploy/rollback | Git revert + push via `argus-write-mcp`, GitOps-style (§12) | No cross-vendor standard exists; reuses the git tooling Code-Fix already needs |
 | Metrics | OTLP for emission, Prometheus-compatible query API for reads (§12) | OTLP is a real emission standard; Prometheus's query API is the closest thing to a de facto read standard |
-| Logs | Target Service HTTP log endpoint, two-phase windowed retrieval (§16) | No standard exists; dumb full-log endpoint keeps windowing logic in `logs-mcp`, not the adapter, so other backends (filesystem, S3) stay swappable without filtering support |
+| Logs | Target Service HTTP log endpoint, two-phase windowed retrieval (§16) | No standard exists; dumb full-log endpoint keeps windowing logic in `argus-read-mcp`, not the adapter, so other backends (filesystem, S3) stay swappable without filtering support |
 | Confidence thresholds | Mitigation ≥ 0.75, escalate after 3 failed iterations (§10) | Empirically tunable, but named config from day one |
 | Repository structure | `uv` workspace, one `pyproject.toml` per module (§20) | Independent versioning/deployment inside one repo |
 | Testing discipline | TDD in Argus's own repo - the coding agent never writes/edits/deletes tests there (§18.3). Separately, the runtime Code-Fix agent writes tests freely in the Target Service repo, except one protected ground-truth fixture (§13) | Two distinct rules, two agents, two reasons: development process integrity vs. evaluation grading integrity |

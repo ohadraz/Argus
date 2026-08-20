@@ -1,8 +1,5 @@
-# investigator-cause-detection Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change investigator-hypothesis-loop. Update Purpose after archive.
-## Requirements
 ### Requirement: Investigator determines cause_type from the Target Service's current logs
 The system SHALL retrieve logs via the `argus-read-mcp` server's
 `get_log_lines` tool during investigation and use deterministic keyword
@@ -21,12 +18,3 @@ least the `feature-flag-toggle` scenario.
 - **WHEN** the Investigator investigates the incident
 - **THEN** it records a hypothesis with `cause_type` left undetermined
   (`NULL`), at the same confidence the Investigator used before this change
-
-### Requirement: cause_type is persisted on the hypothesis row
-The system SHALL write the determined `cause_type` (or leave it `NULL` if undetermined) to the `hypothesis` table's `cause_type` column, in addition to `description` and `confidence`.
-
-#### Scenario: A determined cause is persisted
-- **GIVEN** the Investigator determines `cause_type = "feature-flag-toggle"` for an incident
-- **WHEN** the hypothesis is recorded
-- **THEN** the `hypothesis` row for that incident has `cause_type = 'feature-flag-toggle'`
-

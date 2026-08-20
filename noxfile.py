@@ -177,6 +177,41 @@ def _wait_for_argus_web(timeout: float = 30.0) -> None:
     raise TimeoutError("argus_web did not become ready within the timeout")
 
 
+def _start_read_mcp() -> subprocess.Popen[bytes]:
+    # Same process-group/signal-delivery reasoning as `_start_argus_web`.
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    return subprocess.Popen(
+        [_venv_python_binary(), "-m", "read_mcp_server.server"],
+        creationflags=creationflags,
+    )
+
+
+def _stop_read_mcp(process: subprocess.Popen[bytes], timeout: float = 10.0) -> None:
+    if sys.platform == "win32":
+        process.send_signal(signal.CTRL_BREAK_EVENT)
+    else:
+        process.terminate()
+
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _wait_for_read_mcp(timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen("http://localhost:8090/mcp", timeout=1.0)
+            return
+        except urllib.error.HTTPError:
+            return  # a real HTTP response (even an error one) means the server is up
+        except (urllib.error.URLError, ConnectionError):
+            time.sleep(0.5)
+    raise TimeoutError("read_mcp did not become ready within the timeout")
+
+
 @nox.session
 def e2e(session: nox.Session) -> None:
     """
@@ -184,25 +219,30 @@ def e2e(session: nox.Session) -> None:
     Brings up docker-compose's `postgres` service (always-on, base
     definition) plus `target-service` (the `e2e` Compose profile - it's a
     demo/test fixture, not something Argus itself depends on, so it stays
-    out of the default `docker compose up`) and a local `argus_web` uvicorn
-    process (not containerized - design.md's decision), runs the end-to-end
-    suite (plus `tests/integration` once that directory exists) against
-    them, then tears both back down - even if the tests fail, so nothing is
-    left running.
+    out of the default `docker compose up`) and local `argus_web` and
+    `read_mcp` processes (neither containerized - design.md's decision),
+    runs the end-to-end suite (plus `tests/integration` once that directory
+    exists) against them, then tears everything back down - even if the
+    tests fail, so nothing is left running.
     """
     test_paths = ["tests/e2e"]
     if Path("tests/integration").exists():
         test_paths.append("tests/integration")
 
     web_process: subprocess.Popen[bytes] | None = None
+    read_mcp_process: subprocess.Popen[bytes] | None = None
     try:
         session.run(
             "docker", "compose", "--profile", "e2e", "up", "-d", "--wait", external=True
         )
+        read_mcp_process = _start_read_mcp()
+        _wait_for_read_mcp()
         web_process = _start_argus_web()
         _wait_for_argus_web()
         session.run("uv", "run", "python", "-m", "pytest", *test_paths, "-v", external=True)
     finally:
         if web_process is not None:
             _stop_argus_web(web_process)
+        if read_mcp_process is not None:
+            _stop_read_mcp(read_mcp_process)
         session.run("docker", "compose", "--profile", "e2e", "down", external=True)

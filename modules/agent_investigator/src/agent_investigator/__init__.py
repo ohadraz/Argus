@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import httpx
-from argus_core.config import get_settings
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from read_mcp_client import get_log_lines
 
 STUB_CONFIDENCE = 0.9
 
@@ -13,11 +12,7 @@ LogFetcher = Callable[[], list[str]]
 
 
 def _fetch_logs() -> list[str]:
-    settings = get_settings()
-    response = httpx.get(f"{settings.target_service_url}/logs", timeout=10.0)
-    response.raise_for_status()
-    logs: list[str] = response.json()
-    return logs
+    return get_log_lines()
 
 
 def investigate(
