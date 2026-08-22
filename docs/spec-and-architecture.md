@@ -192,8 +192,8 @@ The `investigating` phase (§10) looks like one node from outside, but runs a Re
 flowchart TD
     A[Alert received, T0 known] --> B[Query Chroma for similar past incidents]
     B --> C[Query get_metrics_summary: aggregated summary for window]
-    C --> D[Identify anomalous buckets]
-    D --> E[Query get_log_lines: raw lines scoped to anomalous buckets only]
+    C --> D[Identify onset: earliest anomalous bucket]
+    D --> E[Query get_log_lines: window anchored on onset, reaching back before it]
     E --> F[Form/update hypothesis + confidence]
     F --> G{Confidence >= threshold?}
     G -->|Yes| H[Exit to mitigating]
@@ -470,11 +470,13 @@ Only the log window iterates. The metrics window is fixed at the configured maxi
 
 **Two-phase retrieval:**
 1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first every iteration - re-read not to widen but to pick up the minutes that elapsed since the last one, which is how the loop notices the incident self-resolving or worsening while it investigates.
-2. `get_log_lines(window, filters, bucket_ids?)` - raw lines, scoped to the anomalous buckets from the summary.
+2. `get_log_lines(window, filters)` - raw lines for a window anchored on the onset the summary located.
+
+**Why the log phase takes a window and not a list of anomalous minutes.** Scoping log retrieval to the minutes the summary flagged is wrong: it can only ever return symptoms. A cause is a point-in-time *event* - a flag flipped, a version deployed - and the error rate reacts to it a minute or more later, so the causal line sits in a minute that still looks perfectly healthy and would be excluded by exactly the filter meant to find it. Anomalous minutes tell you *when* to look; the window is what reaches back *before* them. This is also why the log window anchors on onset rather than on the loudest bucket.
 
 Both live in `argus-read-mcp` (§12.1). Windowing and filtering are the server's responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic.
 
-The Investigator's default path (§9): aggregate → spot the anomaly → drill into only the anomalous slice - never a full dump.
+The Investigator's default path (§9): aggregate → locate onset → read a narrow window anchored on it - never a full dump.
 
 ## 17. Model Selection Per Task
 

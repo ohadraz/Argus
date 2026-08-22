@@ -96,10 +96,13 @@ full log.
 - **THEN** it returns the entries inside the clamped window, and indicates
   that the requested span was clamped
 
-### Requirement: Log retrieval is windowed and bucket-scoped
-The system SHALL apply time windowing and optional `bucket_ids` scoping inside
-`argus-read-mcp` when returning log lines, rather than returning the Target
-Service's full log.
+### Requirement: Log retrieval is windowed, by time only
+The system SHALL apply time windowing inside `argus-read-mcp` when returning
+log lines, rather than returning the Target Service's full log. Log retrieval
+SHALL NOT be scoped to a set of named minutes: a cause is a point-in-time
+event whose effect on the metrics appears only afterwards, so the minutes a
+metrics summary flags as anomalous hold symptoms, and filtering to them would
+structurally exclude the line that explains the incident.
 
 #### Scenario: Lines outside the window are excluded
 - **GIVEN** a scenario is active whose log entries span several minutes
@@ -107,17 +110,16 @@ Service's full log.
   minutes
 - **THEN** only the entries timestamped inside the window are returned
 
-#### Scenario: bucket_ids narrows the result to those minutes
-- **GIVEN** a scenario is active whose log entries span several minutes
-- **WHEN** `get_log_lines` is called with `bucket_ids` naming a subset of
-  those minutes
-- **THEN** only entries whose minute matches one of those bucket ids are
-  returned
+#### Scenario: A window anchored on onset reaches the cause
+- **GIVEN** a scenario whose causal log entry precedes its first anomalous
+  metric bucket
+- **WHEN** `get_log_lines` is called with a window starting before that onset
+- **THEN** the causal entry is returned, not only the entries in the anomalous
+  minutes
 
 #### Scenario: Omitting every time argument preserves unwindowed retrieval
 - **GIVEN** a scenario is active
-- **WHEN** `get_log_lines` is called with no alert time, no window and no
-  `bucket_ids`
+- **WHEN** `get_log_lines` is called with no alert time and no window
 - **THEN** it returns the scenario's entries as before
 
 ### Requirement: The typed read client exposes both retrieval phases
@@ -129,7 +131,7 @@ arguments.
 #### Scenario: Both phases are callable through the typed client
 - **GIVEN** the `argus-read-mcp` server is running with an active scenario
 - **WHEN** `read_mcp_client.get_metrics_summary()` is called, and then
-  `read_mcp_client.get_log_lines(bucket_ids=...)` with bucket ids taken from
-  its result
-- **THEN** both calls succeed and the log lines returned fall within the named
-  buckets
+  `read_mcp_client.get_log_lines(window_start=..., window_end=...)` with a
+  window anchored on the onset taken from its result
+- **THEN** both calls succeed and the log lines returned fall within that
+  window

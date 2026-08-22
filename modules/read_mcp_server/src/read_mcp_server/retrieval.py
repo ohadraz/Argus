@@ -6,7 +6,7 @@ from datetime import datetime
 import httpx
 from argus_core.config import get_settings
 from argus_core.models.metrics import MetricBucket
-from argus_core.timestamps import parse_iso, to_iso, to_iso_minute
+from argus_core.timestamps import parse_iso, to_iso
 
 from read_mcp_server.window import (
     ResolvedWindow,
@@ -22,10 +22,6 @@ FetchMetrics = Callable[[], list[MetricBucket]]
 
 def _parse_log_timestamp(line: str) -> datetime | None:
     """Extracts a log line's leading ISO-8601 timestamp, or `None` if it has none.
-
-    Parsing lives here rather than in the log source so that the port contract
-    stays "return the log lines" - a future filesystem or S3 adapter needs no
-    windowing logic of its own.
     """
     head, _, _rest = line.partition(" ")
     try:
@@ -70,21 +66,24 @@ def get_log_lines(alert_time: str | None = None,
                   window_start: str | None = None,
                   window_end: str | None = None,
                   filters: str | None = None,
-                  bucket_ids: list[str] | None = None,
                   fetch: FetchLogs = _fetch_target_service_logs) -> list[str]:
     """Returns the Target Service's log lines for one window of an incident.
 
-    Phase two of spec §16's two-phase retrieval: `bucket_ids` scopes retrieval
-    to the minutes a metrics summary flagged. Windowing follows
+    Phase two of spec §16's two-phase retrieval: the metrics summary locates
+    onset, and the caller asks for a window anchored on it. Windowing follows
     `resolve_log_window`, and a clamped window is announced in a leading
     notice line rather than silently returning less than was asked for.
+
+    Retrieval is by time window only, never by minute. Scoping to the minutes
+    a metrics summary flagged as anomalous would structurally exclude the
+    cause: a flag toggle or a deploy lands in a minute that still looks
+    healthy, because the error rate reacts to it only afterwards. Anomalous
+    minutes hold symptoms; the window has to reach back past them.
 
     This is the public seam the `@mcp.tool()` wrapper in `server.py`
     delegates to. It lives here rather than on the decorated function because
     a `Callable`-typed default parameter - the `fetch` injection point - breaks
-    FastMCP's JSON-schema generation (verified directly:
-    `pydantic.errors.PydanticInvalidForJsonSchema: Cannot generate a
-    JsonSchema for core_schema.CallableSchema`).
+    FastMCP's JSON-schema generation.
 
     `filters` matches the tool's eventual shape (§16 field-level filtering)
     but isn't acted on yet - no caller supplies one until the ReAct loop
@@ -93,7 +92,7 @@ def get_log_lines(alert_time: str | None = None,
     lines = fetch()
     window = resolve_log_window(alert_time, window_start, window_end)
 
-    if window.start is None and window.end is None and not bucket_ids:
+    if window.start is None and window.end is None:
         return lines
 
     selected = [
@@ -103,7 +102,6 @@ def get_log_lines(alert_time: str | None = None,
         # the window, so a windowed call drops it rather than guessing.
         if (moment := _parse_log_timestamp(line)) is not None
         and _in_window(moment, window)
-        and (not bucket_ids or to_iso_minute(moment) in bucket_ids)
     ]
 
     return [_clamp_notice(window), *selected] if window.clamped else selected
@@ -118,8 +116,8 @@ def get_metrics_summary(alert_time: str | None = None,
 
     Phase one of spec §16's two-phase retrieval: cheap enough to read whole,
     it shows the incident's shape - which minutes are anomalous, and whether
-    error rate or latency moved - so a caller can pick the buckets worth
-    pulling raw log lines for. Windowing follows `resolve_metrics_window`;
+    error rate or latency moved - so a caller can locate the onset and anchor
+    a log window on it. Windowing follows `resolve_metrics_window`;
     the `fetch` seam is here for the same reason as in `get_log_lines`.
     """
     buckets = fetch()

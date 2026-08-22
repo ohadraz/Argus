@@ -23,6 +23,7 @@ def test_get_log_lines_returns_whatever_fetch_returns() -> None:
 
     assert result == some_logs
 
+
 @pytest.mark.unit
 def test_get_log_lines_windows_around_the_alert_time() -> None:
     some_alert_time = _an_alert_time()
@@ -35,6 +36,7 @@ def test_get_log_lines_windows_around_the_alert_time() -> None:
         _a_log_line_at(some_timeline.inside_lookback),
         _a_log_line_at(some_timeline.inside_lookahead),
     ]
+
 
 @pytest.mark.unit
 def test_get_log_lines_explicit_window_overrides_the_alert_time() -> None:
@@ -52,6 +54,7 @@ def test_get_log_lines_explicit_window_overrides_the_alert_time() -> None:
     )
 
     assert result == [_a_log_line_at(some_timeline.too_late)]
+
 
 @pytest.mark.unit
 def test_get_log_lines_clamps_an_over_span_window_and_reports_it() -> None:
@@ -73,19 +76,6 @@ def test_get_log_lines_clamps_an_over_span_window_and_reports_it() -> None:
     # ceiling, so no line is lost to the clamp itself.
     assert result[1:] == some_lines
 
-@pytest.mark.unit
-def test_get_log_lines_scopes_to_the_named_buckets() -> None:
-    some_alert_time = _an_alert_time()
-    some_timeline = _a_log_timeline_around(some_alert_time)
-    some_lines = _some_log_lines_at(some_timeline)
-
-    result = get_log_lines(
-        alert_time=_an_iso_minute(some_alert_time),
-        bucket_ids=[_an_iso_minute(some_timeline.inside_lookahead)],
-        fetch=lambda: some_lines,
-    )
-
-    assert result == [_a_log_line_at(some_timeline.inside_lookahead)]
 
 @pytest.mark.unit
 def test_get_log_lines_drops_lines_with_no_timestamp_when_windowed() -> None:
@@ -132,6 +122,7 @@ def test_get_metrics_summary_excludes_buckets_outside_the_window() -> None:
     )
 
     assert result == [the_bucket_on_the_window_edge]
+
 
 @pytest.mark.unit
 def test_get_metrics_summary_with_no_active_scenario_returns_no_buckets() -> None:

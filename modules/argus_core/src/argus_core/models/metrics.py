@@ -8,9 +8,9 @@ class MetricBucket(BaseModel):
 
     `bucket_id` is the bucket's minute in wire format, per
     `argus_core.timestamps.to_iso_minute` - the same string a log line of that
-    minute yields, so a caller can hand ids straight back to
-    `get_log_lines(bucket_ids=...)` to drill into an anomalous minute without a
-    separate id scheme to keep in sync.
+    minute yields, so the earliest anomalous bucket's id is directly usable as
+    the onset a `get_log_lines` window is anchored on, with no separate id
+    scheme to keep in sync.
     """
 
     bucket_id: str

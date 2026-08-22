@@ -5,14 +5,13 @@ TBD - created by archiving change read-mcp-server. Update Purpose after archive.
 ## Requirements
 ### Requirement: argus-read-mcp exposes get_log_lines over MCP
 The system SHALL provide a FastMCP server, `argus-read-mcp`, exposing a
-`get_log_lines(alert_time, window_start, window_end, filters, bucket_ids)`
-tool that fetches the Target Service's current log via HTTP and returns the
-entries matching the requested window, bucket ids, and filters.
+`get_log_lines(alert_time, window_start, window_end, filters)` tool that
+fetches the Target Service's current log via HTTP and returns the entries
+matching the requested window and filters.
 
 #### Scenario: get_log_lines returns the Target Service's current log
 - **GIVEN** the Target Service has log entries available at `GET /logs`
-- **WHEN** `get_log_lines` is called with no alert time, window, `filters` or
-  `bucket_ids`
+- **WHEN** `get_log_lines` is called with no alert time, window or `filters`
 - **THEN** it returns those log entries as a list of strings
 
 #### Scenario: get_log_lines reflects the Target Service's active scenario

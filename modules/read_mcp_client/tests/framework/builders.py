@@ -29,3 +29,10 @@ def a_success_line_at(minute: datetime) -> str:
 
 def a_failure_line_at(minute: datetime) -> str:
     return f"{an_iso_minute(minute)} ERROR target-service: request failed"
+
+
+def a_cause_line_at(minute: datetime) -> str:
+    return (
+        f"{an_iso_minute(minute)} WARN target-service: "
+        "feature flag 'checkout-v2' toggled from 'off' to 'on'"
+    )
