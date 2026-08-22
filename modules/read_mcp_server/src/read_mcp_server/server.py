@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
-import httpx
 from argus_core.config import get_settings
+from argus_core.models.metrics import MetricBucket
 from mcp.server.fastmcp import FastMCP
+
+from read_mcp_server import retrieval
 
 settings = get_settings()
 mcp = FastMCP(
@@ -13,34 +13,46 @@ mcp = FastMCP(
     port=settings.read_mcp_port,
 )
 
-Fetch = Callable[[], list[str]]
 
+@mcp.tool()
+def get_log_lines(alert_time: str | None = None,
+                  window_start: str | None = None,
+                  window_end: str | None = None,
+                  filters: str | None = None,
+                  bucket_ids: list[str] | None = None) -> list[str]:
+    """Returns the Target Service's log lines for one window of an incident.
 
-def _fetch_target_service_logs() -> list[str]:
-    response = httpx.get(f"{settings.target_service_url}/logs", timeout=10.0)
-    response.raise_for_status()
-    logs: list[str] = response.json()
-    return logs
-
-
-def _get_log_lines(fetch: Fetch = _fetch_target_service_logs) -> list[str]:
-    return fetch()
+    Two-phase retrieval: 
+    1. call `get_metrics_summary` first, 
+    2. then pass the ids of the anomalous buckets as `bucket_ids` to read only 
+       those minutes.
+    
+    `alert_time` is the incident's `T0` and derives the window from configured 
+    lookback/lookahead;
+    `window_start`/`window_end` override it and are clamped to the configured 
+    maximum span, with a leading notice line when that happens.
+    All times are ISO-8601 strings, since an `@mcp.tool()` parameter must be 
+    JSON-schema-representable. Passing nothing returns the whole log, which is 
+    what `agent_investigator` still does.
+    `filters` matches the tool's eventual shape (§16 field-level filtering)
+    but isn't acted on yet. The behavior itself - and the `fetch` injection
+    seam a `Callable` default cannot have on a decorated function - lives in
+    `retrieval.get_log_lines`; this is registration only."""
+    return retrieval.get_log_lines(alert_time, window_start, window_end, filters, bucket_ids)
 
 
 @mcp.tool()
-def get_log_lines(window: str | None = None, filters: str | None = None) -> list[str]:
-    """Fetches the Target Service's current log and returns it as lines.
+def get_metrics_summary(alert_time: str | None = None,
+                        window_start: str | None = None,
+                        window_end: str | None = None) -> list[MetricBucket]:
+    """Returns per-minute aggregated metrics for one window of an incident.
 
-    `window`/`filters` match the tool's eventual shape (spec §16 - real
-    time-windowed, bucket-scoped retrieval) but aren't acted on yet: no
-    caller can supply a meaningful value for either until `metrics-mcp` and
-    the ReAct loop exist to drive them, so this is a pass-through fetch for
-    now (design.md Non-Goals). The `fetch` injection seam lives on the
-    private `_get_log_lines`, not here - a `Callable`-typed default param on
-    an `@mcp.tool()`-decorated function breaks FastMCP's JSON-schema
-    generation (verified directly - `pydantic.errors.PydanticInvalidForJsonSchema:
-    Cannot generate a JsonSchema for core_schema.CallableSchema`)."""
-    return _get_log_lines()
+    Two-phase retrieval: cheap enough to read whole, it shows the incident's 
+    shape - which minutes are anomalous, and whether error rate or latency 
+    moved - so a caller can pick the buckets worth pulling raw log lines for. 
+    Windowing works exactly as in `get_log_lines`; the behavior lives in 
+    `retrieval.get_metrics_summary`."""
+    return retrieval.get_metrics_summary(alert_time, window_start, window_end)
 
 
 if __name__ == "__main__":

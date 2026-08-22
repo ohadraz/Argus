@@ -18,20 +18,26 @@ import nox
 nox.options.default_venv_backend = "none"
 
 
+EXCLUDED_FROM_TESTS: set[str] = {"argus_testkit"}
+
+
 def _discover_modules() -> list[str]:
     """
     Any subdirectory of `modules/` containing a `pyproject.toml` is a module.
+    Modules named in `EXCLUDED_FROM_TESTS` are left out - they carry no tests.
     """
     current_dir = Path(__file__).parent
 
     if not (current_dir / "modules").exists():
         return []
-    
+
     modules_dir = current_dir / "modules"
 
     return sorted(
         path.name for path in modules_dir.iterdir()
-        if path.is_dir() and (path / "pyproject.toml").exists()
+        if path.is_dir()
+        and (path / "pyproject.toml").exists()
+        and path.name not in EXCLUDED_FROM_TESTS
     )
 
 

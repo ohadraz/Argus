@@ -22,7 +22,7 @@ def test_alert_missing_required_field_raises() -> None:
 
 
 @pytest.mark.unit
-def test_incident_state_requires_alert() -> None:
+def test_incident_state_optional_fields_default_to_none() -> None:
     some_service = "kuki-service"
     some_alert_name = "HighErrorRate"
     some_incident_id = "buki-123"
@@ -34,3 +34,10 @@ def test_incident_state_requires_alert() -> None:
 
     assert state.hypothesis is None
     assert state.confidence is None
+
+
+@pytest.mark.unit
+def test_incident_state_missing_alert_raises() -> None:
+    with pytest.raises(ValidationError):
+        IncidentState(incident_id="buki-123", 
+                      status=IncidentStatus.INVESTIGATING)  # type: ignore[call-arg]

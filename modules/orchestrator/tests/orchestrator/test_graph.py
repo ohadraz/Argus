@@ -11,17 +11,17 @@ from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
+from argus_testkit import Scenario, all_of
 from orchestrator import graph
 from orchestrator.graph import investigator_node
 
-from ..framework.assertions import all_of, assert_that
+from ..framework.assertions import assert_that
 from ..framework.builders import (
     a_below_threshold_confidence,
     a_high_enough_confidence,
     an_incident_state,
 )
 from ..framework.matchers import matcher
-from ..framework.scenario import Scenario
 
 
 @pytest.fixture

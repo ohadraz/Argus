@@ -7,11 +7,10 @@ from typing import Any
 import httpx
 import psycopg
 import pytest
+from argus_testkit import Assertion, Scenario, all_of, eventually
 from orchestrator.repository import incidents, postmortems, timeline
 
-from tests.e2e.framework.assertions import Assertion, all_of, eventually
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.scenario import Scenario
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
@@ -54,7 +53,9 @@ def test_firing_alert_resolves_into_incident_with_full_timeline_and_postmortem()
 def _incident_id_from(response: httpx.Response) -> str | None:
     return response.json().get("incident_id")
 
-def _argus_registered_an_incident_for_the_alert(alert_payload: dict[str, Any]) -> Assertion:
+def _argus_registered_an_incident_for_the_alert(
+    alert_payload: dict[str, Any]
+) -> Assertion[httpx.Response]:
     def assertion(response: httpx.Response) -> bool:
         incident_id = _incident_id_from(response)
 
@@ -92,7 +93,7 @@ def _argus_registered_an_incident_for_the_alert(alert_payload: dict[str, Any]) -
 
     return assertion
 
-def _argus_went_through_statuses(*expected: str) -> Assertion:
+def _argus_went_through_statuses(*expected: str) -> Assertion[httpx.Response]:
     def assertion(response: httpx.Response) -> bool:
         incident_id = _incident_id_from(response)
 
@@ -115,7 +116,7 @@ def _argus_went_through_statuses(*expected: str) -> Assertion:
     return assertion
 
 
-def _argus_resolved_the_incident() -> Assertion:
+def _argus_resolved_the_incident() -> Assertion[httpx.Response]:
     def assertion(response: httpx.Response) -> bool:
         incident_id = _incident_id_from(response)
 
@@ -138,7 +139,7 @@ def _argus_resolved_the_incident() -> Assertion:
     return assertion
 
 
-def _argus_created_a_postmortem_for_the_incident() -> Assertion:
+def _argus_created_a_postmortem_for_the_incident() -> Assertion[httpx.Response]:
     def assertion(response: httpx.Response) -> bool:
         incident_id = _incident_id_from(response)
 

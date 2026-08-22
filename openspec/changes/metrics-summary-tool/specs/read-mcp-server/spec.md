@@ -1,8 +1,5 @@
-# read-mcp-server Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change read-mcp-server. Update Purpose after archive.
-## Requirements
 ### Requirement: argus-read-mcp exposes get_log_lines over MCP
 The system SHALL provide a FastMCP server, `argus-read-mcp`, exposing a
 `get_log_lines(alert_time, window_start, window_end, filters, bucket_ids)`
@@ -35,4 +32,3 @@ that performs a real MCP call over the streamable-HTTP transport.
 - **GIVEN** a module that calls `argus-read-mcp` tools
 - **WHEN** its dependencies are declared
 - **THEN** it depends on `read_mcp_client` only, not on `read_mcp_server`
-

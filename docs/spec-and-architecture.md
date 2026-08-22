@@ -197,12 +197,16 @@ flowchart TD
     E --> F[Form/update hypothesis + confidence]
     F --> G{Confidence >= threshold?}
     G -->|Yes| H[Exit to mitigating]
-    G -->|No, iterations remain| I[Refine query, expand window]
+    G -->|No, iterations remain| I[Refine query; widen window if onset is at its edge]
     I --> C
-    G -->|No, iterations exhausted| J[Exit to escalated]
+    G -->|No, iterations exhausted| J[Exit to escalated: insufficient evidence]
 ```
 
 Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-E are the two-phase, windowed retrieval from §16, which keeps this loop from ever reading a full, unbounded log stream.
+
+Widening is not left to the model's sense of dissatisfaction. Low self-reported confidence is one trigger, but an unreliable one - a model that formed a plausible hypothesis from too little evidence reports high confidence and never widens, because it cannot miss what it never saw. The deterministic trigger is structural: **if the earliest bucket in the window is already anomalous, the incident began before the window did**, so onset lies outside it and the next iteration must reach further back. That decision reads off the metrics summary the loop already has, not off the model's introspection.
+
+Exhaustion is a real outcome, not a formality. When the iteration budget or the maximum span runs out without a hypothesis clearing the threshold, the loop exits to `escalated` carrying "insufficient evidence" - never a hypothesis manufactured to fill the field. "Argus could not determine the cause" must be expressible and must be distinguishable from a confident answer, both because a human picking up the incident needs to know which one they were handed, and because a widening trigger built on confidence has nothing truthful to read otherwise.
 
 ## 10. Incident State Machine
 
@@ -460,15 +464,17 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
 
 Unbounded logs are slow and a poor use of context, so retrieval is windowed in time and staged in two phases.
 
-**Time window.** Given alert timestamp `T0`: lookback `X` (config, e.g. 30 min) captures the likely-causal change; lookahead `Y_max` (config, e.g. 10 min) - the window at ReAct iteration `i` is `[T0 - X, min(now_i, T0 + Y_max)]`, re-evaluated each iteration since "now" keeps moving.
+**Time window.** The two phases anchor differently, because they cost differently. Metrics are pre-aggregated - one minute is four numbers - so the summary is fetched wide around the alert timestamp `T0`, spanning the full configured maximum. What it yields is the incident's *onset*: the first minute whose values break from baseline. Log lines are expensive, so they are fetched narrow and anchored on that onset rather than on `T0` - an alert fires when a threshold trips, which can be well after the incident began, so a window centred on `T0` can miss the causal change entirely. The cheap phase aims the expensive one.
+
+Only the log window iterates. The metrics window is fixed at the configured maximum span and stays there - narrowing the cheap signal would hide the very onset it exists to find, and it is small enough that there is no reason to be stingy. The log window's initial lookback and lookahead are config, setting the *first* iteration only; later iterations choose their own (§9), bounded by that same maximum span the server enforces, so widening cannot degenerate into a full dump. "Now" keeps moving, so the upper bound is re-evaluated each iteration. The risk is asymmetric - too wide wastes context, too narrow loses the evidence silently - so these are tunable per benchmark scenario rather than hardcoded.
 
 **Two-phase retrieval:**
-1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first every iteration.
-2. `get_log_lines(window, filters, bucket_ids?)` - raw lines, scoped to the anomalous buckets from the summary, hard-capped (paginated if exceeded).
+1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first every iteration - re-read not to widen but to pick up the minutes that elapsed since the last one, which is how the loop notices the incident self-resolving or worsening while it investigates.
+2. `get_log_lines(window, filters, bucket_ids?)` - raw lines, scoped to the anomalous buckets from the summary.
 
 Both live in `argus-read-mcp` (§12.1). Windowing and filtering are the server's responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic.
 
-The Investigator's default path (§9): aggregate → spot the anomaly → drill into only the anomalous slice - never a full dump. `X`, `Y_max`, and the per-call line cap are environment-driven config, tunable per benchmark scenario.
+The Investigator's default path (§9): aggregate → spot the anomaly → drill into only the anomalous slice - never a full dump.
 
 ## 17. Model Selection Per Task
 
@@ -688,7 +694,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 
 | Decision | Call | Why |
 |---|---|---|
-| Tool integration | MCP via FastMCP, one server per integration, ports-and-adapters for non-standardized integrations (§12) | Satisfies the tools/MCP requirement properly, with real enforcement, not just tidiness |
+| Tool integration | MCP via FastMCP, servers split by autonomy tier, ports-and-adapters for non-standardized integrations (§12) | Satisfies the tools/MCP requirement properly, with real enforcement, not just tidiness - the read/write split makes §13's guardrail structural rather than procedural |
 | Orchestration | LangGraph `StateGraph` over the incident FSM (§7.1, §10) | Conditional edges map directly to the state machine; built-in checkpointing removes bespoke resume logic |
 | Web/API layer | Single Web Application module (`argus_web`) owns all HTTP; everything else called in-process (§7.9, §4) | Keeps transport concerns out of domain logic |
 | Dashboard stack | FastAPI + Jinja2/HTMX, server-rendered, no separate JS build (§7.7) | Consistent with the Web Application's stack; no extra tooling for a read-only UI |

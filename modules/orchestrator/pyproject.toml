@@ -15,8 +15,14 @@ dependencies = [
     "pydantic>=2.0",
 ]
 
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
+]
+
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-argus_testkit = { workspace = true }
 argus-agent_investigator = { workspace = true }
 argus-agent_mitigation = { workspace = true }
 argus-agent_codefix = { workspace = true }

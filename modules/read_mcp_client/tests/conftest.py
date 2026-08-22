@@ -20,10 +20,12 @@ READ_MCP_TEST_PORT = 8190
 
 class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     logs: list[str] = []
+    metrics: list[dict[str, object]] = []
 
     def do_GET(self) -> None:
-        if self.path == "/logs":
-            body = json.dumps(self.logs).encode()
+        if self.path in ("/logs", "/metrics"):
+            payload = self.logs if self.path == "/logs" else self.metrics
+            body = json.dumps(payload).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -40,10 +42,10 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
 @pytest.fixture
 def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     """Starts a fake Target Service (stdlib http.server, background thread,
-    serving canned `/logs` JSON) plus a real `read_mcp_server` subprocess
-    pointed at it - proves `read_mcp_client.get_log_lines` reaches a real
-    server without Docker or a real Target Service. Yields the handler class
-    so a test can set `.logs` before calling through the client."""
+    serving canned `/logs` and `/metrics` JSON) plus a real `read_mcp_server`
+    subprocess pointed at it - proves `read_mcp_client` reaches a real server
+    without Docker or a real Target Service. Yields the handler class so a
+    test can set `.logs` and `.metrics` before calling through the client."""
     fake_target_service = HTTPServer(
         ("127.0.0.1", FAKE_TARGET_SERVICE_PORT), FakeTargetServiceHandler
     )

@@ -15,7 +15,12 @@ dev = [
     "pre-commit",
     "httpx",
     "psycopg[binary]",
+    "argus-argus_testkit",
 ]
+
+
+[tool.uv.sources]
+argus-argus_testkit = { workspace = true }
 
 
 # uv

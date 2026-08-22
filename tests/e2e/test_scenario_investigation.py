@@ -8,11 +8,10 @@ import httpx
 import psycopg
 import pytest
 from argus_core.models.cause import CauseType
+from argus_testkit import Assertion, Scenario, eventually
 from orchestrator.repository import hypotheses
 
-from tests.e2e.framework.assertions import Assertion, eventually
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.scenario import Scenario
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"
@@ -68,7 +67,9 @@ def _incident_id_from(response: httpx.Response) -> str | None:
     return response.json().get("incident_id")
 
 
-def _argus_diagnosed_the_cause_as(expected_cause_type: CauseType) -> Assertion:
+def _argus_diagnosed_the_cause_as(
+    expected_cause_type: CauseType
+) -> Assertion[httpx.Response]:
     def assertion(response: httpx.Response) -> bool:
         incident_id = _incident_id_from(response)
 

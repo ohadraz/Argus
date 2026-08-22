@@ -14,6 +14,7 @@ members = [
     "argus-agent-mitigation",
     "argus-agent-postmortem",
     "argus-argus-core",
+    "argus-argus-testkit",
     "argus-argus-web",
     "argus-orchestrator",
     "argus-read-mcp-client",
@@ -139,6 +140,11 @@ requires-dist = [
 ]
 
 [[package]]
+name = "argus-argus-testkit"
+version = "0.1.0"
+source = { editable = "modules/argus_testkit" }
+
+[[package]]
 name = "argus-argus-web"
 version = "0.1.0"
 source = { editable = "modules/argus_web" }
@@ -174,6 +180,11 @@ dependencies = [
     { name = "pydantic" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "argus-agent-codefix", editable = "modules/agent_codefix" },
@@ -188,6 +199,9 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
 ]
 
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+
 [[package]]
 name = "argus-read-mcp-client"
 version = "0.1.0"
@@ -196,8 +210,16 @@ dependencies = [
     { name = "argus-argus-core" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
 [package.metadata]
 requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
 name = "argus-read-mcp-server"
@@ -223,6 +245,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-argus-testkit" },
     { name = "httpx" },
     { name = "mypy" },
     { name = "nox" },
@@ -238,6 +261,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
     { name = "httpx" },
     { name = "mypy" },
     { name = "nox" },

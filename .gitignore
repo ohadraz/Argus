@@ -21,9 +21,9 @@
 !.claude/commands/
 !.claude/agents/
 !.claude/skills/
-# ... but ignore the local settings file
+# ... but ignore the local settings file, and the handover file
 .claude/settings.local.json
-
+.claude/HANDOVER.md
 
 
 #==============================================================================

@@ -1,11 +1,18 @@
 # Agent Instructions
 
-## Tests are off-limits to AI coding agents
+## Tests and test infrastructure are off-limits to AI coding agents
 
 Any AI coding agent operating in this repository - Claude Code, or any other tool -
 must never create, edit, or delete a test file. This applies to every `tests/`
 directory in the repo: root `tests/`, every `modules/*/tests/`, and
-`benchmark/tests/`.
+`benchmark/tests/`. It applies equally to all of `modules/argus_testkit/`, the
+shared test-support module.
+
+The testkit holds no test cases, but many assertions in the repo runs through it.
+An agent able to edit it could turn the whole suite green from one file - by
+making, for example, `all_of` swallow failures, or, for example, `eventually` 
+succeed on timeout - without touching anything named like a test. A rule that stops 
+at `tests/` would leave that open.
 
 Argus is built test-first: a human writes the test for the next unit of behavior,
 the coding agent implements against it. That division only holds if it's a hard
@@ -19,3 +26,22 @@ sub-agent, which writes tests freely in the separate `argus-target-service` repo
 (see spec §7.4, §13, §18.3 for the distinction).
 
 Full context: spec §18.3 (`docs/spec-and-architecture.md`).
+
+## Private means private, and tests are not an exception
+
+A leading underscore marks a name as belonging to its own module. Nothing outside
+that module may import it, call it, or reference it - not other production code,
+not tests, not "only in a test". Python declining to enforce access is not
+permission to work around it; the marker is a contract about what may be depended
+upon, and a test that depends on a `_name` has broken it exactly as a caller would.
+
+When a test appears to need a private name, the design is telling you the unit
+under test has no public API. Fix the code, not the test: extract the logic into a
+module or function whose published interface *is* the thing being tested, and
+leave behind as private only what genuinely is - a transport wrapper, an
+adapter, a formatting detail. Widening a test's reach in place of widening the
+code's API hides a missing seam and produces tests that pin implementation
+details rather than behavior.
+
+This applies symmetrically to a class's private methods and attributes, and to
+a package's private modules.
