@@ -230,6 +230,13 @@ def e2e(session: nox.Session) -> None:
     runs the end-to-end suite (plus `tests/integration` once that directory
     exists) against them, then tears everything back down - even if the
     tests fail, so nothing is left running.
+
+    Teardown passes `-v` so Postgres's anonymous volume goes with the
+    container. Without it the database survives between runs, and since the
+    schema is applied as `CREATE TABLE IF NOT EXISTS`, a table that already
+    exists is never altered - a column added or renamed in `argus_core.schema`
+    would silently never appear, and the suite would fail against a schema no
+    file in the repo describes. An e2e run should start from nothing anyway.
     """
     test_paths = ["tests/e2e"]
     if Path("tests/integration").exists():
@@ -251,4 +258,4 @@ def e2e(session: nox.Session) -> None:
             _stop_argus_web(web_process)
         if read_mcp_process is not None:
             _stop_read_mcp(read_mcp_process)
-        session.run("docker", "compose", "--profile", "e2e", "down", external=True)
+        session.run("docker", "compose", "--profile", "e2e", "down", "-v", external=True)

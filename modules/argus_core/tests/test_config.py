@@ -51,3 +51,29 @@ def test_a_max_log_window_exactly_matching_the_derived_window_is_accepted() -> N
         log_max_window_minutes=max_window_exactly_the_derived_window,
         metrics_window_minutes=some_metrics_window_minutes,
     )
+
+@pytest.mark.unit
+def test_an_iteration_budget_below_two_is_rejected() -> None:
+    # One iteration cannot widen: the schedule would have to start at the
+    # initial lookback and end at the maximum span in a single entry.
+    too_few_iterations = 1
+
+    with pytest.raises(ValidationError, match="investigation_max_iterations"):
+        Settings(investigation_max_iterations=too_few_iterations)
+
+
+@pytest.mark.unit
+def test_an_iteration_budget_of_exactly_two_is_accepted() -> None:
+    fewest_iterations_that_can_widen = 2
+
+    Settings(investigation_max_iterations=fewest_iterations_that_can_widen)
+
+
+@pytest.mark.unit
+def test_a_non_positive_deviation_count_is_rejected() -> None:
+    # Zero deviations from baseline makes every minute anomalous, including
+    # the calm ones the loop needs in order to have a baseline at all.
+    a_deviation_count_that_flags_every_minute = 0.0
+
+    with pytest.raises(ValidationError, match="anomaly_deviations_from_baseline"):
+        Settings(anomaly_deviations_from_baseline=a_deviation_count_that_flags_every_minute)

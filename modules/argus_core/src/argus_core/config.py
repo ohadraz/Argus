@@ -35,6 +35,24 @@ class Settings(BaseSettings):
 
     mitigate_threshold: float = Field(default=0.75)
 
+    anthropic_api_key: str = Field(default="")
+
+    # How many times the investigation loop may re-read before giving up
+    # (spec §10). Each iteration reaches further back, per the widening
+    # schedule derived from the log window settings above. At least two: the
+    # schedule starts at the initial lookback and ends at the maximum span,
+    # which a single iteration cannot do.
+    investigation_max_iterations: int = Field(default=3, ge=2)
+
+    # How far a minute has to sit from the service's own calm baseline before
+    # it counts as the incident starting. Measured in the baseline's own
+    # spread, not in error-rate points, so one number works for a service that
+    # idles at 0.5% errors and one that idles at 8% - an absolute threshold
+    # would be wrong for both.
+    # Must be positive: at zero every minute counts as anomalous, including
+    # the calm ones the baseline is derived from.
+    anomaly_deviations_from_baseline: float = Field(default=3.0, gt=0.0)
+
     @property
     def database_url(self) -> str:
         return (

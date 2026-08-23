@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any, Protocol
 
 from agent_codefix import propose_fix
@@ -12,7 +11,7 @@ from argus_core.config import get_settings
 from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
+from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -21,13 +20,13 @@ from langgraph.graph.state import CompiledStateGraph
 
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
-Investigate = Callable[[Alert], tuple[str, float, CauseType | None]]
+
+class Investigate(Protocol):
+    def __call__(self, alert: Alert, incident_id: str) -> Hypothesis: ...
 
 
 class RecordHypothesis(Protocol):
-    def __call__(
-        self, incident_id: str, hypothesis: str, confidence: float, cause_type: CauseType | None
-    ) -> None: ...
+    def __call__(self, hypothesis: Hypothesis) -> None: ...
 
 
 class TransitionIncident(Protocol):
@@ -42,11 +41,9 @@ class TransitionIncident(Protocol):
     ) -> None: ...
 
 
-def _record_hypothesis(
-    incident_id: str, hypothesis: str, confidence: float, cause_type: CauseType | None
-) -> None:
+def _record_hypothesis(hypothesis: Hypothesis) -> None:
     with connect() as conn:
-        hypotheses.record(conn, incident_id, hypothesis, confidence, cause_type)
+        hypotheses.record(conn, hypothesis)
 
 
 def _transition_incident(
@@ -84,21 +81,27 @@ def investigator_node(
     tested without a live Target Service or database - mirroring the seam
     `agent_investigator.investigate()`'s own `fetch_logs` parameter already
     established."""
-    hypothesis, confidence, cause_type = investigate(state.alert)
+    hypothesis = investigate(alert=state.alert, incident_id=state.incident_id)
     mitigate_threshold = get_settings().mitigate_threshold
     next_status: IncidentStatus = (
-        IncidentStatus.MITIGATING if confidence >= mitigate_threshold else IncidentStatus.ESCALATED
+        IncidentStatus.MITIGATING
+        if hypothesis.is_confident_enough(mitigate_threshold)
+        else IncidentStatus.ESCALATED
     )
-    record_hypothesis(state.incident_id, hypothesis, confidence, cause_type)
+    record_hypothesis(hypothesis)
     transition_incident(
         state.incident_id,
         next_status,
         actor=Actor.INVESTIGATOR,
         action="hypothesis formed",
-        result=hypothesis,
-        confidence=confidence,
+        result=hypothesis.summary,
+        confidence=hypothesis.confidence,
     )
-    return {"hypothesis": hypothesis, "confidence": confidence, "status": next_status}
+    return {
+        "hypothesis": hypothesis,
+        "confidence": hypothesis.confidence,
+        "status": next_status,
+    }
 
 
 def route_after_investigation(state: IncidentState) -> str:
@@ -106,7 +109,10 @@ def route_after_investigation(state: IncidentState) -> str:
 
 
 def mitigation_node(state: IncidentState) -> dict[str, Any]:
-    outcome = mitigate(state.hypothesis or "")
+    # The stub takes text. A real Mitigation agent needs the whole hypothesis -
+    # `cause_type` is what tells it which flag to revert (§7.3) - so this
+    # narrowing goes away with the stub.
+    outcome = mitigate(state.hypothesis.summary if state.hypothesis else "")
     if outcome == "confirmed":
         next_status: IncidentStatus = IncidentStatus.RESOLVED
     elif outcome == "refuted":
@@ -139,7 +145,7 @@ def route_after_mitigation(state: IncidentState) -> str:
 def codefix_node(state: IncidentState) -> dict[str, Any]:
     """Real node so the graph's shape matches spec §10's full FSM
     (design.md Non-Goals) - not reached by this change's happy path."""
-    propose_fix(state.hypothesis or "")
+    propose_fix(state.hypothesis.summary if state.hypothesis else "")
     return {}
 
 

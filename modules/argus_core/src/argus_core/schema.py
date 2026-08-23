@@ -16,11 +16,15 @@ CREATE TABLE IF NOT EXISTS incident (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- `id` keeps its default for hand-written rows, but the application supplies
+-- one: identity belongs to the entity, not to the table (argus_core.ids).
+-- `summary` is §11.1's `description`, renamed to match the domain model.
 CREATE TABLE IF NOT EXISTS hypothesis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
     cause_type TEXT,
-    description TEXT,
+    summary TEXT,
+    supporting_evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
     tested BOOLEAN NOT NULL DEFAULT false,
     result TEXT,
     confidence FLOAT,

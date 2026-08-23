@@ -27,6 +27,15 @@
 
 
 #==============================================================================
+# Environment (Whitelist)
+#==============================================================================
+# The real `.env` stays ignored by the blanket rule above - it holds secrets.
+# Its template is tracked, so a fresh clone can see which variables the
+# process needs without being told.
+!.env.example
+
+
+#==============================================================================
 # GitHub Configuration (Whitelist)
 #==============================================================================
 # Allow the .github directory, but only track shared project configs

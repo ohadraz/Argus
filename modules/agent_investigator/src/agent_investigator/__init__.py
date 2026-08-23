@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.hypothesis import Hypothesis
 from read_mcp_client import get_log_lines
 
 STUB_CONFIDENCE = 0.9
@@ -16,32 +17,50 @@ def _fetch_logs() -> list[str]:
 
 
 def investigate(
-    alert: Alert, fetch_logs: LogFetcher = _fetch_logs
-) -> tuple[str, float, CauseType | None]:
+    alert: Alert, incident_id: str, fetch_logs: LogFetcher = _fetch_logs
+) -> Hypothesis:
     """Reads the Target Service's current logs and determines a cause via
     deterministic keyword matching (spec §7.2, §9 - no ReAct loop, no real
-    LLM call yet, per design.md Non-Goals). Falls back to the same fixed
-    confidence used before this change when nothing is recognized, so the
-    no-scenario-seeded happy path is unaffected. `fetch_logs` defaults to a
-    real HTTP call to the Target Service; the seam exists so it can later be
-    swapped for a real `logs-mcp`-backed adapter without changing this
-    function's shape, and so tests can inject a stub instead of hitting a
-    real service."""
+    LLM call yet).
+
+    Returns a `Hypothesis` rather than a tuple: the cause, the confidence and
+    the evidence are one verdict, and the model refuses to hold a cause
+    without a confidence or the reverse. `incident_id` is taken because a
+    hypothesis belongs to an incident and carries that from the moment it is
+    formed.
+
+    `fetch_logs` defaults to a real call through `read_mcp_client`; the seam
+    exists so tests can inject a stub instead of hitting a real service.
+    """
     logs = fetch_logs()
     cause_type = _determine_cause(logs)
 
     if cause_type == CauseType.FEATURE_FLAG_TOGGLE:
-        hypothesis = (
-            f"feature flag toggle: {alert.alert_name} on {alert.service} "
-            "correlates with a recent flag change"
-        )
-    else:
-        hypothesis = (
-            f"stub hypothesis: {alert.alert_name} on {alert.service} "
-            "correlates with a recent change"
+        return Hypothesis(
+            incident_id=incident_id,
+            summary=(
+                f"feature flag toggle: {alert.alert_name} on {alert.service} "
+                "correlates with a recent flag change"
+            ),
+            cause_type=cause_type,
+            confidence=STUB_CONFIDENCE,
+            supporting_evidence=logs,
         )
 
-    return hypothesis, STUB_CONFIDENCE, cause_type
+    # No recognizable cause. This must carry no confidence at all - the model
+    # refuses to hold one without a cause, and that refusal is the point: the
+    # old code returned a fabricated hypothesis at a fixed 0.9 here, which is
+    # exactly the "confident about nothing" answer §9 forbids.
+    return Hypothesis(
+        incident_id=incident_id,
+        summary=(
+            f"no cause determined for {alert.alert_name} on {alert.service} "
+            "from the evidence retrieved"
+        ),
+        cause_type=None,
+        confidence=None,
+        supporting_evidence=logs,
+    )
 
 
 def _determine_cause(logs: list[str]) -> CauseType | None:

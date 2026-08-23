@@ -17,11 +17,14 @@ DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 WEBHOOK_PATH = "/webhooks/alerts"
 
-TERMINAL_STATUSES = {"resolved", "escalated"}
-
 
 @pytest.mark.e2e
-def test_firing_alert_resolves_into_incident_with_full_timeline_and_postmortem() -> None:
+def test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem() -> None:
+    # No scenario is seeded, so there is nothing in the logs to explain the
+    # alert. Argus must say so and escalate - not resolve an incident it never
+    # diagnosed. This is the honest-failure path (spec §9); before the ReAct
+    # change the Investigator returned a fabricated hypothesis at a fixed 0.9
+    # here, and this test asserted the resolve that followed from it.
     some_service = "kuki-service"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
@@ -38,12 +41,11 @@ def test_firing_alert_resolves_into_incident_with_full_timeline_and_postmortem()
             eventually(
                 all_of(
                     _argus_registered_an_incident_for_the_alert(some_alert),
-                     _argus_went_through_statuses(
+                    _argus_went_through_statuses(
                         "investigating",
-                        "mitigating",
-                        "resolved",
+                        "escalated",
                     ),
-                    _argus_resolved_the_incident(),
+                    _argus_ended_with_status("escalated"),
                     _argus_created_a_postmortem_for_the_incident(),
                 )
             )
@@ -116,7 +118,7 @@ def _argus_went_through_statuses(*expected: str) -> Assertion[httpx.Response]:
     return assertion
 
 
-def _argus_resolved_the_incident() -> Assertion[httpx.Response]:
+def _argus_ended_with_status(expected_status: str) -> Assertion[httpx.Response]:
     def assertion(response: httpx.Response) -> bool:
         incident_id = _incident_id_from(response)
 
@@ -128,9 +130,9 @@ def _argus_resolved_the_incident() -> Assertion[httpx.Response]:
 
             if incident is None:
                 raise AssertionError(f"No incident found with id [{incident_id}].")
-            if incident.status != "resolved":
+            if incident.status != expected_status:
                 raise AssertionError(
-                    f"Expected incident [{incident_id}] to be resolved, "
+                    f"Expected incident [{incident_id}] to be {expected_status}, "
                     f"but got status [{incident.status}]."
                 )
 

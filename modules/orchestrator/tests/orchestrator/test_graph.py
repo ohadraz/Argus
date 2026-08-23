@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from functools import partial
 from operator import is_not_none
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
@@ -9,7 +8,8 @@ import agent_investigator
 import pytest
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
+from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Scenario, all_of
 from orchestrator import graph
@@ -18,8 +18,10 @@ from orchestrator.graph import investigator_node
 from ..framework.assertions import assert_that
 from ..framework.builders import (
     a_below_threshold_confidence,
+    a_determined_hypothesis,
     a_high_enough_confidence,
     an_incident_state,
+    an_undetermined_hypothesis,
 )
 from ..framework.matchers import matcher
 
@@ -43,65 +45,15 @@ def transition_incident() -> MagicMock:
 def test_investigator_node_high_confidence_routes_to_mitigating_and_persists(
     investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
 ) -> None:
-    some_hypothesis = "kukibuki hypothesis"
-    some_cause_type = CauseType.FEATURE_FLAG_TOGGLE
-    some_service = "kuki-service"
-    some_alert_name = "HighErrorRate"
-    some_high_confidence = a_high_enough_confidence()
-    some_alert = Alert(service=some_service, alert_name=some_alert_name)
-    an_inverstigating_incident_state = an_incident_state(some_alert, IncidentStatus.INVESTIGATING)
-    some_incident_id = an_inverstigating_incident_state.incident_id
-    _investigation_returned = partial(_set_investigate_return_value, investigate)
-
-    Scenario() \
-        .given(
-            lambda: _investigation_returned(some_hypothesis, some_high_confidence, some_cause_type)
-        ) \
-        .when(
-            result := investigator_node(an_inverstigating_incident_state,
-                                        investigate=investigate,
-                                        record_hypothesis=record_hypothesis,
-                                        transition_incident=transition_incident)
-        ) \
-        .then(all_of(
-            assert_that(result).is_equal_to(
-                {
-                    "hypothesis": some_hypothesis, 
-                    "confidence": some_high_confidence, 
-                    "status": IncidentStatus.MITIGATING
-                }
-            ),
-            assert_that(record_hypothesis).was_called_with(
-                some_incident_id, some_hypothesis, some_high_confidence, some_cause_type
-            ),
-            assert_that(transition_incident).was_called_with(
-                some_incident_id,
-                IncidentStatus.MITIGATING,
-                actor=Actor.INVESTIGATOR,
-                action=matcher(is_not_none),
-                result=some_hypothesis,
-                confidence=some_high_confidence,
-            ),
-        ))
-
-
-@pytest.mark.unit
-def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
-    investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
-) -> None:
-    some_hypothesis = "stub hypothesis"
-    some_low_confidence = a_below_threshold_confidence()
-    some_cause_type = None
-    some_service = "kuki-service"
-    some_alert_name = "HighErrorRate"
-    some_alert = Alert(service=some_service, alert_name=some_alert_name)
-    an_investigating_incident_state = an_incident_state(some_alert, IncidentStatus.INVESTIGATING)
+    an_investigating_incident_state = _an_investigating_incident()
     some_incident_id = an_investigating_incident_state.incident_id
-    _investigation_returned = partial(_set_investigate_return_value, investigate)
+    a_confident_hypothesis = a_determined_hypothesis(
+        some_incident_id, a_high_enough_confidence()
+    )
 
     Scenario() \
         .given(
-            lambda: _investigation_returned(some_hypothesis, some_low_confidence, some_cause_type)
+            lambda: _investigation_returned(investigate, a_confident_hypothesis)
         ) \
         .when(
             result := investigator_node(an_investigating_incident_state,
@@ -112,24 +64,108 @@ def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
         .then(all_of(
             assert_that(result).is_equal_to(
                 {
-                    "hypothesis": some_hypothesis, 
-                    "confidence": some_low_confidence, 
+                    "hypothesis": a_confident_hypothesis,
+                    "confidence": a_confident_hypothesis.confidence,
+                    "status": IncidentStatus.MITIGATING
+                }
+            ),
+            assert_that(record_hypothesis).was_called_with(a_confident_hypothesis),
+            assert_that(transition_incident).was_called_with(
+                some_incident_id,
+                IncidentStatus.MITIGATING,
+                actor=Actor.INVESTIGATOR,
+                action=matcher(is_not_none),
+                result=a_confident_hypothesis.summary,
+                confidence=a_confident_hypothesis.confidence,
+            ),
+        ))
+
+
+@pytest.mark.unit
+def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
+    investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
+) -> None:
+    an_investigating_incident_state = _an_investigating_incident()
+    some_incident_id = an_investigating_incident_state.incident_id
+    a_doubtful_hypothesis = a_determined_hypothesis(
+        some_incident_id, a_below_threshold_confidence()
+    )
+
+    Scenario() \
+        .given(
+            lambda: _investigation_returned(investigate, a_doubtful_hypothesis)
+        ) \
+        .when(
+            result := investigator_node(an_investigating_incident_state,
+                                        investigate=investigate,
+                                        record_hypothesis=record_hypothesis,
+                                        transition_incident=transition_incident)
+        ) \
+        .then(all_of(
+            assert_that(result).is_equal_to(
+                {
+                    "hypothesis": a_doubtful_hypothesis,
+                    "confidence": a_doubtful_hypothesis.confidence,
                     "status": IncidentStatus.ESCALATED
                 }
             ),
-            assert_that(record_hypothesis).was_called_with(
-                some_incident_id, some_hypothesis, some_low_confidence, some_cause_type
-            ),
+            assert_that(record_hypothesis).was_called_with(a_doubtful_hypothesis),
             assert_that(transition_incident).was_called_with(
                 some_incident_id,
                 IncidentStatus.ESCALATED,
                 actor=Actor.INVESTIGATOR,
                 action=matcher(is_not_none),
-                result=some_hypothesis,
-                confidence=some_low_confidence,
+                result=a_doubtful_hypothesis.summary,
+                confidence=a_doubtful_hypothesis.confidence,
             ),
         ))
 
 
-def _set_investigate_return_value(investigate: MagicMock, *values: object) -> None:
-    investigate.return_value = values
+@pytest.mark.unit
+def test_investigator_node_undetermined_cause_routes_to_escalated_and_persists(
+    investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
+) -> None:
+    an_investigating_incident_state = _an_investigating_incident()
+    some_incident_id = an_investigating_incident_state.incident_id
+    a_hypothesis_with_no_cause = an_undetermined_hypothesis(some_incident_id)
+
+    Scenario() \
+        .given(
+            lambda: _investigation_returned(investigate, a_hypothesis_with_no_cause)
+        ) \
+        .when(
+            result := investigator_node(an_investigating_incident_state,
+                                        investigate=investigate,
+                                        record_hypothesis=record_hypothesis,
+                                        transition_incident=transition_incident)
+        ) \
+        .then(all_of(
+            assert_that(result).is_equal_to(
+                {
+                    "hypothesis": a_hypothesis_with_no_cause,
+                    "confidence": None,
+                    "status": IncidentStatus.ESCALATED
+                }
+            ),
+            assert_that(record_hypothesis).was_called_with(a_hypothesis_with_no_cause),
+            assert_that(transition_incident).was_called_with(
+                some_incident_id,
+                IncidentStatus.ESCALATED,
+                actor=Actor.INVESTIGATOR,
+                action=matcher(is_not_none),
+                result=a_hypothesis_with_no_cause.summary,
+                confidence=None,
+            ),
+        ))
+
+
+def _an_investigating_incident() -> IncidentState:
+    some_service = "kuki-service"
+    some_alert_name = "HighErrorRate"
+    some_alert = Alert(service=some_service, alert_name=some_alert_name)
+
+    return an_incident_state(some_alert, IncidentStatus.INVESTIGATING)
+
+
+def _investigation_returned(investigate: MagicMock, hypothesis: Hypothesis) -> None:
+    investigate.return_value = hypothesis

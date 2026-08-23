@@ -16,22 +16,24 @@ It is a **multi-agent system**, not a single chatbot: an orchestrator delegates 
   - `tests/integration/` - multiple modules interacting in-process
   - `tests/e2e/` - full stack via docker-compose, real chaos scenarios end-to-end
   - `tests/contract/` - verifies an agent's exposed tool schema still matches what the orchestrator expects to call (catches cross-module drift)
-- `noxfile.py` - cross-module task runner. Sessions: `lint`, `typecheck`, `test_module` (parametrized per module, auto-discovered from `modules/*/pyproject.toml`), `test_all`, `contract`, `e2e`. Run `uv run nox --list` to see current sessions. Discovery skips the names in `EXCLUDED_FROM_TESTS` - currently just `argus_testkit`, which is test-support code with no suite of its own.
+- `noxfile.py` - cross-module task runner. Sessions: `lint`, `typecheck`, `test_module` (parametrized per module, auto-discovered from `modules/*/pyproject.toml`), `test_all`, `contract`, `e2e`. Run `uv run python -m nox --list` to see current sessions. Discovery skips the names in `EXCLUDED_FROM_TESTS` - currently just `argus_testkit`, which is test-support code with no suite of its own.
 - `modules/argus_testkit/` - shared test support (`Scenario`, `Assertion`, `all_of`, `eventually`), consumed as a **dev dependency** (`[dependency-groups] dev` + `[tool.uv.sources] ... { workspace = true }`), never a runtime one. It has no `tests/` directory and is excluded from test discovery. Off-limits to Claude, like `tests/` itself - propose changes in chat.
 
 ## How to run things
-Always via `uv run ...` (uses the workspace `.venv`, no manual activation needed) or `uv run nox -s <session>`:
+Always via `uv run ...` (uses the workspace `.venv`, no manual activation needed) or `uv run python -m nox -s <session>`:
 
-- `uv sync` - resolve workspace deps, create/update `.venv` and `uv.lock`
-- `uv run nox -s lint` - ruff check, whole repo
-- `uv run nox -s typecheck` - mypy, `modules/` only
-- `uv run nox -s test_module -- <module-name>` - one module's unit and integration tests, isolated deps
-- `uv run nox -s test_all` - every module's full test suite
-- `uv run nox -s contract` - MCP tool-schema contract tests
-- `uv run nox -s e2e` - brings up docker-compose stack, runs e2e and integration tests, tears down
+- `uv sync --all-packages` - resolve workspace deps, create/update `.venv` and `uv.lock`
+- `uv run python -m nox -s lint` - ruff check, whole repo
+- `uv run python -m nox -s typecheck` - mypy, `modules/` only
+- `uv run python -m nox -s "test_module(module='<name>')"` - one module's unit and integration tests, isolated deps
+- `uv run python -m nox -s test_all` - every module's full test suite
+- `uv run python -m nox -s contract` - MCP tool-schema contract tests
+- `uv run python -m nox -s e2e` - brings up docker-compose stack, runs e2e and integration tests, tears down
+
+**Use `python -m nox`, not the bare `nox` shim.** On this machine Windows Smart App Control blocks `.venv/Scripts/nox.exe` (`Failed to spawn: nox ... An Application Control policy has blocked this file`, os error 4551). Every `uv sync` that touches the environment rewrites that binary, so the block comes back even after it has been cleared once. `python -m nox` runs the same code through the trusted `python.exe` and sidesteps the shim entirely. The same applies to any other console-script shim in `.venv/Scripts/` - prefer `python -m <tool>` when one misbehaves.
   
 ## Conventions - follow these without being asked
-- **TDD, with `tests/` and `modules/argus_testkit/` off-limits to Claude.** The policy itself lives in `AGENTS.md` (tool-agnostic, applies to any AI coding agent, not just Claude). Mechanically enforced here via `.claude/settings.json` + a PreToolUse hook (`.claude/hooks/block_test_writes.py`) - Claude cannot create or edit files under any `tests/` directory, nor anywhere in the shared test-support module. Claude may freely *read* and *run* existing tests (e.g. via `uv run nox -s test_module`). For the exact workflow to propose a new test, see the `tdd-new-behavior` skill.
+- **TDD, with `tests/` and `modules/argus_testkit/` off-limits to Claude.** The policy itself lives in `AGENTS.md` (tool-agnostic, applies to any AI coding agent, not just Claude). Mechanically enforced here via `.claude/settings.json` + a PreToolUse hook (`.claude/hooks/block_test_writes.py`) - Claude cannot create or edit files under any `tests/` directory, nor anywhere in the shared test-support module. Claude may freely *read* and *run* existing tests (e.g. via `uv run python -m nox -s test_module`). For the exact workflow to propose a new test, see the `tdd-new-behavior` skill.
 - **Type hints on every function signature** (params and return type), matching mypy's expectations under `nox -s typecheck`. `-> None` for no return, not omitted.
 - **Docstrings**: every nox session function gets a two-part docstring (what it registers as / how to invoke it, then what it actually does) - see the `nox-session-style` skill. Match this style for other non-trivial functions too (agents, tools, orchestrator FSM).
 - **Ruff rule sets in play**: E, F, I, UP, B, SIM (see root `pyproject.toml`). Don't disable a rule inline without flagging it - ask first.

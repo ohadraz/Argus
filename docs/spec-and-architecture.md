@@ -192,7 +192,7 @@ The `investigating` phase (§10) looks like one node from outside, but runs a Re
 flowchart TD
     A[Alert received, T0 known] --> B[Query Chroma for similar past incidents]
     B --> C[Query get_metrics_summary: aggregated summary for window]
-    C --> D[Identify onset: earliest anomalous bucket]
+    C --> D[Identify onset: earliest minute that left the baseline]
     D --> E[Query get_log_lines: window anchored on onset, reaching back before it]
     E --> F[Form/update hypothesis + confidence]
     F --> G{Confidence >= threshold?}
@@ -204,7 +204,9 @@ flowchart TD
 
 Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-E are the two-phase, windowed retrieval from §16, which keeps this loop from ever reading a full, unbounded log stream.
 
-Widening is not left to the model's sense of dissatisfaction. Low self-reported confidence is one trigger, but an unreliable one - a model that formed a plausible hypothesis from too little evidence reports high confidence and never widens, because it cannot miss what it never saw. The deterministic trigger is structural: **if the earliest bucket in the window is already anomalous, the incident began before the window did**, so onset lies outside it and the next iteration must reach further back. That decision reads off the metrics summary the loop already has, not off the model's introspection.
+Widening is not left to the model's sense of dissatisfaction. Low self-reported confidence is one trigger, but an unreliable one - a model that formed a plausible hypothesis from too little evidence reports high confidence and never widens, because it cannot miss what it never saw. The deterministic trigger is structural: **if the earliest bucket in the window is already anomalous, the incident began before the window did**, so onset lies outside it and the next iteration must reach further back. Read literally, that condition says there is no calm stretch on screen to serve as a baseline - which is the same thing. That decision reads off the metrics summary the loop already has, not off the model's introspection.
+
+"Anomalous" throughout means *relative to the service's own calm baseline in the same window* (§16), never a fixed error rate or latency. A service that normally sits at 8% errors is not permanently on fire, and one that normally sits at 0.5% should not have to reach 10% before Argus notices. An absolute threshold would also duplicate - and eventually contradict - the threshold the operator already configured in their own alerting tool, which is what fired the alert in the first place.
 
 Exhaustion is a real outcome, not a formality. When the iteration budget or the maximum span runs out without a hypothesis clearing the threshold, the loop exits to `escalated` carrying "insufficient evidence" - never a hypothesis manufactured to fill the field. "Argus could not determine the cause" must be expressible and must be distinguishable from a confident answer, both because a human picking up the incident needs to know which one they were handed, and because a widening trigger built on confidence has nothing truthful to read otherwise.
 
