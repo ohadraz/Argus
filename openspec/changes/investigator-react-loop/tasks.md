@@ -78,13 +78,13 @@ type>`, `output_config={"effort": "high"}`, `thinking={"type": "adaptive"}` on
 
 ## 6. End-to-end and verification
 
-- [ ] 6.1 **(test)** Propose reworking `tests/e2e/test_scenario_investigation.py` to assert on `cause_type` and final status only, never on hypothesis wording
-- [ ] 6.2 **(test)** Propose the no-scenario e2e case: escalates rather than resolving (this inverts the current `test_incident_lifecycle.py` expectation)
+- [x] 6.1 **(test)** Propose reworking `tests/e2e/test_scenario_investigation.py` to assert on `cause_type` and final status only, never on hypothesis wording
+- [x] 6.2 **(test)** Propose the no-scenario e2e case: escalates rather than resolving (this inverts the current `test_incident_lifecycle.py` expectation)
 - [x] 6.3 e2e runs against the real API, so CI needs `ANTHROPIC_API_KEY` as a secret; integration runs against the double and needs none
-- [ ] 6.4 `uv run python -m nox -s lint`, `typecheck`, `test_all`, `guard_e2e_boundary` all green
-- [ ] 6.5 `uv run python -m nox -s e2e` green
+- [x] 6.4 `uv run python -m nox -s lint`, `typecheck`, `test_all`, `guard_e2e_boundary` all green
+- [x] 6.5 `uv run python -m nox -s e2e` green
 - [x] 6.6 `uv run python -m nox -s contract` green - the first real inhabitant of `tests/contract/`
-- [ ] 6.7 Update `docs/spec-and-architecture.md` §9 if the implemented loop diverges from the diagram
+- [x] 6.7 Update `docs/spec-and-architecture.md` §9 if the implemented loop diverges from the diagram
 
 ## 7. Follow-ups to raise, not to do here
 

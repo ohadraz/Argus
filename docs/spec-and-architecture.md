@@ -191,20 +191,30 @@ The `investigating` phase (§10) looks like one node from outside, but runs a Re
 ```mermaid
 flowchart TD
     A[Alert received, T0 known] --> B[Query Chroma for similar past incidents]
-    B --> C[Query get_metrics_summary: aggregated summary for window]
-    C --> D[Identify onset: earliest minute that left the baseline]
-    D --> E[Query get_log_lines: window anchored on onset, reaching back before it]
-    E --> F[Form/update hypothesis + confidence]
-    F --> G{Confidence >= threshold?}
-    G -->|Yes| H[Exit to mitigating]
-    G -->|No, iterations remain| I[Refine query; widen window if onset is at its edge]
-    I --> C
-    G -->|No, iterations exhausted| J[Exit to escalated: insufficient evidence]
+    B --> C[Query get_metrics_summary: one fixed, wide window]
+    C --> D{Did any minute leave the baseline?}
+    D -->|No| K[Exit to escalated: nothing anomalous to explain]
+    D -->|Yes| E[Identify onset: earliest minute that left the baseline]
+    E --> F[Query get_log_lines: window anchored on onset, reaching back before it]
+    F --> G[Form/update hypothesis + confidence]
+    G --> H{Confidence >= threshold?}
+    H -->|Yes| I[Exit to mitigating]
+    H -->|No, iterations remain| J[Widen: the next lookback on the schedule]
+    J --> F
+    H -->|No, iterations exhausted| L[Exit to escalated: insufficient evidence]
 ```
 
-Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-E are the two-phase, windowed retrieval from §16, which keeps this loop from ever reading a full, unbounded log stream.
+Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-F are the two-phase, windowed retrieval from §16, which keeps this loop from ever reading a full, unbounded log stream.
 
-Widening is not left to the model's sense of dissatisfaction. Low self-reported confidence is one trigger, but an unreliable one - a model that formed a plausible hypothesis from too little evidence reports high confidence and never widens, because it cannot miss what it never saw. The deterministic trigger is structural: **if the earliest bucket in the window is already anomalous, the incident began before the window did**, so onset lies outside it and the next iteration must reach further back. Read literally, that condition says there is no calm stretch on screen to serve as a baseline - which is the same thing. That decision reads off the metrics summary the loop already has, not off the model's introspection.
+The metrics summary is read **once, before the loop**, not once per iteration: it covers a single fixed span (§16) wider than any log window the loop may ask for, so re-reading it would return the same four numbers a minute and locate the same onset. Only the *log* window widens. A window in which no minute departs from the baseline has no onset to anchor on and nothing to explain, so it exits immediately without asking the model - there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
+
+Widening is not left to the model's sense of dissatisfaction. Low self-reported confidence is one trigger, but an unreliable one - a model that formed a plausible hypothesis from too little evidence reports high confidence and never widens, because it cannot miss what it never saw. The deterministic check is structural: **if the earliest bucket in the metrics window is already anomalous, the incident began before the window did**, so the onset located there is only a *lower bound* and the first log window provably did not contain the incident's start. Read literally, that condition says there is no calm stretch on screen to serve as a baseline - which is the same thing. It reads off the metrics summary the loop already has, not off the model's introspection.
+
+That check does not decide *whether* to widen - low confidence already does, and the metrics window is one fixed span, so the condition cannot change between iterations. It decides **whether a confident answer is believed**: when the onset is only a lower bound, the first answer costs one widening before the loop accepts it. That is the one guard in the system against a *confidently wrong* verdict, which is otherwise undetectable by construction - the model reports certainty about evidence it was never shown, and no confidence threshold can catch it. A confident answer reached before the budget ran out is held, not discarded: if every wider look comes back unsure, that finding is still the best thing the investigation learned, and reporting "no cause" over it would misdescribe Argus's own evidence.
+
+*The deeper fix is a separate change-event channel* - deploys, flag toggles and config pushes queried as structured rows over a much wider span than logs, rather than hoped for inside the log window. A cause can precede its symptoms by an unbounded lag, and no lookback is the right one; widening buys log noise linearly while change events stay a handful of rows. Until that exists, the acceptance rule above is the cheap guard.
+
+How far each iteration reaches is not stepped into either - it is a **schedule derived up front** from the initial lookback, the maximum span and the iteration budget, as a geometric progression from the first to the last. With the shipped defaults (30, 180, 3) that is 30, 73, 180 minutes. Small steps first because causes cluster near the onset; the long reach last. Deriving it up front is what makes the final iteration land *exactly* on the maximum span, so "the onset predates everything retrievable" is a conclusion the loop can actually reach rather than a branch no run ever takes - which is what a step-and-clamp rule (double each time, stop at the ceiling) silently produces whenever the budget or the ceiling is reconfigured.
 
 "Anomalous" throughout means *relative to the service's own calm baseline in the same window* (§16), never a fixed error rate or latency. A service that normally sits at 8% errors is not permanently on fire, and one that normally sits at 0.5% should not have to reach 10% before Argus notices. An absolute threshold would also duplicate - and eventually contradict - the threshold the operator already configured in their own alerting tool, which is what fired the alert in the first place.
 

@@ -27,8 +27,14 @@ def investigate(
 
     Each iteration reads the log window around the onset and asks the model
     what caused the incident; an answer confident enough to act on ends the
-    loop immediately, and anything less buys another iteration reaching
-    further back, until the widening schedule runs out.
+    loop, and anything less buys another iteration reaching further back,
+    until the widening schedule runs out.
+
+    Confidence alone is not quite enough to end it. When the metrics window
+    opens mid-incident the onset is only a lower bound, so the first log
+    window provably did not contain the incident's start - and that is exactly
+    the case where a confident answer is least trustworthy and least
+    detectable. There, one widening is the price of being believed.
 
     Two things are deliberately *not* the model's to decide: which minute the
     incident started, and how far to reach. Both are computed here, from the
@@ -59,9 +65,18 @@ def investigate(
         settings.investigation_max_iterations,
     )
 
-    log_lines: list[str] = []
+    # The metrics window opens already elevated, so its earliest minute is a
+    # lower bound on the onset, not the onset itself - the incident started
+    # before anything Argus can see. A first-pass answer therefore comes from
+    # a log window that never contained the cause, and confidence cannot
+    # detect that: the model cannot miss what it was never shown. So the first
+    # answer costs one widening before it is believed.
+    the_onset_is_only_a_lower_bound = earliest_bucket_is_anomalous(metric_buckets)
 
-    for lookback_minutes in schedule:
+    log_lines: list[str] = []
+    confident_hypothesis: Hypothesis | None = None
+
+    for iteration, lookback_minutes in enumerate(schedule):
         window_start, window_end = _window_around(onset, lookback_minutes)
         log_lines = fetch_logs(window_start, window_end)
 
@@ -76,8 +91,21 @@ def investigate(
             )
         )
 
-        if hypothesis.is_confident_enough(settings.mitigate_threshold):
+        if not hypothesis.is_confident_enough(settings.mitigate_threshold):
+            continue
+
+        # Held rather than returned when trust is withheld: withholding trust
+        # is not the same as throwing the finding away. If every wider look
+        # comes back unsure, this is still the best thing the investigation
+        # learned, and reporting "no cause" over it would misdescribe Argus's
+        # own evidence.
+        confident_hypothesis = hypothesis
+
+        if not (the_onset_is_only_a_lower_bound and iteration == 0):
             return hypothesis
+
+    if confident_hypothesis is not None:
+        return confident_hypothesis
 
     return _undetermined(alert, incident_id, metric_buckets, log_lines)
 

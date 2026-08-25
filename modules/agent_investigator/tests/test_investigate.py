@@ -86,6 +86,125 @@ def test_investigate_stops_asking_once_a_hypothesis_is_confident_enough() -> Non
 
 
 @pytest.mark.unit
+def test_investigate_distrusts_a_confident_answer_from_a_mid_incident_window() -> None:
+    # The failure confidence cannot catch. The window never contained the
+    # incident's start, so the model read its tail, formed a plausible story
+    # from that, and reported certainty about evidence it was never shown - it
+    # cannot miss what it never saw. One widening is the price of being
+    # believed here.
+    dont_care_logs: list[str] = []
+    the_first_answer_plus_one_widening = 2
+    metrics_fetcher = a_mock_metrics_fetcher()
+    log_fetcher = a_mock_log_fetcher()
+    hypothesis_proposer = a_mock_hypothesis_proposer()
+    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
+    the_log_fetcher_returns = partial(_returning, log_fetcher)
+    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
+    the_model_was_asked = partial(_the_model_was_asked, hypothesis_proposer)
+
+    Scenario() \
+        .given(
+            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
+            the_log_fetcher_returns(dont_care_logs),
+            the_hypothesis_proposer_returns(a_hypothesis_at(a_confident_score())),
+        ) \
+        .when(
+            lambda: investigate(
+                an_alert(),
+                incident_id=new_id(),
+                fetch_metrics=metrics_fetcher,
+                fetch_logs=log_fetcher,
+                propose_hypothesis=hypothesis_proposer,
+            )
+        ) \
+        .then(
+            the_model_was_asked(times=the_first_answer_plus_one_widening)
+        )
+
+
+@pytest.mark.unit
+def test_investigate_returns_the_confident_answer_from_the_wider_window() -> None:
+    # Having widened, the loop believes the better-informed answer - not the
+    # first one, which is the one it distrusted enough to widen for.
+    dont_care_logs: list[str] = []
+    the_answer_from_the_narrow_window = a_hypothesis_at(a_confident_score())
+    the_answer_from_the_wider_window = a_hypothesis_at(a_confident_score())
+    metrics_fetcher = a_mock_metrics_fetcher()
+    log_fetcher = a_mock_log_fetcher()
+    hypothesis_proposer = a_mock_hypothesis_proposer()
+    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
+    the_log_fetcher_returns = partial(_returning, log_fetcher)
+    the_hypothesis_proposer_answers_in_turn = partial(
+        _answering_in_turn, hypothesis_proposer
+    )
+
+    Scenario() \
+        .given(
+            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
+            the_log_fetcher_returns(dont_care_logs),
+            the_hypothesis_proposer_answers_in_turn(
+                the_answer_from_the_narrow_window,
+                the_answer_from_the_wider_window,
+            ),
+        ) \
+        .when(
+            lambda: investigate(
+                an_alert(),
+                incident_id=new_id(),
+                fetch_metrics=metrics_fetcher,
+                fetch_logs=log_fetcher,
+                propose_hypothesis=hypothesis_proposer,
+            )
+        ) \
+        .then(
+            _the_hypothesis_is(the_answer_from_the_wider_window)
+        )
+
+
+@pytest.mark.unit
+def test_investigate_keeps_a_confident_answer_the_budget_later_ran_out_after() -> None:
+    # Withholding trust is not the same as throwing the answer away. If every
+    # wider look comes back unsure, the one confident finding is still the best
+    # thing Argus learned, and reporting "no cause" instead would be a lie
+    # about its own evidence.
+    dont_care_logs: list[str] = []
+    iteration_budget = get_settings().investigation_max_iterations
+    the_only_confident_answer = a_hypothesis_at(a_confident_score())
+    every_later_answer = [
+        a_hypothesis_at(an_unconfident_score()) for _ in range(iteration_budget - 1)
+    ]
+    metrics_fetcher = a_mock_metrics_fetcher()
+    log_fetcher = a_mock_log_fetcher()
+    hypothesis_proposer = a_mock_hypothesis_proposer()
+    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
+    the_log_fetcher_returns = partial(_returning, log_fetcher)
+    the_hypothesis_proposer_answers_in_turn = partial(
+        _answering_in_turn, hypothesis_proposer
+    )
+
+    Scenario() \
+        .given(
+            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
+            the_log_fetcher_returns(dont_care_logs),
+            the_hypothesis_proposer_answers_in_turn(
+                the_only_confident_answer, *every_later_answer
+            ),
+        ) \
+        .when(
+            lambda: investigate(
+                an_alert(),
+                incident_id=new_id(),
+                fetch_metrics=metrics_fetcher,
+                fetch_logs=log_fetcher,
+                propose_hypothesis=hypothesis_proposer,
+            )
+        ) \
+        .then(
+            _the_hypothesis_is(the_only_confident_answer)
+        )
+
+
+@pytest.mark.unit
 def test_investigate_never_asks_more_times_than_the_iteration_budget() -> None:
     dont_care_logs: list[str] = []
     iteration_budget = get_settings().investigation_max_iterations
@@ -430,6 +549,19 @@ def _returning(double: Any, value: Any) -> Callable[[], None]:
 
     def step() -> None:
         double.return_value = value
+
+    return step
+
+
+def _answering_in_turn(double: Any, *values: Any) -> Callable[[], None]:
+    """A `given` step for a stand-in that answers differently each time.
+
+    The loop's iterations are otherwise indistinguishable: a model that says
+    the same thing every round cannot show which round the loop believed.
+    """
+
+    def step() -> None:
+        double.side_effect = list(values)
 
     return step
 

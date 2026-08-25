@@ -2,26 +2,42 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
-from typing import Any
 
 import httpx
-import psycopg
 import pytest
+from argus_core.config import get_settings
 from argus_core.models.cause import CauseType
-from argus_testkit import Assertion, Scenario, eventually
-from orchestrator.repository import hypotheses
+from argus_core.models.incident_status import IncidentStatus
+from argus_testkit import Scenario, all_of, eventually
 
+from tests.e2e.framework.argus import (
+    TARGET_SERVICE_BASE_URL,
+    about_the_hypothesis,
+    argus_ended_with_status,
+    argus_is_triggered_with_alert,
+)
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.framework.assertions import (
+    some_confidence_was_given,
+    the_cause_was_identified_as,
+)
 
-ARGUS_WEB_BASE_URL = "http://localhost:8000"
-TARGET_SERVICE_BASE_URL = "http://localhost:8080"
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
-
-WEBHOOK_PATH = "/webhooks/alerts"
+# A real investigation is up to `investigation_max_iterations` model calls,
+# each one adaptive thinking at high effort. Argus answers in seconds when it
+# is confident on the first pass; this bound is what "the loop ran out of
+# iterations" looks like in wall-clock time, not the expected duration.
+A_GENEROUS_MODEL_CALL_SECONDS = 90
+AN_INVESTIGATION_TIMEOUT_SECONDS = (
+    get_settings().investigation_max_iterations * A_GENEROUS_MODEL_CALL_SECONDS
+)
 
 
 @pytest.mark.e2e
 def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
+    # A real model call, so nothing here may depend on how the hypothesis is
+    # worded - only on what it identifies. `cause_type` is a closed enum the
+    # model must choose from, and the final status is what Argus did about it;
+    # both are stable across runs where the prose never is.
     some_service = "kukibuki-service"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
@@ -35,11 +51,18 @@ def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
                 _a_feature_flag_was_toggled_on()
             ) \
             .when(
-                _argus_is_triggered_with_alert(some_alert)
+                argus_is_triggered_with_alert(some_alert)
             ) \
             .then(
                 eventually(
-                    _argus_diagnosed_the_cause_as(CauseType.FEATURE_FLAG_TOGGLE)
+                    all_of(
+                        about_the_hypothesis(
+                            the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
+                            some_confidence_was_given(),
+                        ),
+                        argus_ended_with_status(IncidentStatus.RESOLVED),
+                    ),
+                    timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
                 )
             )
     finally:
@@ -61,44 +84,3 @@ def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
 
 def _reset_target_service_scenario() -> None:
     httpx.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=10.0)
-
-
-def _incident_id_from(response: httpx.Response) -> str | None:
-    return response.json().get("incident_id")
-
-
-def _argus_diagnosed_the_cause_as(
-    expected_cause_type: CauseType
-) -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
-        incident_id = _incident_id_from(response)
-
-        if not incident_id:
-            raise AssertionError("no incident_id in response")
-
-        with psycopg.connect(DATABASE_URL) as conn:
-            hypothesis = hypotheses.get_latest_by_incident(conn, incident_id)
-
-            if hypothesis is None:
-                raise AssertionError(f"no hypothesis found for incident [{incident_id}].")
-
-            if hypothesis.cause_type != expected_cause_type:
-                raise AssertionError(
-                    f"Expected cause_type [{expected_cause_type!r}], "
-                    f"got [{hypothesis.cause_type!r}]."
-                )
-
-            return True
-
-    return assertion
-
-
-def _argus_is_triggered_with_alert(payload: dict[str, Any]) -> Callable[[], httpx.Response]:
-    def step() -> httpx.Response:
-        return httpx.post(
-            f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
-            json=payload,
-            timeout=10.0,
-        )
-
-    return step
