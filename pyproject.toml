@@ -16,11 +16,13 @@ dev = [
     "httpx",
     "psycopg[binary]",
     "argus-argus_testkit",
+    "argus-anthropic_double",
 ]
 
 
 [tool.uv.sources]
 argus-argus_testkit = { workspace = true }
+argus-anthropic_double = { workspace = true }
 
 
 # uv
@@ -60,5 +62,6 @@ markers = [
     "unit: fast, isolated tests",
     "integration: cross-component, in-process",
     "e2e: full stack, hits docker-compose services",
-    "contract: MCP tool schema contract tests",
+    "contract: the double still matches the third party it stands in for",
+    "eval: hits the real Anthropic API and judges the answer, not the plumbing",
 ]

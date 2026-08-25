@@ -13,6 +13,7 @@ members = [
     "argus-agent-investigator",
     "argus-agent-mitigation",
     "argus-agent-postmortem",
+    "argus-anthropic-double",
     "argus-argus-core",
     "argus-argus-testkit",
     "argus-argus-web",
@@ -137,6 +138,23 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
+
+[[package]]
+name = "argus-anthropic-double"
+version = "0.1.0"
+source = { editable = "modules/anthropic_double" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
 
 [[package]]
 name = "argus-argus-core"
@@ -265,6 +283,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
     { name = "httpx" },
     { name = "mypy" },
@@ -281,6 +300,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "argus-anthropic-double", editable = "modules/anthropic_double" },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
     { name = "httpx" },
     { name = "mypy" },

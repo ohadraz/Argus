@@ -69,16 +69,16 @@ uv sync --all-packages
 Run the full end-to-end suite (brings up Postgres and `argus_web`, runs the tests, tears both down):
 
 ```bash
-uv run nox -s e2e
+uv run python -m nox -s e2e
 ```
 
-Other useful sessions - `uv run nox --list` shows the full set:
+Other useful sessions - `uv run python -m nox --list` shows the full set:
 
 ```bash
-uv run nox -s lint              # ruff, whole repo
-uv run nox -s typecheck         # mypy --strict, modules/
-uv run nox -s test_module -- <module-name>   # one module's unit/integration tests
-uv run nox -s guard_e2e_boundary             # enforces e2e-test placement rules
+uv run python -m nox -s lint              # ruff, whole repo
+uv run python -m nox -s typecheck         # mypy --strict, modules/
+uv run python -m nox -s "test_module(module='<name>')"  # one module's unit/integration tests
+uv run python -m nox -s guard_e2e_boundary             # enforces e2e-test placement rules
 ```
 
 ## Configuration

@@ -1,0 +1,33 @@
+name: Nightly Sweep
+
+# The free half of the nightly. Everything that costs tokens moved to
+# `paid-suites.yml`, which only runs when a human clicks Run - see that file
+# for why, and for what each paid suite is worth running after.
+#
+# What is left is still worth a timer: `ci.yml` only tests the modules a push
+# touched, so a change in one module that breaks another's tests can sit green
+# until something runs the whole set. This runs the whole set, unfiltered and
+# continuing past failures, so one morning report names every module that
+# broke rather than just the first.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC every day
+  workflow_dispatch:        # allows manual trigger from the Actions tab
+
+jobs:
+  full-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: Full test sweep (all modules, continue past failures)
+        run: uv run python -m nox -s test_all -- --ci
+
+      - name: Guard e2e test placement
+        run: uv run python -m nox -s guard_e2e_boundary

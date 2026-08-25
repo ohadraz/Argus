@@ -66,3 +66,58 @@ def eventually[T](assertion: Assertion[T],
             time.sleep(interval)
 
     return eventually_assertion
+
+
+def an_error_was_raised(expected_type: type[Exception]) -> Assertion[Exception | None]:
+    """Subclasses count. An error taxonomy exists so a caller can catch a 
+    family, and a test naming the base should accept any member of it.
+    """
+    def assertion(error: Exception | None) -> bool:
+        if error is None:
+            raise AssertionError(
+                f"Expected [{expected_type.__name__}] to be raised, but nothing was."
+            )
+
+        if not isinstance(error, expected_type):
+            raise AssertionError(
+                f"Expected [{expected_type.__name__}], got [{type(error).__name__}]: [{error}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def at_least[T](passing: int, satisfy: Assertion[T]) -> Assertion[list[T]]:
+    """Asserts that at least `passing` of many results satisfy an assertion.
+
+    For asserting on something that answers differently each time it is asked.
+    A single sample from a distribution is not a verdict on it: a case the
+    model gets right nine times in ten still fails one run in ten, and that
+    failure is indistinguishable from a real regression.
+
+    The failure message carries the score and every distinct reason a run
+    missed, because "7 of 10, and all three misses named no cause" says what
+    to fix, where "expected X, got None" does not.
+    """
+
+    def assertion(results: list[T]) -> bool:
+        failures = []
+
+        for result in results:
+            try:
+                satisfy(result)
+            except AssertionError as assertion_error:
+                failures.append(str(assertion_error))
+
+        passed = len(results) - len(failures)
+        if passed < passing:
+            reasons = "\n".join(f"  - {reason}" for reason in sorted(set(failures)))
+            raise AssertionError(
+                f"Expected at least {passing} of {len(results)} to pass, got {passed}.\n"
+                f"Distinct reasons for the {len(failures)} that did not:\n{reasons}"
+            )
+
+        return True
+
+    return assertion

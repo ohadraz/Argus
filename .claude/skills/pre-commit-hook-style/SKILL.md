@@ -10,8 +10,8 @@ Before adding a new hook to `.pre-commit-config.yaml`:
   since dedicated hooks-repos are faster and already integrate with
   changed-files-only behavior by default.
 - Only reach for a `local` hook when nothing upstream covers it. Today that's
-  mypy, via `entry: nox -s typecheck`, and the e2e test-placement guard, via
-  `entry: nox -s guard_e2e_boundary`.
+  mypy, via `entry: uv run python -m nox -s typecheck`, and the e2e test-placement guard, via
+  `entry: uv run python -m nox -s guard_e2e_boundary`.
 - Don't add a hook that re-runs a check nox already runs elsewhere unless nox
   is genuinely the entry point (as with the two `local` hooks above) -
   duplicate invocations silently double commit time.

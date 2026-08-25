@@ -2,7 +2,7 @@
 """
 Fails if any test under modules/*/tests/ carries the `e2e` pytest marker.
 
-e2e tests need the full docker-compose stack, which only `nox -s e2e` brings
+e2e tests need the full docker-compose stack, which only `uv run python -m nox -s e2e` brings
 up - and only for the root `tests/e2e/` directory. See CLAUDE.md's pytest
 markers convention.
 """
@@ -57,7 +57,8 @@ def main() -> None:
     if violations:
         print(
             "e2e-marked tests found inside a module's tests/ - not allowed.\n"
-            "Only `nox -s e2e` brings up docker-compose, and only for root tests/e2e/.\n"
+            "Only `uv run python -m nox -s e2e` brings up docker-compose, "
+            "and only for root tests/e2e/.\n"
             "Move these to tests/e2e/ instead:\n" + "\n".join(f"  {v}" for v in violations),
             file=sys.stderr,
         )

@@ -6,13 +6,21 @@ Any AI coding agent operating in this repository - Claude Code, or any other too
 must never create, edit, or delete a test file. This applies to every `tests/`
 directory in the repo: root `tests/`, every `modules/*/tests/`, and
 `benchmark/tests/`. It applies equally to all of `modules/argus_testkit/`, the
-shared test-support module.
+shared test-support module, and to all of `modules/anthropic_double/`, the
+record/replay stand-in for the Anthropic API.
 
 The testkit holds no test cases, but many assertions in the repo runs through it.
 An agent able to edit it could turn the whole suite green from one file - by
 making, for example, `all_of` swallow failures, or, for example, `eventually` 
 succeed on timeout - without touching anything named like a test. A rule that stops 
 at `tests/` would leave that open.
+
+The double is the same hazard one level down. Every integration and contract
+test judges the adapter against what the double replays, so an agent free to
+reshape a recording could make its own code pass without the adapter ever
+being right - and the recordings are exactly the evidence that it is. Claude
+built the double while the change was in flight; the door closed once the
+adapter landed, and it stays closed.
 
 Argus is built test-first: a human writes the test for the next unit of behavior,
 the coding agent implements against it. That division only holds if it's a hard

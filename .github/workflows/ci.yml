@@ -8,7 +8,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - name: lint
-        run: uv run nox -s lint
+        run: uv run python -m nox -s lint
 
   typecheck:
     runs-on: ubuntu-latest
@@ -20,7 +20,24 @@ jobs:
         run: uv sync --all-packages
 
       - name: typecheck
-        run: uv run nox -s typecheck
+        run: uv run python -m nox -s typecheck
+
+  # Free and keyless: every LLM answer is replayed from a recording committed
+  # to this repo, so this exercises the real adapter - prompt, schema
+  # transform, response parsing - without spending a token. That is the whole
+  # point of the double, and it is why this belongs on every push rather than
+  # behind the manual paid workflow.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: integration
+        run: uv run python -m nox -s integration
 
   detect-changes:
     runs-on: ubuntu-latest
@@ -33,6 +50,7 @@ jobs:
       - uses: actions/checkout@v4  # clones the repo onto the runner
         with:
           fetch-depth: 0  # fetch full history for diff
+      - uses: astral-sh/setup-uv@v3  # the filter step below asks noxfile.py which modules have tests
       - id: filter
         run: |
           BASE="${{ github.event.before }}"
@@ -44,7 +62,14 @@ jobs:
             BASE=$(git hash-object -t tree /dev/null)  # empty tree: first commit / first push on a branch
           fi
 
-          all_modules=$(ls modules)
+          # Ask nox which modules have a test suite, rather than listing the
+          # directory. `EXCLUDED_FROM_TESTS` in noxfile.py names the modules
+          # that deliberately have none - test-support packages like
+          # `argus_testkit` and the Anthropic double - and nox refuses to
+          # parametrize a `test_module` session for them. Reading `ls modules`
+          # here would put those names in the matrix and ask nox to run a
+          # session that does not exist.
+          all_modules=$(uv run python -c "import noxfile; print(' '.join(noxfile.MODULES))")
 
           changed=()
           for m in $all_modules
@@ -163,4 +188,4 @@ jobs:
       - uses: astral-sh/setup-uv@v3  # installs `uv` onto the runner
 
       - name: test changed modules
-        run: uv run nox -s test_module -- ${{ matrix.module }}
+        run: uv run python -m nox -s "test_module(module='${{ matrix.module }}')"

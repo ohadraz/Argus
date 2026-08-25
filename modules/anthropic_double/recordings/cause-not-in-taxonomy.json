@@ -1,0 +1,35 @@
+{
+  "content": [
+    {
+      "signature": "CAIShAcKjgEIERgCKkAkyAXis60bAACOvhxL4BCRNKxQ74n+fx6TV7FUltWropJvrt0ATzwMtCU7XMUlEGQn4UUnseO9fSmEJm1mxe78Mg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAdKLstQGEgxC5aDg4jIUzM5PZCQaDA9K6RdV+WU8cQGcjCIwb/4hLTI8jw73yqFqXqTVxFstTPHlc6BN7Ao8GZpxxXnTsQsBoVsR5TAfQlMnlVbKKqIFoFLbQVw3qqtFPqjnIsZtgHLIwHuC5knAYw+f+nIZnWK/T41hr8ygcPs91lZ/UEzSr/ujGmZIJqyD/QyxDeZSdBsnzM8aIvRNi/WXzUqK3easnfi/tg7vb9UiZE/lI5DnycmpIRBWpQP5JX8J13YdU7VkICC8/3gsbtMa4D4j4kzx9R4/4He76V8vAeZBZ6Hi9sbimi0fhmNmGeSPv5/aXzuOv5D911QZl7hwGIeUH0WkfLDFkV+a/IbUUlXsoxga0QkNjloVJczOQiDchlJBgrzk1WLGIfSM+nXpaJh12R836ifykMa0szTgNGUl5/fVuEEj1N94jCU8EPVdA+eDyTFxgxbSAPBEsMs8PxE6s+3ksfBHAbMLxZi82NbbpjYsQVrjInDiTz9Dx+OiHXi86aJuCVvslsR+Jac5AEbHcb0pxSoDMcmBgDFwCdo6spcfUEpPqYeA0aTDTjBMkXWqgQP5xZkfzLq5Z26/caD/AzjNNRpKjhk5kB0wApOrzQz7sGGqCL0IJRip5ZGfHciW9EKlBrNThVz1tLz0LBPJifdtRj8OWYuHpNVniPP0cWbIJ/cxhLTpOaHLXW7gyWzmtOlf4FA6z/Ok1DBCi3cOHHzwhHI0entU3SqCiLA9vZ2H0viQlYKXL7xFg4FBQ4eZBIRgQ51dz9ViyvwKVBHJ9wdRyi/JbBt49D+AxAP0gscnnK1iOEhylBiK23Fvbc2R2eJZVXsKphtRjs9UCGcGMqcQO9TC/ufNbY4l45Mw2PXnqF3I4gNiXzlhFxPKWa1IbBqQ+2VdckQl3Mc5OaiYCWjtPYO/j7qqXLyaQqB66+iemIb4S7G0QGKTEEoNe9RJPyYdF6/e5E97rqqo6s2H0RuP8yYMIXkdYQkovVdCV2OfT/MYAQ==",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "text": "{\"summary\":\"Latency and errors began climbing immediately after target-service was deployed from version 1.4.2 to 1.4.3 at 17:56Z, with p95 rising from a 220ms baseline to 5000ms and error rate from 1% to 12% over four minutes, ending in 5000ms request timeouts tagged version 1.4.3. The evidence points to the 1.4.3 deploy itself, which is not one of the cause types available to me, and there is nothing in the window indicating a feature-flag toggle, so I am returning no cause. To confirm and classify it I would need deploy/rollout metadata for 1.4.3 (diff, config changes) or flag-evaluation records showing a toggle at or near 17:56Z, plus post-rollback metrics.\",\"cause_type\":null,\"confidence\":null,\"supporting_evidence\":[]}",
+      "type": "text"
+    }
+  ],
+  "id": "msg_011CeN1EbmNc6Qy5cQqEPY2K",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 1818,
+    "output_tokens": 514,
+    "output_tokens_details": {
+      "thinking_tokens": 233
+    },
+    "service_tier": "standard"
+  }
+}

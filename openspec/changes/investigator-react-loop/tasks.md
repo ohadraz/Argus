@@ -12,7 +12,7 @@ Tests are human-owned (`AGENTS.md`): every task below that needs a test means
 
 ## 2. The typed LLM seam
 
-- [ ] 2.1 **(test)** Propose tests for `Hypothesis`: a cause without a confidence is rejected, a confidence without a cause is rejected, and `is_confident_enough` is false for an undetermined hypothesis at any threshold
+- [x] 2.1 **(test)** Propose tests for `Hypothesis`: a cause without a confidence is rejected, a confidence without a cause is rejected, and `is_confident_enough` is false for an undetermined hypothesis at any threshold
 - [x] 2.2 Add `argus_core/models/hypothesis.py` - the `Hypothesis` domain model with its validator and `is_confident_enough(threshold)` - beside `alert.py` and `cause.py`, plus an `Evidence` input model
 - [x] 2.2a Move `UuidStr` from `orchestrator/repository/_types.py` to `argus_core` - the domain model needs it and cannot import another package's private module
 - [x] 2.2b Give `Hypothesis` the entity fields: `id` (`default_factory`, never null), `incident_id`, `tested`, `result`
@@ -24,12 +24,12 @@ Tests are human-owned (`AGENTS.md`): every task below that needs a test means
 - [x] 2.3b `investigate()` returns a `Hypothesis` and takes `incident_id`; the no-cause branch returns cause `None` *and* confidence `None` rather than a fabricated hypothesis
 - [x] 2.3c Make the Communicator stub work rather than raise - escalation reaches it now, and a stub that raises on a live path turns "I don't know" into a crash
 - [x] 2.3d `nox -s e2e` tears down with `-v`: the Postgres volume outlived the run, and `CREATE TABLE IF NOT EXISTS` never alters an existing table, so schema changes silently did not land
-- [ ] 2.4 Replace the `LLMClient` Protocol's `complete(prompt) -> str` with `propose_hypothesis(evidence) -> Hypothesis`
-- [ ] 2.5 Implement the Anthropic-backed adapter: `claude-opus-5`, adaptive thinking, `effort: "high"`, `max_tokens: 16000`, structured outputs via `messages.parse()`
-- [ ] 2.6 Map the model's flat response onto `Hypothesis` in the adapter - the one place the wire shape and the domain shape meet
-- [ ] 2.7 Replace `graph.py`'s inline `confidence >= mitigate_threshold` with `hypothesis.is_confident_enough(mitigate_threshold)`
-- [ ] 2.8 Delete `StubLLMClient`; make `get_llm_client()` return the real adapter
-- [ ] 2.9 Write the hypothesis prompt: the alert, the metric buckets, the log window, and an explicit instruction that "cause undetermined" is a valid and expected answer
+- [x] 2.4 Replace the `LLMClient` Protocol's `complete(prompt) -> str` with `propose_hypothesis(evidence) -> Hypothesis`
+- [x] 2.5 Implement the Anthropic-backed adapter: `claude-opus-5`, adaptive thinking, `effort: "high"`, `max_tokens: 16000`, structured outputs via `messages.parse()`
+- [x] 2.6 Map the model's flat response onto `Hypothesis` in the adapter - the one place the wire shape and the domain shape meet
+- [x] 2.7 Replace `graph.py`'s inline `confidence >= mitigate_threshold` with `hypothesis.is_confident_enough(mitigate_threshold)`
+- [x] 2.8 Delete `StubLLMClient`; make `get_llm_client()` return the real adapter
+- [x] 2.9 Write the hypothesis prompt: the alert, the metric buckets, the log window, and an explicit instruction that "cause undetermined" is a valid and expected answer
 
 Verified against the live API before any of the above: `output_format=<pydantic
 type>`, `output_config={"effort": "high"}`, `thinking={"type": "adaptive"}` on
@@ -38,18 +38,18 @@ type>`, `output_config={"effort": "high"}`, `thinking={"type": "adaptive"}` on
 
 ## 2b. The Anthropic test double
 
-- [ ] 2b.1 Add `anthropic_base_url` to `Settings` (empty = the real API) and pass it to the client constructor - the only thing that selects the double
-- [ ] 2b.2 Scaffold `modules/anthropic_double/` per the `new-module` skill; add it to `EXCLUDED_FROM_TESTS` in `noxfile.py` if it carries no suite of its own
-- [ ] 2b.3 Implement `POST /v1/messages` returning a real `Message` shape - `id`, `type`, `role`, `model`, `content`, `stop_reason`, `usage`
-- [ ] 2b.4 Implement the control route (`/double-control/*`): seed the next response - a chosen hypothesis, a refusal, a 429, a 500, or a schema-violating body
-- [ ] 2b.5 Record real responses to files, and serve them back; store the recordings in the repo so a fresh clone needs no key to run integration tests
-- [ ] 2b.6 Add the `eval` marker to the root `pyproject.toml` marker list (CLAUDE.md forbids adding one without updating that list)
-- [ ] 2b.7 Bring the double up in `noxfile.py`'s `e2e`/integration wiring the way `read_mcp_server` already is
-- [ ] 2b.8 **(test)** Propose the integration tests: the real adapter against the double for a seeded hypothesis, a seeded refusal, a seeded 429, and a seeded schema violation
-- [ ] 2b.9 **(test)** Propose `tests/contract/test_anthropic_double.py`: the same request to both the double and the real API produces a parseable hypothesis, and an equivalent malformed request produces an equivalent error
-- [ ] 2b.10 **(test)** Propose the `eval` tests: fixed flag-toggle evidence yields `CauseType.FEATURE_FLAG_TOGGLE`; evidence with no change event yields no determined cause
-- [ ] 2b.11 Confirm the contract tests fail loudly when a recording is stale, by hand-editing one recording
-- [ ] 2b.12 **BEFORE COMMITTING**: lock `modules/anthropic_double/` against Claude in `.claude/hooks/block_test_writes.py`, alongside `argus_testkit` - a rigged double could make every integration test pass. Claude writes it first, then the door closes.
+- [x] 2b.1 Add `anthropic_base_url` to `Settings` (empty = the real API) and pass it to the client constructor - the only thing that selects the double
+- [x] 2b.2 Scaffold `modules/anthropic_double/` per the `new-module` skill; add it to `EXCLUDED_FROM_TESTS` in `noxfile.py` if it carries no suite of its own
+- [x] 2b.3 Implement `POST /v1/messages` returning a real `Message` shape - `id`, `type`, `role`, `model`, `content`, `stop_reason`, `usage`
+- [x] 2b.4 Implement the control route (`/double-control/*`): seed the next response - a chosen hypothesis, a refusal, a 429, a 500, or a schema-violating body
+- [x] 2b.5 Record real responses to files, and serve them back; store the recordings in the repo so a fresh clone needs no key to run integration tests
+- [x] 2b.6 Add the `eval` marker to the root `pyproject.toml` marker list (CLAUDE.md forbids adding one without updating that list)
+- [x] 2b.7 Bring the double up in `noxfile.py`'s `e2e`/integration wiring the way `read_mcp_server` already is
+- [x] 2b.8 **(test)** Propose the integration tests: the real adapter against the double for a seeded hypothesis, a seeded refusal, a seeded 429, and a seeded schema violation
+- [x] 2b.9 **(test)** Propose `tests/contract/test_anthropic_double.py`: the same request to both the double and the real API produces a parseable hypothesis, and an equivalent malformed request produces an equivalent error
+- [x] 2b.10 **(test)** Propose the `eval` tests: fixed flag-toggle evidence yields `CauseType.FEATURE_FLAG_TOGGLE`; evidence with no change event yields no determined cause
+- [x] 2b.11 Confirm the contract tests fail loudly when a recording is stale, by hand-editing one recording
+- [x] 2b.12 **BEFORE COMMITTING**: lock `modules/anthropic_double/` against Claude in `.claude/hooks/block_test_writes.py`, alongside `argus_testkit` - a rigged double could make every integration test pass. Claude writes it first, then the door closes.
 
 ## 3. Deterministic anomaly detection
 
@@ -80,10 +80,10 @@ type>`, `output_config={"effort": "high"}`, `thinking={"type": "adaptive"}` on
 
 - [ ] 6.1 **(test)** Propose reworking `tests/e2e/test_scenario_investigation.py` to assert on `cause_type` and final status only, never on hypothesis wording
 - [ ] 6.2 **(test)** Propose the no-scenario e2e case: escalates rather than resolving (this inverts the current `test_incident_lifecycle.py` expectation)
-- [ ] 6.3 e2e runs against the real API, so CI needs `ANTHROPIC_API_KEY` as a secret; integration runs against the double and needs none
+- [x] 6.3 e2e runs against the real API, so CI needs `ANTHROPIC_API_KEY` as a secret; integration runs against the double and needs none
 - [ ] 6.4 `uv run python -m nox -s lint`, `typecheck`, `test_all`, `guard_e2e_boundary` all green
 - [ ] 6.5 `uv run python -m nox -s e2e` green
-- [ ] 6.6 `uv run python -m nox -s contract` green - the first real inhabitant of `tests/contract/`
+- [x] 6.6 `uv run python -m nox -s contract` green - the first real inhabitant of `tests/contract/`
 - [ ] 6.7 Update `docs/spec-and-architecture.md` §9 if the implemented loop diverges from the diagram
 
 ## 7. Follow-ups to raise, not to do here

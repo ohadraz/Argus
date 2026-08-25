@@ -14,7 +14,7 @@ Given a described behavior to add:
    do not proceed on assumption.
 4. Only after confirmation, implement the corresponding source code in `src/`,
    with full type hints on every function signature.
-5. Ask the user to run `uv run nox -s test_module -- <module-name>` and confirm green.
+5. Ask the user to run `uv run python -m nox -s "test_module(module='<name>')"` and confirm green.
 
 Never call Write or Edit on any path under `tests/`, or anywhere under
 `modules/argus_testkit/` - both are hook-blocked regardless, but don't attempt

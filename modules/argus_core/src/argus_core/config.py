@@ -37,6 +37,12 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = Field(default="")
 
+    # Where the Anthropic SDK sends its requests. Empty means the real API.
+    # Pointing this at the test double is the *only* thing that selects it:
+    # the seam sits below the SDK, so the real adapter, the real
+    # `messages.parse` and the real schema transform still run.
+    anthropic_base_url: str = Field(default="")
+
     # How many times the investigation loop may re-read before giving up
     # (spec §10). Each iteration reaches further back, per the widening
     # schedule derived from the log window settings above. At least two: the

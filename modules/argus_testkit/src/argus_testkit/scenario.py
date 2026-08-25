@@ -53,5 +53,27 @@ class Scenario:
         return self
 
 
+def attempting(step: Callable[[], Any]) -> Callable[[], Exception | None]:
+    """Turns a step expected to fail into one that yields its failure.
+
+    `when` hands its result to `then`, so an exception escaping `when` never
+    reaches an assertion. Catching here rather than inside `Scenario` keeps it
+    opt-in: a scenario whose `when` was not supposed to fail still reports the
+    real traceback, not an assertion message three lines later.
+
+    Returns `None` when the step unexpectedly succeeded, which 
+    `an_error_was_raised` reports as the failure it is.
+    """
+    def attempt() -> Exception | None:
+        try:
+            step()
+        except Exception as error:
+            return error
+
+        return None
+
+    return attempt
+
+
 def _run(step: Step) -> Any:
     return step() if callable(step) else step

@@ -1,0 +1,131 @@
+name: Paid Suites (manual)
+
+# Everything here reaches the real Anthropic API and spends tokens.
+#
+# The free suites (lint, typecheck, per-module tests, the nightly sweep) already
+# catch every failure that does not need a model. These three answer questions
+# only the real API can answer, and each is worth running at a different moment:
+#
+#   contract - after anything touches the adapter, the SDK version, or a
+#              recording. Cheapest of the three; catches a stale recording,
+#              which would otherwise let every integration test keep passing
+#              against a body Anthropic no longer sends.
+#   e2e      - before a merge that changes the investigation path end to end.
+#   eval     - after a prompt change, and only then. The score does not move on
+#              its own, so a daily timer buys thirty samples of an unchanged
+#              number.
+#
+# Measured cost per call from the stored recordings: ~1,850 input / ~450 output
+# tokens on claude-opus-5, so ~$0.02 a call.
+#
+#   contract   2 calls                                          ~$0.04
+#   e2e        0 today; up to ~6 once the loop iterates         ~$0.12
+#   eval      20 calls (2 cases x 10 runs, scored as a rate)    ~$0.40
+
+on:
+  # --------------------------------------------------------------------------
+  # SCHEDULE DELIBERATELY DISABLED - this is a cost decision, not an oversight.
+  #
+  # The cadence below is what these suites should run at on a funded project.
+  # Turning it on is a four-place edit, and every place is marked: uncomment
+  # the three `cron` lines here, then swap each step's `if:` for the commented
+  # variant directly above it, which tests that step's own cron line. Nothing
+  # is stubbed - the conditions are written, just not wired.
+  #
+  #   nightly contract + e2e   ~$0.16/night  ~$5/month
+  #   weekly  eval             ~$0.40/week   ~$2/month
+  #                                          ~$7/month total
+  #
+  # Argus is a course project running on a prepaid balance with auto-reload
+  # off. At that spend the balance empties in a couple of weeks, and the first
+  # symptom is a nightly failing with an opaque API error rather than a test
+  # result - a red build that means "out of credit", which is worse than no
+  # build at all. So the trigger is manual until the project is funded.
+  #
+  #  schedule:
+  #    - cron: '0 3 * * *'   # 03:00 UTC daily - contract + e2e
+  #    - cron: '0 4 * * 0'   # 04:00 UTC Sunday - eval
+  # --------------------------------------------------------------------------
+
+  workflow_dispatch:
+    inputs:
+      contract:
+        description: 'Contract tests (~$0.04) - is the double still faithful?'
+        type: boolean
+        default: true
+      e2e:
+        description: 'End-to-end (~$0.12) - full stack via docker-compose'
+        type: boolean
+        default: false
+      eval:
+        description: 'Evals (~$0.40) - does the model still pick the right cause?'
+        type: boolean
+        default: false
+
+jobs:
+  paid:
+    runs-on: ubuntu-latest
+
+    # Every step runs from the Argus checkout, not the workspace root - see
+    # the two-repo layout below.
+    defaults:
+      run:
+        working-directory: Argus
+
+    steps:
+      # docker-compose builds `target-service` from `../Argus-Demo-Target-App`,
+      # a sibling directory in a separate repository. A runner checks out only
+      # this repo, so that path would not exist and `nox -s e2e` would fail
+      # before running a single test.
+      #
+      # `actions/checkout` cannot write outside the workspace, so the sibling
+      # relationship is recreated *inside* it: both repos go into
+      # subdirectories, and Argus runs from its own. The compose file and the
+      # local dev layout stay exactly as they are.
+      - name: Check out Argus
+        uses: actions/checkout@v4
+        with:
+          path: Argus
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v4
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: Argus-Demo-Target-App
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      # Each step runs only if a human ticked its box. The `scheduled form:`
+      # comment above each one is what to use when the schedule at the top is
+      # re-enabled: `inputs.*` is empty on a scheduled run and
+      # `github.event.schedule` is empty on a manual one, so exactly one side of
+      # each `||` can ever be true. They sit in comments rather than live code
+      # because `github.event.schedule` in a workflow that declares no
+      # `schedule:` trigger is flagged as an invalid context by editor linters.
+      #
+      # The key is set per-step rather than on the job, so a step that has no
+      # business calling the API never has it in its environment.
+
+      # scheduled form: if: ${{ inputs.contract || github.event.schedule == '0 3 * * *' }}
+      - name: Contract tests
+        if: ${{ inputs.contract }}
+        run: uv run python -m nox -s contract
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # scheduled form: if: ${{ inputs.e2e || github.event.schedule == '0 3 * * *' }}
+      - name: End-to-end tests (full stack via docker-compose)
+        if: ${{ inputs.e2e }}
+        run: uv run python -m nox -s e2e
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # scheduled form: if: ${{ inputs.eval || github.event.schedule == '0 4 * * 0' }}
+      - name: Evals (real model, scored as a pass rate)
+        if: ${{ inputs.eval }}
+        run: uv run python -m nox -s eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

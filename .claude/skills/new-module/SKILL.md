@@ -20,7 +20,7 @@ off-limits for Claude to write (see CLAUDE.md "Tests are off-limits").
 
 Do NOT edit `noxfile.py` - module discovery is automatic via `_discover_modules()`
 scanning for `modules/*/pyproject.toml`. Confirm the new module appears by running
-`uv run nox --list` and checking for a new `test_module(module='<name>')` line.
+`uv run python -m nox --list` and checking for a new `test_module(module='<name>')` line.
 
 After scaffolding, run `uv sync` to confirm the workspace resolves the new member
 correctly, and report any resolution errors rather than silently proceeding.
