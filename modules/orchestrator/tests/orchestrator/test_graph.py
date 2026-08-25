@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from operator import is_not_none
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
@@ -23,7 +22,6 @@ from ..framework.builders import (
     an_incident_state,
     an_undetermined_hypothesis,
 )
-from ..framework.matchers import matcher
 
 
 @pytest.fixture
@@ -74,7 +72,7 @@ def test_investigator_node_high_confidence_routes_to_mitigating_and_persists(
                 some_incident_id,
                 IncidentStatus.MITIGATING,
                 actor=Actor.INVESTIGATOR,
-                action=matcher(is_not_none),
+                action="hypothesis formed",
                 result=a_confident_hypothesis.summary,
                 confidence=a_confident_hypothesis.confidence,
             ),
@@ -85,6 +83,9 @@ def test_investigator_node_high_confidence_routes_to_mitigating_and_persists(
 def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
     investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
 ) -> None:
+    # A cause was named, just not confidently enough to act on. The timeline
+    # says a hypothesis was formed, because one was - the escalation is about
+    # the score, not about the evidence running out.
     an_investigating_incident_state = _an_investigating_incident()
     some_incident_id = an_investigating_incident_state.incident_id
     a_doubtful_hypothesis = a_determined_hypothesis(
@@ -114,7 +115,7 @@ def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
                 some_incident_id,
                 IncidentStatus.ESCALATED,
                 actor=Actor.INVESTIGATOR,
-                action=matcher(is_not_none),
+                action="hypothesis formed",
                 result=a_doubtful_hypothesis.summary,
                 confidence=a_doubtful_hypothesis.confidence,
             ),
@@ -125,6 +126,10 @@ def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
 def test_investigator_node_undetermined_cause_routes_to_escalated_and_persists(
     investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
 ) -> None:
+    # The loop reached the end of what it could read and named nothing. The
+    # timeline has to say *that*, not "hypothesis formed" - a human picking
+    # the incident up needs to know whether to look for more evidence or to
+    # doubt the one on file.
     an_investigating_incident_state = _an_investigating_incident()
     some_incident_id = an_investigating_incident_state.incident_id
     a_hypothesis_with_no_cause = an_undetermined_hypothesis(some_incident_id)
@@ -152,7 +157,7 @@ def test_investigator_node_undetermined_cause_routes_to_escalated_and_persists(
                 some_incident_id,
                 IncidentStatus.ESCALATED,
                 actor=Actor.INVESTIGATOR,
-                action=matcher(is_not_none),
+                action="insufficient evidence",
                 result=a_hypothesis_with_no_cause.summary,
                 confidence=None,
             ),

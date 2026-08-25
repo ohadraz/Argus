@@ -71,10 +71,10 @@ type>`, `output_config={"effort": "high"}`, `thinking={"type": "adaptive"}` on
 
 ## 5. Orchestrator and persistence
 
-- [ ] 5.1 **(test)** Propose a `test_graph.py` case: an undetermined cause routes to `escalated` and records insufficient evidence
-- [ ] 5.2 Make the investigating node tolerate an undetermined outcome without treating it as an error
-- [ ] 5.3 Persist `supporting_evidence` alongside `description`, `confidence`, and `cause_type` on the hypothesis row (schema migration if needed)
-- [ ] 5.4 Record "insufficient evidence" on the `TimelineEvent` for an exhaustion-driven escalation
+- [x] 5.1 **(test)** Propose a `test_graph.py` case: an undetermined cause routes to `escalated` and records insufficient evidence
+- [x] 5.2 Make the investigating node tolerate an undetermined outcome without treating it as an error
+- [x] 5.3 Persist `supporting_evidence` alongside `description`, `confidence`, and `cause_type` on the hypothesis row (schema migration if needed)
+- [x] 5.4 Record "insufficient evidence" on the `TimelineEvent` for an exhaustion-driven escalation
 
 ## 6. End-to-end and verification
 

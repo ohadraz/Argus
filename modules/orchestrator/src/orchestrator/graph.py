@@ -93,7 +93,7 @@ def investigator_node(
         state.incident_id,
         next_status,
         actor=Actor.INVESTIGATOR,
-        action="hypothesis formed",
+        action=_what_the_investigation_did(hypothesis),
         result=hypothesis.summary,
         confidence=hypothesis.confidence,
     )
@@ -102,6 +102,18 @@ def investigator_node(
         "confidence": hypothesis.confidence,
         "status": next_status,
     }
+
+
+def _what_the_investigation_did(hypothesis: Hypothesis) -> str:
+    """What the timeline records the Investigator as having done (spec §11.2).
+
+    Two escalations reach this line for different reasons, and the timeline is
+    where a human finds out which. A named cause below the threshold means a
+    hypothesis was formed and is on file to be doubted; no cause at all means
+    the loop read everything it was allowed to and still had nothing - the
+    next step there is more evidence, not a second opinion on the first.
+    """
+    return "hypothesis formed" if hypothesis.cause_type is not None else "insufficient evidence"
 
 
 def route_after_investigation(state: IncidentState) -> str:
