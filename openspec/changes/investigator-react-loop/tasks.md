@@ -53,21 +53,21 @@ type>`, `output_config={"effort": "high"}`, `thinking={"type": "adaptive"}` on
 
 ## 3. Deterministic anomaly detection
 
-- [ ] 3.1 **(test)** Propose tests for baseline classification: a departure from a steady rate is anomalous and the steady minutes are not; the same shape is caught at a low and a high steady rate; a p95 departure at a steady error rate is caught; a window with no calm stretch reports its earliest bucket as anomalous
-- [ ] 3.2 Implement the baseline and its spread over a window's buckets, robust to the incident's own minutes skewing it
-- [ ] 3.3 Implement `find_onset(buckets)` - the earliest bucket departing from that baseline - in a public module of `agent_investigator` (not a `_name`; the loop's tests need it)
-- [ ] 3.4 Implement `earliest_bucket_is_anomalous(buckets)`, the structural widening trigger - it means "no calm stretch is visible in this window"
+- [x] 3.1 **(test)** Propose tests for baseline classification: a departure from a steady rate is anomalous and the steady minutes are not; the same shape is caught at a low and a high steady rate; a p95 departure at a steady error rate is caught; a window with no calm stretch reports its earliest bucket as anomalous
+- [x] 3.2 Implement the baseline and its spread over a window's buckets, robust to the incident's own minutes skewing it
+- [x] 3.3 Implement `find_onset(buckets)` - the earliest bucket departing from that baseline - in a public module of `agent_investigator` (not a `_name`; the loop's tests need it)
+- [x] 3.4 Implement `earliest_bucket_is_anomalous(buckets)`, the structural widening trigger - it means "no calm stretch is visible in this window"
 
 ## 4. The ReAct loop
 
-- [ ] 4.1 **(test)** Propose tests for `widening_schedule(initial, maximum, iterations)`: starts at the initial lookback, ends exactly at the maximum, strictly increases, and one entry per iteration
-- [ ] 4.2 Implement `widening_schedule` as a pure function - geometric from the initial lookback to the maximum span
-- [ ] 4.3 **(test)** Propose the loop tests: confident first iteration exits immediately; the iteration budget is never exceeded; an anomalous earliest bucket advances to the next scheduled lookback; a spent budget returns an undetermined hypothesis
-- [ ] 4.4 Implement the loop body: metrics summary → onset → onset-anchored `get_log_lines` → `propose_hypothesis`
-- [ ] 4.5 Implement the exit conditions - confident enough, or the schedule exhausted with the earliest bucket still anomalous
-- [ ] 4.6 Rewrite `investigate()` around the loop; inject `llm` and the retrieval calls as default-argument seams
-- [ ] 4.7 Delete `STUB_CONFIDENCE` and `_determine_cause`
-- [ ] 4.8 **(test)** Propose deleting the two tautological `STUB_CONFIDENCE` tests from `test_investigate.py`
+- [x] 4.1 **(test)** Propose tests for `widening_schedule(initial, maximum, iterations)`: starts at the initial lookback, ends exactly at the maximum, strictly increases, and one entry per iteration
+- [x] 4.2 Implement `widening_schedule` as a pure function - geometric from the initial lookback to the maximum span
+- [x] 4.3 **(test)** Propose the loop tests: confident first iteration exits immediately; the iteration budget is never exceeded; an anomalous earliest bucket advances to the next scheduled lookback; a spent budget returns an undetermined hypothesis
+- [x] 4.4 Implement the loop body: metrics summary → onset → onset-anchored `get_log_lines` → `propose_hypothesis`
+- [x] 4.5 Implement the exit conditions - confident enough, or the schedule exhausted with the earliest bucket still anomalous
+- [x] 4.6 Rewrite `investigate()` around the loop; inject `llm` and the retrieval calls as default-argument seams
+- [x] 4.7 Delete `STUB_CONFIDENCE` and `_determine_cause`
+- [x] 4.8 **(test)** Propose deleting the two tautological `STUB_CONFIDENCE` tests from `test_investigate.py`
 
 ## 5. Orchestrator and persistence
 

@@ -78,9 +78,9 @@ def investigator_node(
     (spec §7.2, §10). `investigate`/`record_hypothesis`/`transition_incident`
     default to the real investigation call and repository writes,
     injectable so this node's routing/persistence logic can be unit
-    tested without a live Target Service or database - mirroring the seam
-    `agent_investigator.investigate()`'s own `fetch_logs` parameter already
-    established."""
+    tested without a live Target Service or database - mirroring the seams
+    `agent_investigator.investigate()` establishes for its own retrieval and
+    model calls."""
     hypothesis = investigate(alert=state.alert, incident_id=state.incident_id)
     mitigate_threshold = get_settings().mitigate_threshold
     next_status: IncidentStatus = (

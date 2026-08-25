@@ -111,11 +111,19 @@ dependencies = [
     { name = "argus-read-mcp-client" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
 name = "argus-agent-mitigation"
