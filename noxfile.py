@@ -1,3 +1,4 @@
+import os
 import signal
 import subprocess
 import sys
@@ -196,17 +197,27 @@ def _venv_python_binary() -> str:
     return str(Path(".venv") / venv_bin / exe)
 
 
-def _start_service(module_args: list[str]) -> subprocess.Popen[bytes]:
+def _start_service(
+    module_args: list[str], env: dict[str, str] | None = None
+) -> subprocess.Popen[bytes]:
     """Starts one local service as a child of this session, via the venv's Python.
 
     CREATE_NEW_PROCESS_GROUP is required on Windows for CTRL_BREAK_EVENT (the
     graceful-shutdown signal `_stop_service` sends) to be deliverable to the
     child at all.
+
+    `env` overrides settings for *this* service only, which is how one process
+    in the stack can be pointed somewhere the others are not - `e2e_replay`
+    uses it to aim `argus_web` at the Anthropic double. It is merged into a
+    copy of the session's own environment rather than replacing it: a child
+    started with only the overrides would lose `PATH`, `SYSTEMROOT` and the
+    database URL, and would fail in ways that look nothing like the cause.
     """
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     return subprocess.Popen(
         [_venv_python_binary(), *module_args],
         creationflags=creationflags,
+        env={**os.environ, **env} if env else None,
     )
 
 
@@ -255,10 +266,15 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # session: they exercise the real adapter against a recorded response, with no
 # API key. The e2e tests in the same run still talk to the real Anthropic API -
 # nothing points `argus_web` at the double.
+# Kept in step with `anthropic_double.server.DEFAULT_BASE_URL` by hand rather
+# than imported: this file is read by nox before anything is necessarily
+# installed, and a noxfile that fails to import takes every session with it.
+_ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
+
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     "anthropic_double",
     ["-m", "anthropic_double.server"],
-    "http://localhost:8091/health",
+    f"{_ANTHROPIC_DOUBLE_BASE_URL}/health",
 )
 
 _LOCAL_SERVICES: list[tuple[str, list[str], str]] = [
@@ -272,18 +288,24 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str]] = [
 ]
 
 
-@nox.session
-def e2e(session: nox.Session) -> None:
-    """
-    Registers `e2e` as a nox session, i.e., runnable via `uv run python -m nox -s e2e`.
-    Brings up docker-compose's `postgres` service (always-on, base
-    definition) plus `target-service` (the `e2e` Compose profile - it's a
-    demo/test fixture, not something Argus itself depends on, so it stays
-    out of the default `docker compose up`) and local `argus_web` and
-    `read_mcp` processes (neither containerized - design.md's decision),
-    runs the end-to-end suite (plus `tests/integration` once that directory
-    exists) against them, then tears everything back down - even if the
-    tests fail, so nothing is left running.
+def _run_against_the_stack(
+    session: nox.Session,
+    test_paths: list[str],
+    service_env: dict[str, dict[str, str]] | None = None,
+) -> None:
+    """Brings the whole stack up, runs `test_paths` against it, tears it down.
+
+    Shared by `e2e` and `e2e_replay` so the two cannot drift on anything except
+    the one difference that distinguishes them - which service, if any, is
+    started pointed somewhere else. `service_env` maps a name in
+    `_LOCAL_SERVICES` to the settings that service alone should see.
+
+    Brings up docker-compose's `postgres` service (always-on, base definition)
+    plus `target-service` (the `e2e` Compose profile - it's a demo/test
+    fixture, not something Argus itself depends on, so it stays out of the
+    default `docker compose up`) and the local `read_mcp`, `anthropic_double`
+    and `argus_web` processes (none containerized - design.md's decision).
+    Teardown runs even if the tests fail, so nothing is left running.
 
     Teardown passes `-v` so Postgres's anonymous volume goes with the
     container. Without it the database survives between runs, and since the
@@ -292,10 +314,7 @@ def e2e(session: nox.Session) -> None:
     would silently never appear, and the suite would fail against a schema no
     file in the repo describes. An e2e run should start from nothing anyway.
     """
-    test_paths = ["tests/e2e"]
-    if Path("tests/integration").exists():
-        test_paths.append("tests/integration")
-
+    service_env = service_env or {}
     started: list[subprocess.Popen[bytes]] = []
     try:
         # `--build` because the Target Service image is built from a sibling
@@ -309,10 +328,67 @@ def e2e(session: nox.Session) -> None:
             external=True,
         )
         for name, module_args, ready_url in _LOCAL_SERVICES:
-            started.append(_start_service(module_args))
+            started.append(_start_service(module_args, env=service_env.get(name)))
             _wait_for_http(name, ready_url)
         session.run("uv", "run", "python", "-m", "pytest", *test_paths, "-v", external=True)
     finally:
         for process in reversed(started):
             _stop_service(process)
         session.run("docker", "compose", "--profile", "e2e", "down", "-v", external=True)
+
+
+@nox.session
+def e2e(session: nox.Session) -> None:
+    """
+    Registers `e2e` as a nox session, i.e., runnable via `uv run python -m nox -s e2e`.
+    Runs the end-to-end suite (plus `tests/integration`) against the full local
+    stack, with `argus_web` talking to the **real Anthropic API**.
+
+    This is the paid, manual, pre-merge run: it needs `ANTHROPIC_API_KEY` and
+    spends tokens on every incident it drives. It is the only suite in which a
+    real model reads real retrieved evidence and reaches a conclusion end to
+    end, which is what makes it worth the money before a merge that changes the
+    investigation path.
+
+    For the free counterpart that checks the same pipeline with every model
+    answer replayed from a recording, see `e2e_replay` - that is the one CI
+    runs on every push.
+    """
+    test_paths = ["tests/e2e"]
+    if Path("tests/integration").exists():
+        test_paths.append("tests/integration")
+
+    _run_against_the_stack(session, test_paths)
+
+
+@nox.session
+def e2e_replay(session: nox.Session) -> None:
+    """
+    Registers `e2e_replay` as a nox session, i.e., runnable via
+    `uv run python -m nox -s e2e_replay`.
+    Runs the end-to-end suite against the full local stack with `argus_web`
+    pointed at the Anthropic double, so **every model answer is replayed from a
+    recording committed to this repo**. No API key, no tokens, no cost - which
+    is exactly why this is the version CI runs on every push.
+
+    What a green run proves: the pipeline works. An alert reaches the webhook,
+    the orchestrator's graph drives it, all three retrieval channels answer
+    over MCP, the Argo CD adapter maps a real vendor response, the real
+    Anthropic adapter parses a real Anthropic body, and the incident lands in
+    a terminal status with its hypothesis persisted.
+
+    What it does **not** prove: that the model reaches the right conclusion.
+    The answer was decided when the recording was made. Judgement is measured
+    by `nox -s eval`, against thresholds derived from fifty samples per case -
+    never from one replayed answer here.
+
+    Selecting the double is one setting (`anthropic_base_url`), passed to
+    `argus_web` alone. Nothing in the production path knows this session
+    exists: a pipeline that behaves differently when observed is not the
+    pipeline.
+    """
+    _run_against_the_stack(
+        session,
+        ["tests/e2e"],
+        service_env={"argus_web": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+    )

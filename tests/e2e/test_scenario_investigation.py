@@ -15,12 +15,42 @@ from tests.e2e.framework.argus import (
     about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.framework.assertions import (
     some_confidence_was_given,
     the_cause_was_identified_as,
 )
+
+"""What Argus concludes about a seeded scenario, end to end.
+
+Both stand-ins are arranged per case: the Target Service is seeded with a
+scenario, and the Anthropic double is seeded with the recorded answer for it.
+
+Run two ways, and they prove different things:
+
+- `nox -s e2e_replay` - what CI runs on every push. Every model answer comes
+  from a recording committed to this repo, so a green run proves the pipeline
+  works: webhook, graph, all three retrieval channels over MCP, the Argo CD
+  adapter, the real Anthropic adapter parsing a real Anthropic body,
+  persistence, terminal status. It proves nothing about whether the model was
+  right - that answer was decided when the recording was made. Judgement is
+  measured by `nox -s eval`, over fifty samples a case.
+
+- `nox -s e2e` - the paid, manual, pre-merge run. A real model reads the real
+  retrieved evidence. The seeding step above is inert there, because nothing
+  points the web app at the double.
+
+Which is why nothing below asserts on wording. `cause_type` is a closed enum
+and the final status is what Argus did; both hold whichever way this runs,
+where the prose never would.
+"""
+
+# The recordings that answer for the model, by the names they are stored under
+# in modules/anthropic_double/recordings/.
+A_RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
+A_RECORDED_BAD_DEPLOYMENT = "bad-deployment"
 
 # A real investigation is up to `investigation_max_iterations` model calls,
 # each one adaptive thinking at high effort. Argus answers in seconds when it
@@ -34,10 +64,6 @@ AN_INVESTIGATION_TIMEOUT_SECONDS = (
 
 @pytest.mark.e2e
 def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
-    # A real model call, so nothing here may depend on how the hypothesis is
-    # worded - only on what it identifies. `cause_type` is a closed enum the
-    # model must choose from, and the final status is what Argus did about it;
-    # both are stable across runs where the prose never is.
     some_service = "kukibuki-service"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
@@ -48,7 +74,8 @@ def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
     try:
         Scenario() \
             .given(
-                _a_feature_flag_was_toggled_on()
+                _a_feature_flag_was_toggled_on(),
+                the_model_answers_from(A_RECORDED_FLAG_TOGGLE),
             ) \
             .when(
                 argus_is_triggered_with_alert(some_alert)
@@ -92,7 +119,8 @@ def test_investigator_diagnoses_a_bad_deployment_as_the_cause() -> None:
     try:
         Scenario() \
             .given(
-                _a_bad_version_was_deployed()
+                _a_bad_version_was_deployed(),
+                the_model_answers_from(A_RECORDED_BAD_DEPLOYMENT),
             ) \
             .when(
                 argus_is_triggered_with_alert(some_alert)

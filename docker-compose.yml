@@ -16,7 +16,14 @@ services:
   target-service:
     profiles: ["e2e"]
     build:
-      context: ../Argus-Demo-Target-App
+      # The Target Service lives in its own repo (spec §15.1), so the default
+      # is the sibling working copy a developer already has checked out.
+      # CI has only this repo, and clones the demo app into a subdirectory of
+      # the workspace instead - `actions/checkout` cannot write above it - so
+      # it overrides this. Built from source either way, never pulled: a
+      # prebuilt image is how a scenario edited in that repo silently ships
+      # stale to the one suite whose job is to exercise the real thing.
+      context: ${TARGET_APP_CONTEXT:-../Argus-Demo-Target-App}
     ports:
       - "8080:8000"
     healthcheck:

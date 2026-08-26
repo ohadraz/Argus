@@ -39,6 +39,54 @@ jobs:
       - name: integration
         run: uv run python -m nox -s integration
 
+  # The whole pipeline, on every push, for nothing.
+  #
+  # Free and keyless for the same reason `integration` is: `argus_web` is
+  # started pointed at the Anthropic double, so every model answer is replayed
+  # from a recording committed to this repo. No secret is passed to this job,
+  # and none is needed - if it ever starts failing for want of a key, something
+  # has begun reaching the real API and that is the bug.
+  #
+  # What a green run proves: an alert reaches the webhook, the orchestrator's
+  # graph drives it, all three retrieval channels answer over MCP, the Argo CD
+  # adapter maps a real vendor response, the real Anthropic adapter parses a
+  # real Anthropic body, and the incident lands in a terminal status. None of
+  # that is covered by the other jobs, and the last e2e failure - a Target
+  # Service image months stale, 404ing on an endpoint the source plainly had -
+  # was invisible to every one of them.
+  #
+  # What it does NOT prove: that the model reaches the right conclusion. That
+  # answer was decided when the recording was made. Judgement is measured by
+  # `nox -s eval` in `paid-suites.yml`, over fifty samples a case.
+  #
+  # Unconditional rather than behind `detect-changes`: that matrix exists to
+  # skip a module's unit tests when nothing in it changed, and this job's whole
+  # purpose is to catch a break *between* modules - which a change confined to
+  # one module is exactly when to expect.
+  e2e-replay:
+    runs-on: ubuntu-latest
+    env:
+      # Where docker-compose builds the Target Service from. Locally that is a
+      # sibling working copy; here the demo app is cloned into the workspace,
+      # because `actions/checkout` cannot write above it.
+      TARGET_APP_CONTEXT: target-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v4
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: target-app
+
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: e2e (replayed answers, no API key)
+        run: uv run python -m nox -s e2e_replay
+
   detect-changes:
     runs-on: ubuntu-latest
     permissions:

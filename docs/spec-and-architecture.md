@@ -554,6 +554,27 @@ This policy doesn't apply to Argus's own runtime Code-Fix agent (§7.4), and is 
 
 Each module under `modules/` has its own test suite and CI pipeline (lint → type-check → unit tests → build image), triggered on changes to its own path. For library-only modules (`argus_core`, the Orchestrator, each `agent_` package), the build-image step just validates a clean build - that image is never pushed or run standalone (§20.1). For network-facing modules, the same build produces the deployed image. Either way, this is what makes independent per-module versioning - and, for network-facing modules, independent deployment (§19, §20.1) - actually true.
 
+### 18.5 What runs when
+
+Whether a suite runs automatically is decided by one thing: whether it spends money. Everything free runs on every push, because a check a human has to remember to trigger is a check that reports failures late.
+
+| Suite | Covers | When |
+|---|---|---|
+| `lint`, `typecheck` | The whole repo | Every push |
+| `test_module` | One module's unit and integration tests | Every push, for the modules that changed |
+| `integration` | The Anthropic adapter against a recorded response | Every push |
+| `e2e_replay` | The whole pipeline, model answers replayed | Every push |
+| `test_all` | Every module's suite, unfiltered | Nightly |
+| `contract` | A recording still matches what the real API sends | Manual |
+| `e2e` | The whole pipeline, real model | Manual |
+| `eval` | Whether the model reaches the right conclusion | Manual |
+
+The two end-to-end suites run the same tests over the same stack and differ in one setting - which endpoint `argus_web`'s Anthropic client points at. That is enough to split them across the money line. The replayed one proves the *pipeline*: an alert reaching the webhook, the graph driving it, three retrieval channels answering over MCP, a vendor response mapped, a real Anthropic body parsed, an incident reaching a terminal status. It proves nothing about the model's judgement, because the answer was fixed when the recording was made - and a suite that appears to prove judgement but replays a fixed answer would invite exactly the false confidence Argus refuses to produce in its own hypotheses.
+
+Judgement is measured by `eval` instead, and measured as a rate: each case is sampled repeatedly and scored against a bar derived from prior measurement, because one call to a sampling model is a draw rather than a verdict. That bar is re-measured after any prompt change; a threshold carried over from an older prompt describes a system that no longer exists.
+
+The nightly sweep exists because the per-push module matrix is selective. A change in one module that breaks another module's tests is invisible to a matrix that only runs what changed, so the full set runs unfiltered once a day, continuing past failures so one report names every module that broke rather than the first.
+
 ## 19. Deployment Architecture
 
 ```mermaid

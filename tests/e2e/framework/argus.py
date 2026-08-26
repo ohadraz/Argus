@@ -24,6 +24,7 @@ Argus created for it.
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"
 DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
+ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 
 WEBHOOK_PATH = "/webhooks/alerts"
 
@@ -183,3 +184,40 @@ def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx.Response]:
         return True
 
     return assertion
+
+
+def the_model_answers_from(recording: str) -> Callable[[], bool]:
+    """A `given` step naming the stored answer the model gives for this case.
+
+    The counterpart to seeding the Target Service's scenario: one says what the
+    service did, the other says what the model said about it. Both are
+    stand-ins, so both are arranged in the test rather than one being supplied
+    invisibly by a fixture - and a case wanting a mismatched pair (a deploy
+    scenario the model finds nothing in) can write one.
+
+    Resets first, because a seed from an earlier case answers until it is
+    cleared, and a test whose verdict came from the previous test's recording
+    is worse than a failing one.
+
+    `repeat: null` - answer every call until reset - rather than a count,
+    because the investigation loop asks the model between one and
+    `investigation_max_iterations` times depending on what it retrieved. A
+    count here would couple every e2e case to the current iteration budget.
+    How many times the model was asked is asserted in the Investigator's own
+    unit tests, where it is free.
+
+    Against `nox -s e2e` this seeds a double nothing is pointed at, and is
+    harmlessly ignored - which is what lets one set of cases serve both the
+    paid path and the replayed one.
+    """
+    def step() -> bool:
+        with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+            control.post("/double-control/reset").raise_for_status()
+            response = control.post(
+                "/double-control/seed",
+                json={"recording": recording, "repeat": None},
+            )
+
+        return response.status_code == HttpStatus.OK
+
+    return step
