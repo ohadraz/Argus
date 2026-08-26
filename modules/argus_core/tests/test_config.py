@@ -77,3 +77,35 @@ def test_a_non_positive_deviation_count_is_rejected() -> None:
 
     with pytest.raises(ValidationError, match="anomaly_deviations_from_baseline"):
         Settings(anomaly_deviations_from_baseline=a_deviation_count_that_flags_every_minute)
+
+
+@pytest.mark.unit
+def test_a_non_positive_change_lookback_is_rejected() -> None:
+    # A zero-length change window can contain no change, so the channel could
+    # only ever report "nothing changed" - the answer it exists to stop Argus
+    # giving for the wrong reason.
+    a_change_lookback_that_can_hold_nothing = 0
+
+    with pytest.raises(ValidationError, match="change_lookback_minutes"):
+        Settings(change_lookback_minutes=a_change_lookback_that_can_hold_nothing)
+
+
+@pytest.mark.unit
+def test_a_change_lookback_no_wider_than_the_log_ceiling_is_rejected() -> None:
+    # Change events exist to surface a cause the logs cannot reach. A change
+    # window no wider than the log ceiling can only ever repeat what the log
+    # window already showed.
+    some_max_log_window_minutes = 180
+    some_lookback_minutes = 30
+    some_lookahead_minutes = 10
+    some_metrics_window_minutes = 360
+    too_narrow_change_lookback = some_max_log_window_minutes
+
+    with pytest.raises(ValidationError, match="change_lookback_minutes"):
+        Settings(
+            log_initial_lookback_minutes=some_lookback_minutes,
+            log_initial_lookahead_minutes=some_lookahead_minutes,
+            log_max_window_minutes=some_max_log_window_minutes,
+            metrics_window_minutes=some_metrics_window_minutes,
+            change_lookback_minutes=too_narrow_change_lookback,
+        )

@@ -11,7 +11,14 @@ from argus_core.timestamps import parse_iso, to_iso
 
 from agent_investigator.anomaly import earliest_bucket_is_anomalous, find_onset
 from agent_investigator.reasoning import HypothesisProposer, propose_hypothesis
-from agent_investigator.retrieval import LogFetcher, MetricsFetcher, fetch_logs, fetch_metrics
+from agent_investigator.retrieval import (
+    ChangeFetcher,
+    LogFetcher,
+    MetricsFetcher,
+    fetch_change_events,
+    fetch_logs,
+    fetch_metrics,
+)
 from agent_investigator.widening import widening_schedule
 
 
@@ -20,6 +27,7 @@ def investigate(
     incident_id: str,
     fetch_metrics: MetricsFetcher = fetch_metrics,
     fetch_logs: LogFetcher = fetch_logs,
+    fetch_change_events: ChangeFetcher = fetch_change_events,
     propose_hypothesis: HypothesisProposer = propose_hypothesis,
 ) -> Hypothesis:
     """Investigates one incident as a bounded ReAct loop (spec §9), returning
@@ -36,13 +44,22 @@ def investigate(
     the case where a confident answer is least trustworthy and least
     detectable. There, one widening is the price of being believed.
 
+    The change channel weakens that argument without retiring it, so the rule
+    stays. A change event is a candidate to be judged, not proof, and the
+    channel can legitimately come back empty - a flag toggle has no change
+    source yet and is still read out of log prose - which puts the loop right
+    back to a model reading the tail of an incident whose start it never saw.
+    Widening does not re-read the changes, but it does reach the log window
+    further back, and that is where the prose tying a candidate change to the
+    symptoms lives.
+
     Two things are deliberately *not* the model's to decide: which minute the
     incident started, and how far to reach. Both are computed here, from the
     metrics, so the same incident retrieves the same evidence on every run -
     a loop whose control flow depends on the model's own sense of having seen
     enough cannot be evaluated or reproduced.
 
-    The three collaborators are default-argument seams: the real retrieval
+    The four collaborators are default-argument seams: the real retrieval
     calls and the real model in production, doubles in a test, and no
     monkeypatching either way.
     """
@@ -58,6 +75,13 @@ def investigate(
 
     if onset is None:
         return _undetermined(alert, incident_id, metric_buckets, log_lines=[])
+
+    # Also fetched once, and only now that the onset is known - it is what the
+    # change window is anchored on. Wider than any log window the schedule
+    # reaches and read in full the first time, so re-reading it per iteration
+    # would return the same handful of rows at the same cost.
+    change_window_start, change_window_end = _change_window_before(onset)
+    change_events = fetch_change_events(alert.service, change_window_start, change_window_end)
 
     schedule = widening_schedule(
         settings.log_initial_lookback_minutes,
@@ -86,8 +110,11 @@ def investigate(
                 alert=alert,
                 metric_buckets=metric_buckets,
                 log_lines=log_lines,
+                change_events=change_events,
                 log_window_start=window_start,
                 log_window_end=window_end,
+                change_window_start=change_window_start,
+                change_window_end=change_window_end,
             )
         )
 
@@ -108,6 +135,21 @@ def investigate(
         return confident_hypothesis
 
     return _undetermined(alert, incident_id, metric_buckets, log_lines)
+
+
+def _change_window_before(onset: str) -> tuple[str, str]:
+    """The window the change channel is asked about, anchored on the onset.
+
+    It *ends* at the onset: a change made after the incident began did not
+    begin it. It reaches back by the configured lookback rather than by the
+    widening schedule, because the lag between a change and the symptoms it
+    causes is unbounded - how far back a cause may plausibly lie is the
+    operator's judgement, not something the loop can infer from the metrics.
+    """
+    settings = get_settings()
+    lookback = timedelta(minutes=settings.change_lookback_minutes)
+
+    return to_iso(parse_iso(onset) - lookback), onset
 
 
 def _window_around(onset: str, lookback_minutes: int) -> tuple[str, str]:

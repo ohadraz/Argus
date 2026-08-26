@@ -195,7 +195,8 @@ flowchart TD
     C --> D{Did any minute leave the baseline?}
     D -->|No| K[Exit to escalated: nothing anomalous to explain]
     D -->|Yes| E[Identify onset: earliest minute that left the baseline]
-    E --> F[Query get_log_lines: window anchored on onset, reaching back before it]
+    E --> M[Query get_change_events: wide window ending at onset, read once]
+    M --> F[Query get_log_lines: window anchored on onset, reaching back before it]
     F --> G[Form/update hypothesis + confidence]
     G --> H{Confidence >= threshold?}
     H -->|Yes| I[Exit to mitigating]
@@ -204,15 +205,15 @@ flowchart TD
     H -->|No, iterations exhausted| L[Exit to escalated: insufficient evidence]
 ```
 
-Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-F are the two-phase, windowed retrieval from §16, which keeps this loop from ever reading a full, unbounded log stream.
+Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-F are the three-channel, windowed retrieval from §16, which keeps this loop from ever reading a full, unbounded log stream.
 
-The metrics summary is read **once, before the loop**, not once per iteration: it covers a single fixed span (§16) wider than any log window the loop may ask for, so re-reading it would return the same four numbers a minute and locate the same onset. Only the *log* window widens. A window in which no minute departs from the baseline has no onset to anchor on and nothing to explain, so it exits immediately without asking the model - there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
+Two of the three channels are read **once, before the loop**, not once per iteration. The metrics summary covers a single fixed span (§16) wider than any log window the loop may ask for, so re-reading it would return the same four numbers a minute and locate the same onset. The change events are read as soon as the onset is known - they need it, since their window ends there - over a span wider still, and there are only ever a handful of rows, so a second read would return the same list at the same cost. Only the *log* window widens. A window in which no minute departs from the baseline has no onset to anchor on and nothing to explain, so it exits immediately without asking the model - there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
 
 Widening is not left to the model's sense of dissatisfaction. Low self-reported confidence is one trigger, but an unreliable one - a model that formed a plausible hypothesis from too little evidence reports high confidence and never widens, because it cannot miss what it never saw. The deterministic check is structural: **if the earliest bucket in the metrics window is already anomalous, the incident began before the window did**, so the onset located there is only a *lower bound* and the first log window provably did not contain the incident's start. Read literally, that condition says there is no calm stretch on screen to serve as a baseline - which is the same thing. It reads off the metrics summary the loop already has, not off the model's introspection.
 
 That check does not decide *whether* to widen - low confidence already does, and the metrics window is one fixed span, so the condition cannot change between iterations. It decides **whether a confident answer is believed**: when the onset is only a lower bound, the first answer costs one widening before the loop accepts it. That is the one guard in the system against a *confidently wrong* verdict, which is otherwise undetectable by construction - the model reports certainty about evidence it was never shown, and no confidence threshold can catch it. A confident answer reached before the budget ran out is held, not discarded: if every wider look comes back unsure, that finding is still the best thing the investigation learned, and reporting "no cause" over it would misdescribe Argus's own evidence.
 
-*The deeper fix is a separate change-event channel* - deploys, flag toggles and config pushes queried as structured rows over a much wider span than logs, rather than hoped for inside the log window. A cause can precede its symptoms by an unbounded lag, and no lookback is the right one; widening buys log noise linearly while change events stay a handful of rows. Until that exists, the acceptance rule above is the cheap guard.
+The change-event channel (§16) attacks the same problem from the other side: deploys and configuration changes are read as structured rows over a span far wider than any log window, rather than hoped for inside one. It does not retire the acceptance rule. A change is a candidate to judge against the symptoms, never proof, and the channel is legitimately silent about causes it does not cover - a flag toggle is diagnosed from log prose. There the loop is once again a model reading the tail of an incident whose start it never saw, and one widening remains the price of being believed. Widening does not re-read the changes; it reaches the log window further back, which is where the prose tying a candidate change to the symptoms lives.
 
 How far each iteration reaches is not stepped into either - it is a **schedule derived up front** from the initial lookback, the maximum span and the iteration budget, as a geometric progression from the first to the last. With the shipped defaults (30, 180, 3) that is 30, 73, 180 minutes. Small steps first because causes cluster near the onset; the long reach last. Deriving it up front is what makes the final iteration land *exactly* on the maximum span, so "the onset predates everything retrievable" is a conclusion the loop can actually reach rather than a branch no run ever takes - which is what a step-and-clamp rule (double each time, stop at the ceiling) silently produces whenever the budget or the ceiling is reconfigured.
 
@@ -380,7 +381,7 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 | Integration | Read/query standard | Write/mutate standard | Demo adapter |
 |---|---|---|---|
 | Feature flags | **Yes - OFREP** (OpenFeature Remote Evaluation Protocol): single/bulk flag evaluation, `ETag` caching, bearer-token auth | No - flag management (create/toggle/target) is vendor-specific (LaunchDarkly, Unleash, Flagsmith all differ) | **Unleash**, self-hosted: OFREP for reads, Unleash's admin REST API for the toggle/revert Mitigation performs |
-| Deployment state / rollback | No | No - GitOps tools (ArgoCD, Flux) reconcile from Git with their own rollback commands; CI tools (GitHub Actions, CircleCI) each have their own trigger API; nothing shared | **Git revert + push**, GitOps-style, via `argus-write-mcp`. "Currently deployed" = current HEAD of a designated branch. Reuses the git tooling Code-Fix needs, at a different tool/tier (§13) |
+| Deployment state / rollback | No | No - GitOps tools (Argo CD, Flux) reconcile from Git with their own rollback commands; CI tools (GitHub Actions, CircleCI) each have their own trigger API; nothing shared | **Git revert + push**, GitOps-style, via `argus-write-mcp`. "Currently deployed" = current HEAD of a designated branch. Reuses the git tooling Code-Fix needs, at a different tool/tier (§13) |
 | Logs | No - format and storage both vary per team, no interop standard | N/A - Argus never writes to Target Service logs | Target Service HTTP log endpoint (`GET /logs`, no params - returns full log), windowing/filtering done in `argus-read-mcp` itself (§16) |
 | Metrics | **De facto - Prometheus-compatible query API** (PromQL); emission standardized via **OTLP**, but OTel isn't a backend itself | N/A - Argus only reads metrics | Target Service → OTel SDK → local **OTel Collector** → **Prometheus**; `argus-read-mcp` queries Prometheus's HTTP API |
 | Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API - reads via `argus-read-mcp`, writes via `argus-write-mcp` |
@@ -393,7 +394,7 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 
 | Server | Exposes |
 |---|---|
-| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; OFREP flag evaluation; Chroma memory query; Slack channel/thread reads |
+| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); OFREP flag evaluation; Chroma memory query; Slack channel/thread reads |
 | `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**; Slack post/create-channel; email send via SMTP relay; Chroma memory write |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
@@ -442,6 +443,7 @@ A real, small, runnable app (e.g. a toy checkout/orders API) in its own repo, `a
 
 - **Business logic** - real endpoints with real feature-flag checkpoints, reading live flag state through an OFREP client pointed at Unleash (§12).
 - **A log endpoint** - `GET /logs`, returns the full log with no filtering; windowing/capping logic lives in `argus-read-mcp` (§16), not the adapter.
+- **A deploy-history endpoint**, shaped like Argo CD's own application API (`status.history[]` - revision, when it went live, where it came from), so the change-event channel (§16) has a real vendor response to map rather than a shape invented for the demo. It takes no time parameters, exactly as Argo CD's does not - filtering to the window is the adapter's job.
 - **A committed test suite**, including, per scenario, a **ground-truth fixture test** that fails against the seeded "bad" commit and passes once correctly patched. This is what Code-Fix's PRs are graded against, and the one file it can't modify (§13) - everything else, including new tests it adds, is unrestricted.
 - **A scenario-control module**, under its own route prefix (e.g. `/demo-control/*`), structurally separate from business-logic routes so the business logic never needs to know a control panel exists.
 
@@ -472,23 +474,38 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
 | Upstream dependency failure | simulated downstream failure, no controllable cause | never, automatically | exhaust reversible options, escalate |
 | Multiple causes | two of the above seeded together | all seeded conditions reverted | mitigate/fix each without false-attributing to only one |
 
-## 16. Log and Metrics Windowing Strategy
+## 16. Retrieval Windowing Strategy
 
-Unbounded logs are slow and a poor use of context, so retrieval is windowed in time and staged in two phases.
+Unbounded logs are slow and a poor use of context, so retrieval is windowed in time and split across three channels, each answering a different question at a different price.
 
-**Time window.** The two phases anchor differently, because they cost differently. Metrics are pre-aggregated - one minute is four numbers - so the summary is fetched wide around the alert timestamp `T0`, spanning the full configured maximum. What it yields is the incident's *onset*: the first minute whose values break from baseline. Log lines are expensive, so they are fetched narrow and anchored on that onset rather than on `T0` - an alert fires when a threshold trips, which can be well after the incident began, so a window centred on `T0` can miss the causal change entirely. The cheap phase aims the expensive one.
+| Channel | Question | Window | Read |
+| --- | --- | --- | --- |
+| `get_metrics_summary` | *When* did it start? | one fixed, wide span around `T0` | once |
+| `get_change_events` | *What changed?* | `[onset - change_lookback, onset]` | once |
+| `get_log_lines` | What did the service say? | narrow, anchored on onset | once per iteration, widening |
+
+**Time window.** The metrics and log phases anchor differently, because they cost differently. Metrics are pre-aggregated - one minute is four numbers - so the summary is fetched wide around the alert timestamp `T0`, spanning the full configured maximum. What it yields is the incident's *onset*: the first minute whose values break from baseline. Log lines are expensive, so they are fetched narrow and anchored on that onset rather than on `T0` - an alert fires when a threshold trips, which can be well after the incident began, so a window centred on `T0` can miss the causal change entirely. The cheap phase aims the expensive one.
 
 Only the log window iterates. The metrics window is fixed at the configured maximum span and stays there - narrowing the cheap signal would hide the very onset it exists to find, and it is small enough that there is no reason to be stingy. The log window's initial lookback and lookahead are config, setting the *first* iteration only; later iterations choose their own (§9), bounded by that same maximum span the server enforces, so widening cannot degenerate into a full dump. "Now" keeps moving, so the upper bound is re-evaluated each iteration. The risk is asymmetric - too wide wastes context, too narrow loses the evidence silently - so these are tunable per benchmark scenario rather than hardcoded.
 
-**Two-phase retrieval:**
-1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first every iteration - re-read not to widen but to pick up the minutes that elapsed since the last one, which is how the loop notices the incident self-resolving or worsening while it investigates.
-2. `get_log_lines(window, filters)` - raw lines for a window anchored on the onset the summary located.
+**The three channels:**
+1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first: it locates the onset the other two anchor on.
+2. `get_change_events(service, window)` - the deploys and configuration changes recorded for the service, as structured rows.
+3. `get_log_lines(window, filters)` - raw lines for a window anchored on the onset the summary located.
+
+**Why changes are their own channel.** A symptom is a rate; a cause is an *event*, and the lag between the two is unbounded. A deploy that exhausts a connection pool may take an hour to show as errors, and no log lookback is reliably the right one - widening buys log noise linearly while the changes stay a handful of rows however far back the window reaches. So they are queried directly, over a span deliberately wider than the log ceiling (a cross-field invariant enforces `change_lookback_minutes > log_max_window_minutes`, since a change window no wider than the logs' could surface nothing the logs did not).
+
+That window **ends at the onset**, not at `T0` and not at "now": a change made after the incident began did not begin it. It is anchored on the onset for the same reason the log window is - `T0` is when somebody's threshold tripped, not when the incident started.
+
+An unreachable change source **raises**; it never returns an empty list. "Nothing changed" is a conclusion a hypothesis gets built on, and it must not be reachable by failing to look.
+
+Parsing a vendor's response into change events is deterministic code, never a model. A hallucinated deploy is a fabricated cause. The model's job is to judge whether a change *explains* the symptoms - proximity in time is not evidence, and most changes break nothing.
 
 **Why the log phase takes a window and not a list of anomalous minutes.** Scoping log retrieval to the minutes the summary flagged is wrong: it can only ever return symptoms. A cause is a point-in-time *event* - a flag flipped, a version deployed - and the error rate reacts to it a minute or more later, so the causal line sits in a minute that still looks perfectly healthy and would be excluded by exactly the filter meant to find it. Anomalous minutes tell you *when* to look; the window is what reaches back *before* them. This is also why the log window anchors on onset rather than on the loudest bucket.
 
-Both live in `argus-read-mcp` (§12.1). Windowing and filtering are the server's responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic.
+All three live in `argus-read-mcp` (§12.1) - autonomy tier is a property of the server, so the Investigator gains a `fetch_change_events` seam and never learns which vendor answers it. Windowing and filtering are the server's responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic. One change source per change type: deploys come from Argo CD's revision history, flag flips from the flag provider's audit log.
 
-The Investigator's default path (§9): aggregate → locate onset → read a narrow window anchored on it - never a full dump.
+The Investigator's default path (§9): aggregate → locate onset → read what changed before it → read a narrow window anchored on it - never a full dump.
 
 ## 17. Model Selection Per Task
 
@@ -717,7 +734,8 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Feature flags | Unleash, OFREP for reads, Unleash admin API for writes (§12) | OFREP is a genuine adopted standard for reads; Unleash is a solid free adapter |
 | Deploy/rollback | Git revert + push via `argus-write-mcp`, GitOps-style (§12) | No cross-vendor standard exists; reuses the git tooling Code-Fix already needs |
 | Metrics | OTLP for emission, Prometheus-compatible query API for reads (§12) | OTLP is a real emission standard; Prometheus's query API is the closest thing to a de facto read standard |
-| Logs | Target Service HTTP log endpoint, two-phase windowed retrieval (§16) | No standard exists; dumb full-log endpoint keeps windowing logic in `argus-read-mcp`, not the adapter, so other backends (filesystem, S3) stay swappable without filtering support |
+| Logs | Target Service HTTP log endpoint, windowed retrieval (§16) | No standard exists; dumb full-log endpoint keeps windowing logic in `argus-read-mcp`, not the adapter, so other backends (filesystem, S3) stay swappable without filtering support |
+| Change events | Argo CD's application API for deploys, one source per change type, mapped to a vendor-neutral `ChangeEvent` (§16) | A cause is an event, not a rate, and can precede its symptoms by an unbounded lag - no log lookback reaches it reliably. Parsing is deterministic code, never a model: a hallucinated deploy is a fabricated cause |
 | Confidence thresholds | Mitigation ≥ 0.75, escalate after 3 failed iterations (§10) | Empirically tunable, but named config from day one |
 | Repository structure | `uv` workspace, one `pyproject.toml` per module (§20) | Independent versioning/deployment inside one repo |
 | Testing discipline | TDD in Argus's own repo - the coding agent never writes/edits/deletes tests there (§18.3). Separately, the runtime Code-Fix agent writes tests freely in the Target Service repo, except one protected ground-truth fixture (§13) | Two distinct rules, two agents, two reasons: development process integrity vs. evaluation grading integrity |
@@ -728,7 +746,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 
 - How much realism to build into the Target Environment (§15) vs. time spent on agent logic - timebox early. The interface must match a real environment's *kind* of APIs (§2); depth beyond that is a judgment call per component.
 - LLM cost/latency of multiple agent hops per incident - consider caching and scenario replay for the benchmark suite (§21.4) so eval runs don't re-spend tokens, and load-test per-incident latency for the live demo path (webhook → resolution) specifically, not just the benchmark re-run path.
-- How much of the two-phase windowing strategy (§16) generalizes if a future adapter swaps Prometheus or the Target Service's log endpoint for something else (CloudWatch, Elasticsearch, S3) - the ports-and-adapters design (§12) is meant to allow this, and the `jsonb` adapter-config shape (§11.3) is meant to make it schema-free, but no second adapter has been built to validate either claim.
+- How much of the windowing strategy (§16) generalizes if a future adapter swaps Prometheus, Argo CD or the Target Service's log endpoint for something else (CloudWatch, Elasticsearch, S3) - the ports-and-adapters design (§12) is meant to allow this, and the `jsonb` adapter-config shape (§11.3) is meant to make it schema-free, but no second adapter has been built to validate either claim.
 - Alert ingestion needs to accept any reasonable third-party format (Grafana, Datadog, PagerDuty, a team's own webhook, ...) without a hand-written parser per vendor - this isn't ports-and-adapters (§12), since Argus doesn't choose who sends it alerts. The intended mechanism is LLM-based structured extraction at the `argus_web` boundary: a single, non-agentic LLM call that fills in the `Alert` domain model's schema from the raw payload, validated by the model itself - not a ReAct loop. Not yet built - the walking-skeleton change deliberately ships one hardcoded, deterministic parser (Grafana's format) to prove the graph/DB wiring first, without also taking on LLM-extraction-reliability risk in the same change. Generic ingestion is real, tracked future work, likely its own follow-up change once the skeleton lands.
 - The confidence-threshold numbers in §10 (0.75 to mitigate, escalate after 3 failed iterations) are testable, not fixed - expect to tune them against real benchmark results (§21).
 - Whether MCP (§12) vs. a simpler internal tool-calling layer was right for the course timeline - worth a retrospective once a few MCP servers are built; either satisfies the "Tools/MCP" requirement, but the tradeoff is easier to judge with real implementation experience.

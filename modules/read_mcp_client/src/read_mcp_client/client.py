@@ -4,6 +4,7 @@ from typing import cast
 
 from argus_core.config import get_settings
 from argus_core.mcp_transport import call_mcp_tool
+from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 
 
@@ -47,3 +48,27 @@ def get_metrics_summary(alert_time: str | None = None,
         window_start=window_start,
         window_end=window_end)
     return [MetricBucket.model_validate(bucket) for bucket in cast(list[object], result)]
+
+
+def get_change_events(service: str,
+                      window_start: str,
+                      window_end: str) -> list[ChangeEvent]:
+    """Reads what changed on a service within one window of an incident.
+
+    The third retrieval channel (spec §16). Its window is deliberately far
+    wider than a log window's: a deploy or a flag flip can precede the symptoms
+    it causes by an unbounded lag, and there are only ever a handful of changes
+    to read where there would be millions of log lines.
+
+    Raises rather than returning an empty list when the change source cannot be
+    reached, because "nothing changed" is a conclusion a caller will act on.
+    """
+    settings = get_settings()
+    result = call_mcp_tool(
+        f"{settings.read_mcp_url}/mcp",
+        "get_change_events",
+        service=service,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    return [ChangeEvent.model_validate(change) for change in cast(list[object], result)]

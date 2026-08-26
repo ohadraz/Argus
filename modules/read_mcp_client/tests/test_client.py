@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 import pytest
 from argus_core.config import get_settings
+from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso
 from argus_testkit.assertions import Assertion, all_of
@@ -18,7 +19,7 @@ from framework.builders import (
     a_metric_at,
     an_iso_minute,
 )
-from read_mcp_client import get_log_lines, get_metrics_summary
+from read_mcp_client import get_change_events, get_log_lines, get_metrics_summary
 
 
 @pytest.mark.integration
@@ -81,6 +82,68 @@ def test_both_retrieval_phases_drive_each_other_through_the_client(
                 a_failure_line_at(some_time_the_error_appeared),
             ]),
         ))
+@pytest.mark.integration
+def test_get_change_events_reaches_the_real_read_mcp_server(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    # The whole path, in one call: the typed client, a real MCP round trip, the
+    # tool, the port, the Argo CD adapter, and an HTTP response in Argo CD's own
+    # shape - with only the server at the far end faked.
+    some_deploy_time = datetime(2026, 8, 20, 11, 45, 0, tzinfo=UTC)
+    some_revision = "9f4c1e7b2a3d5c8e"
+    the_target_service_has_deploys = partial(_the_target_service_has_deploys, running_read_mcp)
+
+    Scenario() \
+        .given(
+            the_target_service_has_deploys(
+                [_an_argocd_deploy_at(some_deploy_time, revision=some_revision)]
+            )
+        ) \
+        .when(
+            lambda: get_change_events(
+                "kukibuki-service",
+                window_start=an_iso_minute(some_deploy_time - timedelta(hours=1)),
+                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1)),
+            )
+        ) \
+        .then(
+            _the_changes_reference(some_revision)
+        )
+
+
+def _the_target_service_has_deploys(
+    handler: type[FakeTargetServiceHandler], deploys: list[dict[str, object]]
+) -> Callable[[], None]:
+    def step() -> None:
+        handler.deploys = deploys
+
+    return step
+
+
+def _an_argocd_deploy_at(moment: datetime, revision: str) -> dict[str, object]:
+    return {
+        "id": 12,
+        "revision": revision,
+        "deployedAt": an_iso_minute(moment),
+        "deployStartedAt": an_iso_minute(moment - timedelta(minutes=1)),
+        "source": {
+            "repoURL": "https://github.com/kuki/k8s-configs",
+            "path": "apps/target-service/production",
+            "targetRevision": "main",
+        },
+        "initiatedBy": {"username": "kuki"},
+    }
+
+
+def _the_changes_reference(*expected_references: str) -> Assertion[list[ChangeEvent]]:
+    def assertion(changes: list[ChangeEvent]) -> bool:
+        actual = [change.reference for change in changes]
+        assert actual == list(expected_references), (
+            f"Expected changes {list(expected_references)}, got {actual}."
+        )
+        return True
+
+    return assertion
 
 
 class _DrillDown(NamedTuple):

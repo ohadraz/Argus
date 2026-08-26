@@ -3,49 +3,39 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from typing import Any
+from typing import Any, NamedTuple
 from unittest.mock import create_autospec
 
 import pytest
 from agent_investigator import investigate
 from agent_investigator.reasoning import propose_hypothesis
-from agent_investigator.retrieval import fetch_logs, fetch_metrics
+from agent_investigator.retrieval import fetch_change_events, fetch_logs, fetch_metrics
 from argus_core.config import get_settings
 from argus_core.ids import new_id
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso, to_iso_minute
-from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.scenario import Scenario, attempting
 
 
 @pytest.mark.unit
 def test_investigate_returns_a_hypothesis_the_model_is_confident_enough_about() -> None:
-    dont_care_logs: list[str] = []
     some_confident_hypothesis = a_hypothesis_at(a_confident_score())
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
+    investigation = an_investigation()
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_calm()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(some_confident_hypothesis),
+            investigation.metrics_showed(a_window_that_starts_calm()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(some_confident_hypothesis),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             _the_hypothesis_is(some_confident_hypothesis)
@@ -56,29 +46,18 @@ def test_investigate_returns_a_hypothesis_the_model_is_confident_enough_about() 
 def test_investigate_stops_asking_once_a_hypothesis_is_confident_enough() -> None:
     # The first iteration answered, so the rest of the budget is not spent -
     # every further iteration would be another model call paid for nothing.
-    dont_care_logs: list[str] = []
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
-    the_model_was_asked = partial(_the_model_was_asked, hypothesis_proposer)
+    investigation = an_investigation()
+    the_model_was_asked = partial(_the_model_was_asked, investigation.hypothesis_proposer)
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_calm()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(a_hypothesis_at(a_confident_score())),
+            investigation.metrics_showed(a_window_that_starts_calm()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             the_model_was_asked(times=1)
@@ -92,30 +71,19 @@ def test_investigate_distrusts_a_confident_answer_from_a_mid_incident_window() -
     # from that, and reported certainty about evidence it was never shown - it
     # cannot miss what it never saw. One widening is the price of being
     # believed here.
-    dont_care_logs: list[str] = []
     the_first_answer_plus_one_widening = 2
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
-    the_model_was_asked = partial(_the_model_was_asked, hypothesis_proposer)
+    investigation = an_investigation()
+    the_model_was_asked = partial(_the_model_was_asked, investigation.hypothesis_proposer)
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(a_hypothesis_at(a_confident_score())),
+            investigation.metrics_showed(a_window_that_starts_mid_incident()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             the_model_was_asked(times=the_first_answer_plus_one_widening)
@@ -126,35 +94,22 @@ def test_investigate_distrusts_a_confident_answer_from_a_mid_incident_window() -
 def test_investigate_returns_the_confident_answer_from_the_wider_window() -> None:
     # Having widened, the loop believes the better-informed answer - not the
     # first one, which is the one it distrusted enough to widen for.
-    dont_care_logs: list[str] = []
     the_answer_from_the_narrow_window = a_hypothesis_at(a_confident_score())
     the_answer_from_the_wider_window = a_hypothesis_at(a_confident_score())
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_answers_in_turn = partial(
-        _answering_in_turn, hypothesis_proposer
-    )
+    investigation = an_investigation()
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_answers_in_turn(
+            investigation.metrics_showed(a_window_that_starts_mid_incident()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered_in_turn(
                 the_answer_from_the_narrow_window,
                 the_answer_from_the_wider_window,
             ),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             _the_hypothesis_is(the_answer_from_the_wider_window)
@@ -167,37 +122,24 @@ def test_investigate_keeps_a_confident_answer_the_budget_later_ran_out_after() -
     # wider look comes back unsure, the one confident finding is still the best
     # thing Argus learned, and reporting "no cause" instead would be a lie
     # about its own evidence.
-    dont_care_logs: list[str] = []
     iteration_budget = get_settings().investigation_max_iterations
     the_only_confident_answer = a_hypothesis_at(a_confident_score())
     every_later_answer = [
         a_hypothesis_at(an_unconfident_score()) for _ in range(iteration_budget - 1)
     ]
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_answers_in_turn = partial(
-        _answering_in_turn, hypothesis_proposer
-    )
+    investigation = an_investigation()
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_answers_in_turn(
+            investigation.metrics_showed(a_window_that_starts_mid_incident()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered_in_turn(
                 the_only_confident_answer, *every_later_answer
             ),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             _the_hypothesis_is(the_only_confident_answer)
@@ -206,30 +148,19 @@ def test_investigate_keeps_a_confident_answer_the_budget_later_ran_out_after() -
 
 @pytest.mark.unit
 def test_investigate_never_asks_more_times_than_the_iteration_budget() -> None:
-    dont_care_logs: list[str] = []
     iteration_budget = get_settings().investigation_max_iterations
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
-    the_model_was_asked = partial(_the_model_was_asked, hypothesis_proposer)
+    investigation = an_investigation()
+    the_model_was_asked = partial(_the_model_was_asked, investigation.hypothesis_proposer)
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(a_hypothesis_at(an_unconfident_score())),
+            investigation.metrics_showed(a_window_that_starts_mid_incident()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(an_unconfident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             the_model_was_asked(times=iteration_budget)
@@ -241,31 +172,20 @@ def test_investigate_reaches_further_back_when_the_window_opens_mid_incident() -
     # No calm stretch is visible, so the onset predates everything retrieved
     # and the next iteration has to widen. Structural: it does not depend on
     # how confident the model happened to sound.
-    dont_care_logs: list[str] = []
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
+    investigation = an_investigation()
     each_log_window_reached_further_back = partial(
-        _each_log_window_reached_further_back, log_fetcher
+        _each_log_window_reached_further_back, investigation.log_fetcher
     )
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(a_hypothesis_at(an_unconfident_score())),
+            investigation.metrics_showed(a_window_that_starts_mid_incident()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(an_unconfident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             each_log_window_reached_further_back()
@@ -277,34 +197,129 @@ def test_investigate_anchors_the_log_window_before_the_onset() -> None:
     # A flag toggle lands in a minute that still looks healthy - the error rate
     # reacts only afterwards - so a window starting *at* the onset would
     # structurally exclude the cause.
-    dont_care_logs: list[str] = []
     window = a_window_that_starts_calm()
     onset = window[CALM_MINUTES].bucket_id
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
-    the_log_window_started_before = partial(_the_log_window_started_before, log_fetcher)
+    investigation = an_investigation()
+    the_log_window_started_before = partial(
+        _the_log_window_started_before, investigation.log_fetcher
+    )
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(window),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(a_hypothesis_at(a_confident_score())),
+            investigation.metrics_showed(window),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             the_log_window_started_before(onset)
+        )
+
+
+@pytest.mark.unit
+def test_investigate_asks_for_changes_over_the_configured_lookback_before_the_onset() -> None:
+    # The change window is the caller's judgement about how far a cause may
+    # precede its symptoms, and it ends at the onset: a change after the
+    # incident began did not begin it.
+    window = a_window_that_starts_calm()
+    onset = window[CALM_MINUTES].bucket_id
+    investigation = an_investigation()
+    the_changes_asked_for_spanned = partial(
+        _the_changes_asked_for_spanned, investigation.change_fetcher
+    )
+
+    Scenario() \
+        .given(
+            investigation.metrics_showed(window),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
+        ) \
+        .when(
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
+        ) \
+        .then(
+            the_changes_asked_for_spanned(
+                the_configured_change_lookback_before(onset), until=onset
+            )
+        )
+
+
+@pytest.mark.unit
+def test_investigate_shows_the_model_what_changed() -> None:
+    # The point of the third channel: a deploy that no log window would have
+    # reached still arrives as evidence.
+    some_deploy = a_deploy_of("9f4c1e7b2a3d5c8e")
+    investigation = an_investigation()
+    the_model_saw_changes = partial(_the_model_saw_changes, investigation.hypothesis_proposer)
+
+    Scenario() \
+        .given(
+            investigation.metrics_showed(a_window_that_starts_calm()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.changes_were([some_deploy]),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
+        ) \
+        .when(
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
+        ) \
+        .then(
+            the_model_saw_changes([some_deploy])
+        )
+
+
+@pytest.mark.unit
+def test_investigate_reads_the_changes_once_across_a_widening_investigation() -> None:
+    # Changes are already retrieved over a window wider than any the log
+    # schedule reaches, so re-reading them per iteration would return the same
+    # handful of rows at the same cost as the first time.
+    iteration_budget = get_settings().investigation_max_iterations
+    investigation = an_investigation()
+    the_changes_were_read = partial(_the_changes_were_read, investigation.change_fetcher)
+    the_logs_were_read = partial(_the_logs_were_read, investigation.log_fetcher)
+
+    Scenario() \
+        .given(
+            investigation.metrics_showed(a_window_that_starts_mid_incident()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(an_unconfident_score())),
+        ) \
+        .when(
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
+        ) \
+        .then(all_of(
+            the_changes_were_read(times=1),
+            the_logs_were_read(times=iteration_budget),
+        ))
+
+
+@pytest.mark.unit
+def test_investigate_does_not_continue_when_the_change_source_cannot_be_reached() -> None:
+    # "Could not ask what changed" must not become "nothing changed". Carrying
+    # on with logs alone would produce a hypothesis that reads as though the
+    # change evidence had been seen and found empty.
+    investigation = an_investigation()
+
+    Scenario() \
+        .given(
+            investigation.metrics_showed(a_window_that_starts_calm()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.the_change_source_failed(
+                RuntimeError("MCP tool call [get_change_events] failed")
+            ),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
+        ) \
+        .when(
+            attempting(
+                lambda: investigation.investigate(an_alert(), incident_id=new_id())
+            )
+        ) \
+        .then(
+            an_error_was_raised(RuntimeError)
         )
 
 
@@ -313,28 +328,17 @@ def test_investigate_reports_no_cause_when_the_iteration_budget_is_spent() -> No
     # The honest outcome: the incident began before anything Argus can read.
     # A hypothesis manufactured to fill the field would be indistinguishable
     # from a real diagnosis to whoever picks the incident up.
-    dont_care_logs: list[str] = []
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
+    investigation = an_investigation()
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_window_that_starts_mid_incident()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(a_hypothesis_at(an_unconfident_score())),
+            investigation.metrics_showed(a_window_that_starts_mid_incident()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(an_unconfident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             _the_hypothesis_names_no_cause()
@@ -346,29 +350,18 @@ def test_investigate_does_not_ask_the_model_when_no_minute_is_anomalous() -> Non
     # Nothing departs from baseline, so there is no onset to anchor a log
     # window on and nothing to explain. Asking anyway pays a model to invent
     # one.
-    dont_care_logs: list[str] = []
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
-    the_model_was_asked = partial(_the_model_was_asked, hypothesis_proposer)
+    investigation = an_investigation()
+    the_model_was_asked = partial(_the_model_was_asked, investigation.hypothesis_proposer)
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_steady_window()),
-            the_log_fetcher_returns(dont_care_logs),
-            the_hypothesis_proposer_returns(a_hypothesis_at(a_confident_score())),
+            investigation.metrics_showed(a_steady_window()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             all_of(
@@ -382,28 +375,18 @@ def test_investigate_does_not_ask_the_model_when_no_minute_is_anomalous() -> Non
 def test_investigate_shows_the_model_everything_it_retrieved() -> None:
     window = a_window_that_starts_calm()
     some_log_lines = ["INFO target-service: feature flag 'checkout-v2' toggled on"]
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
-    the_hypothesis_proposer_returns = partial(_returning, hypothesis_proposer)
-    the_model_saw = partial(_the_model_saw, hypothesis_proposer)
+    investigation = an_investigation()
+    the_model_saw = partial(_the_model_saw, investigation.hypothesis_proposer)
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(window),
-            the_log_fetcher_returns(some_log_lines),
-            the_hypothesis_proposer_returns(a_hypothesis_at(a_confident_score())),
+            investigation.metrics_showed(window),
+            investigation.logs_showed(some_log_lines),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
             the_model_saw(buckets=window, log_lines=some_log_lines)
@@ -415,27 +398,17 @@ def test_an_undetermined_hypothesis_belongs_to_the_incident_it_was_asked_about()
     # The one hypothesis `investigate` authors itself, so the one place it has
     # to stamp the incident on. A determined one comes from the model already
     # carrying it.
-    dont_care_logs: list[str] = []
     some_incident_id = new_id()
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
+    investigation = an_investigation()
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_steady_window()),
-            the_log_fetcher_returns(dont_care_logs),
+            investigation.metrics_showed(a_steady_window()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
         ) \
         .when(
-            lambda: investigate(
-                an_alert(),
-                incident_id=some_incident_id,
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
-            )
+            lambda: investigation.investigate(an_alert(), incident_id=some_incident_id)
         ) \
         .then(
             _the_hypothesis_belongs_to(some_incident_id)
@@ -444,27 +417,20 @@ def test_an_undetermined_hypothesis_belongs_to_the_incident_it_was_asked_about()
 
 @pytest.mark.unit
 def test_an_undetermined_hypothesis_says_which_alert_it_could_not_explain() -> None:
-    dont_care_logs: list[str] = []
     service = "buki"
     alert_name = "HighErrorRate"
-    metrics_fetcher = a_mock_metrics_fetcher()
-    log_fetcher = a_mock_log_fetcher()
-    hypothesis_proposer = a_mock_hypothesis_proposer()
-    the_metrics_fetcher_returns = partial(_returning, metrics_fetcher)
-    the_log_fetcher_returns = partial(_returning, log_fetcher)
+    investigation = an_investigation()
 
     Scenario() \
         .given(
-            the_metrics_fetcher_returns(a_steady_window()),
-            the_log_fetcher_returns(dont_care_logs),
+            investigation.metrics_showed(a_steady_window()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
         ) \
         .when(
-            lambda: investigate(
+            lambda: investigation.investigate(
                 Alert(service=service, alert_name=alert_name, started_at=AN_ALERT_TIME),
                 incident_id=new_id(),
-                fetch_metrics=metrics_fetcher,
-                fetch_logs=log_fetcher,
-                propose_hypothesis=hypothesis_proposer,
             )
         ) \
         .then(
@@ -476,8 +442,65 @@ CALM_MINUTES = 6
 CALM_P50_MS = 80
 CALM_P95_MS = 200
 DONT_CARE_REQUEST_VOLUME = 1000
+DONT_CARE_LOGS: list[str] = []
 WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 AN_ALERT_TIME = datetime(2026, 8, 20, 11, 8, tzinfo=UTC)
+
+
+class Investigation(NamedTuple):
+    """The four collaborators `investigate` takes, and the call that uses them.
+
+    A builder rather than four locals per test: the loop has four seams now,
+    and repeating their construction sixteen times buried the one or two lines
+    each test actually cares about. The `given` steps below name what each
+    stand-in *reported*, so the arrangement still reads in the test rather than
+    hiding in a fixture.
+    """
+
+    metrics_fetcher: Any
+    log_fetcher: Any
+    change_fetcher: Any
+    hypothesis_proposer: Any
+
+    def investigate(self, alert: Alert, incident_id: str) -> Hypothesis:
+        return investigate(
+            alert,
+            incident_id=incident_id,
+            fetch_metrics=self.metrics_fetcher,
+            fetch_logs=self.log_fetcher,
+            fetch_change_events=self.change_fetcher,
+            propose_hypothesis=self.hypothesis_proposer,
+        )
+
+    def metrics_showed(self, buckets: list[MetricBucket]) -> Callable[[], None]:
+        return _returning(self.metrics_fetcher, buckets)
+
+    def logs_showed(self, lines: list[str]) -> Callable[[], None]:
+        return _returning(self.log_fetcher, lines)
+
+    def changes_were(self, changes: list[ChangeEvent]) -> Callable[[], None]:
+        return _returning(self.change_fetcher, changes)
+
+    def no_changes_were_recorded(self) -> Callable[[], None]:
+        return _returning(self.change_fetcher, [])
+
+    def the_change_source_failed(self, error: Exception) -> Callable[[], None]:
+        return _raising(self.change_fetcher, error)
+
+    def the_model_answered(self, hypothesis: Hypothesis) -> Callable[[], None]:
+        return _returning(self.hypothesis_proposer, hypothesis)
+
+    def the_model_answered_in_turn(self, *hypotheses: Hypothesis) -> Callable[[], None]:
+        return _answering_in_turn(self.hypothesis_proposer, *hypotheses)
+
+
+def an_investigation() -> Investigation:
+    return Investigation(
+        metrics_fetcher=create_autospec(fetch_metrics),
+        log_fetcher=create_autospec(fetch_logs),
+        change_fetcher=create_autospec(fetch_change_events),
+        hypothesis_proposer=create_autospec(propose_hypothesis),
+    )
 
 
 def an_alert() -> Alert:
@@ -492,6 +515,12 @@ def an_unconfident_score() -> float:
     return get_settings().mitigate_threshold / 2
 
 
+def the_configured_change_lookback_before(moment: str) -> str:
+    lookback = timedelta(minutes=get_settings().change_lookback_minutes)
+
+    return to_iso_minute(parse_iso(moment) - lookback)
+
+
 def a_hypothesis_at(confidence: float) -> Hypothesis:
     return Hypothesis(
         incident_id=new_id(),
@@ -502,16 +531,15 @@ def a_hypothesis_at(confidence: float) -> Hypothesis:
     )
 
 
-def a_mock_metrics_fetcher() -> Any:
-    return create_autospec(fetch_metrics)
-
-
-def a_mock_log_fetcher() -> Any:
-    return create_autospec(fetch_logs)
-
-
-def a_mock_hypothesis_proposer() -> Any:
-    return create_autospec(propose_hypothesis)
+def a_deploy_of(revision: str) -> ChangeEvent:
+    return ChangeEvent(
+        kind=ChangeKind.DEPLOY,
+        occurred_at=to_iso_minute(WINDOW_START),
+        reference=revision,
+        summary=f"deployed revision {revision}",
+        actor="kuki",
+        source="https://github.com/kuki/k8s-configs/apps/target-service/production",
+    )
 
 
 def a_steady_window() -> list[MetricBucket]:
@@ -549,6 +577,13 @@ def _returning(double: Any, value: Any) -> Callable[[], None]:
 
     def step() -> None:
         double.return_value = value
+
+    return step
+
+
+def _raising(double: Any, error: Exception) -> Callable[[], None]:
+    def step() -> None:
+        double.side_effect = error
 
     return step
 
@@ -623,6 +658,28 @@ def _the_model_was_asked(proposer: Any, times: int) -> Assertion[Any]:
     return assertion
 
 
+def _the_changes_were_read(change_fetcher: Any, times: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        assert change_fetcher.call_count == times, (
+            f"Expected changes to be read {times} time(s), "
+            f"they were read {change_fetcher.call_count}."
+        )
+        return True
+
+    return assertion
+
+
+def _the_logs_were_read(log_fetcher: Any, times: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        assert log_fetcher.call_count == times, (
+            f"Expected logs to be read {times} time(s), "
+            f"they were read {log_fetcher.call_count}."
+        )
+        return True
+
+    return assertion
+
+
 def _the_model_saw(
     proposer: Any, buckets: list[MetricBucket], log_lines: list[str]
 ) -> Assertion[Any]:
@@ -640,12 +697,43 @@ def _the_model_saw(
     return assertion
 
 
+def _the_model_saw_changes(proposer: Any, changes: list[ChangeEvent]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        evidence = proposer.call_args.args[0]
+        assert evidence.change_events == changes, (
+            f"Expected the model to see {[change.reference for change in changes]}, "
+            f"it saw {[change.reference for change in evidence.change_events]}."
+        )
+        return True
+
+    return assertion
+
+
 def _the_log_window_started_before(log_fetcher: Any, onset: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         requested_start = parse_iso(log_fetcher.call_args.args[0])
         assert requested_start < parse_iso(onset), (
             f"Expected the log window to start before the onset at [{onset}], "
             f"it started at [{log_fetcher.call_args.args[0]}]."
+        )
+        return True
+
+    return assertion
+
+
+def _the_changes_asked_for_spanned(
+    change_fetcher: Any, expected_start: str, until: str
+) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        _service, window_start, window_end = change_fetcher.call_args.args
+
+        assert parse_iso(window_start) == parse_iso(expected_start), (
+            f"Expected the change window to start at [{expected_start}], "
+            f"it started at [{window_start}]."
+        )
+        assert parse_iso(window_end) == parse_iso(until), (
+            f"Expected the change window to end at the onset [{until}], "
+            f"it ended at [{window_end}]."
         )
         return True
 

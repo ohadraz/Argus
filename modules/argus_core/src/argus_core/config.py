@@ -59,6 +59,26 @@ class Settings(BaseSettings):
     # the calm ones the baseline is derived from.
     anomaly_deviations_from_baseline: float = Field(default=3.0, gt=0.0)
 
+    # Where deploy history is read from. The demo Target Service stands in for
+    # a real Argo CD server, so the default points at it - but the adapter
+    # makes the request a real Argo CD answers, and pointing these at one is
+    # the only change needed.
+    argocd_base_url: str = Field(default="http://localhost:8080")
+    # A template, so the demo's stand-in and a real Argo CD's
+    # `/api/v1/applications/{application}` are the same setting - only the
+    # value differs. A path carrying no placeholder is formatted to itself.
+    argocd_application_path: str = Field(default="/argocd/{application}")
+    # Empty means no credential is sent at all, rather than an invented one -
+    # the stand-in needs none, and a real Argo CD issues these to operators.
+    argocd_auth_token: str = Field(default="")
+
+    # How far back to look for changes. Wide on purpose, and far wider than
+    # any log window: a cause precedes its symptoms by an unbounded lag - a
+    # flag toggled at 09:00 that only breaks under the 14:00 peak - and
+    # changes are sparse, so a day of them is a handful of rows where a day of
+    # logs is millions of lines.
+    change_lookback_minutes: int = Field(default=1440, gt=0)
+
     @property
     def database_url(self) -> str:
         return (
@@ -84,6 +104,10 @@ class Settings(BaseSettings):
         - The metrics span must exceed that ceiling. Metrics exist to locate an
           onset the log budget may not reach; a metrics window no wider than
           the logs' can only ever confirm what the logs already showed.
+        - The change lookback must exceed it too, for the same reason. The
+          change channel exists to surface a cause the log window cannot
+          reach; no wider than the ceiling, it can only repeat what the logs
+          already carried.
         """
         derived_log_window_minutes = (
             self.log_initial_lookback_minutes + self.log_initial_lookahead_minutes
@@ -99,6 +123,12 @@ class Settings(BaseSettings):
         if self.metrics_window_minutes <= self.log_max_window_minutes:
             raise ValueError(
                 f"metrics_window_minutes ({self.metrics_window_minutes}) must be wider than "
+                f"log_max_window_minutes ({self.log_max_window_minutes})"
+            )
+
+        if self.change_lookback_minutes <= self.log_max_window_minutes:
+            raise ValueError(
+                f"change_lookback_minutes ({self.change_lookback_minutes}) must be wider than "
                 f"log_max_window_minutes ({self.log_max_window_minutes})"
             )
 

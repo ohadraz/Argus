@@ -5,9 +5,12 @@ from datetime import datetime
 
 import httpx
 from argus_core.config import get_settings
+from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso, to_iso
 
+from read_mcp_server.argocd import fetch_deploys
+from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.window import (
     ResolvedWindow,
     resolve_log_window,
@@ -129,3 +132,29 @@ def get_metrics_summary(alert_time: str | None = None,
     return [
         bucket for bucket in buckets if _in_window(parse_iso(bucket.bucket_id), window)
     ]
+
+
+def get_change_events(service: str,
+                      window_start: str,
+                      window_end: str,
+                      source: ChangeSource = fetch_deploys
+                      ) -> list[ChangeEvent]:
+    """Returns what changed on a service within one window (spec §16).
+
+    The third retrieval channel, beside logs and metrics. Metrics say when an
+    incident started and logs say what the service said about it; this says
+    what *changed* - which is what a cause actually is. Its window is the
+    caller's and is passed on untouched: this tool decides nothing about which
+    minutes matter.
+
+    The window is explicit rather than derived from an alert time, unlike the
+    other two tools. A change lookback is not a property of retrieval - it is
+    the caller's judgement about how far a cause may precede its symptoms, and
+    the lag between the two is unbounded.
+
+    `source` is the change-source seam: Argo CD's deploy history today, a flag
+    provider's audit log when that exists. A source that cannot be reached
+    raises `ChangeSourceUnavailable` and that propagates - "could not ask" must
+    never arrive at a caller as "nothing changed".
+    """
+    return source(service, window_start=window_start, window_end=window_end)

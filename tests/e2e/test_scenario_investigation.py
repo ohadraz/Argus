@@ -69,17 +69,69 @@ def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
         _reset_target_service_scenario()
 
 
+@pytest.mark.e2e
+def test_investigator_diagnoses_a_bad_deployment_as_the_cause() -> None:
+    # The change channel, end to end and load-bearing. This scenario's log
+    # lines report symptoms only - climbing latency, then timeouts - and never
+    # mention a deploy. The deploy exists in exactly one place: the Argo CD
+    # revision history the read MCP server fetches. So a diagnosis of
+    # BAD_DEPLOYMENT cannot have come from anywhere else, and the whole path
+    # is under test - the adapter, the onset-anchored change window, the
+    # events reaching the prompt, and the model judging them.
+    #
+    # The other half of the point is the metrics shape: p95 departs while the
+    # error rate stays mild, so a diagnosis that reached for the flag-toggle
+    # story would be reading the alert rather than the evidence.
+    some_service = "kukibuki-service"
+    some_alert_name = "HighLatency"
+    some_severity = "critical"
+    some_alert = a_grafana_style_alert_with(service=some_service,
+                                            alert_name=some_alert_name,
+                                            severity=some_severity)
+
+    try:
+        Scenario() \
+            .given(
+                _a_bad_version_was_deployed()
+            ) \
+            .when(
+                argus_is_triggered_with_alert(some_alert)
+            ) \
+            .then(
+                eventually(
+                    all_of(
+                        about_the_hypothesis(
+                            the_cause_was_identified_as(CauseType.BAD_DEPLOYMENT),
+                            some_confidence_was_given(),
+                        ),
+                        argus_ended_with_status(IncidentStatus.RESOLVED),
+                    ),
+                    timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
+                )
+            )
+    finally:
+        _reset_target_service_scenario()
+
+
 def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
-    def toggle_feature_flag() -> bool:
+    return _a_scenario_was_seeded("feature-flag-toggle")
+
+
+def _a_bad_version_was_deployed() -> Callable[[], bool]:
+    return _a_scenario_was_seeded("bad-deployment")
+
+
+def _a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
+    def seed_scenario() -> bool:
         response = httpx.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "feature-flag-toggle"},
+            json={"scenario_id": scenario_id},
             timeout=10.0,
         )
 
         return response.status_code == HttpStatus.OK
 
-    return toggle_feature_flag
+    return seed_scenario
 
 
 def _reset_target_service_scenario() -> None:

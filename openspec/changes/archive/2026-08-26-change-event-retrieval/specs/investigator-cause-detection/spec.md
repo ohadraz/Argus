@@ -1,8 +1,5 @@
-# investigator-cause-detection Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change investigator-hypothesis-loop. Update Purpose after archive.
-## Requirements
 ### Requirement: Investigator determines cause_type from the Target Service's current logs
 The system SHALL retrieve logs via the `argus-read-mcp` server's
 `get_log_lines` tool during investigation, windowed and anchored on the metric
@@ -28,24 +25,7 @@ threshold.
   (`NULL`), at a confidence below the mitigate threshold, and the incident
   routes to `escalated` rather than to `mitigating`
 
-### Requirement: cause_type is persisted on the hypothesis row
-The system SHALL write the determined `cause_type` (or leave it `NULL` if undetermined) to the `hypothesis` table's `cause_type` column, in addition to `description` and `confidence`.
-
-#### Scenario: A determined cause is persisted
-- **GIVEN** the Investigator determines `cause_type = "feature-flag-toggle"` for an incident
-- **WHEN** the hypothesis is recorded
-- **THEN** the `hypothesis` row for that incident has `cause_type = 'feature-flag-toggle'`
-
-
-### Requirement: The evidence behind a cause determination is recorded
-The system SHALL record which retrieved log lines the verdict relied on, so a
-human picking up the incident can tell what the determination was based on and
-distinguish a well-evidenced call from a thin one.
-
-#### Scenario: Supporting evidence accompanies a determined cause
-- **GIVEN** the Investigator determines a cause for an incident
-- **WHEN** the hypothesis is recorded
-- **THEN** the log lines the verdict relied on are recorded with it
+## ADDED Requirements
 
 ### Requirement: A bad deployment is a determinable cause
 The system SHALL include a bad deployment among the causes it can determine,

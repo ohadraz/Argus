@@ -298,8 +298,15 @@ def e2e(session: nox.Session) -> None:
 
     started: list[subprocess.Popen[bytes]] = []
     try:
+        # `--build` because the Target Service image is built from a sibling
+        # working copy, not pulled: without it Compose reuses whatever was
+        # built last, and a scenario edited in that repo ships stale to the
+        # one suite whose whole job is to exercise the real thing. That failure
+        # is silent in the worst way - the run goes green against yesterday's
+        # fixture, or 404s on an endpoint the source plainly has.
         session.run(
-            "docker", "compose", "--profile", "e2e", "up", "-d", "--wait", external=True
+            "docker", "compose", "--profile", "e2e", "up", "-d", "--wait", "--build",
+            external=True,
         )
         for name, module_args, ready_url in _LOCAL_SERVICES:
             started.append(_start_service(module_args))

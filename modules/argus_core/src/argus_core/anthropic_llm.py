@@ -42,9 +42,22 @@ evidence identifies a cause, return no cause and no confidence, and say in the \
 summary what you would need to see. A confident-sounding guess is worse than \
 an honest "I don't know", because a human reading it cannot tell the two apart.
 
-When you do name a cause, `confidence` is how strongly this specific evidence \
-supports it, and `supporting_evidence` quotes the exact lines or buckets that \
-did the supporting - not a paraphrase, and not the whole log.\
+When you do name a cause, `supporting_evidence` quotes the exact lines or \
+buckets that did the supporting - not a paraphrase, and not the whole log.
+
+`confidence` is your probability that the cause you named is the real one, \
+given this evidence. Calibrate it against what the evidence does, not against \
+how cautious you feel:
+
+- 0.9 and above: something in the evidence directly records the cause.
+- 0.7 to 0.9: no single item records it, but the evidence strongly implies it \
+and nothing else in view accounts for the symptoms.
+- 0.5 to 0.7: it is the best of several explanations the evidence permits.
+- below 0.5: you are guessing - prefer no cause at all.
+
+Being under-confident about a well-supported cause is as misleading as being \
+over-confident about a weak one. Both leave a human unable to tell what you \
+actually found.\
 """
 
 
@@ -163,6 +176,12 @@ def build_prompt(evidence: Evidence) -> str:
     The log window is stated explicitly even when the lines are many, because
     the system prompt's "the cause may be outside this window" instruction is
     only actionable if the model knows where the window ends.
+
+    Changes come last and say plainly that they are candidates rather than
+    culprits. They are the most causally suggestive thing in the evidence -
+    something changed, and then things broke - which is exactly why the
+    instruction not to treat proximity as proof belongs beside them rather
+    than only in the system prompt.
     """
     alert = evidence.alert
     window = "not recorded"
@@ -185,7 +204,71 @@ def build_prompt(evidence: Evidence) -> str:
         f"## Log lines ({window})",
     ]
     sections.extend(evidence.log_lines or ["(no log lines were returned for this window)"])
+    sections.extend(_change_section(evidence))
+
     return "\n".join(sections)
+
+
+def _change_section(evidence: Evidence) -> list[str]:
+    """The changes made to the service, over a window wider than the logs'.
+
+    Stated as a complete list over a named interval, then as something to
+    judge. Both halves earn their place, and they were measured: the section
+    once opened by discounting itself ("most changes break nothing", "not
+    proof of cause") and the model duly discounted - the same deploy that
+    scored 0.72 here scored 0.65 under that wording, while the guard against
+    blaming an unrelated change was unaffected either way. No other evidence
+    section tells the model its contents might not be real, and this one
+    should not have.
+
+    What the framing must still do is keep proximity from standing in for
+    explanation: a change is the only thing in the evidence shaped like an
+    actor, so a model handed one with no judgement rule will reach for it.
+    That rule is now stated as a test to apply - does this account for the
+    symptoms? - rather than as a prior about deploys in general.
+
+    The window is named because the completeness claim is worthless without
+    it. "This is every change" over an unstated interval tells the model
+    nothing it can reason with, and leaves it holding back confidence for a
+    change it cannot rule out.
+
+    An empty list is reported explicitly rather than omitted: "nothing changed
+    in this window" is a real, useful fact, and silence would read as "nobody
+    looked".
+    """
+    window = _window_between(evidence.change_window_start, evidence.change_window_end)
+    heading = [
+        "",
+        f"## Changes to this service ({window})",
+        "Every deploy and configuration change recorded for this service in "
+        "that window, which is deliberately wider than the log window above. "
+        "This is the complete list for it - a change absent here did not "
+        "happen in it. Judge each one against the symptoms: a change that "
+        "accounts for what the metrics and logs show is evidence of cause; "
+        "one that does not account for them is not the answer, however "
+        "closely it precedes them.",
+    ]
+
+    if not evidence.change_events:
+        return [*heading, "(no changes were recorded for this service in that window)"]
+
+    return [
+        *heading,
+        json.dumps([change.model_dump() for change in evidence.change_events], indent=2),
+    ]
+
+
+def _window_between(start: str | None, end: str | None) -> str:
+    """One retrieval window, rendered for a section heading.
+
+    Says "not recorded" rather than inventing a bound when neither end is
+    known: a window with a guessed edge would let the model reason about an
+    interval nothing was actually retrieved over.
+    """
+    if start is None and end is None:
+        return "window not recorded"
+
+    return f"{start or 'unbounded'} to {end or 'unbounded'}"
 
 
 # What the SDK is handed when a `base_url` override means nothing is going to

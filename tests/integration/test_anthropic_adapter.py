@@ -37,6 +37,7 @@ from tests.framework.assertions import (
 # modules/anthropic_double/recordings/.
 A_RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
 A_RECORDED_UNDETERMINED_CAUSE = "no-evidence"
+A_RECORDED_BAD_DEPLOYMENT = "bad-deployment"
 
 
 @pytest.fixture
@@ -72,6 +73,29 @@ def test_a_recorded_verdict_becomes_a_hypothesis(
         ) \
         .then(
             the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
+            some_confidence_was_given()
+        )
+
+@pytest.mark.integration
+def test_a_recorded_deploy_verdict_becomes_a_bad_deployment_hypothesis(
+    double: httpx.Client, client: AnthropicLLMClient
+) -> None:
+    # The newest member of the cause taxonomy, checked against a body the real
+    # API actually produced. `BAD_DEPLOYMENT` reaches the wire schema, the
+    # `messages.parse` round-trip and the enum by three separate routes, and a
+    # value added to only some of them would still look right in a unit test.
+    _the_llm_verdict_is_a_bad_deployment = partial(_the_llm_verdics_is_in_recording,
+                                                   double, A_RECORDED_BAD_DEPLOYMENT)
+
+    Scenario() \
+        .given(
+            _the_llm_verdict_is_a_bad_deployment()
+        ) \
+        .when(
+            lambda: client.propose_hypothesis(_an_evidence_payload())
+        ) \
+        .then(
+            the_cause_was_identified_as(CauseType.BAD_DEPLOYMENT),
             some_confidence_was_given()
         )
 

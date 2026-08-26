@@ -277,12 +277,20 @@ dependencies = [
     { name = "mcp" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "httpx" },
     { name = "mcp", specifier = ">=1.29.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
 name = "argus-workspace"

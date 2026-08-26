@@ -5,3 +5,4 @@ from enum import StrEnum
 
 class CauseType(StrEnum):
     FEATURE_FLAG_TOGGLE = "feature-flag-toggle"
+    BAD_DEPLOYMENT = "bad-deployment"
