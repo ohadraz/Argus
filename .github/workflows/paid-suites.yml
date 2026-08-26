@@ -2,14 +2,18 @@ name: Paid Suites (manual)
 
 # Everything here reaches the real Anthropic API and spends tokens.
 #
-# The free suites (lint, typecheck, per-module tests, the nightly sweep) already
-# catch every failure that does not need a model. These three answer questions
-# only the real API can answer, and each is worth running at a different moment:
+# The free suites (lint, typecheck, per-module tests, `e2e_replay`, the nightly
+# sweep) already catch every failure that does not need a model. These three
+# answer questions only the real API can answer, and each is worth running at a
+# different moment:
 #
-#   contract - after anything touches the adapter, the SDK version, or a
-#              recording. Cheapest of the three; catches a stale recording,
-#              which would otherwise let every integration test keep passing
-#              against a body Anthropic no longer sends.
+#   contract - weekly, on the schedule below, and after anything touches the
+#              adapter, the SDK version, or a recording. It is the only thing
+#              that notices a recording going stale, and two suites that run on
+#              every push - `integration` and `e2e_replay` - are built on those
+#              recordings being honest. A stale one lets both keep passing
+#              against a body Anthropic no longer sends, and they pass more
+#              confidently for being two.
 #   e2e      - before a merge that changes the investigation path end to end.
 #   eval     - after a prompt change, and only then. The score does not move on
 #              its own, so a daily timer buys thirty samples of an unchanged
@@ -19,33 +23,42 @@ name: Paid Suites (manual)
 # tokens on claude-opus-5, so ~$0.02 a call.
 #
 #   contract   2 calls                                          ~$0.04
-#   e2e        0 today; up to ~6 once the loop iterates         ~$0.12
-#   eval      20 calls (2 cases x 10 runs, scored as a rate)    ~$0.40
+#   e2e        up to ~6 across two scenarios                    ~$0.12
+#   eval      40 calls (4 cases x 10 runs, scored as a rate)    ~$0.80
 
 on:
   # --------------------------------------------------------------------------
-  # SCHEDULE DELIBERATELY DISABLED - this is a cost decision, not an oversight.
+  # Only `contract` is on a timer, and only weekly. That is a cost decision.
   #
-  # The cadence below is what these suites should run at on a funded project.
-  # Turning it on is a four-place edit, and every place is marked: uncomment
-  # the three `cron` lines here, then swap each step's `if:` for the commented
-  # variant directly above it, which tests that step's own cron line. Nothing
-  # is stubbed - the conditions are written, just not wired.
+  # Argus is a course project on a prepaid balance with auto-reload off. At a
+  # few dollars a month the balance empties in weeks, and the first symptom is
+  # a scheduled run failing with an opaque API error rather than a test result
+  # - a red build meaning "out of credit", which is worse than no build at all.
+  # So a suite earns a timer only if it guards something that can rot silently
+  # *and* costs almost nothing.
   #
-  #   nightly contract + e2e   ~$0.16/night  ~$5/month
-  #   weekly  eval             ~$0.40/week   ~$2/month
-  #                                          ~$7/month total
+  # `contract` is the one that qualifies. A recording goes stale when the SDK
+  # or the verdict schema moves under it, and nothing else in the repo notices
+  # - `integration` and `e2e_replay` both keep passing against a body no real
+  # server would send. On the order of weeks is the rate that happens at, and
+  # ~$0.04 a run is ~$0.17 a month.
   #
-  # Argus is a course project running on a prepaid balance with auto-reload
-  # off. At that spend the balance empties in a couple of weeks, and the first
-  # symptom is a nightly failing with an opaque API error rather than a test
-  # result - a red build that means "out of credit", which is worse than no
-  # build at all. So the trigger is manual until the project is funded.
+  #   weekly contract   ~$0.04/week   ~$0.17/month
   #
-  #  schedule:
-  #    - cron: '0 3 * * *'   # 03:00 UTC daily - contract + e2e
-  #    - cron: '0 4 * * 0'   # 04:00 UTC Sunday - eval
+  # `e2e` and `eval` stay manual. Neither rots on its own: `e2e` answers a
+  # question about a change someone is making, and `eval`'s score does not move
+  # unless a prompt does - a timer would buy repeated samples of an unchanged
+  # number. Both are triggered by a human doing the thing that invalidates
+  # them. The cadence they would want if funded is nightly and weekly
+  # respectively, ~$5/month together.
+  #
+  # The `scheduled form:` comment above each step below is what to swap that
+  # step's `if:` for when a suite is put on a timer - `inputs.*` is empty on a
+  # scheduled run and `github.event.schedule` is empty on a manual one, so
+  # exactly one side of each `||` can ever be true.
   # --------------------------------------------------------------------------
+  schedule:
+    - cron: '0 4 * * 0'   # 04:00 UTC Sunday - contract
 
   workflow_dispatch:
     inputs:
@@ -98,32 +111,32 @@ jobs:
       - name: Sync workspace
         run: uv sync --all-packages
 
-      # Each step runs only if a human ticked its box. The `scheduled form:`
-      # comment above each one is what to use when the schedule at the top is
-      # re-enabled: `inputs.*` is empty on a scheduled run and
-      # `github.event.schedule` is empty on a manual one, so exactly one side of
-      # each `||` can ever be true. They sit in comments rather than live code
-      # because `github.event.schedule` in a workflow that declares no
-      # `schedule:` trigger is flagged as an invalid context by editor linters.
+      # A step runs when a human ticked its box, or when the cron that owns it
+      # fired. `inputs.*` is empty on a scheduled run and
+      # `github.event.schedule` is empty on a manual one, so exactly one side
+      # of each `||` can ever be true.
       #
       # The key is set per-step rather than on the job, so a step that has no
       # business calling the API never has it in its environment.
 
-      # scheduled form: if: ${{ inputs.contract || github.event.schedule == '0 3 * * *' }}
       - name: Contract tests
-        if: ${{ inputs.contract }}
+        if: ${{ inputs.contract || github.event.schedule == '0 4 * * 0' }}
         run: uv run python -m nox -s contract
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # scheduled form: if: ${{ inputs.e2e || github.event.schedule == '0 3 * * *' }}
+      # scheduled form, if this is ever put on a nightly cron of its own:
+      #   if: ${{ inputs.e2e || github.event.schedule == '<its cron>' }}
       - name: End-to-end tests (full stack via docker-compose)
         if: ${{ inputs.e2e }}
         run: uv run python -m nox -s e2e
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # scheduled form: if: ${{ inputs.eval || github.event.schedule == '0 4 * * 0' }}
+      # scheduled form, if this is ever put on a weekly cron of its own - note
+      # it must be a *different* cron line from contract's, or the two become
+      # indistinguishable to the conditions above:
+      #   if: ${{ inputs.eval || github.event.schedule == '<its cron>' }}
       - name: Evals (real model, scored as a pass rate)
         if: ${{ inputs.eval }}
         run: uv run python -m nox -s eval

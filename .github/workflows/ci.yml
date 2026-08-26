@@ -65,19 +65,34 @@ jobs:
   # one module is exactly when to expect.
   e2e-replay:
     runs-on: ubuntu-latest
-    env:
-      # Where docker-compose builds the Target Service from. Locally that is a
-      # sibling working copy; here the demo app is cloned into the workspace,
-      # because `actions/checkout` cannot write above it.
-      TARGET_APP_CONTEXT: target-app
+
+    # Every step runs from the Argus checkout, not the workspace root - see the
+    # two-repo layout below. Same arrangement as `paid-suites.yml`, which needs
+    # the identical stack.
+    defaults:
+      run:
+        working-directory: Argus
+
     steps:
-      - uses: actions/checkout@v4
+      # docker-compose builds `target-service` from `../Argus-Demo-Target-App`,
+      # a sibling directory in a separate repository. A runner checks out only
+      # this repo, so that path would not exist and the stack would fail before
+      # running a single test.
+      #
+      # `actions/checkout` cannot write outside the workspace, so the sibling
+      # relationship is recreated *inside* it: both repos go into
+      # subdirectories, and Argus runs from its own. The compose file and the
+      # local dev layout stay exactly as they are.
+      - name: Check out Argus
+        uses: actions/checkout@v4
+        with:
+          path: Argus
 
       - name: Check out the Target Service
         uses: actions/checkout@v4
         with:
           repository: ohadraz/Argus-Demo-Target-App
-          path: target-app
+          path: Argus-Demo-Target-App
 
       - uses: astral-sh/setup-uv@v3
 
