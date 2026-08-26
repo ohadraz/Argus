@@ -31,7 +31,7 @@ propose the **entire file**, never a fragment.
 - [x] 4.1 Add the `e2e-replay` job to `ci.yml`, beside `lint`, `typecheck` and `integration`, running unconditionally rather than through the `detect-changes` matrix
 - [x] 4.2 Comment the job with **why it is free and keyless**, and why that is what lets it run on every push - the same sentence the session docstring carries
 - [x] 4.3 Confirm it does not inherit or require any Anthropic secret
-- [ ] 4.4 Push and confirm the job runs and passes on GitHub
+- [x] 4.4 Push and confirm the job runs and passes on GitHub
 
 ## 5. Evidence and documentation
 
