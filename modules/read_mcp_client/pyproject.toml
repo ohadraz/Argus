@@ -7,13 +7,22 @@ dependencies = [
 ]
 
 [dependency-groups]
+# `read_mcp_server` is a *dev* dependency, never a runtime one. The client
+# talks to the server over HTTP and imports nothing from it - that boundary is
+# the point of splitting them. But the client's integration test drives a real
+# server process rather than a stub, so the package has to be installed for the
+# test to run. `test_module` resolves each module's environment to its own
+# dependencies alone, so anything the tests need must be declared here or it is
+# simply absent on CI, however well-populated the local workspace venv is.
 dev = [
     "argus-argus_testkit",
+    "argus-read_mcp_server",
 ]
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
 argus-argus_testkit = { workspace = true }
+argus-read_mcp_server = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

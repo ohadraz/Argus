@@ -259,13 +259,17 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-read-mcp-server" },
 ]
 
 [package.metadata]
 requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "argus-read-mcp-server", editable = "modules/read_mcp_server" },
+]
 
 [[package]]
 name = "argus-read-mcp-server"
