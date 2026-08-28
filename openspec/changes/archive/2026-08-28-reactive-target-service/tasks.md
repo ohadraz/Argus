@@ -120,7 +120,14 @@ tests are covered in group 8, at the end, not interleaved.
       `pyproject.toml` and written up in `CLAUDE.md`.*
 - [x] 7.4 Run `uv run python -m nox -s e2e_replay` green. *3 passed against the
       merged stack.*
-- [ ] 7.5 Run `uv run python -m nox -s e2e` (paid, ~$0.12 - ask first).
+- [x] 7.5 Run `uv run python -m nox -s e2e` (paid, ~$0.12 - ask first).
+      *12 passed against a clean stack. The first run failed the flag case, and
+      the reason was worth the money: with telemetry generated over ninety real
+      minutes rather than four authored ones, onset detection anchored on a
+      noise minute an hour before the incident, so every log window the loop
+      read closed an hour before the flag went on. Fixed separately - a
+      departure now has to persist to count as an onset, and the log window
+      ends at the alert rather than a fixed few minutes past the onset.*
 
 ## 8. The demo app's regression net
 
@@ -142,5 +149,6 @@ something later, not a driver of the design.
 
 ## 9. Commit
 
-- [ ] 9.1 Commit `Argus-Demo-Target-App` and `Argus` separately, one approved
-      single-line message each.
+- [x] 9.1 Commit `Argus-Demo-Target-App` and `Argus` separately, one approved
+      single-line message each. *Three commits: the demo app whole, then the
+      environment work and the retrieval fix as their own commits in Argus.*

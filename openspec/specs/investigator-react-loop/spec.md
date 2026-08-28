@@ -39,30 +39,75 @@ investigation with no determined cause and without asking the model at all.
 - **THEN** it does not report a determined cause, does not fabricate an onset,
   and does not ask the model
 
-### Requirement: Log retrieval each iteration is anchored on the metric onset
+### Requirement: Log retrieval each iteration starts before the onset and ends at the alert
 The system SHALL derive the onset from the metrics summary - the earliest
 anomalous bucket within the window - and SHALL request log lines for a window
 starting before that onset, so that a change event preceding the first
-anomalous minute is retrievable.
+anomalous minute is retrievable. That window SHALL end at the alert time rather
+than a fixed interval past the onset: the onset is inferred and may be wrong,
+where the alert is the one moment the service is known to have been unhealthy,
+and a window closing before it can exclude the incident entirely. The requested
+span SHALL stay within the configured maximum, giving way at the start rather
+than at the end.
 
 #### Scenario: The window starts before the onset
 - **GIVEN** a metrics summary whose earliest anomalous bucket is at some minute
 - **WHEN** the Investigator retrieves log lines for that iteration
 - **THEN** the requested window starts strictly before that minute
 
+#### Scenario: The window reaches the alert
+- **GIVEN** an alert that fired well after the onset located in the metrics
+- **WHEN** the Investigator retrieves log lines for that iteration
+- **THEN** the requested window ends at the alert time, covering the minutes
+  between the onset and it
+
 ### Requirement: A minute is anomalous relative to the window's own baseline
 The system SHALL classify a metric bucket by comparing it against the calm
 stretch of the same window, not against an absolute configured value. A bucket
 SHALL be anomalous when its `error_rate` or its `p95_ms` sits further from that
 baseline than the configured number of the baseline's own deviations. The
-classification SHALL be made in code rather than by asking the model, and the
-same buckets SHALL yield the same classification on every run.
+baseline's spread SHALL be measured against the calm stretch's own worst
+minutes rather than its average deviation, which reads as zero whenever a
+metric takes few distinct values - a sampled error rate is quantised into steps,
+so most quiet minutes report the identical figure however much the rate moves,
+and a spread derived from their average collapses the threshold onto the
+baseline. The classification SHALL be made in code rather than by asking the
+model, and the same buckets SHALL yield the same classification on every run.
 
 #### Scenario: A minute that leaves the baseline is anomalous
 - **GIVEN** a window whose buckets sit at a steady error rate before rising
 - **WHEN** the buckets are classified
 - **THEN** the earliest bucket that departs from the steady rate is anomalous,
   and the steady ones before it are not
+
+#### Scenario: A quiet stretch whose minutes read alike still has a spread
+- **GIVEN** a window whose calm minutes report only a couple of distinct values,
+  most of them identical, and which later carries a real departure
+- **WHEN** the buckets are classified
+- **THEN** the calm minutes are not anomalous, and the departure is
+
+### Requirement: An onset is a departure that persisted
+The system SHALL take as the onset the first minute of a run of consecutive
+anomalous minutes lasting at least the configured number of minutes, rather
+than any single anomalous minute. An incident is a state the service remains
+in, so it is still present the minute after it began, where a measurement that
+departs alone has already recovered by then - and anchoring retrieval on one of
+those aims every window, and every widening, at a minute in which nothing
+happened. A run still in progress when the window ends SHALL count as an onset
+however short it is, since an incident that began a minute ago has not failed
+to persist.
+
+#### Scenario: A lone departed minute is not an onset
+- **GIVEN** a window in which one minute departs from the baseline and the
+  minutes around it do not
+- **WHEN** the onset is located
+- **THEN** no onset is reported
+
+#### Scenario: A departure still going at the window's end is an onset
+- **GIVEN** a window whose final minute departs from the baseline, with no later
+  minute yet recorded
+- **WHEN** the onset is located
+- **THEN** that minute is reported as the onset
 
 #### Scenario: The same shape is anomalous at any scale
 - **GIVEN** two windows with the same shape of departure, one around a low

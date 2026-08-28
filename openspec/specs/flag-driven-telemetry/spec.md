@@ -1,5 +1,8 @@
-## ADDED Requirements
+# flag-driven-telemetry Specification
 
+## Purpose
+TBD - created by archiving change reactive-target-service. Update Purpose after archive.
+## Requirements
 ### Requirement: A checkout code path fails while the flag is on
 The Target Service SHALL contain a checkout code path guarded by a live flag
 evaluation, whose flag-on branch contains a real defect that raises at runtime
@@ -58,6 +61,31 @@ stay current.
 - **WHEN** `GET /logs` is requested
 - **THEN** the number of lines returned per minute is bounded, rather than one
   line per failed request
+
+### Requirement: The logs record the flag value each minute was served under
+The Target Service SHALL emit, for every minute it reports, a line naming the
+flag and the value it evaluated to over that minute's traffic. This is an
+observation, not a conclusion: a service routing on a flag records the value it
+routed on, exactly as it records the errors that followed. It SHALL NOT state
+that the flag was toggled, or that the flag explains anything - the inference
+belongs to whoever reads the value change alongside the error rate that changed
+with it.
+
+#### Scenario: A minute the flag was off says so
+- **GIVEN** the flag was off for a whole minute
+- **WHEN** `GET /logs` is requested for that minute
+- **THEN** the returned lines include one naming the flag as evaluating off
+
+#### Scenario: A minute the flag was on says so
+- **GIVEN** the flag was on for a whole minute
+- **WHEN** `GET /logs` is requested for that minute
+- **THEN** the returned lines include one naming the flag as evaluating on
+
+#### Scenario: A minute the flag changed within reports both values
+- **GIVEN** the flag was turned on or off partway through a minute
+- **WHEN** `GET /logs` is requested for that minute
+- **THEN** the line for that minute reports both values, and how much of the
+  minute's traffic each was served under
 
 ### Requirement: The error rate rises while latency stays flat
 The Target Service SHALL keep the flag-caused failure mode distinguishable from
