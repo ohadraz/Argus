@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from statistics import median
 
 from argus_core.config import get_settings
@@ -14,6 +14,15 @@ from argus_core.models.metrics import MetricBucket
 # relative: 10% of a 0.5% error rate and 10% of an 8% one are both "quiet".
 _MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE = 0.1
 
+# Where in the quiet stretch the baseline's spread is read off. High enough to
+# reach the calm window's own worst minutes, which is what the spread has to
+# cover - the alternative, an average deviation, is dragged to zero by a
+# metric that only takes a few distinct values. A sampled error rate is
+# exactly that: 200 requests a minute quantises it into half-percent steps, so
+# most quiet minutes report the identical figure and the average deviation
+# between them is zero however much the rate actually moves.
+_QUIET_SPREAD_QUANTILE = 0.9
+
 
 def find_onset(buckets: Sequence[MetricBucket]) -> str | None:
     """The `bucket_id` of the minute the incident started, or `None` when no
@@ -24,9 +33,28 @@ def find_onset(buckets: Sequence[MetricBucket]) -> str | None:
     Returns a `bucket_id` because that is the wire-format minute a
     `get_log_lines` window is anchored on - no separate onset scheme to keep
     in sync.
+
+    A single departed minute is not an onset. An incident is a state the
+    service stays in - it is still broken the minute after it broke - where a
+    measurement that departs alone has, by the next minute, already recovered.
+    Anchoring on one of those points the whole investigation at a minute
+    nothing happened in, and every widening reaches further away from the
+    incident rather than towards it. So the onset is the first minute of a run
+    that lasts (`anomaly_persistence_minutes`), and a run still going when the
+    window ends counts however short it is - an incident that began a minute
+    ago has not failed to persist, it has yet to be given the chance.
     """
-    for bucket in _anomalous_buckets(buckets):
-        return bucket.bucket_id
+    departures = _departures(buckets)
+    required = get_settings().anomaly_persistence_minutes
+
+    for index, departed in enumerate(departures):
+        if not departed:
+            continue
+
+        length = _run_length_from(departures, index)
+
+        if length >= required or index + length == len(departures):
+            return buckets[index].bucket_id
 
     return None
 
@@ -46,20 +74,31 @@ def earliest_bucket_is_anomalous(buckets: Sequence[MetricBucket]) -> bool:
     return find_onset(buckets) == buckets[0].bucket_id
 
 
-def _anomalous_buckets(buckets: Sequence[MetricBucket]) -> Iterator[MetricBucket]:
-    """Yields, in window order, every minute whose error rate or p95 latency
-    has left the baseline. Both are checked because different failures move
+def _departures(buckets: Sequence[MetricBucket]) -> list[bool]:
+    """Whether each minute, in window order, has left the baseline on error
+    rate or p95 latency. Both are checked because different failures move
     different metrics - a bad flag spikes errors, a slow dependency does not.
     """
     if not buckets:
-        return
+        return []
 
     error_rate_ceiling = _departure_threshold([bucket.error_rate for bucket in buckets])
     latency_ceiling = _departure_threshold([float(bucket.p95_ms) for bucket in buckets])
 
-    for bucket in buckets:
-        if bucket.error_rate > error_rate_ceiling or bucket.p95_ms > latency_ceiling:
-            yield bucket
+    return [
+        bucket.error_rate > error_rate_ceiling or bucket.p95_ms > latency_ceiling
+        for bucket in buckets
+    ]
+
+
+def _run_length_from(departures: Sequence[bool], start: int) -> int:
+    """How many consecutive minutes stay departed from `start` onwards."""
+    length = 0
+
+    while start + length < len(departures) and departures[start + length]:
+        length += 1
+
+    return length
 
 
 def _departure_threshold(values: Sequence[float]) -> float:
@@ -69,14 +108,31 @@ def _departure_threshold(values: Sequence[float]) -> float:
     The baseline is taken from the lower half of the window rather than from
     all of it: the incident's own minutes are in there too, and they are
     exactly the ones that would drag a whole-window average up and hide the
-    onset. Medians rather than means for the same reason - one 30% minute
+    onset. A median rather than a mean for the same reason - one 30% minute
     moves a mean, and moves a median not at all.
+
+    The spread is how far the quiet stretch's own worst minutes sit above that
+    baseline, rather than how far its average minute does. The two agree on a
+    continuous metric and disagree completely on a sampled one, where most
+    quiet minutes report the identical quantised figure: the average deviation
+    is then zero, the threshold collapses onto the baseline, and every
+    ordinary minute reads as the incident starting.
     """
     deviations = get_settings().anomaly_deviations_from_baseline
 
     quiet_half = sorted(values)[: max(1, len(values) // 2)]
     baseline = median(quiet_half)
-    wobble = median([abs(value - baseline) for value in quiet_half])
+    wobble = _quantile(quiet_half, _QUIET_SPREAD_QUANTILE) - baseline
     spread = max(wobble, baseline * _MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE)
 
     return baseline + deviations * spread
+
+
+def _quantile(sorted_values: Sequence[float], quantile: float) -> float:
+    """The value at `quantile` of an already-sorted sequence, by nearest rank.
+
+    Nearest rank rather than an interpolating quantile because the values are
+    a handful of quantised measurements: interpolating between two of them
+    invents a rate the service never reported.
+    """
+    return sorted_values[round(quantile * (len(sorted_values) - 1))]

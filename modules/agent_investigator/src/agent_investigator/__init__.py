@@ -101,7 +101,7 @@ def investigate(
     confident_hypothesis: Hypothesis | None = None
 
     for iteration, lookback_minutes in enumerate(schedule):
-        window_start, window_end = _window_around(onset, lookback_minutes)
+        window_start, window_end = _window_around(onset, lookback_minutes, alert_time)
         log_lines = fetch_logs(window_start, window_end)
 
         hypothesis = propose_hypothesis(
@@ -152,21 +152,37 @@ def _change_window_before(onset: str) -> tuple[str, str]:
     return to_iso(parse_iso(onset) - lookback), onset
 
 
-def _window_around(onset: str, lookback_minutes: int) -> tuple[str, str]:
-    """The log window one iteration reads, anchored on the onset.
+def _window_around(onset: str, lookback_minutes: int, alert_time: str | None) -> tuple[str, str]:
+    """The log window one iteration reads: from before the onset to the alert.
 
     It starts strictly *before* the onset because that is where the cause is:
     a flag toggle or a deploy lands in a minute that still looks healthy, and
     the error rate only reacts to it afterwards. A window starting at the
     onset would structurally exclude the very event it is looking for.
+
+    It ends at the alert, which is the one moment Argus knows for certain the
+    service was unhealthy. The onset is inferred and can be wrong; the alert
+    happened. Ending a fixed few minutes past the onset instead makes a
+    mislocated onset unrecoverable - every widening reaches further back from
+    a minute nothing happened in, and never reaches the minutes someone
+    actually complained about. Ending at the alert makes the same mistake cost
+    log lines rather than the evidence.
+
+    The span is held within `log_max_window_minutes` here rather than left to
+    the retrieval tool, which clamps a too-wide window by dropping its tail -
+    and the tail is now the half that is certainly inside the incident.
     """
     settings = get_settings()
     onset_at = parse_iso(onset)
 
-    return (
-        to_iso(onset_at - timedelta(minutes=lookback_minutes)),
-        to_iso(onset_at + timedelta(minutes=settings.log_initial_lookahead_minutes)),
-    )
+    end = onset_at + timedelta(minutes=settings.log_initial_lookahead_minutes)
+    if alert_time is not None:
+        end = max(end, parse_iso(alert_time))
+
+    start = onset_at - timedelta(minutes=lookback_minutes)
+    earliest_affordable = end - timedelta(minutes=settings.log_max_window_minutes)
+
+    return to_iso(max(start, earliest_affordable)), to_iso(end)
 
 
 def _undetermined(

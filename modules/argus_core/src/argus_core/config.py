@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # the calm ones the baseline is derived from.
     anomaly_deviations_from_baseline: float = Field(default=3.0, gt=0.0)
 
+    # How many consecutive minutes have to stay departed before the first of
+    # them counts as the incident starting. An incident is a state, so it
+    # holds; a lone departed minute is sampling noise that had already
+    # recovered by the next one. Two rather than more because the onset is
+    # what every retrieval window is anchored on: a longer requirement buys
+    # little against noise and starts missing brief real incidents.
+    anomaly_persistence_minutes: int = Field(default=2, ge=1)
+
     # Where deploy history is read from. The demo Target Service stands in for
     # a real Argo CD server, so the default points at it - but the adapter
     # makes the request a real Argo CD answers, and pointing these at one is

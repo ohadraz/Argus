@@ -17,7 +17,7 @@ from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.metrics import MetricBucket
-from argus_core.timestamps import parse_iso, to_iso_minute
+from argus_core.timestamps import parse_iso, to_iso, to_iso_minute
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 
@@ -216,6 +216,40 @@ def test_investigate_anchors_the_log_window_before_the_onset() -> None:
         ) \
         .then(
             the_log_window_started_before(onset)
+        )
+
+
+@pytest.mark.unit
+def test_investigate_reads_logs_up_to_the_alert() -> None:
+    # The onset is inferred and can be wrong; the alert is the one moment the
+    # service is known to have been unhealthy. A window closing a fixed few
+    # minutes past a mislocated onset never reaches the minutes somebody
+    # complained about, and every widening reaches further the other way.
+    #
+    # The alert is deliberately later than that fixed lookahead would have
+    # reached: a threshold trips when a symptom crosses it, which can be long
+    # after the incident began, and an alert firing promptly would leave the
+    # old behaviour and the new one indistinguishable.
+    an_alert_time_well_after_the_onset = WINDOW_START + timedelta(minutes=30)
+    investigation = an_investigation()
+    the_log_window_ended_at = partial(
+        _the_log_window_ended_at, investigation.log_fetcher
+    )
+
+    Scenario() \
+        .given(
+            investigation.metrics_showed(a_window_that_starts_calm()),
+            investigation.logs_showed(DONT_CARE_LOGS),
+            investigation.no_changes_were_recorded(),
+            investigation.the_model_answered(a_hypothesis_at(a_confident_score())),
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                an_alert_at(an_alert_time_well_after_the_onset), incident_id=new_id()
+            )
+        ) \
+        .then(
+            the_log_window_ended_at(to_iso(an_alert_time_well_after_the_onset))
         )
 
 
@@ -507,6 +541,10 @@ def an_alert() -> Alert:
     return Alert(service="kuki", alert_name="HighErrorRate", started_at=AN_ALERT_TIME)
 
 
+def an_alert_at(moment: datetime) -> Alert:
+    return Alert(service="kuki", alert_name="HighErrorRate", started_at=moment)
+
+
 def a_confident_score() -> float:
     return get_settings().mitigate_threshold
 
@@ -715,6 +753,19 @@ def _the_log_window_started_before(log_fetcher: Any, onset: str) -> Assertion[An
         assert requested_start < parse_iso(onset), (
             f"Expected the log window to start before the onset at [{onset}], "
             f"it started at [{log_fetcher.call_args.args[0]}]."
+        )
+        return True
+
+    return assertion
+
+
+def _the_log_window_ended_at(log_fetcher: Any, expected_end: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        requested_end = log_fetcher.call_args.args[1]
+
+        assert parse_iso(requested_end) == parse_iso(expected_end), (
+            f"Expected the log window to end at the alert [{expected_end}], "
+            f"it ended at [{requested_end}]."
         )
         return True
 

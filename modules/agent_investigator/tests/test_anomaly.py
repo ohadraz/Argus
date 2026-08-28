@@ -94,6 +94,57 @@ def test_the_earliest_bucket_is_not_anomalous_when_the_window_opens_calm() -> No
     assert earliest_bucket_is_anomalous(some_window) is False
 
 
+@pytest.mark.unit
+def test_find_onset_ignores_a_minute_that_departs_alone() -> None:
+    # An incident is a state the service is in, so it is still there the minute
+    # after. A measurement that departs by itself has already recovered by then
+    # - anchoring the whole investigation on it points every window at a minute
+    # nothing happened in.
+    some_steady_rate = 0.01
+    dont_care_spike_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [dont_care_spike_rate]
+        + [some_steady_rate] * 4
+    )
+
+    assert find_onset(some_window) is None
+
+
+@pytest.mark.unit
+def test_find_onset_reports_a_departure_that_is_still_going_when_the_window_ends() -> None:
+    # An incident a minute old has not failed to persist - it has not yet been
+    # given the chance. The window ending is not evidence of recovery.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of([some_steady_rate] * CALM_MINUTES + [some_degradation_rate])
+
+    last_bucket = some_window[-1]
+
+    assert find_onset(some_window) == last_bucket.bucket_id
+
+
+@pytest.mark.unit
+def test_find_onset_is_not_fooled_by_a_baseline_whose_quiet_minutes_read_alike() -> None:
+    # A sampled error rate is quantised - a few hundred requests a minute
+    # resolve it to half-percent steps - so most quiet minutes report the
+    # identical figure and the average deviation between them is zero. A
+    # threshold built on that average collapses onto the baseline, and every
+    # ordinary minute reads as the incident starting.
+    some_quantised_low_rate = 0.005
+    some_quantised_high_rate = 0.01
+    some_incident_rate = 0.30
+    some_window = a_window_of(
+        [some_quantised_low_rate] * 7
+        + [some_quantised_high_rate] * 10
+        + [some_incident_rate] * 3
+    )
+
+    first_incident_bucket = some_window[17]
+
+    assert find_onset(some_window) == first_incident_bucket.bucket_id
+
+
 CALM_MINUTES = 6
 CALM_P50_MS = 80
 CALM_P95_MS = 200

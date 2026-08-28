@@ -194,9 +194,9 @@ flowchart TD
     B --> C[Query get_metrics_summary: one fixed, wide window]
     C --> D{Did any minute leave the baseline?}
     D -->|No| K[Exit to escalated: nothing anomalous to explain]
-    D -->|Yes| E[Identify onset: earliest minute that left the baseline]
+    D -->|Yes| E[Identify onset: earliest minute that left the baseline and stayed there]
     E --> M[Query get_change_events: wide window ending at onset, read once]
-    M --> F[Query get_log_lines: window anchored on onset, reaching back before it]
+    M --> F[Query get_log_lines: from before the onset to the alert]
     F --> G[Form/update hypothesis + confidence]
     G --> H{Confidence >= threshold?}
     H -->|Yes| I[Exit to mitigating]
@@ -380,7 +380,7 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 
 | Integration | Read/query standard | Write/mutate standard | Demo adapter |
 |---|---|---|---|
-| Feature flags | **Yes - OFREP** (OpenFeature Remote Evaluation Protocol): single/bulk flag evaluation, `ETag` caching, bearer-token auth | No - flag management (create/toggle/target) is vendor-specific (LaunchDarkly, Unleash, Flagsmith all differ) | **Unleash**, self-hosted: OFREP for reads, Unleash's admin REST API for the toggle/revert Mitigation performs |
+| Feature flags | **Yes - OFREP** (OpenFeature Remote Evaluation Protocol): single/bulk flag evaluation, `ETag` caching, bearer-token auth - though adoption is partial, and a vendor that has not implemented it is read through its own evaluation API instead | No - flag management (create/toggle/target) is vendor-specific (LaunchDarkly, Unleash, Flagsmith all differ) | **Unleash**, self-hosted: its Frontend API for reads (Unleash serves no OFREP endpoint), its admin REST API for the toggle/revert Mitigation performs |
 | Deployment state / rollback | No | No - GitOps tools (Argo CD, Flux) reconcile from Git with their own rollback commands; CI tools (GitHub Actions, CircleCI) each have their own trigger API; nothing shared | **Git revert + push**, GitOps-style, via `argus-write-mcp`. "Currently deployed" = current HEAD of a designated branch. Reuses the git tooling Code-Fix needs, at a different tool/tier (§13) |
 | Logs | No - format and storage both vary per team, no interop standard | N/A - Argus never writes to Target Service logs | Target Service HTTP log endpoint (`GET /logs`, no params - returns full log), windowing/filtering done in `argus-read-mcp` itself (§16) |
 | Metrics | **De facto - Prometheus-compatible query API** (PromQL); emission standardized via **OTLP**, but OTel isn't a backend itself | N/A - Argus only reads metrics | Target Service → OTel SDK → local **OTel Collector** → **Prometheus**; `argus-read-mcp` queries Prometheus's HTTP API |
@@ -394,7 +394,7 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 
 | Server | Exposes |
 |---|---|
-| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); OFREP flag evaluation; Chroma memory query; Slack channel/thread reads |
+| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); flag evaluation against the flag provider's evaluation API; Chroma memory query; Slack channel/thread reads |
 | `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**; Slack post/create-channel; email send via SMTP relay; Chroma memory write |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
@@ -429,7 +429,7 @@ This four-layer redundancy is what lets the eval suite (§21) claim "zero irreve
 
 ## 14. Secrets and Configuration
 
-**Secrets** (GitHub PAT, Slack bot token, Unleash admin token, SMTP credentials) live in **HashiCorp Vault**. Each MCP server authenticates to Vault at startup (or per-request, for short-lived leases) and reads only its own secret path. Every write credential belongs to `argus-write-mcp` alone; `argus-read-mcp` is issued none of them, and reads only what its read paths require (e.g. the OFREP evaluation token) - so the tier boundary in §12.1 is enforced by credential possession as well as by code, a fifth guardrail layer (§13).
+**Secrets** (GitHub PAT, Slack bot token, Unleash admin token, SMTP credentials) live in **HashiCorp Vault**. Each MCP server authenticates to Vault at startup (or per-request, for short-lived leases) and reads only its own secret path. Every write credential belongs to `argus-write-mcp` alone; `argus-read-mcp` is issued none of them, and reads only what its read paths require (e.g. the flag provider's evaluation token, which cannot change a flag) - so the tier boundary in §12.1 is enforced by credential possession as well as by code, a fifth guardrail layer (§13).
 
 **Non-secret registration data** (repo, Slack workspace, email recipients, flag/metrics/log endpoints) lives in `INTEGRATION_CONFIG` (§11.3), edited by a human through the Backoffice (§7.8). The table stores **Vault paths**, never secret values - the database itself can't leak secrets. This gives real secrets management (not hardcoded, not committed to git, editable without redeploy) without an identity platform like Keycloak.
 
@@ -441,7 +441,7 @@ This four-layer redundancy is what lets the eval suite (§21) claim "zero irreve
 
 A real, small, runnable app (e.g. a toy checkout/orders API) in its own repo, `argus-target-service`:
 
-- **Business logic** - real endpoints with real feature-flag checkpoints, reading live flag state through an OFREP client pointed at Unleash (§12).
+- **Business logic** - real endpoints with real feature-flag checkpoints, reading live flag state from Unleash's evaluation API (§12) at the moment each request needs it, so a flag changed by anyone - a human in Unleash's console, or Mitigation through `argus-write-mcp` - takes effect on the next request without this service being told.
 - **A log endpoint** - `GET /logs`, returns the full log with no filtering; windowing/capping logic lives in `argus-read-mcp` (§16), not the adapter.
 - **A deploy-history endpoint**, shaped like Argo CD's own application API (`status.history[]` - revision, when it went live, where it came from), so the change-event channel (§16) has a real vendor response to map rather than a shape invented for the demo. It takes no time parameters, exactly as Argo CD's does not - filtering to the window is the adapter's job.
 - **A committed test suite**, including, per scenario, a **ground-truth fixture test** that fails against the seeded "bad" commit and passes once correctly patched. This is what Code-Fix's PRs are graded against, and the one file it can't modify (§13) - everything else, including new tests it adds, is unrestricted.
@@ -482,20 +482,26 @@ Unbounded logs are slow and a poor use of context, so retrieval is windowed in t
 | --- | --- | --- | --- |
 | `get_metrics_summary` | *When* did it start? | one fixed, wide span around `T0` | once |
 | `get_change_events` | *What changed?* | `[onset - change_lookback, onset]` | once |
-| `get_log_lines` | What did the service say? | narrow, anchored on onset | once per iteration, widening |
+| `get_log_lines` | What did the service say? | `[onset - lookback, T0]` | once per iteration, widening |
 
-**Time window.** The metrics and log phases anchor differently, because they cost differently. Metrics are pre-aggregated - one minute is four numbers - so the summary is fetched wide around the alert timestamp `T0`, spanning the full configured maximum. What it yields is the incident's *onset*: the first minute whose values break from baseline. Log lines are expensive, so they are fetched narrow and anchored on that onset rather than on `T0` - an alert fires when a threshold trips, which can be well after the incident began, so a window centred on `T0` can miss the causal change entirely. The cheap phase aims the expensive one.
+**Time window.** The metrics and log phases anchor differently, because they cost differently. Metrics are pre-aggregated - one minute is four numbers - so the summary is fetched wide around the alert timestamp `T0`, spanning the full configured maximum. What it yields is the incident's *onset*: the first minute whose values break from baseline **and stay broken**. Log lines are expensive, so they are fetched over a window that *starts* before that onset rather than around `T0` - an alert fires when a threshold trips, which can be well after the incident began, so a window centred on `T0` can miss the causal change entirely. The cheap phase aims the expensive one.
 
-Only the log window iterates. The metrics window is fixed at the configured maximum span and stays there - narrowing the cheap signal would hide the very onset it exists to find, and it is small enough that there is no reason to be stingy. The log window's initial lookback and lookahead are config, setting the *first* iteration only; later iterations choose their own (§9), bounded by that same maximum span the server enforces, so widening cannot degenerate into a full dump. "Now" keeps moving, so the upper bound is re-evaluated each iteration. The risk is asymmetric - too wide wastes context, too narrow loses the evidence silently - so these are tunable per benchmark scenario rather than hardcoded.
+The window **ends at `T0`**. The onset is inferred from a noisy signal and can be wrong; the alert is the one moment the service is known to have been unhealthy. A window closing a few minutes past a mislocated onset is unrecoverable - every widening reaches further back from a minute nothing happened in, and never towards the minutes somebody complained about - where a window closing at `T0` turns the same mistake into extra log lines. The maximum span still binds, and it is the *start* that gives way to it: the end of this window is the half known to be inside the incident.
+
+**Onset means a departure that persisted.** A single minute above the threshold is not an incident: an incident is a state the service is in, so it is still there the minute after, where a lone departed measurement has by then already recovered. Anchoring on one points the whole investigation at a minute nothing happened in. So the onset is the first minute of a run that lasts, and a run still going when the window ends counts however short it is - an incident that began a minute ago has not failed to persist, it has yet to be given the chance.
+
+**The threshold is measured against the quiet stretch's own worst minutes**, not against its average one. The two agree on a continuous signal and disagree completely on a sampled one: an error rate measured over a few hundred requests a minute is quantised into steps, so most quiet minutes report the identical figure, the average deviation between them is zero, and a threshold built on it collapses onto the baseline - at which point every ordinary minute reads as the incident starting. Reading the spread off the top of the calm stretch instead keeps the rule relative, and keeps it honest about how much a quiet service actually moves.
+
+Only the log window iterates, and only at its start: widening reaches further back, while the end stays at `T0`. The metrics window is fixed at the configured maximum span and stays there - narrowing the cheap signal would hide the very onset it exists to find, and it is small enough that there is no reason to be stingy. The log window's initial lookback is config, setting the *first* iteration only; later iterations choose their own (§9), bounded by that same maximum span the server enforces, so widening cannot degenerate into a full dump. The risk is asymmetric - too wide wastes context, too narrow loses the evidence silently - so these are tunable per benchmark scenario rather than hardcoded.
 
 **The three channels:**
 1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first: it locates the onset the other two anchor on.
 2. `get_change_events(service, window)` - the deploys and configuration changes recorded for the service, as structured rows.
-3. `get_log_lines(window, filters)` - raw lines for a window anchored on the onset the summary located.
+3. `get_log_lines(window, filters)` - raw lines from before the onset the summary located through to the alert.
 
 **Why changes are their own channel.** A symptom is a rate; a cause is an *event*, and the lag between the two is unbounded. A deploy that exhausts a connection pool may take an hour to show as errors, and no log lookback is reliably the right one - widening buys log noise linearly while the changes stay a handful of rows however far back the window reaches. So they are queried directly, over a span deliberately wider than the log ceiling (a cross-field invariant enforces `change_lookback_minutes > log_max_window_minutes`, since a change window no wider than the logs' could surface nothing the logs did not).
 
-That window **ends at the onset**, not at `T0` and not at "now": a change made after the incident began did not begin it. It is anchored on the onset for the same reason the log window is - `T0` is when somebody's threshold tripped, not when the incident started.
+That window **ends at the onset**, not at `T0` and not at "now": a change made after the incident began did not begin it. This is where the change channel and the log channel part company - the log window runs on to `T0` because the service kept talking about the incident throughout, while a change recorded during it is by definition not its cause.
 
 An unreachable change source **raises**; it never returns an empty list. "Nothing changed" is a conclusion a hypothesis gets built on, and it must not be reachable by failing to look.
 
@@ -599,7 +605,7 @@ flowchart TB
     WEB --> MCPS
     MCPS -->|replay logs| PG
     MCPS --> CHROMA
-    MCPS -->|OFREP + admin API| UNLEASH
+    MCPS -->|evaluation + admin API| UNLEASH
     MCPS -->|PromQL| PROM
     MCPS -->|HTTP: fetch log| TS
     MCPS -->|Slack Web API| ExternalSlack[Slack]
@@ -752,7 +758,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Dashboard stack | FastAPI + Jinja2/HTMX, server-rendered, no separate JS build (§7.7) | Consistent with the Web Application's stack; no extra tooling for a read-only UI |
 | Long-term memory | Chroma (§11.2) | Simple to run embedded for dev and as one container for the demo; no managed service needed |
 | Secrets | HashiCorp Vault (§14) | Real secrets management without hardcoding or committing credentials |
-| Feature flags | Unleash, OFREP for reads, Unleash admin API for writes (§12) | OFREP is a genuine adopted standard for reads; Unleash is a solid free adapter |
+| Feature flags | Unleash, self-hosted: its Frontend API for reads, its admin API for writes (§12) | Free, self-hostable, and the one whose write side matters most - it keeps an audit event log naming who changed which flag when, which is a change-event source (§16) as well as a mitigation target. OFREP would be the preferable read protocol, being a genuine adopted standard, but Unleash does not serve it |
 | Deploy/rollback | Git revert + push via `argus-write-mcp`, GitOps-style (§12) | No cross-vendor standard exists; reuses the git tooling Code-Fix already needs |
 | Metrics | OTLP for emission, Prometheus-compatible query API for reads (§12) | OTLP is a real emission standard; Prometheus's query API is the closest thing to a de facto read standard |
 | Logs | Target Service HTTP log endpoint, windowed retrieval (§16) | No standard exists; dumb full-log endpoint keeps windowing logic in `argus-read-mcp`, not the adapter, so other backends (filesystem, S3) stay swappable without filtering support |
