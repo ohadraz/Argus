@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 import psycopg
+from argus_core.config import get_settings
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, all_of
 from orchestrator.repository import hypotheses, incidents, postmortems, timeline
@@ -28,15 +29,32 @@ ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 
 WEBHOOK_PATH = "/webhooks/alerts"
 
+# A real investigation is up to `investigation_max_iterations` model calls,
+# each one adaptive thinking at high effort. Argus answers in seconds when it
+# is confident on the first pass; this bound is what "the loop ran out of
+# iterations" looks like in wall-clock time, not the expected duration.
+A_GENEROUS_MODEL_CALL_SECONDS = 90
+AN_INVESTIGATION_TIMEOUT_SECONDS = (
+    get_settings().investigation_max_iterations * A_GENEROUS_MODEL_CALL_SECONDS
+)
+
 
 def argus_is_triggered_with_alert(
     payload: dict[str, Any]
 ) -> Callable[[], httpx.Response]:
+    """Fires the alert, and waits for the investigation it starts.
+
+    The wait is the whole investigation, not a round trip: the webhook runs the
+    graph in-process and answers only once it has finished. So this call is
+    bounded by the same budget the `then` clauses wait on - one that against a
+    replayed model is never approached, and against a real one is the
+    difference between a slow answer and a failed run.
+    """
     def step() -> httpx.Response:
         return httpx.post(
             f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
             json=payload,
-            timeout=10.0,
+            timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
         )
 
     return step

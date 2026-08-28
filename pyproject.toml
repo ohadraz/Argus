@@ -29,6 +29,19 @@ argus-anthropic_double = { workspace = true }
 [tool.uv]
 package = false
 
+# mypy is shipped as a fully compiled wheel - every module a `.pyd` built by
+# mypyc, plus a `__mypyc` extension they all link against. Windows Smart App
+# Control blocks those locally-installed binaries, and `python -m mypy` does not
+# help the way it helps with a console-script shim: the block is inside the
+# package, not on a wrapper around it, so the import fails before mypy runs at
+# all (`mypy --version` fails too).
+#
+# Building from the sdist instead gives the pure-Python mypy, which is the same
+# type checker and several times slower. Slower type checking is a better trade
+# than none, and this is the whole fix - it survives `uv sync`, where clearing
+# the block by hand does not.
+no-binary-package = ["mypy"]
+
 [tool.uv.workspace]
 members = ["modules/*"]
 

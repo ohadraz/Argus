@@ -1,4 +1,31 @@
+# The Target Environment - the Target Service, the feature-flag provider it
+# reads its flag from, and that provider's database - is defined in its own repo
+# (spec §2, §15.1), because it is the environment Argus operates *on* rather
+# than a part of Argus, and it has to stand up without Argus at all.
+#
+# `include` rather than a second `-f`: paths inside an included file resolve
+# against that file's own directory, so the Target Service still builds from its
+# own repo. A second `-f` would resolve them against *this* directory and look
+# for its Dockerfile here. CI recreates the sibling checkout that makes the path
+# resolve - see `ci.yml`.
+include:
+  - path: ../Argus-Demo-Target-App/docker-compose.yml
+
 services:
+  # Included services carry no profile of their own, so they would start on a
+  # plain `docker compose up`. These three entries add nothing but the `e2e`
+  # profile, merged onto the definitions above: the Target Environment is a
+  # fixture, not something Argus depends on, and it stays out of the default up
+  # exactly as it did when it was defined here.
+  target-service:
+    profiles: ["e2e"]
+
+  unleash:
+    profiles: ["e2e"]
+
+  unleash-db:
+    profiles: ["e2e"]
+
   postgres:
     image: postgres:16
     environment:
@@ -13,20 +40,3 @@ services:
       timeout: 2s
       retries: 15
 
-  target-service:
-    profiles: ["e2e"]
-    build:
-      # The Target Service lives in its own repo (spec §15.1), checked out
-      # beside this one. CI recreates that sibling layout inside its workspace
-      # rather than parameterising this path - see `ci.yml`. Built from source,
-      # never pulled: a prebuilt image is how a scenario edited in that repo
-      # silently ships stale to the suites whose job is to exercise the real
-      # thing.
-      context: ../Argus-Demo-Target-App
-    ports:
-      - "8080:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 2s
-      timeout: 2s
-      retries: 15

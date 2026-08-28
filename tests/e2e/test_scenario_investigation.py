@@ -64,10 +64,10 @@ AN_INVESTIGATION_TIMEOUT_SECONDS = (
 
 @pytest.mark.e2e
 def test_investigator_diagnoses_a_feature_flag_toggle_as_the_cause() -> None:
-    some_service = "kukibuki-service"
+    service = "io-shop"  # Not arbitrary! the Target Service names itself in its own log
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
-    some_alert = a_grafana_style_alert_with(service=some_service,
+    some_alert = a_grafana_style_alert_with(service=service,
                                             alert_name=some_alert_name,
                                             severity=some_severity)
 
@@ -109,9 +109,9 @@ def test_investigator_diagnoses_a_bad_deployment_as_the_cause() -> None:
     # The other half of the point is the metrics shape: p95 departs while the
     # error rate stays mild, so a diagnosis that reached for the flag-toggle
     # story would be reading the alert rather than the evidence.
-    some_service = "kukibuki-service"
     some_alert_name = "HighLatency"
     some_severity = "critical"
+    some_service = "kukibuki-service"
     some_alert = a_grafana_style_alert_with(service=some_service,
                                             alert_name=some_alert_name,
                                             severity=some_severity)

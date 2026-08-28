@@ -28,10 +28,18 @@ rule, not something the agent is trusted to remember - so if you believe a test 
 missing, wrong, or needs to change, do not write it. Propose it as text/diff in
 your response instead, and wait for a human to add it.
 
-This is a policy about how Argus's own codebase gets built - it has nothing to do
-with what Argus does at runtime, and does not apply to Argus's own Code-Fix
-sub-agent, which writes tests freely in the separate `argus-target-service` repo
-(see spec §7.4, §13, §18.3 for the distinction).
+This is a policy about how Argus's own codebase gets built, and it stops at this
+repository's edge. It has nothing to do with what Argus does at runtime, and it
+does not apply to Argus's own Code-Fix sub-agent, which writes tests freely in
+the separate demo Target Service repo (see spec §7.4, §13, §18.3 for the
+distinction).
+
+Nor does it apply to an agent working on that repo as a developer. The demo
+Target Service is a fixture, held to different standards than Argus, and its
+tests are a regression net written after the code rather than a specification
+written before it - so an agent writes them directly there. Test-first is a
+claim about how Argus's behavior gets decided, and nothing about a fixture's
+behavior is decided that way.
 
 Full context: spec §18.3 (`docs/spec-and-architecture.md`).
 

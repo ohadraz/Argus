@@ -301,11 +301,13 @@ def _run_against_the_stack(
     `_LOCAL_SERVICES` to the settings that service alone should see.
 
     Brings up docker-compose's `postgres` service (always-on, base definition)
-    plus `target-service` (the `e2e` Compose profile - it's a demo/test
-    fixture, not something Argus itself depends on, so it stays out of the
-    default `docker compose up`) and the local `read_mcp`, `anthropic_double`
-    and `argus_web` processes (none containerized - design.md's decision).
-    Teardown runs even if the tests fail, so nothing is left running.
+    plus the whole Target Environment - the Target Service, the feature-flag
+    provider and that provider's database, `include`d from the sibling repo's
+    own compose file and carrying the `e2e` Compose profile, since it's a
+    demo/test fixture rather than something Argus depends on - and the local
+    `read_mcp`, `anthropic_double` and `argus_web` processes (none
+    containerized - design.md's decision). Teardown runs even if the tests fail,
+    so nothing is left running.
 
     Teardown passes `-v` so Postgres's anonymous volume goes with the
     container. Without it the database survives between runs, and since the
