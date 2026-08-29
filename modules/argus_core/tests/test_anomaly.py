@@ -3,9 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from agent_investigator.anomaly import earliest_bucket_is_anomalous, find_onset
+from argus_core.anomaly import (
+    earliest_bucket_is_anomalous,
+    find_onset,
+    has_recovered_since,
+)
 from argus_core.models.metrics import MetricBucket
-from argus_core.timestamps import to_iso_minute
+from argus_core.timestamps import parse_iso, to_iso_minute
 
 
 @pytest.mark.unit
@@ -143,6 +147,57 @@ def test_find_onset_is_not_fooled_by_a_baseline_whose_quiet_minutes_read_alike()
     first_incident_bucket = some_window[17]
 
     assert find_onset(some_window) == first_incident_bucket.bucket_id
+
+
+
+@pytest.mark.unit
+def test_a_window_that_returned_to_baseline_has_recovered() -> None:
+    # The mitigation side of the same judgement: not "when did this start" but
+    # "is it still going", asked of the minutes after an action was taken.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_degradation_rate, some_degradation_rate]
+        + [some_steady_rate] * 3
+    )
+
+    the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
+
+    assert has_recovered_since(some_window, the_minute_after_the_action) is True
+
+
+@pytest.mark.unit
+def test_a_window_still_departing_has_not_recovered() -> None:
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + [some_degradation_rate] * 4
+    )
+
+    the_minute_after_the_action = some_window[CALM_MINUTES + 1].bucket_id
+
+    assert has_recovered_since(some_window, the_minute_after_the_action) is False
+
+
+@pytest.mark.unit
+def test_recovery_is_not_claimed_before_a_minute_has_been_measured() -> None:
+    # No minute has been measured since the action, so there is no evidence of
+    # recovery - which is not the same as evidence of recovery. Claiming it here
+    # would confirm every mitigation the instant it was taken.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + [some_degradation_rate] * 2
+    )
+
+    a_minute_after_the_window_ends = _the_minute_after(some_window[-1].bucket_id)
+
+    assert has_recovered_since(some_window, a_minute_after_the_window_ends) is False
+
+
+def _the_minute_after(bucket_id: str) -> str:
+    return to_iso_minute(parse_iso(bucket_id) + timedelta(minutes=1))
 
 
 CALM_MINUTES = 6

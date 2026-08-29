@@ -72,3 +72,23 @@ def get_change_events(service: str,
         window_end=window_end,
     )
     return [ChangeEvent.model_validate(change) for change in cast(list[object], result)]
+
+
+def get_enabled_flags() -> list[str]:
+    """Reads which feature flags are currently evaluating true.
+
+    Evaluated per call rather than cached, so it reflects a change made by
+    anyone - a human in the provider's console, or Mitigation through the write
+    tier - as of now. Mitigation reads this to learn which flag an incident is
+    about; the flag is never named in Argus's own configuration.
+
+    Raises rather than returning an empty list when the provider cannot be
+    reached: an outage read as "no flag is on" would look like an environment
+    with nothing to revert.
+    """
+    settings = get_settings()
+    result = call_mcp_tool(
+        f"{settings.read_mcp_url}/mcp",
+        "get_enabled_flags",
+    )
+    return cast(list[str], result)

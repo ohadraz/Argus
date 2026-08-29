@@ -19,6 +19,29 @@ class Settings(BaseSettings):
     read_mcp_host: str = Field(default="localhost")
     read_mcp_port: int = Field(default=8090)
 
+    # The feature-flag provider, read side. This credential can evaluate flags
+    # and cannot change one, which is what makes `argus-read-mcp` incapable of
+    # mutation rather than merely disinclined (spec §13, §14). The admin
+    # credential belongs to `argus-write-mcp` alone and is not read here.
+    unleash_base_url: str = Field(default="http://localhost:4242")
+    unleash_frontend_token: str = Field(
+        default="default:production.argus-demo-frontend-token"
+    )
+    # Which project and environment a flag change addresses. Read-side calls
+    # need neither - the evaluation credential is already scoped to one
+    # environment - but the admin API names both in its path.
+    unleash_project: str = Field(default="default")
+    unleash_environment: str = Field(default="production")
+    # The credential that can change a flag. `argus-write-mcp` holds it and
+    # `argus-read-mcp` is issued none: the tier boundary is enforced by which
+    # process possesses which secret, not only by which code paths exist
+    # (spec §13, §14). Empty by default so a misconfigured write server fails
+    # loudly rather than silently authenticating as nobody.
+    unleash_admin_token: str = Field(default="")
+
+    write_mcp_host: str = Field(default="localhost")
+    write_mcp_port: int = Field(default=8092)
+
     log_initial_lookback_minutes: int = Field(default=30)
     log_initial_lookahead_minutes: int = Field(default=10)
     # Ceiling on any log window. Widening is how a reasoning caller reaches an 
@@ -34,6 +57,21 @@ class Settings(BaseSettings):
     metrics_window_minutes: int = Field(default=360)
 
     mitigate_threshold: float = Field(default=0.75)
+
+    # How far back Mitigation looks for the flag change an incident is about.
+    # Far shorter than `change_lookback_minutes`, and deliberately so: that one
+    # asks "how far back may a cause plausibly lie" for an investigation, where
+    # this asks "what did someone just change" about an incident happening now.
+    # Widening it makes an ambiguous environment - two flags changed, so no
+    # action - the common case rather than the exception.
+    flag_change_lookback_minutes: int = Field(default=60, gt=0)
+
+    # How long Mitigation waits for the service to answer an action before
+    # calling the hypothesis refuted. Expiry is a verdict, not an error: the
+    # action was taken and did not visibly help in the time allowed, which is
+    # what refuted means. Long enough to cover at least one whole metric minute
+    # plus the lag before the service's behaviour changes.
+    mitigation_verification_timeout_seconds: float = Field(default=180.0, gt=0.0)
 
     anthropic_api_key: str = Field(default="")
 
@@ -97,6 +135,10 @@ class Settings(BaseSettings):
     @property
     def read_mcp_url(self) -> str:
         return f"http://{self.read_mcp_host}:{self.read_mcp_port}"
+
+    @property
+    def write_mcp_url(self) -> str:
+        return f"http://{self.write_mcp_host}:{self.write_mcp_port}"
 
     @model_validator(mode="after")
     def _windows_must_be_consistent(self) -> Settings:

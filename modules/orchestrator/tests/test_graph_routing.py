@@ -5,15 +5,10 @@ from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
 from orchestrator.graph import (
     route_after_codefix,
+    route_after_gate,
     route_after_investigation,
     route_after_mitigation,
-    tier_gate_node,
 )
-
-
-@pytest.mark.unit
-def test_tier_gate_node_is_a_no_op_pass_through_TEMPORARY() -> None:
-    assert tier_gate_node(_a_state("investigating")) == {}
 
 
 @pytest.mark.unit
@@ -24,6 +19,19 @@ def test_route_after_investigation_goes_to_mitigation_when_mitigating() -> None:
 @pytest.mark.unit
 def test_route_after_investigation_escalates_otherwise() -> None:
     assert route_after_investigation(_a_state("escalated")) == "escalated"
+
+
+@pytest.mark.unit
+def test_route_after_the_gate_reaches_the_action_when_the_gate_let_it_through() -> None:
+    assert route_after_gate(_a_state("mitigating")) == "mitigating"
+
+
+@pytest.mark.unit
+def test_route_after_the_gate_escalates_a_rejected_action() -> None:
+    # The gate marks the incident escalated rather than routing directly, so
+    # that the one place deciding where an incident goes next stays the router
+    # - and a rejected action reaches no state-changing call at all.
+    assert route_after_gate(_a_state("escalated")) == "escalated"
 
 
 @pytest.mark.unit

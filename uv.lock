@@ -21,6 +21,8 @@ members = [
     "argus-read-mcp-client",
     "argus-read-mcp-server",
     "argus-workspace",
+    "argus-write-mcp-client",
+    "argus-write-mcp-server",
 ]
 
 [[package]]
@@ -131,10 +133,16 @@ version = "0.1.0"
 source = { editable = "modules/agent_mitigation" }
 dependencies = [
     { name = "argus-argus-core" },
+    { name = "argus-read-mcp-client" },
+    { name = "argus-write-mcp-client" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
+    { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
+]
 
 [[package]]
 name = "argus-agent-postmortem"
@@ -332,6 +340,54 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+
+[[package]]
+name = "argus-write-mcp-client"
+version = "0.1.0"
+source = { editable = "modules/write_mcp_client" }
+dependencies = [
+    { name = "argus-argus-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+    { name = "argus-write-mcp-server" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "argus-write-mcp-server", editable = "modules/write_mcp_server" },
+]
+
+[[package]]
+name = "argus-write-mcp-server"
+version = "0.1.0"
+source = { editable = "modules/write_mcp_server" }
+dependencies = [
+    { name = "argus-argus-core" },
+    { name = "httpx" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "httpx" },
+    { name = "mcp", specifier = ">=1.29.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
 name = "ast-serialize"

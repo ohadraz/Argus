@@ -40,7 +40,12 @@ package = false
 # type checker and several times slower. Slower type checking is a better trade
 # than none, and this is the whole fix - it survives `uv sync`, where clearing
 # the block by hand does not.
-no-binary-package = ["mypy"]
+#
+# `librt` is here for the same reason and by the same mechanism. mypy 2.x moved
+# part of its build machinery into that separate package, which ships compiled
+# too - so a pure-Python mypy still imports a blocked `.pyd` and fails
+# identically, one line further down the traceback.
+no-binary-package = ["mypy", "librt"]
 
 [tool.uv.workspace]
 members = ["modules/*"]

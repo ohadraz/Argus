@@ -5,7 +5,7 @@ from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 from mcp.server.fastmcp import FastMCP
 
-from read_mcp_server import retrieval
+from read_mcp_server import flags, retrieval
 
 settings = get_settings()
 mcp = FastMCP(
@@ -78,6 +78,27 @@ def get_change_events(service: str,
     for it. The behavior, and the source injection seam, live in
     `retrieval.get_change_events`; this is registration only."""
     return retrieval.get_change_events(service, window_start, window_end)
+
+
+@mcp.tool()
+def get_enabled_flags() -> list[str]:
+    """Returns the feature flags currently evaluating true.
+
+    Evaluated at the moment of the call, not from a cached copy, so a flag
+    somebody turned off a second ago is already absent. The environment is the
+    read credential's own - a caller cannot ask about one this tier was not
+    given access to.
+
+    This is how an agent learns *which* flag an incident is about without that
+    flag being named in Argus's configuration. Reverting it is a different
+    tier's tool on a different process: the credential behind this call cannot
+    change a flag's state (§13).
+
+    Raises rather than returning an empty list when the provider cannot be
+    reached, for the reason `get_change_events` does: "nothing is enabled" is a
+    conclusion, and an outage is not evidence for it. The behavior and its
+    injection seam live in `flags.enabled_flags`; this is registration only."""
+    return flags.enabled_flags()
 
 
 if __name__ == "__main__":

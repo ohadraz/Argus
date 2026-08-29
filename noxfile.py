@@ -279,10 +279,19 @@ _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
 
 _LOCAL_SERVICES: list[tuple[str, list[str], str]] = [
     ("read_mcp", ["-m", "read_mcp_server.server"], "http://localhost:8090/mcp"),
+    # Its own process, not a second module inside `read_mcp`: the tier split
+    # (spec §12.1, §13) is what makes "read-only" a property of a running
+    # process rather than a convention, and a stack that started only one of
+    # them would be testing the convention.
+    ("write_mcp", ["-m", "write_mcp_server.server"], "http://localhost:8092/mcp"),
     _ANTHROPIC_DOUBLE,
     (
+        # Bound to every interface, not just loopback: the Target Environment's
+        # monitoring posts its alerts from inside a container, and a server
+        # listening only on `127.0.0.1` is not reachable from there however the
+        # container spells the host.
         "argus_web",
-        ["-m", "uvicorn", "argus_web.app:app", "--port", "8000"],
+        ["-m", "uvicorn", "argus_web.app:app", "--host", "0.0.0.0", "--port", "8000"],
         "http://localhost:8000/openapi.json",
     ),
 ]
@@ -332,7 +341,14 @@ def _run_against_the_stack(
         for name, module_args, ready_url in _LOCAL_SERVICES:
             started.append(_start_service(module_args, env=service_env.get(name)))
             _wait_for_http(name, ready_url)
-        session.run("uv", "run", "python", "-m", "pytest", *test_paths, "-v", external=True)
+        # Anything after `--` goes to pytest, so a single failing case can be
+        # re-run against the stack (`-- -k fallback`) instead of the whole
+        # suite. Bringing the stack up is the slow part of a green run and the
+        # cheap part of a debugging one.
+        session.run(
+            "uv", "run", "python", "-m", "pytest", *test_paths, "-v",
+            *session.posargs, external=True,
+        )
     finally:
         for process in reversed(started):
             _stop_service(process)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from argus_core.anomaly import earliest_bucket_is_anomalous, find_onset
 from argus_core.config import get_settings
 from argus_core.models.alert import Alert
 from argus_core.models.evidence import Evidence
@@ -9,7 +10,6 @@ from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso, to_iso
 
-from agent_investigator.anomaly import earliest_bucket_is_anomalous, find_onset
 from agent_investigator.reasoning import HypothesisProposer, propose_hypothesis
 from agent_investigator.retrieval import (
     ChangeFetcher,

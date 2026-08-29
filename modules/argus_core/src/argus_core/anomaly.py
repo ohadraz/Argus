@@ -74,6 +74,39 @@ def earliest_bucket_is_anomalous(buckets: Sequence[MetricBucket]) -> bool:
     return find_onset(buckets) == buckets[0].bucket_id
 
 
+def has_recovered_since(buckets: Sequence[MetricBucket], moment: str) -> bool:
+    """Whether every minute from `moment` onwards sits at the window's baseline
+    (spec §7.3).
+
+    The same departure rule `find_onset` uses, asked of the end of the window
+    rather than its start: not "when did this begin" but "is it still going".
+    Mitigation asks it of the minutes after an action, so that a confirmed
+    verdict rests on the same judgement of a healthy minute that the
+    Investigator made of an unhealthy one - two agents disagreeing about that
+    would be two incidents.
+
+    The baseline comes from the whole window, incident minutes included,
+    because that is what the later minutes have to be judged against. A window
+    of only post-action minutes has no departure to contrast with, and would
+    read any steady rate as healthy however elevated it was.
+
+    No minute at or after `moment` is **not** recovery. Absence of evidence
+    would otherwise confirm a mitigation the instant it was taken, before the
+    service had any chance to answer.
+    """
+    departures = _departures(buckets)
+    since_moment = [
+        departed
+        for bucket, departed in zip(buckets, departures, strict=True)
+        if bucket.bucket_id >= moment
+    ]
+
+    if not since_moment:
+        return False
+
+    return not any(since_moment)
+
+
 def _departures(buckets: Sequence[MetricBucket]) -> list[bool]:
     """Whether each minute, in window order, has left the baseline on error
     rate or p95 latency. Both are checked because different failures move

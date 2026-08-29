@@ -29,4 +29,14 @@ async def _call_mcp_tool(url: str, name: str, **kwargs: object) -> object:
             raise RuntimeError(f"MCP tool call [{name}] failed: {result.content!r}")
 
         structured = result.structuredContent
-        return structured["result"] if structured is not None else None
+
+        if structured is None:
+            return None
+
+        # A tool returning something that is not already a JSON object - a
+        # list of log lines, a list of buckets - has it wrapped under `result`,
+        # because a structured-content payload has to be an object at the top
+        # level. A tool returning a dict is already one, and arrives unwrapped.
+        # Unwrapping unconditionally worked only for as long as every tool
+        # returned a list.
+        return structured.get("result", structured)

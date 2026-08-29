@@ -1,25 +1,25 @@
 [project]
-name = "argus-agent_mitigation"
+name = "argus-write_mcp_server"
 version = "0.1.0"
 requires-python = ">=3.14"
-
 dependencies = [
     "argus-argus_core",
-    "argus-read_mcp_client",
-    "argus-write_mcp_client",
+    "httpx",
+    "mcp>=1.29.0",
 ]
 
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
+]
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
-argus-read_mcp_client = { workspace = true }
-argus-write_mcp_client = { workspace = true }
-
+argus-argus_testkit = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_mitigation"]
+packages = ["src/write_mcp_server"]
