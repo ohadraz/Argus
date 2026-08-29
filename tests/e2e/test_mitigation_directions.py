@@ -38,6 +38,9 @@ provider's own answer about the flag is the evidence.
 """
 
 A_RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
+A_RECORDED_FALLBACK_DISABLED = "fallback-disabled"
+
+
 
 A_GENEROUS_MODEL_CALL_SECONDS = 90
 AN_INVESTIGATION_TIMEOUT_SECONDS = (
@@ -70,7 +73,8 @@ def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
     Scenario() \
         .given(
             _a_fallback_flag_was_switched_off(),
-            the_model_answers_from(A_RECORDED_FLAG_TOGGLE),
+            the_model_answers_from(A_RECORDED_FALLBACK_DISABLED)
+
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

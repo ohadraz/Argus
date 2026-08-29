@@ -65,6 +65,31 @@ def test_an_undetermined_hypothesis_comes_back_naming_no_cause() -> None:
 
 
 @pytest.mark.integration
+def test_a_hypothesis_comes_back_naming_the_subject_it_blamed() -> None:
+    # The record of an incident should say *what* was blamed, not only that
+    # something was. It is also what a later phase reads to act - a subject
+    # that survived the model and then died in the table would leave the
+    # reasoning intact and the conclusion gone.
+    some_flag = "monthly-spend-feature"
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        incident_id = an_incident_created_for(_an_alert())
+        some_hypothesis = _a_determined_hypothesis(
+            incident_id, ["some log line"], subject=some_flag
+        )
+        the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
+
+        Scenario() \
+            .when(
+                lambda: hypotheses.record(conn, some_hypothesis)
+            ) \
+            .then(
+                the_stored_hypothesis_is(some_hypothesis)
+            )
+
+
+@pytest.mark.integration
 def test_the_latest_hypothesis_for_an_incident_is_the_one_returned() -> None:
     # An incident can be investigated more than once; "latest" is what the
     # orchestrator reads back, so the order has to be the write order.
@@ -104,13 +129,16 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
     return incidents.create(conn, alert)
 
 
-def _a_determined_hypothesis(incident_id: str, evidence: list[str]) -> Hypothesis:
+def _a_determined_hypothesis(incident_id: str,
+                             evidence: list[str],
+                             subject: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary="a feature flag was toggled on just before the errors began",
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=0.94,
         supporting_evidence=evidence,
+        subject=subject,
     )
 
 

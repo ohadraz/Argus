@@ -53,37 +53,35 @@ def test_neither_a_cause_nor_a_confidence_is_accepted() -> None:
 
 @pytest.mark.unit
 def test_an_undetermined_hypothesis_is_never_confident_enough() -> None:
-    lowest_possible_threshold = 0.0
-    undetermined = an_investigated_hypothesis(cause_type=None, confidence=None)
+    hypothesis = an_investigated_hypothesis(cause_type=None, confidence=None)
 
-    assert not undetermined.is_confident_enough(lowest_possible_threshold)
+    assert not hypothesis.is_confident_enough(0.0)
 
 
 @pytest.mark.unit
 def test_a_hypothesis_exactly_at_the_threshold_is_confident_enough() -> None:
     some_threshold = 0.75
-    exactly_at_the_threshold = an_investigated_hypothesis(
+
+    hypothesis = an_investigated_hypothesis(
         cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_threshold
     )
 
-    assert exactly_at_the_threshold.is_confident_enough(some_threshold)
+    assert hypothesis.is_confident_enough(some_threshold)
 
 
 @pytest.mark.unit
 def test_a_hypothesis_just_below_the_threshold_is_not_confident_enough() -> None:
     some_threshold = 0.75
-    some_below_threshold = some_threshold - 0.01
-    just_below_the_threshold = an_investigated_hypothesis(
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_below_threshold
+
+    hypothesis = an_investigated_hypothesis(
+        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_threshold - 0.01
     )
 
-    assert not just_below_the_threshold.is_confident_enough(some_threshold)
+    assert not hypothesis.is_confident_enough(some_threshold)
 
 
 @pytest.mark.unit
 def test_two_hypotheses_built_the_same_way_have_different_ids() -> None:
-    # Identity belongs to the entity, not to the table it later lands in - a
-    # hypothesis can be referenced and logged before anything is persisted.
     one = an_investigated_hypothesis(cause_type=None, confidence=None)
     another = an_investigated_hypothesis(cause_type=None, confidence=None)
 
@@ -106,12 +104,58 @@ def test_a_hypothesis_keeps_the_id_it_was_given() -> None:
     assert hypothesis.id == some_id
 
 
+@pytest.mark.unit
+def test_a_hypothesis_carries_the_subject_its_cause_names() -> None:
+    # The whole point of the field: what the Investigator blamed survives as a
+    # value a later phase can act on, instead of only as words in `summary`.
+    some_flag = "monthly-spend-feature"
+
+    hypothesis = an_investigated_hypothesis(
+        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=0.9, subject=some_flag
+    )
+
+    assert hypothesis.subject == some_flag
+
+
+@pytest.mark.unit
+def test_a_hypothesis_that_names_no_subject_has_none() -> None:
+    # A cause need not have a subject this system can name - a bad deployment
+    # is a real cause with nothing to put here yet - so the field is absent
+    # rather than empty, and callers get one thing to check instead of two.
+    hypothesis = an_investigated_hypothesis(
+        cause_type=CauseType.BAD_DEPLOYMENT, confidence=0.9
+    )
+
+    assert hypothesis.subject is None
+
+
+@pytest.mark.unit
+def test_a_subject_without_a_cause_is_rejected() -> None:
+    # "I blame monthly-spend-feature, for nothing" is not a conclusion. It is
+    # the same incoherence the cause/confidence rule already refuses, one field
+    # over, and left alone it would reach Mitigation as a flag to act on with
+    # no diagnosis behind it.
+    dont_care_flag = "monthly-spend-feature"
+
+    with pytest.raises(ValidationError, match="subject"):
+        Hypothesis(
+            incident_id=new_id(),
+            summary="some summary",
+            cause_type=None,
+            confidence=None,
+            supporting_evidence=[],
+            subject=dont_care_flag,
+        )
+
+
 def an_investigated_hypothesis(cause_type: CauseType | None,
-                               confidence: float | None) -> Hypothesis:
+                               confidence: float | None,
+                               subject: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=new_id(),
         summary="some summary",
         cause_type=cause_type,
         confidence=confidence,
         supporting_evidence=["some log line"],
+        subject=subject,
     )

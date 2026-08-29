@@ -20,6 +20,7 @@ from tests.e2e.framework.argus import (
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import (
     another_flag_was_toggled_on,
+    the_flag_provider_forgot_every_change,
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
@@ -56,12 +57,18 @@ Which is why nothing below asserts on wording. `cause_type` is a closed enum,
 the final status is what Argus did, and the flag provider's state is what the
 world looks like afterwards; all three hold whichever way this runs, where the
 prose never would.
+
+It is also why no case here turns on the model *failing* to identify
+something. An outcome that needs the model to be uncertain can only be staged
+by a recording, so it would pass replayed and fail live - a test that reports
+which harness ran it rather than what Argus does.
 """
 
 # The recordings that answer for the model, by the names they are stored under
 # in modules/anthropic_double/recordings/.
 A_RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
 A_RECORDED_BAD_DEPLOYMENT = "bad-deployment"
+
 
 # A real investigation is up to `investigation_max_iterations` model calls,
 # each one adaptive thinking at high effort. Argus answers in seconds when it
@@ -171,15 +178,61 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
 
 
 @pytest.mark.e2e
-def test_two_changed_flags_escalate_rather_than_one_being_reverted_at_random() -> None:
-    # The ambiguity rule, against a real provider. "The evidence says a flag,
-    # and I cannot tell which" is a state a human settles in seconds, where a
-    # coin flip changes production.
+def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
+    # Escalation on the flag path, as it actually arises now that the
+    # Investigator names the flag it blames. The name alone is not
+    # authorization: the provider's own record of what changed is, and here it
+    # holds nothing about that flag.
     #
-    # This case leaves a second flag's change in the provider's audit log,
-    # which no API can erase - which is exactly what the per-case teardown
-    # reaches into the provider's database to undo. Without that, this case
-    # would decide the outcome of every case collected after it.
+    # Staged by erasing the provider's change log after the scenario is seeded,
+    # which is what two ordinary situations look like from Argus's side - a
+    # flag changed longer ago than the lookback window reaches, and a model
+    # naming a flag it inferred from prose rather than saw in a change. Both
+    # end the same way, and must: a write to a flag nothing corroborates is a
+    # production change made on one source's say-so.
+    #
+    # The Target Service's own logs still show its evaluations changing, so the
+    # investigation is unaffected and the model still names the flag. Only the
+    # corroboration is missing - which is precisely the state under test.
+    service = "io-shop"
+    some_alert_name = "HighErrorRate"
+    some_severity = "critical"
+    some_alert = a_grafana_style_alert_with(service=service,
+                                            alert_name=some_alert_name,
+                                            severity=some_severity)
+
+    Scenario() \
+        .given(
+            _a_feature_flag_was_toggled_on(),
+            the_flag_provider_forgot_every_change,
+            the_model_answers_from(A_RECORDED_FLAG_TOGGLE),
+        ) \
+        .when(
+            argus_is_triggered_with_alert(some_alert)
+        ) \
+        .then(
+            eventually(
+                all_of(
+                    argus_ended_with_status(IncidentStatus.ESCALATED),
+                    # Left exactly as it was found. An uncorroborated name is a
+                    # reason to stop, not a reason to try it and see.
+                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),
+                ),
+                timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
+            )
+        )
+
+
+@pytest.mark.e2e
+def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
+    # Two flags changed inside the window, and the Investigator says which one
+    # it blames - so there is nothing left to guess at. Argus reverts that flag
+    # and leaves the other alone.
+    #
+    # This is what makes the finding worth typing. Before it, Mitigation
+    # re-derived the culprit from the change history alone, found two
+    # candidates, and escalated an incident the Investigator had already
+    # solved.
     service = "io-shop"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
@@ -199,13 +252,15 @@ def test_two_changed_flags_escalate_rather_than_one_being_reverted_at_random() -
         .then(
             eventually(
                 all_of(
-                    argus_ended_with_status(IncidentStatus.ESCALATED),
-                    # Untouched: refusing to choose means changing neither,
-                    # not changing the first one found.
-                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),
+                    argus_ended_with_status(IncidentStatus.RESOLVED),
+                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
+                    # Untouched. Naming one flag is not licence to tidy the
+                    # other, and a second revert would be a production change
+                    # nothing diagnosed.
                     the_flag_provider_reports(AN_UNRELATED_FLAG, enabled=True),
+                    the_service_returned_to_baseline(),
                 ),
-                timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
+                timeout=A_MITIGATION_TIMEOUT_SECONDS,
             )
         )
 

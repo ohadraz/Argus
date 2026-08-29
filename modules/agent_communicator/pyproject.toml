@@ -8,8 +8,15 @@ dependencies = [
 ]
 
 
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
+]
+
+
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-argus_testkit = { workspace = true }
 
 
 [build-system]

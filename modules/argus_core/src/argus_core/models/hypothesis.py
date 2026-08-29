@@ -23,6 +23,18 @@ class Hypothesis(BaseModel):
     `cause_type` is `None` when the evidence did not identify a cause, and
     `confidence` is `None` with it. The two travel together deliberately: see
     the validator below.
+
+    `subject` is the specific thing the cause names - for a feature-flag
+    toggle, the flag. It is a field rather than a sentence in `summary` because
+    Mitigation acts on it: a conclusion that survives only as prose forces every
+    consumer to either parse English or investigate the incident again, and two
+    phases investigating separately can reach different answers, of which the
+    acting one is not the reasoning one.
+
+    A plain string, and named for no particular cause, because a `Hypothesis` is
+    shared by every cause type: a field called `flag` would be dead weight on a
+    bad deployment and a lie on whatever comes next. What the string means is
+    already fixed by `cause_type` beside it.
     """
 
     id: UuidStr = Field(default_factory=new_id)
@@ -31,6 +43,7 @@ class Hypothesis(BaseModel):
     cause_type: CauseType | None
     confidence: float | None
     supporting_evidence: list[str]
+    subject: str | None = None
     tested: bool = False
     result: str | None = None
 
@@ -51,6 +64,27 @@ class Hypothesis(BaseModel):
             raise ValueError(
                 "a hypothesis has both a cause and a confidence, or neither - "
                 f"got cause_type={self.cause_type!r}, confidence={self.confidence!r}"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def _a_subject_is_something_a_cause_names(self) -> Hypothesis:
+        """Rejects a subject with nothing to blame it for.
+
+        "I blame `monthly-spend-feature`, for nothing" is the same incoherence
+        the rule above refuses, one field over - and a worse one to let past,
+        because Mitigation reads the subject to decide what to change. An
+        undetermined verdict that still named something would arrive as a flag
+        to act on with no diagnosis behind it.
+
+        The reverse is legitimate and deliberately allowed: a cause can name no
+        subject, because not every cause has one this system can identify.
+        """
+        if self.subject is not None and self.cause_type is None:
+            raise ValueError(
+                "a hypothesis names a subject only for a cause it identified - "
+                f"got subject={self.subject!r} with cause_type=None"
             )
 
         return self

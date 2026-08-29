@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     tested BOOLEAN NOT NULL DEFAULT false,
     result TEXT,
     confidence FLOAT,
+    -- What the named cause is about - for a flag toggle, the flag itself.
+    -- Nullable: not every cause names something this system can identify, and
+    -- a hypothesis recorded before this column existed named nothing either.
+    subject TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

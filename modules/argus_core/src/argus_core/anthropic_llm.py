@@ -45,6 +45,13 @@ an honest "I don't know", because a human reading it cannot tell the two apart.
 When you do name a cause, `supporting_evidence` quotes the exact lines or \
 buckets that did the supporting - not a paraphrase, and not the whole log.
 
+`subject` names the specific thing the cause is about - for a feature flag \
+that was toggled, the flag's own name. Copy it verbatim from the evidence in \
+front of you; do not correct it, complete it, or supply one from memory. \
+Something acts on this name, and a name that is not in the evidence identifies \
+nothing. Leave it null when the cause names nothing specific, and null when \
+you named no cause at all.
+
 `confidence` is your probability that the cause you named is the real one, \
 given this evidence. Calibrate it against what the evidence does, not against \
 how cautious you feel:
@@ -146,13 +153,28 @@ class Verdict(BaseModel):
             "Empty when no cause was determined."
         ),
     )
+    # Optional, unlike every other field here - the one place this schema is
+    # lenient, and deliberately. A verdict recorded before this field existed
+    # is still a verdict, and every committed recording is one; refusing them
+    # would turn a replayed answer into `MalformedVerdict` and cost the offline
+    # suites their evidence to buy nothing. The description tells a live model
+    # when to answer null, and a model that omits the field entirely says the
+    # same thing.
+    subject: str | None = Field(
+        default=None,
+        description=(
+            "The specific thing the cause names - for a feature-flag toggle, the "
+            "flag's name, exactly as it appears in the evidence. Null when the "
+            "cause names nothing specific, or when no cause was determined."
+        ),
+    )
 
     def to_hypothesis(self, incident_id: str) -> Hypothesis:
         """Joins this verdict to the incident it was formed for.
 
-        `Hypothesis` rejects a cause without a confidence or the reverse, so a
-        model that answered incoherently - a named cause at null confidence -
-        is caught here rather than becoming a hypothesis nothing can act on.
+        `Hypothesis` rejects a cause without a confidence or the reverse, and a
+        subject named for no cause, so a model that answered incoherently is
+        caught here rather than becoming a hypothesis nothing can act on.
         """
         try:
             return Hypothesis(
@@ -161,6 +183,7 @@ class Verdict(BaseModel):
                 cause_type=self.cause_type,
                 confidence=self.confidence,
                 supporting_evidence=self.supporting_evidence,
+                subject=self.subject,
             )
         except ValidationError as error:
             raise MalformedVerdict(f"the model's verdict is not a hypothesis: {error}") from error

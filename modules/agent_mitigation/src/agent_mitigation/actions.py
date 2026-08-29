@@ -49,20 +49,24 @@ def propose_action(hypothesis: Hypothesis,
     that choosing an action cannot depend on a provider being reachable, and
     the Orchestrator can gate the choice before any I/O happens on its behalf.
 
-    Which flag comes from what the provider recorded as changing, never from
-    Argus's configuration and never from which flags are currently on. A
-    configured flag name would hardcode the demo's answer into the agent, and
-    current state cannot see half the problem: a flag switched off into an
-    incident is off now, exactly like every flag that has been off for a year.
+    Which flag comes from the hypothesis, confirmed against what the provider
+    recorded as changing - never from Argus's configuration and never from
+    which flags are currently on. A configured flag name would hardcode the
+    demo's answer into the agent, and current state cannot see half the
+    problem: a flag switched off into an incident is off now, exactly like
+    every flag that has been off for a year.
 
-    Exactly one changed flag is the flag. Zero, or several, yields `None` -
-    "the evidence says a flag, and I cannot tell which" is a real state, and a
-    human resolves it in seconds where a coin flip changes production.
+    Reading the Investigator's conclusion is not a second investigation. This
+    stays a pure function of the hypothesis and the changes handed to it: no
+    retrieval, no model, and no judgement of its own about what caused the
+    incident. Which way the flag moved still comes from the record, never from
+    the hypothesis, so prose that described the toggle backwards cannot turn a
+    flag the wrong way.
     """
     if hypothesis.cause_type is not CauseType.FEATURE_FLAG_TOGGLE:
         return None
 
-    change = _the_one_changed_flag(flag_changes)
+    change = _the_change_to_undo(hypothesis.subject, flag_changes)
 
     if change is None:
         return None
@@ -79,19 +83,26 @@ def propose_action(hypothesis: Hypothesis,
     )
 
 
-def _the_one_changed_flag(flag_changes: Sequence[FlagChange]) -> FlagChange | None:
-    """The single flag the window says changed, or `None` where that is not
-    one flag.
+def _the_change_to_undo(subject: str | None,
+                        flag_changes: Sequence[FlagChange]) -> FlagChange | None:
+    """The recorded change this action should reverse, or `None` where the
+    evidence does not identify one.
 
     A flag toggled more than once counts once, and it is its *latest* change
     that is undone: the incident is happening now, so the state to put back is
     the one the service is in now, not whatever it was at the far edge of the
     window. `flag_changes` arrives oldest first, so the last mention of a flag
     is the current one.
+
+    A hypothesis that named a flag selects it from among these; a hypothesis
+    that named none falls back to the window being unambiguous by itself.
     """
     latest_per_flag: dict[str, FlagChange] = {
         change.flag: change for change in flag_changes
     }
+
+    if subject is not None:
+        return latest_per_flag.get(subject)
 
     if len(latest_per_flag) != 1:
         return None

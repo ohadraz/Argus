@@ -1,0 +1,35 @@
+{
+ "content": [
+  {
+   "signature": "CAISiwIKjgEIERgCKkClNfE1BKiAvmYV7cMN2PI4vCtoi1KTglyTu7VVxZ7UurjR/HrWrwQaUJVqTKN01uBzeN99ub72TNn2+cDKwKKbMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAbyLstQGEgz5DIUwHokyyrSUBbcaDOvFfJvJhPPF4sOndiIwu7FT3YJWyRAHbDsWb73rjVbimA59Gwq0jK+d2v3lmr5fvSXZ4cF/yk4LxCr7qd9OKiqEukICSJYFATwqZuaOdd+pTJ/aE74SeOBP2E4LJbUvKZyfIN3+B+zosVkYAQ==",
+   "thinking": "",
+   "type": "thinking"
+  },
+  {
+   "text": "{\"summary\": \"The 'legacy-checkout-fallback' flag was switched off at 11:52Z. It guards the safe checkout path, so switching it off routes account pages onto the path that raises ZeroDivisionError, and the error rate rose from around 1% to 30-36% in the minute that followed with latency flat. Switching the flag back on restores the fallback.\", \"cause_type\": \"feature-flag-toggle\", \"confidence\": 0.92, \"supporting_evidence\": [\"2026-08-29T11:51:00Z INFO io-shop: legacy-checkout-fallback=on - 200 evaluations\", \"2026-08-29T11:52:00Z INFO io-shop: legacy-checkout-fallback=off 130 / on 70 - 200 evaluations\", \"2026-08-29T11:52:00Z ERROR io-shop: account page request failed - ZeroDivisionError: division by zero\", \"2026-08-29T11:53:00Z INFO io-shop: legacy-checkout-fallback=off - 200 evaluations\", \"2026-08-29T11:53:00Z WARN io-shop: account page error rate at 34% over the last minute\"], \"subject\": \"legacy-checkout-fallback\"}",
+   "type": "text"
+  }
+ ],
+ "id": "msg_014Kq2mXeR7pLd8sVt3nHbQe",
+ "model": "claude-opus-5",
+ "role": "assistant",
+ "stop_details": null,
+ "stop_reason": "end_turn",
+ "stop_sequence": null,
+ "type": "message",
+ "usage": {
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 0,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "cache_creation_input_tokens": 0,
+  "cache_read_input_tokens": 0,
+  "inference_geo": "global",
+  "input_tokens": 1855,
+  "output_tokens": 453,
+  "output_tokens_details": {
+   "thinking_tokens": 13
+  },
+  "service_tier": "standard"
+ }
+}

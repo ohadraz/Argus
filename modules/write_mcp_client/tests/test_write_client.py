@@ -7,7 +7,7 @@ import pytest
 from argus_core.models.flag_change import FlagChange
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
-from fake_provider import FakeUnleashHandler, a_running_write_mcp
+from fake_feature_flag_provider import FakeUnleashHandler, a_running_write_mcp
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
 
 

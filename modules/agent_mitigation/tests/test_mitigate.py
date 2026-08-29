@@ -133,6 +133,60 @@ def test_more_than_one_changed_flag_proposes_nothing_rather_than_guessing() -> N
 
 
 @pytest.mark.unit
+def test_the_flag_the_hypothesis_names_is_the_one_proposed() -> None:
+    # The case this exists for. Two flags moved recently - a previous
+    # incident's, and this one's - and the Investigator already worked out
+    # which. Deriving the answer again from the history alone throws that
+    # away and escalates an incident that was solved.
+    the_blamed_flag = "legacy-checkout-fallback"
+
+    action = propose_action(
+        a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE, subject=the_blamed_flag),
+        flag_changes=[
+            an_enabling_of("monthly-spend-feature"),
+            a_disabling_of(the_blamed_flag),
+        ],
+    )
+
+    assert action is not None
+    assert action.flag == the_blamed_flag
+
+
+@pytest.mark.unit
+def test_the_direction_comes_from_the_recorded_change_not_from_the_hypothesis() -> None:
+    # The hypothesis says *which*; the provider says *which way*. A model that
+    # described the toggle backwards in its prose must not be able to turn a
+    # flag the wrong way, so the direction is never read from it.
+    the_blamed_flag = "legacy-checkout-fallback"
+
+    action = propose_action(
+        a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE, subject=the_blamed_flag),
+        flag_changes=[a_disabling_of(the_blamed_flag)],
+    )
+
+    assert action is not None
+    assert action.enabled is True
+
+
+@pytest.mark.unit
+def test_a_named_flag_the_provider_never_recorded_proposes_nothing() -> None:
+    # Two authorities disagreeing about one incident. Falling back to the
+    # single-change rule here would act on a flag the Investigator did not
+    # blame while its stated conclusion went uncorroborated - and a name that
+    # is in no recorded change may be one the model invented.
+    a_flag_nobody_recorded_changing = "a-flag-that-never-moved"
+
+    action = propose_action(
+        a_hypothesis_blaming(
+            CauseType.FEATURE_FLAG_TOGGLE, subject=a_flag_nobody_recorded_changing
+        ),
+        flag_changes=[an_enabling_of("monthly-spend-feature")],
+    )
+
+    assert action is None
+
+
+@pytest.mark.unit
 def test_no_flag_change_proposes_nothing() -> None:
     action = propose_action(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
@@ -367,13 +421,14 @@ def an_undo_descriptor_for(flag: str, was_enabled: bool = True) -> dict[str, Any
     }
 
 
-def a_hypothesis_blaming(cause_type: CauseType) -> Hypothesis:
+def a_hypothesis_blaming(cause_type: CauseType, subject: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=DONT_CARE_INCIDENT_ID,
         summary=f"dont care - {cause_type}",
         cause_type=cause_type,
         confidence=0.9,
         supporting_evidence=[],
+        subject=subject,
     )
 
 

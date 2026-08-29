@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.anthropic_llm import build_prompt
+from argus_core.anthropic_llm import SYSTEM_PROMPT, build_prompt
 from argus_core.config import get_settings
 from argus_core.ids import new_id
 from argus_core.models.alert import Alert
@@ -125,6 +125,16 @@ def test_the_prompt_carries_the_metrics_and_the_logs_it_was_given() -> None:
     assert str(evidence.metric_buckets[0].error_rate) in prompt
     for line in evidence.log_lines:
         assert line in prompt
+
+
+@pytest.mark.unit
+def test_the_prompt_tells_the_model_where_a_subject_may_come_from() -> None:
+    # The subject ends in a write, so the model is selecting a token it was
+    # shown rather than recalling one. A name it invents fails against the
+    # provider's own records - this instruction is the first of the two
+    # checks, and the cheaper one.
+    assert "verbatim" in SYSTEM_PROMPT.lower()
+    assert "subject" in SYSTEM_PROMPT.lower()
 
 
 WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
