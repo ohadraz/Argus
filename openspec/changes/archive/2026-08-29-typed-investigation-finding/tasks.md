@@ -39,9 +39,9 @@ the implementation follows. `tests/`, `modules/argus_testkit/` and
       this proves the fallback path still works.
 - [x] 3.4 `nox -s e2e` green (paid - ask first). This is the run that exercises
       the new path, since only the live model fills the subject in.
-- [ ] 3.5 Watch it once in the browser: stage one flag scenario, reset, stage a
+- [x] 3.5 Watch it once in the browser: stage one flag scenario, reset, stage a
       second, and see the second incident mitigated rather than escalated.
 
 ## 4. Commit
 
-- [ ] 4.1 One approved single-line message.
+- [x] 4.1 One approved single-line message.
