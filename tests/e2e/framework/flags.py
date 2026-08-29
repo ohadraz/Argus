@@ -31,6 +31,12 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 # clean world - see `the_flag_provider_forgot_every_change`.
 FLAG_PROVIDER_DATABASE_URL = "postgresql://unleash:unleash@localhost:5433/unleash"
 
+# The one flag the Target Service brings into existence for itself, mirroring
+# its `UNLEASH_FLAG`. Every other flag in the provider was put there by a case -
+# either directly, or by seeding a scenario that stages its own flag - and is
+# this suite's to remove again.
+THE_SHOPS_OWN_FLAG = "monthly-spend-feature"
+
 # The provider's table of recorded changes, and the event types that record a
 # flag being switched. Internal to the provider, which is why they are named
 # once, here: the compose file pins the provider's version and says to
@@ -165,6 +171,62 @@ def every_flag_was_switched_off() -> None:
     """
     for flag in flags_evaluating_true():
         switch_flag(flag, enabled=False)
+
+
+def only_the_shops_own_flag_was_left_in_the_provider() -> None:
+    """Removes every flag a case brought into existence, keeping the shop's.
+
+    The provider is shared with the demo, which shows its console to an
+    audience, and a flag left behind by a test run is a flag somebody has to
+    explain standing in front of one. Switching a flag off is not enough:
+    off and absent look nothing alike in a list of flags.
+
+    The shop's own flag is kept because the shop creates it at startup and
+    reads it on every request - removing it would be breaking the fixture
+    rather than cleaning up after a case. Everything else is a case's doing,
+    including the fallback flag, which now comes into existence only when the
+    scenario that stages it is seeded.
+
+    Deletion is two calls in this provider: archiving a flag hides it, and only
+    a second call against the archive removes it. Verified against the pinned
+    version - re-verify on a bump, like every other admin path here.
+    """
+    for flag in _the_flags_the_provider_holds():
+        if flag != THE_SHOPS_OWN_FLAG:
+            _delete_flag(flag)
+
+
+def _the_flags_the_provider_holds() -> list[str]:
+    """Every flag in the project, over the admin API rather than the evaluation
+    one - a flag that is off still exists, and existing is the thing being
+    cleaned up here."""
+    settings = get_settings()
+    response = httpx.get(
+        f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
+        f"/features",
+        headers={"Authorization": settings.unleash_admin_token},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    body: dict[str, Any] = response.json()
+
+    return [feature["name"] for feature in body.get("features", [])]
+
+
+def _delete_flag(flag: str) -> None:
+    settings = get_settings()
+    headers = {"Authorization": settings.unleash_admin_token}
+    httpx.delete(
+        f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
+        f"/features/{flag}",
+        headers=headers,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    httpx.delete(
+        f"{settings.unleash_base_url}/api/admin/archive/{flag}",
+        headers=headers,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 def _create_flag_if_absent(flag: str) -> None:

@@ -13,8 +13,16 @@ from tests.e2e.framework.argus import (
     argus_registered_an_incident_for_the_alert,
     argus_returns_status,
     argus_went_through_statuses,
+    the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+
+# The stored answer for a window with nothing in it to blame. Named here for the
+# same reason every other case names one: the double answers from whatever was
+# seeded last, so a case that seeds nothing is a case whose model answer is
+# whichever test ran before it - and this one runs first, when there is no such
+# test and nothing is queued at all.
+A_RECORDED_ABSENCE_OF_EVIDENCE = "no-evidence"
 
 
 @pytest.mark.e2e
@@ -32,6 +40,9 @@ def test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem() -> Non
                                             severity=some_severity)
 
     Scenario() \
+        .given(
+            the_model_answers_from(A_RECORDED_ABSENCE_OF_EVIDENCE)
+        ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
         ) \
