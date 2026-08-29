@@ -67,3 +67,19 @@ exposes the server's other tools.
 - **WHEN** `read_mcp_client.get_change_events(...)` is called
 - **THEN** it returns the change events for the requested window, without
   raising
+
+### Requirement: The read server reports which flags are enabled
+The read server SHALL expose a tool reporting which flags are currently enabled
+in the configured environment, evaluated at the moment of the call, so that an
+agent can identify the flag an incident is about without that flag being named
+in Argus's own configuration.
+
+#### Scenario: An enabled flag is reported
+- **GIVEN** exactly one flag is enabled in the environment
+- **WHEN** the enabled-flags tool is called
+- **THEN** it returns that flag
+
+#### Scenario: A reverted flag stops being reported
+- **GIVEN** a flag was enabled and has since been turned off
+- **WHEN** the enabled-flags tool is called
+- **THEN** that flag is absent from the result

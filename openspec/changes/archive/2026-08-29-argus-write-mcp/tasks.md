@@ -106,4 +106,4 @@ the implementation follows. `tests/`, `modules/argus_testkit/` and
 
 ## 7. Commit
 
-- [ ] 7.1 One approved single-line message.
+- [x] 7.1 One approved single-line message.
