@@ -78,6 +78,7 @@ strict = true
 pythonpath = ["."]
 markers = [
     "unit: fast, isolated tests",
+    "component: one module entire, through its own front door, with only the infrastructure it cannot fake brought up around it",
     "integration: cross-component, in-process",
     "e2e: full stack, hits docker-compose services",
     "contract: the double still matches the third party it stands in for",

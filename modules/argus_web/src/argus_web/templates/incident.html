@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Argus - {{ incident.alert.alert_name }} on {{ incident.alert.service }}{% endblock %}
+{% block strapline %}what it saw, and what it did{% endblock %}
+
+{% block content %}
+<p class="alert">
+  <strong>{{ incident.alert.alert_name }}</strong> on
+  <strong>{{ incident.alert.service }}</strong>
+  {% if incident.alert.severity %}<span class="severity">{{ incident.alert.severity }}</span>{% endif %}
+  <span class="when">opened {{ incident.created_at | utc }}</span>
+</p>
+{% if incident.alert.summary %}<p class="sub">{{ incident.alert.summary }}</p>{% endif %}
+
+{# Everything that moves lives in the fragment, so the poll swaps exactly the
+   part that can change and nothing around it. #}
+{% include "walk.html" %}
+
+<p class="links">
+  <a href="/">all incidents</a> ·
+  <a href="/incidents/{{ incident.id }}/postmortem">postmortem</a>
+</p>
+{% endblock %}

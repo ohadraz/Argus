@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import psycopg
+from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
+from pydantic import BaseModel
+
+from orchestrator.repository._types import UuidStr
+
+
+class Action(BaseModel):
+    id: UuidStr
+    incident_id: UuidStr
+    hypothesis_id: UuidStr | None
+    type: str | None
+    target: str | None
+    reversible: bool
+    tier: str | None
+    undo_descriptor: dict[str, Any] | None
+    outcome: str | None
+    taken_at: datetime
+    approved_by: str | None
 
 
 def record(
@@ -45,3 +64,23 @@ def record(
             ),
         )
     conn.commit()
+
+
+def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Action]:
+    """Everything the walk did during an incident, in the order it did it.
+
+    A walk's actions are a sequence - tried, undone, tried again - and read back
+    in any other order they describe a different incident. `taken_at` carries
+    that order; `id` does not, because a random uuid says nothing about when its
+    row was written.
+    """
+    with conn.cursor(row_factory=class_row(Action)) as cursor:
+        cursor.execute(
+            "SELECT id, incident_id, hypothesis_id, type, target, reversible, "
+            "       tier, undo_descriptor, outcome, taken_at, approved_by "
+            "  FROM action "
+            " WHERE incident_id = %s "
+            "ORDER BY taken_at",
+            (incident_id,),
+        )
+        return cursor.fetchall()

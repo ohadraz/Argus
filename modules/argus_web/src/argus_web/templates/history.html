@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Argus - incidents{% endblock %}
+{% block strapline %}every incident it has been woken for{% endblock %}
+
+{% block content %}
+<h2>Incidents</h2>
+
+{# Newest first, because the history opens on what just happened. The order is
+   the repository's; this page does not re-sort what it was handed. #}
+{% include "history_list.html" %}
+{% endblock %}

@@ -6,6 +6,8 @@ dependencies = [
     "argus-argus_core",
     "argus-orchestrator",
     "fastapi>=0.115",
+    "jinja2>=3.1",
+    "psycopg[binary]>=3.1",
     "uvicorn[standard]>=0.30",
 ]
 

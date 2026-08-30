@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img"
+     aria-label="Argus - a watching eye">
+  <!-- Argus Panoptes, the all-seeing herdsman set to watch. One eye, because
+       a hundred of them do not survive sixteen pixels, and because the mark
+       has to be told apart at a glance from the flacon on the shop's own tab -
+       a different shape in a different palette, not a variation on it. -->
+  <rect width="64" height="64" rx="14" fill="#141a2c"/>
+
+  <!-- The lid: two arcs meeting at the corners, wide enough to read small. -->
+  <path d="M8 32 q24 -19 48 0 q-24 19 -48 0 Z" fill="#f4f1e8"/>
+
+  <!-- Iris and pupil, with the catchlight that makes it read as awake
+       rather than as a drawing of an eye. -->
+  <circle cx="32" cy="32" r="11" fill="#3f7d8c"/>
+  <circle cx="32" cy="32" r="5" fill="#141a2c"/>
+  <circle cx="28.5" cy="28.5" r="2.2" fill="#ffffff" opacity=".9"/>
+
+  <!-- The lash line, heavier above than below, the way an open eye is. -->
+  <path d="M8 32 q24 -19 48 0" fill="none" stroke="#c9a227" stroke-width="2.6"
+        stroke-linecap="round"/>
+  <path d="M8 32 q24 19 48 0" fill="none" stroke="#c9a227" stroke-width="1.6"
+        stroke-linecap="round" opacity=".7"/>
+</svg>

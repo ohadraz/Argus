@@ -65,6 +65,22 @@ def transition(
     conn.commit()
 
 
+def get_recent(conn: psycopg.Connection) -> list[Incident]:
+    """Every incident, newest first.
+
+    A history view opens on what just happened, so the ordering is the whole
+    point of the name: oldest-first would put the incident somebody came looking
+    for at the bottom of the page.
+    """
+    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+        cursor.execute(
+            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at "
+            "  FROM incident "
+            "ORDER BY created_at DESC"
+        )
+        return cursor.fetchall()
+
+
 def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(

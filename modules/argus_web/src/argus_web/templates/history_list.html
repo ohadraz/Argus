@@ -1,0 +1,21 @@
+{# The list itself, and the whole of what the history poll swaps in.
+
+   It always asks again, with no terminal state to stop at: an incident page
+   can finish, but the history cannot - the next incident is exactly what
+   somebody watching this screen is waiting for. #}
+<ul class="incidents"
+    hx-get="/history"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML">
+{% for incident in incidents %}
+  <li class="incident" data-incident="{{ incident.id }}">
+    <a href="/incidents/{{ incident.id }}">{{ incident.alert.alert_name }}</a>
+    on <strong>{{ incident.alert.service }}</strong>
+    <span class="status {{ incident.status }}">{{ incident.status }}</span>
+    <span class="when">{{ incident.created_at | utc }}</span>
+    <a class="postmortem" href="/incidents/{{ incident.id }}/postmortem">postmortem</a>
+  </li>
+{% else %}
+  <li class="empty">Nothing has happened yet.</li>
+{% endfor %}
+</ul>

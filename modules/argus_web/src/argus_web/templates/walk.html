@@ -1,0 +1,109 @@
+{# The part of an incident page that changes while the incident runs, and the
+   whole of what the poll swaps in.
+
+   The polling attributes live on this fragment rather than on the page around
+   it, so the reply to a poll carries its own instruction to poll again - and a
+   reply for an incident that has since finished simply arrives without one.
+   That is how the polling stops: the page does not have to be told, and there
+   is no timer left running behind a finished incident. #}
+<section id="walk"
+         {% if not incident.status.is_terminal() %}
+         hx-get="/incidents/{{ incident.id }}/walk"
+         hx-trigger="every 2s"
+         hx-swap="outerHTML"
+         {% endif %}>
+
+  <p class="incident-status">
+    <span class="status {{ incident.status }}">{{ incident.status }}</span>
+    {% if not incident.status.is_terminal() %}
+      <span class="live">still running</span>
+    {% endif %}
+  </p>
+
+  <h2>Candidates</h2>
+
+  {# Every candidate the investigation formed, in rank order - including the
+     ones the walk never reached. Showing only what was tried would make every
+     incident look like a lucky guess. #}
+  <ul class="candidates">
+  {% for candidate in incident.candidates %}
+    <li class="candidate"
+        data-rank="{{ candidate.rank }}"
+        data-subject="{{ candidate.subject if candidate.subject is not none else '' }}"
+        data-tested="{{ 'true' if candidate.tested else 'false' }}"
+        data-result="{{ candidate.result if candidate.result is not none else '' }}">
+
+      <p class="claim">
+        <span class="rank">#{{ candidate.rank }}</span>
+        {{ candidate.summary }}
+        {% if candidate.subject %}<code>{{ candidate.subject }}</code>{% endif %}
+        {% if candidate.confidence is not none %}
+          <span class="confidence">{{ "%.0f%%"|format(candidate.confidence * 100) }}</span>
+        {% endif %}
+        {% if not candidate.tested %}
+          <span class="untried">never reached</span>
+        {% endif %}
+      </p>
+
+      {# Against the claim that cited it, never as a dump of its own: a reader
+         matching evidence to claims by timestamp is investigating again. #}
+      {% if candidate.evidence %}
+      <ul class="evidence">
+        {% for line in candidate.evidence %}
+        <li class="evidence-line">{{ line }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
+      <ul class="attempts">
+      {% for attempt in candidate.attempts %}
+        <li class="attempt"
+            data-outcome="{{ attempt.outcome if attempt.outcome is not none else '' }}"
+            data-undone="{{ 'true' if attempt.undone else 'false' }}">
+          <span class="action">{{ attempt.action_type }}</span>
+          {# An action taken a moment ago has no answer yet. That is a state to
+             show, not an absence to hide. #}
+          {% if attempt.outcome is none %}
+            <span class="verdict undecided">no verdict yet</span>
+          {% else %}
+            <span class="verdict {{ attempt.outcome }}">{{ attempt.outcome }}</span>
+          {% endif %}
+          {% if attempt.undone %}<span class="undone">put back</span>{% endif %}
+          <span class="when">{{ attempt.taken_at | utc("%H:%M:%S") }}</span>
+        </li>
+      {% endfor %}
+      </ul>
+    </li>
+  {% else %}
+    <li class="empty">No explanation has been formed yet.</li>
+  {% endfor %}
+  </ul>
+
+  {# An action whose row names no candidate. Shown rather than dropped: it is
+     still a change Argus made to the service. #}
+  {% if incident.unattributed_attempts %}
+  <h2>Actions attributed to no candidate</h2>
+  <ul class="attempts">
+  {% for attempt in incident.unattributed_attempts %}
+    <li class="attempt"
+        data-outcome="{{ attempt.outcome if attempt.outcome is not none else '' }}"
+        data-undone="{{ 'true' if attempt.undone else 'false' }}">
+      <span class="action">{{ attempt.action_type }}</span>
+      <span class="when">{{ attempt.taken_at | utc("%H:%M:%S") }}</span>
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2>Timeline</h2>
+  <ul class="timeline">
+  {% for entry in incident.timeline %}
+    <li class="entry" data-to-status="{{ entry.to_status }}">
+      <span class="when">{{ entry.at | utc("%H:%M:%S") }}</span>
+      <span class="actor">{{ entry.actor }}</span>
+      {{ entry.action }}
+      {% if entry.result %}<span class="detail">{{ entry.result }}</span>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</section>

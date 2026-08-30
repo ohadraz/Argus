@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{# Argus's own tab, not the shop's: a different name and a different mark, so
+   two windows open side by side during a demo are told apart at a glance. #}
+<title>{% block title %}Argus{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+{# Vendored rather than pulled from a CDN. A demo that needs the internet to
+   render is a demo with one more thing that can fail in the room. #}
+<script src="/assets/htmx.min.js"></script>
+<style>
+  :root {
+    /* Dark, whatever the browser prefers. Argus watches a shop whose console
+       is dark beside it, and two screens in a demo that disagree about their
+       ground look like two unrelated tools. */
+    color-scheme: dark;
+    --ink:   #141a2c;
+    --eye:   #3f7d8c;
+    --gold:  #c9a227;
+    --bad:   #c0392b;
+    --good:  #27865a;
+    --amber: #d08214;
+    --line:  rgba(63,125,140,.30);
+    --muted: rgba(128,128,128,.16);
+  }
+  body { font: 14px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0;
+         padding: 0 24px 48px; max-width: 1100px; }
+
+  header { display: flex; align-items: center; gap: 22px; padding: 18px 0 22px;
+           border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+  /* The artwork is a photograph of a figurine on a dark ground, so its own
+     edges are a hard rectangle against the page. Masking it to an oval with a
+     feathered rim leaves the figure and dissolves the frame. */
+  header img { width: 200px; height: auto; flex: none;
+               -webkit-mask-image: radial-gradient(ellipse 48% 48% at 50% 46%,
+                                   #000 58%, transparent 100%);
+               mask-image: radial-gradient(ellipse 48% 48% at 50% 46%,
+                           #000 58%, transparent 100%); }
+  h1 { font-size: 26px; margin: 0; letter-spacing: .16em; font-weight: 500;
+       text-transform: uppercase; }
+  h1 small { display: block; font-size: 11px; letter-spacing: .28em;
+             opacity: .65; margin-top: 6px; font-weight: 400;
+             text-transform: none; }
+  a { color: var(--eye); }
+
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .12em;
+       opacity: .55; margin: 30px 0 10px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+
+  .status { display: inline-block; padding: 1px 9px; border-radius: 999px;
+            font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+            border: 1px solid var(--line); }
+  .status.resolved  { color: var(--good);  border-color: var(--good); }
+  .status.escalated { color: var(--bad);   border-color: var(--bad); }
+  .status.investigating, .status.mitigating, .status.fixing {
+            color: var(--amber); border-color: var(--amber); }
+
+  .when { opacity: .6; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  {# The same Argus the README opens on - the hundred-eyed herdsman set to
+     watch. The favicon is a mark for a sixteen-pixel tab; this is the figure
+     itself, and the two are not interchangeable. #}
+  <img src="/assets/argus.png" alt="Argus, the hundred-eyed herdsman">
+  <h1>Argus<small>{% block strapline %}what it saw, and what it did{% endblock %}</small></h1>
+</header>
+{% block content %}{% endblock %}
+</body>
+</html>

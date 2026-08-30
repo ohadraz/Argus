@@ -77,12 +77,15 @@ def test_module(session: nox.Session, module: str) -> None:
     for one module, or `-s test_module` for all of them. The parametrization
     has to be named: a trailing `-- <name>` becomes `session.posargs`, which
     this session never reads, so it would silently run every module.
-    Runs that module's `unit` and `integration` tests in isolation, using only its own
-    declared dependencies (via `uv run --package`).
+    Runs that module's `unit`, `component` and `integration` tests in isolation, using
+    only its own declared dependencies (via `uv run --package`). `component` is in the
+    filter rather than left to `test_all`: a marker a session does not select is a
+    marker whose tests quietly never run.
     """
     session.run(
         "uv", "run", "--package", f"argus-{module}",
-        "python", "-m", "pytest", f"modules/{module}/tests", "-m", "unit or integration", "-v",
+        "python", "-m", "pytest", f"modules/{module}/tests",
+        "-m", "unit or component or integration", "-v",
         external=True,
     )
 
@@ -457,4 +460,27 @@ def record(session: nox.Session) -> None:
         test_paths=[],
         service_env={"argus_web": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
         command=["uv", "run", "python", "scripts/record_incident.py"],
+    )
+
+
+@nox.session
+def stack(session: nox.Session) -> None:
+    """
+    Registers `stack` as a nox session, i.e., runnable via
+    `uv run python -m nox -s stack`.
+    Brings the same stack up as `e2e` and then holds it open instead of running
+    tests, so the shop's console and Argus's own page can be watched side by
+    side. Enter brings it down, and teardown is the same one the suites use -
+    nothing is left running.
+
+    Talks to the **real Anthropic API**, so it needs `ANTHROPIC_API_KEY` and
+    spends tokens on every incident staged from the console. That is the point:
+    a replayed answer was decided before anyone was watching, so a demo running
+    on recordings shows the pipeline moving and proves nothing about the
+    reasoning it is being watched for.
+    """
+    _run_against_the_stack(
+        session,
+        test_paths=[],
+        command=["uv", "run", "python", "scripts/hold_the_stack.py"],
     )

@@ -61,6 +61,30 @@ def record_outcome(
     conn.commit()
 
 
+def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypothesis]:
+    """Every candidate an incident formed, best-ranked first.
+
+    `get_latest_by_incident` answers with one row, which is the shape that hides
+    a walk: an incident resolved on its second candidate looks, through that
+    lens, like an incident with a single candidate. A reader asking what the
+    investigation considered needs all of them, including the ones it never
+    reached - an untried candidate is a fact about the walk, not a gap in it.
+
+    Ordered by rank, with `created_at` breaking ties, so two candidates the
+    Investigator ranked equally still read back in the order it formed them.
+    """
+    with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
+        cursor.execute(
+            "SELECT id, incident_id, summary, cause_type, confidence, "
+            "       supporting_evidence, subject, rank, tested, result "
+            "  FROM hypothesis "
+            " WHERE incident_id = %s "
+            "ORDER BY rank, created_at",
+            (incident_id,),
+        )
+        return cursor.fetchall()
+
+
 def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypothesis | None:
     """The most recent hypothesis formed for an incident.
 

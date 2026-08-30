@@ -31,7 +31,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 - Persistent memory: per-incident state + cross-incident knowledge base
 - Postmortem + executive summary generation (with cost estimation)
 - Escalation to a human on low confidence or exhausted actions
-- Dashboard to visualize incidents live and browse history
+- An incident view to watch a live incident and browse the history
 
 **Out of scope:**
 - Real production infrastructure integration
@@ -57,11 +57,11 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 4. **Every external integration is a port with a swappable adapter.** Where a standard exists, the adapter implements it; otherwise Argus defines its own minimal interface and ships one adapter for the demo.
 5. **Tests are a human-owned contract; code is what AI coding agents write against it.** This boundary is enforced structurally, not by convention.
 6. **Everything is replayable.** Every external call (LLM, tool, MCP) is logged to `REPLAY_LOG` (§11.1) with enough detail to replay deterministically, so benchmark runs don't re-spend tokens or re-hit real systems.
-7. **HTTP is a boundary concern, not a domain concern.** All external HTTP (webhook, incident read API, config API) is owned by one module, the Web Application (§7.9). Every other module - including the Orchestrator - is reached only as an in-process call.
+7. **HTTP is a boundary concern, not a domain concern.** All external HTTP (webhook, incident view, config API) is owned by one module, the Web Application (§7.9). Every other module - including the Orchestrator - is reached only as an in-process call.
 
 ## 5. Terminology
 
-- **Argus** - the system itself: the Web Application (`argus_web`, its only HTTP surface, §7.9), the Orchestrator, sub-agents, Dashboard, Backoffice, and the tool servers connecting them to the outside world.
+- **Argus** - the system itself: the Web Application (`argus_web`, its only HTTP surface, §7.9), the Orchestrator, sub-agents, the incident view `argus_web` serves, the Backoffice, and the tool servers connecting them to the outside world.
 - **Target Service** - the app Argus watches: a real, small, runnable app in its own repo (`argus-target-service`), with real feature-flag checkpoints and a real test suite.
 - **Target Environment** - everything the Target Service is wired to for a given deployment: flag backend, metrics backend, deployed-commit state. Self-hosted instances for the demo; nothing about Argus changes if these are swapped for real infra later (§12).
 - **Scenario control** - a Target Service module that seeds a known incident cause (or none) and reactively decides whether the anomaly is resolved, used by both a demo UI and the benchmark harness (§15.2).
@@ -92,7 +92,6 @@ flowchart LR
         PG[(Postgres)]
         CHROMA[(Chroma)]
         VAULT[(HashiCorp Vault)]
-        DASH[Dashboard]
         BO[Backoffice]
     end
 
@@ -112,12 +111,11 @@ flowchart LR
     WEB <--> PG
     BO -.->|register config| WEB
     BO -.->|writes secrets| VAULT
-    DASH --> WEB
 ```
 
 **Backend:** `argus_web` as the single HTTP entrypoint (§7.9), the Orchestrator + sub-agents (in-process), Postgres for incident state, Chroma for long-term memory (Investigator + Postmortem agents, §11.2), and the Target Environment (flags, metrics, logs).
 
-**Frontend:** a Dashboard (§7.7) plus a separate Backoffice admin surface (§7.8, §14) - both talk only to the Web Application, never to Postgres or Chroma directly.
+**Frontend:** the incident view the Web Application serves (§7.7) plus a separate Backoffice admin surface (§7.8, §14) - neither reaches Postgres or Chroma with SQL of its own.
 
 ## 7. Component Architecture
 
@@ -154,9 +152,15 @@ Owns all Slack writes (creates the incident channel, posts structured status upd
 
 Triggered once on transition into `resolved` or `escalated`. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, cost estimate with assumptions, executive summary. Self-checks against a completeness checklist; retries once with missing fields flagged, then hands off regardless - it must terminate even on partial success. Afterward it writes a summary + embedding to long-term memory (§11.2).
 
-### 7.7 Dashboard (`argus_dashboard`)
+### 7.7 Incident view
 
-FastAPI + Jinja2/HTMX - server-rendered, no separate frontend build. Read-only: holds no incident-domain logic, never queries Postgres/Chroma directly, calls `argus_web`'s incident read API instead. Shows a live-incident view (hypothesis tree, action timeline, confidence over time, Slack/PR links) and a history view, both server-rendered; HTMX polling handles "live" updates.
+Argus's own screen - what it saw, and what it did about it. Served by the Web Application itself (§7.9) as server-rendered Jinja2/HTMX pages with no separate frontend build, so there is one process to start and one HTTP surface to reason about. The Target Service has an operator console of its own showing the incident from outside; this shows it from inside.
+
+An incident renders as its alert, its status, and every candidate the Investigator ranked, in rank order, with the evidence each was formed from shown against the claim that cited it rather than as a collection beside it. A candidate the walk never reached is shown as untried rather than omitted - the difference between an investigation that was confident and right and one that ran out of options is most of what a walk has to say. Each tried candidate carries the action taken for it, named by `ACTION.hypothesis_id` (§11.1), the verdict recorded when that action was taken, and whether the change was put back. An action with no verdict yet is displayed as undecided, because a live incident is partly unfinished by definition.
+
+A running incident keeps itself current by polling, at the cadence the Target Service's own console uses, so the two screens move together when they are watched side by side; polling stops once the incident reaches a terminal status. A history view lists past incidents newest first, and a postmortem is its own page - it is the largest body Argus writes, and the incident page beside it polls.
+
+The view holds no incident-domain logic: it decides how something is displayed, never what it means. It reads through the repositories that own the incident tables and writes no SQL of its own, and it exposes nothing that can change an incident - reading what Argus did must not be able to alter it.
 
 ### 7.8 Backoffice
 
@@ -168,7 +172,7 @@ The single HTTP-facing surface for Argus. No other module listens on a network p
 
 Exposes three endpoint groups:
 - **Alert webhook** - receives an alert POST, validates it, normalizes it into Argus's own `Alert` domain object, then calls the Orchestrator's entrypoint in-process with that object - never the raw payload (§25).
-- **Incident read API** - serves the Dashboard: incident list, incident detail (hypothesis tree, action timeline, confidence-over-time), postmortem history, backed by direct Postgres queries (§11.1).
+- **Incident view** - the pages of §7.7: the incident history, one incident's walk, and the postmortems, read through the repositories that own the incident tables (§11.1). Those pages are the only reader there is, so no JSON API sits beneath them.
 - **Configuration API** - serves the Backoffice: CRUD over `INTEGRATION_CONFIG` (§11.3).
 
 `argus_web` holds no incident-domain logic - only request validation and response shaping. It calls the Orchestrator as an in-process dependency and reads/writes Postgres using schemas defined in `argus_core` (§20.2).
@@ -320,7 +324,7 @@ erDiagram
 
 Four tables rather than one JSON blob, because the eval metrics (§21) - wasted actions per incident, escalation precision/recall, root-cause accuracy - are counts, joins, and group-bys over structured fields (`tested`, `result`, `confidence`, `tier`). A relational schema already has that structure; free text or a blob would mean re-deriving it at query time.
 
-Neither `HYPOTHESIS` nor `ACTION` has row history - both are mutated in place (`HYPOTHESIS.tested`/`.result`/`.confidence` as the ReAct loop refines, §9 step F; `ACTION.outcome` once a mitigation is confirmed/refuted, §7.3), written in the same transaction as a paired `TIMELINE_EVENT` row (single-writer rule, §7.1). Without that pairing, the confidence trajectory (Dashboard's "confidence over time," §7.7) and the incident narrative the Postmortem agent consumes (§7.6) would collapse to only their last value.
+Neither `HYPOTHESIS` nor `ACTION` has row history - both are mutated in place (`HYPOTHESIS.tested`/`.result`/`.confidence` as the ReAct loop refines, §9 step F; `ACTION.outcome` once a mitigation is confirmed/refuted, §7.3), written in the same transaction as a paired `TIMELINE_EVENT` row (single-writer rule, §7.1). Without that pairing, the walk the incident view renders (§7.7) and the incident narrative the Postmortem agent consumes (§7.6) would collapse to only their last value.
 
 A fifth table, `REPLAY_LOG`, serves a different purpose: it's Argus's own eval infrastructure (Design Principle 6, §4), not incident-domain state, written at a different granularity - one row per LLM completion or MCP call. It's written inside the Orchestrator's process, from whichever agent node makes the call, via a shared instrumented client in `argus_core` - never by the MCP servers themselves, keeping them as pure as §13's MCP-server-boundary guardrail requires.
 
@@ -590,7 +594,6 @@ flowchart TB
         MCPS[argus-read-mcp,<br/>argus-write-mcp]
         PG[(Postgres)]
         CHROMA[(Chroma)]
-        FE[argus_dashboard<br/>FastAPI + Jinja2/HTMX]
         BO[Backoffice]
     end
     subgraph TargetDeploy["Target Service + Target Environment - Docker Compose / Railway"]
@@ -615,11 +618,10 @@ flowchart TB
     BO -.->|write secrets| VAULT
     TS --> UNLEASH
     TS -->|OTLP| OTELCOL --> PROM
-    FE --> WEB
     BO --> WEB
 ```
 
-Only modules with their own network entrypoint - the Web Application, each MCP server, the Dashboard, the Backoffice (§20.1) - appear as separate boxes and ship their own Dockerfile; `docker-compose.yml` wires them together locally, and the same images deploy as separate Railway/Fly services for the hosted demo. `argus_core`, the Orchestrator, and the agent packages have no box here - they're installed inside the Web Application's image and run in-process within it.
+Only modules with their own network entrypoint - the Web Application, each MCP server, the Backoffice (§20.1) - appear as separate boxes and ship their own Dockerfile; `docker-compose.yml` wires them together locally, and the same images deploy as separate Railway/Fly services for the hosted demo. `argus_core`, the Orchestrator, and the agent packages have no box here - they're installed inside the Web Application's image and run in-process within it.
 
 The Target Environment deploys independently of Argus, reflecting that in a real deployment it would simply be swapped for actual production infrastructure.
 
@@ -627,9 +629,9 @@ The Target Environment deploys independently of Argus, reflecting that in a real
 
 ### 20.1 Approach
 
-A `uv` workspace covers `modules/*` (§20.2): the Orchestrator, Web Application, Dashboard, each sub-agent package, each MCP server, the Backoffice, and `argus_core` are each their own installable Python package with its own `pyproject.toml`, independently versioned. A root workspace `pyproject.toml` (`[tool.uv.workspace]`, members = `modules/*`) ties these together for local dev (`uv sync` installs everything editable) without forcing a shared version or deploy lifecycle; `uv`'s lockfile covers the whole workspace.
+A `uv` workspace covers `modules/*` (§20.2): the Orchestrator, Web Application, each sub-agent package, each MCP server, the Backoffice, and `argus_core` are each their own installable Python package with its own `pyproject.toml`, independently versioned. A root workspace `pyproject.toml` (`[tool.uv.workspace]`, members = `modules/*`) ties these together for local dev (`uv sync` installs everything editable) without forcing a shared version or deploy lifecycle; `uv`'s lockfile covers the whole workspace.
 
-Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Dashboard, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each `agent_*` package, and each MCP *client* package have no deployment image; they're installed as dependencies into the Web Application, the only place they run (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
+Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each `agent_*` package, and each MCP *client* package have no deployment image; they're installed as dependencies into the Web Application, the only place they run (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
 
 The benchmark harness sits outside the workspace entirely: its own `pyproject.toml`, not deployed as a service (§19) - a script/CLI run against an already-deployed Argus stack (§21.4), consuming `argus_core` schemas as a regular dependency.
 
@@ -660,8 +662,7 @@ argus/
 │   ├── read_mcp_client/             # typed client for argus-read-mcp, imported by consuming agents
 │   ├── write_mcp_server/            # argus-write-mcp: flag toggle, git revert/PR, Slack post, email, memory write
 │   ├── write_mcp_client/            # typed client for argus-write-mcp, imported by consuming agents
-│   ├── backoffice/                  # admin UI only - no HTTP of its own, calls argus_web's config API
-│   └── argus_dashboard/             # FastAPI + Jinja2/HTMX read-only UI, calls argus_web's incident read API
+│   └── backoffice/                  # admin UI only - no HTTP of its own, calls argus_web's config API
 └── benchmark/                       # scenario runner + evaluator harness, own pyproject.toml
     ├── scenarios/
     └── tests/
@@ -725,7 +726,7 @@ The evaluator consumes the §11.1 Postgres tables directly, plus the Target Serv
 | **Spec writer** | Owns this document, keeps scope/requirements current, writes the final report |
 | **Product owner** | Prioritizes features vs. deadline, decides scope cuts, owns the demo narrative |
 | **Evaluator** | Owns the benchmark suite (§21), runs evaluations, tracks metrics, writes the eval section of the report |
-| **Engineer(s)** | Build the Orchestrator, Web Application, sub-agents, Target Environment APIs, memory layer, Slack/git integration, Dashboard, Backoffice, Docker/deployment |
+| **Engineer(s)** | Build the Orchestrator, Web Application, sub-agents, Target Environment APIs, memory layer, Slack/git integration, incident view, Backoffice, Docker/deployment |
 
 (With a small team, one person can be spec writer + product owner, but keep evaluator a distinct hat - easy to let slide if the same person also builds features.)
 
@@ -741,7 +742,7 @@ The evaluator consumes the §11.1 Postgres tables directly, plus the Target Serv
 | 6 | Code-Fix agent (RAG + PR) | Given an unresolved-by-mitigation incident, finds relevant code and opens a draft PR |
 | 7 | Long-term memory + retrieval | Past incidents retrievable and used to seed new investigations |
 | 8 | Postmortem + executive summary generation | Full doc with timeline, root cause, cost estimate |
-| 9 | Dashboard | Live incident view + history view, via the Web Application's read API (§7.9) |
+| 9 | Incident view | A live incident's walk + the history, served by the Web Application (§7.7, §7.9) |
 | 10 | Benchmark suite + evaluation run | All §21.1 scenarios scripted and run, metrics collected |
 | 11 | Dockerized deployment (Railway or similar) | One-command deploy, demo-ready |
 | 12 | Final report + demo | Report covering all of the above, live or recorded demo |
@@ -755,7 +756,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Tool integration | MCP via FastMCP, servers split by autonomy tier, ports-and-adapters for non-standardized integrations (§12) | Satisfies the tools/MCP requirement properly, with real enforcement, not just tidiness - the read/write split makes §13's guardrail structural rather than procedural |
 | Orchestration | LangGraph `StateGraph` over the incident FSM (§7.1, §10) | Conditional edges map directly to the state machine; built-in checkpointing removes bespoke resume logic |
 | Web/API layer | Single Web Application module (`argus_web`) owns all HTTP; everything else called in-process (§7.9, §4) | Keeps transport concerns out of domain logic |
-| Dashboard stack | FastAPI + Jinja2/HTMX, server-rendered, no separate JS build (§7.7) | Consistent with the Web Application's stack; no extra tooling for a read-only UI |
+| Incident view stack | Jinja2/HTMX served by the Web Application itself - no second module, no JS build (§7.7) | One process to start and one HTTP surface; no extra tooling for a read-only UI |
 | Long-term memory | Chroma (§11.2) | Simple to run embedded for dev and as one container for the demo; no managed service needed |
 | Secrets | HashiCorp Vault (§14) | Real secrets management without hardcoding or committing credentials |
 | Feature flags | Unleash, self-hosted: its Frontend API for reads, its admin API for writes (§12) | Free, self-hostable, and the one whose write side matters most - it keeps an audit event log naming who changed which flag when, which is a change-event source (§16) as well as a mitigation target. OFREP would be the preferable read protocol, being a genuine adopted standard, but Unleash does not serve it |

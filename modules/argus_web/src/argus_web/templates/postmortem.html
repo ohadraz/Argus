@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Argus - postmortem{% endblock %}
+{% block strapline %}what it made of it afterwards{% endblock %}
+
+{% block content %}
+<p class="alert">
+  <strong>{{ incident.alert.alert_name }}</strong> on
+  <strong>{{ incident.alert.service }}</strong>
+  <span class="status {{ incident.status }}">{{ incident.status }}</span>
+</p>
+
+{# Absence is an answer here, not a failure: most incidents have no postmortem
+   for most of their lives, and answering the ordinary case with an error
+   teaches a reader to ignore errors. #}
+{% if postmortem is none %}
+<p class="empty">No postmortem has been written for this incident.</p>
+{% else %}
+
+<h2>Root cause</h2>
+<p class="root-cause">{{ postmortem.root_cause }}</p>
+
+{% if postmortem.executive_summary %}
+<h2>Summary</h2>
+<p class="executive-summary">{{ postmortem.executive_summary }}</p>
+{% endif %}
+
+{% if postmortem.assumptions %}
+<h2>Assumptions</h2>
+<ul class="assumptions">
+{% for assumption in postmortem.assumptions %}
+  <li>{{ assumption }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if postmortem.cost_estimate %}
+<h2>Cost</h2>
+<ul class="cost">
+{% for name, value in postmortem.cost_estimate.items() %}
+  <li><span class="name">{{ name }}</span> {{ value }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<p class="checklist" data-complete="{{ 'true' if postmortem.checklist_complete else 'false' }}">
+  Checklist {{ "complete" if postmortem.checklist_complete else "incomplete" }}
+</p>
+{% endif %}
+
+<p class="links">
+  <a href="/">all incidents</a> ·
+  <a href="/incidents/{{ incident.id }}">the walk</a>
+</p>
+{% endblock %}
