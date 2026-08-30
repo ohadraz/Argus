@@ -69,6 +69,7 @@ class RecordAction(Protocol):
     def __call__(
         self,
         incident_id: str,
+        hypothesis_id: str,
         action_type: str,
         outcome: str,
         undo_descriptor: dict[str, Any],
@@ -113,12 +114,17 @@ def _transition_incident(
 
 
 def _record_action(
-    incident_id: str, action_type: str, outcome: str, undo_descriptor: dict[str, Any]
+    incident_id: str,
+    hypothesis_id: str,
+    action_type: str,
+    outcome: str,
+    undo_descriptor: dict[str, Any],
 ) -> None:
     with connect() as conn:
         actions.record(
             conn,
             incident_id,
+            hypothesis_id=hypothesis_id,
             action_type=action_type,
             outcome=outcome,
             undo_descriptor=undo_descriptor,
@@ -330,7 +336,11 @@ def mitigation_node(
     The row records the descriptor the *write tier returned* rather than the
     one proposed, since that is the account of what actually changed.
     """
-    if state.proposed_action is None:
+    # Both, because an action is taken *for* a candidate: one without the other
+    # is not an attempt this node can account for, and recording it would leave
+    # a row nothing can attribute. The gate guarantees both are here; this says
+    # so in a way the type checker can read.
+    if state.proposed_action is None or state.hypothesis is None:
         return _nothing_to_act_on(state, transition_incident)
 
     result = take(state.proposed_action)
@@ -339,6 +349,12 @@ def mitigation_node(
 
     record_action(
         state.incident_id,
+        # The candidate this attempt is about, named while it is still in hand.
+        # Recovering it later means matching the flag the action and the
+        # hypothesis happen to share, which the walk makes unambiguous only by
+        # refusing to act on one subject twice - a rule about not retrying a
+        # move, not about identity.
+        hypothesis_id=state.hypothesis.id,
         action_type=state.proposed_action.action_type,
         outcome=outcome,
         undo_descriptor=result.undo_descriptor,

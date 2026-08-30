@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS hypothesis (
 CREATE TABLE IF NOT EXISTS action (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
+    -- The candidate this action was taken for. Nullable because not every
+    -- action need have one, never because the association is optional where it
+    -- exists: an action taken on a hypothesis and not naming it leaves a reader
+    -- to guess which candidate it belonged to by matching the flag the two
+    -- happen to mention - which is only ever right because the walk refuses to
+    -- act on one subject twice, a rule about retrying rather than about
+    -- identity.
+    hypothesis_id UUID REFERENCES hypothesis(id),
     type TEXT,
     target TEXT,
     reversible BOOLEAN NOT NULL DEFAULT true,
