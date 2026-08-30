@@ -38,23 +38,40 @@ AN_INVESTIGATION_TIMEOUT_SECONDS = (
     get_settings().investigation_max_iterations * A_GENEROUS_MODEL_CALL_SECONDS
 )
 
+# A walk tries its candidates one at a time, and each one waits out the
+# verification window before it can be called refuted - so an incident Argus
+# does not solve on its first guess costs several of those windows, not one.
+#
+# Sized for a single round's worth of candidates rather than for the worst case
+# the settings permit (every round, every candidate), which would be forty
+# minutes of a suite sitting on a failure before reporting it. A run that
+# somehow exceeds this is a slow failure either way; a bound nobody waits for is
+# not a safety net.
+A_WALK_TIMEOUT_SECONDS = int(
+    AN_INVESTIGATION_TIMEOUT_SECONDS
+    + get_settings().investigation_max_candidates
+    * get_settings().mitigation_verification_timeout_seconds
+)
+
 
 def argus_is_triggered_with_alert(
     payload: dict[str, Any]
 ) -> Callable[[], httpx.Response]:
-    """Fires the alert, and waits for the investigation it starts.
+    """Fires the alert, and waits for everything it starts.
 
-    The wait is the whole investigation, not a round trip: the webhook runs the
-    graph in-process and answers only once it has finished. So this call is
-    bounded by the same budget the `then` clauses wait on - one that against a
-    replayed model is never approached, and against a real one is the
-    difference between a slow answer and a failed run.
+    The wait is the whole incident, not a round trip: the webhook runs the graph
+    in-process and answers only once it has finished. That used to mean one
+    investigation, and it now means the walk - every candidate tried, each with
+    its own verification window, and a fresh investigation between rounds. So
+    this waits on the walk's budget rather than the investigation's; waiting on
+    the shorter one fails the *client* while Argus is still working, which reads
+    like a hung stack and is not one.
     """
     def step() -> httpx.Response:
         return httpx.post(
             f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
             json=payload,
-            timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
+            timeout=A_WALK_TIMEOUT_SECONDS,
         )
 
     return step
@@ -205,7 +222,7 @@ def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx.Response]:
 
 
 def the_model_answers_from(recording: str) -> Callable[[], bool]:
-    """A `given` step naming the stored answer the model gives for this case.
+    """A `given` step naming the stored answers the model gives for this case.
 
     The counterpart to seeding the Target Service's scenario: one says what the
     service did, the other says what the model said about it. Both are
@@ -213,16 +230,26 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
     invisibly by a fixture - and a case wanting a mismatched pair (a deploy
     scenario the model finds nothing in) can write one.
 
+    Answers, plural, because one incident is several calls. A walk investigates,
+    has its first candidate refuted, and investigates again carrying that
+    refutation - and the real model answers those differently, which is the
+    whole reason a second candidate is ever reached. A single answer repeated
+    made the replayed run re-derive its first verdict, refuse to act twice on
+    the same subject, and escalate: the free suite reported a pass on a walk
+    that had never walked. Recording already captures the set - `name`,
+    `name-2`, `name-3` - so the answers were always there to serve; nothing
+    served them in order.
+
+    The last one repeats until reset rather than running out, because the
+    investigation loop asks the model between one and
+    `investigation_max_iterations` times depending on what it retrieved. Seeding
+    a fixed count would couple every e2e case to the current iteration budget.
+    How many times the model was asked is asserted in the Investigator's own
+    unit tests, where it is free.
+
     Resets first, because a seed from an earlier case answers until it is
     cleared, and a test whose verdict came from the previous test's recording
     is worse than a failing one.
-
-    `repeat: null` - answer every call until reset - rather than a count,
-    because the investigation loop asks the model between one and
-    `investigation_max_iterations` times depending on what it retrieved. A
-    count here would couple every e2e case to the current iteration budget.
-    How many times the model was asked is asserted in the Investigator's own
-    unit tests, where it is free.
 
     Against `nox -s e2e` this seeds a double nothing is pointed at, and is
     harmlessly ignored - which is what lets one set of cases serve both the
@@ -231,11 +258,61 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
     def step() -> bool:
         with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
+            answers = _the_answers_recorded_for(recording, control)
+
+            for answered_once in answers[:-1]:
+                control.post(
+                    "/double-control/seed",
+                    json={"recording": answered_once, "repeat": 1},
+                ).raise_for_status()
+
             response = control.post(
                 "/double-control/seed",
-                json={"recording": recording, "repeat": None},
+                json={"recording": answers[-1], "repeat": None},
             )
 
         return response.status_code == HttpStatus.OK
 
     return step
+
+
+def _the_answers_recorded_for(recording: str, control: httpx.Client) -> list[str]:
+    """Every stored answer belonging to one incident, in the order it was given.
+
+    Asked of the double rather than the filesystem: the recordings belong to it,
+    and a test reaching into another package's directory to list them would be
+    a second opinion about what is available.
+
+    A name with no numbered siblings answers as itself, which is every case that
+    resolves on its first verdict - so this changes nothing for them.
+    """
+    state = control.get("/double-control/state")
+    state.raise_for_status()
+
+    belonging = [
+        name
+        for name in state.json().get("available_recordings", [])
+        if name == recording or _is_a_later_answer_of(name, recording)
+    ]
+
+    return sorted(belonging, key=_the_order_it_was_answered_in) or [recording]
+
+
+def _is_a_later_answer_of(name: str, recording: str) -> bool:
+    """Whether `name` is one of `recording`'s numbered continuations.
+
+    The digits are checked, not just the prefix: two recordings can share a
+    stem, and a case seeded with somebody else's answer fails in a way nobody
+    reads as a naming collision.
+    """
+    return name.startswith(f"{recording}-") and name[len(recording) + 1:].isdigit()
+
+
+def _the_order_it_was_answered_in(name: str) -> int:
+    """The call this answer came back from - the bare name being the first.
+
+    Numeric, because sorting these as text puts a tenth answer before a second.
+    """
+    _, _, suffix = name.rpartition("-")
+
+    return int(suffix) if suffix.isdigit() else 1

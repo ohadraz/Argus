@@ -52,6 +52,15 @@ Something acts on this name, and a name that is not in the evidence identifies \
 nothing. Leave it null when the cause names nothing specific, and null when \
 you named no cause at all.
 
+`alternatives` is the other explanations this same evidence supports, if any. \
+Something will try the one you named first, and try these in turn if it does \
+not help - so an alternative is a competing account of the evidence in front of \
+you, not a guess added to fill the list. Each one follows every rule above: its \
+own cause, its own confidence, its own quoted evidence, its own verbatim \
+subject. Leave it empty when the evidence points one way; that is a real \
+answer, and padding it wastes a production change on a cause you do not \
+believe in.
+
 `confidence` is your probability that the cause you named is the real one, \
 given this evidence. Calibrate it against what the evidence does, not against \
 how cautious you feel:
@@ -114,17 +123,20 @@ _STOP_REASON_ERRORS: dict[str, type[VerdictNotReached]] = {
 }
 
 
-class Verdict(BaseModel):
-    """The wire shape the model fills in - flat, and not a `Hypothesis`.
+class Explanation(BaseModel):
+    """One account of what caused the incident - the wire shape the model fills
+    in, flat, and not a `Hypothesis`.
 
     Kept separate on purpose. A `Hypothesis` is an entity: it has an id, an
-    incident it belongs to, and a `tested`/`result` life after the
-    Investigator is done with it. None of that is the model's to invent, and a
-    schema that offered those fields would be inviting it to.
+    incident it belongs to, a rank among its siblings, and a `tested`/`result`
+    life after the Investigator is done with it. None of that is the model's to
+    invent, and a schema that offered those fields would be inviting it to.
 
-    So the model fills in the four fields it can actually know, and the
-    adapter joins them to the incident. `to_hypothesis` below is the single
-    point where the wire shape and the domain shape meet.
+    Its own type rather than a `Verdict` nested inside a `Verdict`, because a
+    self-referential schema describes a tree the model could nest for ever -
+    alternatives of alternatives - where what is wanted is one flat list of
+    competing answers. The answer's *carrier* is `Verdict` below; this is what
+    each answer in it looks like.
     """
 
     summary: str = Field(
@@ -169,8 +181,8 @@ class Verdict(BaseModel):
         ),
     )
 
-    def to_hypothesis(self, incident_id: str) -> Hypothesis:
-        """Joins this verdict to the incident it was formed for.
+    def _to_hypothesis(self, incident_id: str, rank: int) -> Hypothesis:
+        """Joins this explanation to the incident it was formed for.
 
         `Hypothesis` rejects a cause without a confidence or the reverse, and a
         subject named for no cause, so a model that answered incoherently is
@@ -184,9 +196,76 @@ class Verdict(BaseModel):
                 confidence=self.confidence,
                 supporting_evidence=self.supporting_evidence,
                 subject=self.subject,
+                rank=rank,
             )
         except ValidationError as error:
             raise MalformedVerdict(f"the model's verdict is not a hypothesis: {error}") from error
+
+
+class Verdict(Explanation):
+    """The model's answer: its best explanation, and the others it weighed.
+
+    An `Explanation` itself rather than a wrapper holding one, because the best
+    answer is not a different kind of thing from the runners-up - it is the one
+    that happens to be carrying them.
+
+    `alternatives` is competing accounts of the *same* evidence, which is what
+    makes them worth trying in turn when the first is refuted. It is optional on
+    the wire, the second place this schema is lenient and for the same reason as
+    the first: every recording captured before the field existed omits it, and
+    refusing those would turn a replayed answer into `MalformedVerdict` and cost
+    the offline suites the evidence they exist to be.
+    """
+
+    alternatives: list[Explanation] = Field(
+        default_factory=list,
+        description=(
+            "The other explanations this same evidence supports, if any, ranked "
+            "by confidence. An alternative is a competing account of the "
+            "evidence in hand - not a guess added to fill the list. Empty is a "
+            "valid answer, and the right one when the evidence points one way."
+        ),
+    )
+
+    def to_hypotheses(self, incident_id: str, limit: int | None = None) -> list[Hypothesis]:
+        """Every explanation in this verdict, best first, joined to the incident.
+
+        Ordered by descending confidence rather than by the order the model
+        serialized them in: the model is asked for both, and where they disagree
+        the numbers win, because the numbers are what the mitigate threshold
+        already reads. Ties keep the model's order, which is the only thing left
+        to break them with.
+
+        An explanation with no confidence names no cause either - the two travel
+        together - so it is the one entry nothing can be done about, and it
+        sorts last. Kept rather than dropped, because it is still something the
+        model said about the incident.
+
+        `rank` is written here because it has to survive the trip through a
+        table: rows come back in no order at all, and a position that lived only
+        in list order would not come back with them.
+
+        `limit` is how many of them the caller can afford to try - a ceiling,
+        not a quota, so a shorter verdict is left as it is. It is a parameter
+        rather than a setting read here, for the same reason
+        `Hypothesis.is_confident_enough` takes its threshold: how Argus is
+        configured is no business of a model's answer. The cut is made after
+        every explanation has been converted, never before, so which answers
+        are checked for coherence cannot depend on how many the model offered.
+        """
+        ordered = sorted(
+            [self, *self.alternatives],
+            key=lambda explanation: (
+                explanation.confidence is None,
+                -(explanation.confidence or 0.0),
+            ),
+        )
+        candidates = [
+            explanation._to_hypothesis(incident_id, rank)
+            for rank, explanation in enumerate(ordered, start=1)
+        ]
+
+        return candidates if limit is None else candidates[:limit]
 
 
 def build_prompt(evidence: Evidence) -> str:
@@ -228,8 +307,45 @@ def build_prompt(evidence: Evidence) -> str:
     ]
     sections.extend(evidence.log_lines or ["(no log lines were returned for this window)"])
     sections.extend(_change_section(evidence))
+    sections.extend(_attempts_section(evidence))
 
     return "\n".join(sections)
+
+
+def _attempts_section(evidence: Evidence) -> list[str]:
+    """What has already been tried for this incident, and did not help.
+
+    Omitted entirely when nothing has been tried, unlike the change section
+    below, which reports its own emptiness. The two absences mean different
+    things: "no changes in this window" is a finding about the world, while
+    "nothing has been tried yet" is a fact about Argus, and every first-round
+    prompt would carry it for nothing.
+
+    Stated as record, not instruction. The model is not told to avoid these
+    causes - it is told what happened when they were acted on, which is
+    evidence, and left to draw its own conclusion. An instruction would forbid
+    the one answer that is sometimes right: that the cause was named correctly
+    and the action taken on it was not the one that undoes it.
+
+    The direction is named because both directions are real - a feature flag is
+    put back by switching it off, a withdrawn fallback by switching it on - and
+    "the flag was changed" leaves the model unable to say which state is now in
+    effect.
+    """
+    if not evidence.attempts:
+        return []
+
+    return [
+        "",
+        "## Already tried",
+        "Argus took these actions on this incident and undid each one. The "
+        "service did not return to its baseline after any of them.",
+        *(
+            f"- set {attempt.subject} {'on' if attempt.enabled else 'off'} "
+            f"at {attempt.occurred_at}: the service did not recover"
+            for attempt in evidence.attempts
+        ),
+    ]
 
 
 def _change_section(evidence: Evidence) -> list[str]:
@@ -332,8 +448,12 @@ class AnthropicLLMClient:
             # with `base_url=None`. Passing "" would point it at nothing.
             base_url=base_url,
         )
+        # Read here with the rest of the configuration, rather than at the call
+        # site: how many candidates Argus can afford to try is a property of
+        # this deployment, not of any one verdict.
+        self._max_candidates = resolved.investigation_max_candidates
 
-    def propose_hypothesis(self, evidence: Evidence) -> Hypothesis:
+    def propose_hypotheses(self, evidence: Evidence) -> list[Hypothesis]:
         """Asks the model what caused the incident this evidence was gathered for.
 
         Adaptive thinking at high effort: the judgment being asked for is
@@ -363,4 +483,4 @@ class AnthropicLLMClient:
                 f"the model returned no structured verdict (stop_reason={parsed.stop_reason})"
             )
 
-        return verdict.to_hypothesis(evidence.incident_id)
+        return verdict.to_hypotheses(evidence.incident_id, limit=self._max_candidates)

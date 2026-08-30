@@ -39,11 +39,16 @@ def test_the_real_api_still_answers_with_a_parseable_verdict() -> None:
     # Structure only. The model writes different prose every call, and a
     # contract test that asserted on wording would fail for the one reason
     # that is not a contract break.
+    #
+    # The adapter answers with every explanation the verdict carried, best
+    # first. How many there are is the model's business and varies per call;
+    # that there is at least one, and that it is a hypothesis, is the contract.
     real = AnthropicLLMClient(get_settings())
 
-    hypothesis = real.propose_hypothesis(an_evidence_payload())
+    candidates = real.propose_hypotheses(an_evidence_payload())
 
-    assert isinstance(hypothesis, Hypothesis)
+    assert candidates
+    assert all(isinstance(candidate, Hypothesis) for candidate in candidates)
 
 
 @pytest.mark.contract
@@ -59,9 +64,10 @@ def test_a_stored_recording_still_parses_as_a_verdict(
         Settings(anthropic_api_key="", anthropic_base_url=DEFAULT_BASE_URL)
     )
 
-    hypothesis = replaying.propose_hypothesis(an_evidence_payload())
+    candidates = replaying.propose_hypotheses(an_evidence_payload())
 
-    assert isinstance(hypothesis, Hypothesis)
+    assert candidates
+    assert all(isinstance(candidate, Hypothesis) for candidate in candidates)
 
 
 @pytest.mark.contract

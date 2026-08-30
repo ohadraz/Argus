@@ -90,6 +90,96 @@ def test_a_hypothesis_comes_back_naming_the_subject_it_blamed() -> None:
 
 
 @pytest.mark.integration
+def test_a_hypothesis_comes_back_at_the_rank_it_was_recorded_at() -> None:
+    # An investigation that named several explanations wrote them down in its
+    # own order, best first. Rows come back from a table in no order at all, so
+    # that ordering only survives as data - and a rank that died in the table
+    # would leave a walk trying the candidates in whatever order Postgres felt
+    # like returning them.
+    a_third_choice = 3
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        incident_id = an_incident_created_for(_an_alert())
+        some_hypothesis = _a_determined_hypothesis(
+            incident_id, ["some log line"], rank=a_third_choice
+        )
+        the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
+
+        Scenario() \
+            .when(
+                lambda: hypotheses.record(conn, some_hypothesis)
+            ) \
+            .then(
+                the_stored_hypothesis_is(some_hypothesis)
+            )
+
+
+@pytest.mark.integration
+def test_a_candidate_the_walk_reached_comes_back_carrying_what_happened_to_it() -> None:
+    # A candidate is written down when the investigation forms it, before
+    # anyone knows whether it holds. What the walk found out arrives later and
+    # belongs on the same row: a list of explanations with no record of which
+    # were tried is a list a human cannot read the incident from.
+    some_result = "refuted"
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        incident_id = an_incident_created_for(_an_alert())
+        a_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
+        a_hypothesis_was_recorded = partial(_a_hypothesis_was_recorded, conn)
+        the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
+
+        Scenario() \
+            .given(
+                a_hypothesis_was_recorded(a_candidate)
+            ) \
+            .when(
+                lambda: hypotheses.record_outcome(
+                    conn, a_candidate.id, tested=True, result=some_result
+                )
+            ) \
+            .then(
+                the_stored_hypothesis_is(
+                    a_candidate.model_copy(update={"tested": True, "result": some_result})
+                )
+            )
+
+
+@pytest.mark.integration
+def test_a_candidate_that_was_never_tried_comes_back_saying_why() -> None:
+    # The gate refusing an action is not the candidate being wrong; it is the
+    # candidate never having been put to the question. The row has to tell
+    # those two apart, or an explanation nobody tested reads afterwards like
+    # one that was tested and failed.
+    some_reason = "no reversible action was proposed for this cause"
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        incident_id = an_incident_created_for(_an_alert())
+        an_untried_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
+        a_hypothesis_was_recorded = partial(_a_hypothesis_was_recorded, conn)
+        the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
+
+        Scenario() \
+            .given(
+                a_hypothesis_was_recorded(an_untried_candidate)
+            ) \
+            .when(
+                lambda: hypotheses.record_outcome(
+                    conn, an_untried_candidate.id, tested=False, result=some_reason
+                )
+            ) \
+            .then(
+                the_stored_hypothesis_is(
+                    an_untried_candidate.model_copy(
+                        update={"tested": False, "result": some_reason}
+                    )
+                )
+            )
+
+
+@pytest.mark.integration
 def test_the_latest_hypothesis_for_an_incident_is_the_one_returned() -> None:
     # An incident can be investigated more than once; "latest" is what the
     # orchestrator reads back, so the order has to be the write order.
@@ -131,7 +221,8 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
 
 def _a_determined_hypothesis(incident_id: str,
                              evidence: list[str],
-                             subject: str | None = None) -> Hypothesis:
+                             subject: str | None = None,
+                             rank: int = 1) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary="a feature flag was toggled on just before the errors began",
@@ -139,6 +230,7 @@ def _a_determined_hypothesis(incident_id: str,
         confidence=0.94,
         supporting_evidence=evidence,
         subject=subject,
+        rank=rank,
     )
 
 

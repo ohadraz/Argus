@@ -342,8 +342,17 @@ def _the_real_model_judges_repeatedly(evidence: Evidence) -> list[Hypothesis]:
     Concurrently because ten sequential Opus calls at high effort is minutes of
     wall clock, and the SDK client is safe to share across threads. One client
     for all of them, so they share a connection pool.
+
+    Each answer is a ranked list now, and what is judged here is its best
+    candidate. The alternatives are the walk's business - whether the model's
+    *first* answer names the right cause is the question these thresholds were
+    derived from, and scoring a list against them would be measuring something
+    else and comparing it to the old numbers.
     """
     client = AnthropicLLMClient(get_settings())
 
+    def the_best_answer(_: int) -> Hypothesis:
+        return client.propose_hypotheses(evidence)[0]
+
     with ThreadPoolExecutor(max_workers=RUNS_PER_CASE) as pool:
-        return list(pool.map(lambda _: client.propose_hypothesis(evidence), range(RUNS_PER_CASE)))
+        return list(pool.map(the_best_answer, range(RUNS_PER_CASE)))

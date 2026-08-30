@@ -31,6 +31,15 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 # clean world - see `the_flag_provider_forgot_every_change`.
 FLAG_PROVIDER_DATABASE_URL = "postgresql://unleash:unleash@localhost:5433/unleash"
 
+# The credential these cases write flags with, and deliberately *not* the one
+# `Settings.unleash_admin_token` holds. That one is Argus's, and the provider
+# records the author of every change: a case staging a flag change with Argus's
+# credential would be staging something Argus attributes to itself and filters
+# out of its own evidence. Everything here plays a human - the operator who
+# toggled the flag, the colleague who changed an unrelated one - so it writes
+# under the human's credential, which is the shop's.
+THE_HUMANS_ADMIN_TOKEN = "*:*.argus-demo-admin-token"
+
 # The one flag the Target Service brings into existence for itself, mirroring
 # its `UNLEASH_FLAG`. Every other flag in the provider was put there by a case -
 # either directly, or by seeding a scenario that stages its own flag - and is
@@ -98,6 +107,11 @@ def another_flag_was_toggled_on(flag: str) -> Callable[[], bool]:
     It never touches the Target Service - it exists only so the provider
     reports two changed flags, which is the state in which Mitigation must
     refuse to guess.
+
+    Written as a human, like everything else here. A change Argus is recorded
+    as having made is one Argus discounts as its own, so staging this with
+    Argus's credential would stage no ambiguity at all - and the case would
+    pass while testing nothing.
     """
     def step() -> bool:
         _create_flag_if_absent(flag)
@@ -114,7 +128,7 @@ def switch_flag(flag: str, enabled: bool) -> bool:
         f"/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}/environments/{settings.unleash_environment}"
         f"/{'on' if enabled else 'off'}",
-        headers={"Authorization": settings.unleash_admin_token},
+        headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
@@ -204,7 +218,7 @@ def _the_flags_the_provider_holds() -> list[str]:
     response = httpx.get(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
         f"/features",
-        headers={"Authorization": settings.unleash_admin_token},
+        headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -215,7 +229,7 @@ def _the_flags_the_provider_holds() -> list[str]:
 
 def _delete_flag(flag: str) -> None:
     settings = get_settings()
-    headers = {"Authorization": settings.unleash_admin_token}
+    headers = {"Authorization": THE_HUMANS_ADMIN_TOKEN}
     httpx.delete(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}",
@@ -233,7 +247,7 @@ def _create_flag_if_absent(flag: str) -> None:
     settings = get_settings()
     httpx.post(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}/features",
-        headers={"Authorization": settings.unleash_admin_token},
+        headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         json={"name": flag, "type": "release"},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
@@ -242,7 +256,7 @@ def _create_flag_if_absent(flag: str) -> None:
     httpx.post(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}/environments/{settings.unleash_environment}/strategies",
-        headers={"Authorization": settings.unleash_admin_token},
+        headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         json={"name": "flexibleRollout", "parameters": {"rollout": "100"}},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )

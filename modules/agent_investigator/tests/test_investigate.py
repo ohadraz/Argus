@@ -8,7 +8,7 @@ from unittest.mock import create_autospec
 
 import pytest
 from agent_investigator import investigate
-from agent_investigator.reasoning import propose_hypothesis
+from agent_investigator.reasoning import propose_hypotheses
 from agent_investigator.retrieval import fetch_change_events, fetch_logs, fetch_metrics
 from argus_core.config import get_settings
 from argus_core.ids import new_id
@@ -358,10 +358,14 @@ def test_investigate_does_not_continue_when_the_change_source_cannot_be_reached(
 
 
 @pytest.mark.unit
-def test_investigate_reports_no_cause_when_the_iteration_budget_is_spent() -> None:
-    # The honest outcome: the incident began before anything Argus can read.
-    # A hypothesis manufactured to fill the field would be indistinguishable
-    # from a real diagnosis to whoever picks the incident up.
+def test_investigate_reports_an_unsure_answer_rather_than_no_answer() -> None:
+    # The budget is spent and nothing cleared the confidence bar - but the model
+    # named a cause, and that is what the evidence supports. Reporting "no cause
+    # determined" over the top of it is Argus misdescribing its own evidence to
+    # whoever picks the incident up, and it costs the walk the one thing it
+    # needs: something to try. Confidence decides whether to keep looking; it
+    # does not decide whether there is an answer.
+    an_unsure_answer = a_hypothesis_at(an_unconfident_score())
     investigation = an_investigation()
 
     Scenario() \
@@ -369,13 +373,13 @@ def test_investigate_reports_no_cause_when_the_iteration_budget_is_spent() -> No
             investigation.metrics_showed(a_window_that_starts_mid_incident()),
             investigation.logs_showed(DONT_CARE_LOGS),
             investigation.no_changes_were_recorded(),
-            investigation.the_model_answered(a_hypothesis_at(an_unconfident_score())),
+            investigation.the_model_answered(an_unsure_answer),
         ) \
         .when(
             lambda: investigation.investigate(an_alert(), incident_id=new_id())
         ) \
         .then(
-            _the_hypothesis_names_no_cause()
+            _the_hypothesis_is(an_unsure_answer)
         )
 
 
@@ -503,8 +507,8 @@ class Investigation(NamedTuple):
             fetch_metrics=self.metrics_fetcher,
             fetch_logs=self.log_fetcher,
             fetch_change_events=self.change_fetcher,
-            propose_hypothesis=self.hypothesis_proposer,
-        )
+            propose_hypotheses=self.hypothesis_proposer
+        ).candidates[0]
 
     def metrics_showed(self, buckets: list[MetricBucket]) -> Callable[[], None]:
         return _returning(self.metrics_fetcher, buckets)
@@ -522,10 +526,12 @@ class Investigation(NamedTuple):
         return _raising(self.change_fetcher, error)
 
     def the_model_answered(self, hypothesis: Hypothesis) -> Callable[[], None]:
-        return _returning(self.hypothesis_proposer, hypothesis)
+        return _returning(self.hypothesis_proposer, [hypothesis])
 
     def the_model_answered_in_turn(self, *hypotheses: Hypothesis) -> Callable[[], None]:
-        return _answering_in_turn(self.hypothesis_proposer, *hypotheses)
+        return _answering_in_turn(
+            self.hypothesis_proposer, *([hypothesis] for hypothesis in hypotheses)
+        )
 
 
 def an_investigation() -> Investigation:
@@ -533,7 +539,7 @@ def an_investigation() -> Investigation:
         metrics_fetcher=create_autospec(fetch_metrics),
         log_fetcher=create_autospec(fetch_logs),
         change_fetcher=create_autospec(fetch_change_events),
-        hypothesis_proposer=create_autospec(propose_hypothesis),
+        hypothesis_proposer=create_autospec(propose_hypotheses),
     )
 
 

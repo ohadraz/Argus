@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import timedelta
 
 from argus_core.anomaly import earliest_bucket_is_anomalous, find_onset
 from argus_core.config import get_settings
 from argus_core.models.alert import Alert
+from argus_core.models.attempt import Attempt
 from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso, to_iso
 
-from agent_investigator.reasoning import HypothesisProposer, propose_hypothesis
+from agent_investigator.reasoning import HypothesisProposer, propose_hypotheses
 from agent_investigator.retrieval import (
     ChangeFetcher,
     LogFetcher,
@@ -22,14 +24,47 @@ from agent_investigator.retrieval import (
 from agent_investigator.widening import widening_schedule
 
 
+@dataclass(frozen=True)
+class Findings:
+    """What one investigation concluded, and how much of its budget it spent.
+
+    Named for the product rather than the process: an `Investigation` is the
+    thing that runs, and this is what it hands back.
+
+    `candidates` is every explanation the model offered, best first, and is
+    never empty - an investigation that identified no cause says so in one
+    candidate carrying the reason. Whether any of them is worth acting on is
+    the mitigate threshold's business, not this type's.
+
+    `can_widen` is the half a caller cannot work out for itself. The loop stops
+    at its first confident answer, so a successful investigation usually leaves
+    most of its widening budget unspent - and that unspent budget is exactly
+    what a later round has to offer once these candidates have been tried and
+    refuted. False means every step of the schedule has been taken and a
+    further round would re-read evidence already read.
+
+
+    `resumes_from` is where that later round starts. `can_widen` says one is
+    available; this says where it begins, which the caller cannot work out for
+    itself - the widening schedule is derived inside the investigation exactly
+    so that how far to reach is never a caller's decision.
+    """
+
+    candidates: list[Hypothesis]
+    can_widen: bool
+    resumes_from: int = 0
+
+
 def investigate(
     alert: Alert,
     incident_id: str,
     fetch_metrics: MetricsFetcher = fetch_metrics,
     fetch_logs: LogFetcher = fetch_logs,
     fetch_change_events: ChangeFetcher = fetch_change_events,
-    propose_hypothesis: HypothesisProposer = propose_hypothesis,
-) -> Hypothesis:
+    propose_hypotheses: HypothesisProposer = propose_hypotheses,
+    resume_from: int = 0,
+    already_refuted: list[Attempt] | None = None,
+) -> Findings:
     """Investigates one incident as a bounded ReAct loop (spec §9), returning
     what it concluded - including that it concluded nothing.
 
@@ -59,6 +94,14 @@ def investigate(
     a loop whose control flow depends on the model's own sense of having seen
     enough cannot be evaluated or reproduced.
 
+    `resume_from` and `already_refuted` are how a second round differs from a
+    first. A round is bought only when the previous round's candidates have all
+    been tried and refuted, so it must not pay again for what has already been
+    read: it starts at the schedule step after the one that answered, and it
+    carries what those attempts did. The second is the more valuable of the
+    two - the window may reach further back, but the refutations are evidence
+    the model has never seen and could not infer.
+
     The four collaborators are default-argument seams: the real retrieval
     calls and the real model in production, doubles in a test, and no
     monkeypatching either way.
@@ -74,7 +117,14 @@ def investigate(
     onset = find_onset(metric_buckets)
 
     if onset is None:
-        return _undetermined(alert, incident_id, metric_buckets, log_lines=[])
+        # Nothing was read, so nothing was spent - but there is also nothing a
+        # wider log window could fix. The onset is located from the metrics,
+        # which are a single fixed span that widening does not touch.
+        return Findings(
+            candidates=[_undetermined(alert, incident_id, metric_buckets, log_lines=[])],
+            can_widen=False,
+            resumes_from=resume_from,
+        )
 
     # Also fetched once, and only now that the onset is known - it is what the
     # change window is anchored on. Wider than any log window the schedule
@@ -98,13 +148,28 @@ def investigate(
     the_onset_is_only_a_lower_bound = earliest_bucket_is_anomalous(metric_buckets)
 
     log_lines: list[str] = []
-    confident_hypothesis: Hypothesis | None = None
+    confident_candidates: list[Hypothesis] | None = None
+    candidates: list[Hypothesis] = []
+    # Where the schedule got to, so the caller can tell an investigation that
+    # stopped early - and has budget left to spend on a later round - from one
+    # that read everything there is.
+    # A resumed round that has run out of schedule still reads - it re-reads the
+    # widest window. The round was bought by an attempt that failed, and that
+    # refutation is evidence this loop has never been shown, so asking again over
+    # the same window is asking a different question. Skipping the body instead
+    # would spend a round to answer "no cause" without consulting anything.
+    start_at = min(resume_from, len(schedule) - 1)
+    reached = max(start_at - 1, 0)
 
     for iteration, lookback_minutes in enumerate(schedule):
+        if iteration < start_at:
+            continue
+
         window_start, window_end = _window_around(onset, lookback_minutes, alert_time)
         log_lines = fetch_logs(window_start, window_end)
 
-        hypothesis = propose_hypothesis(
+        reached = iteration
+        candidates = propose_hypotheses(
             Evidence(
                 incident_id=incident_id,
                 alert=alert,
@@ -113,11 +178,22 @@ def investigate(
                 change_events=change_events,
                 log_window_start=window_start,
                 log_window_end=window_end,
+                attempts=already_refuted or [],
                 change_window_start=change_window_start,
                 change_window_end=change_window_end,
             )
         )
 
+        # The loop's control flow reads the best answer, as it always has. The
+        # rest ride along for the walk that tries them when this one fails.
+        hypothesis = candidates[0]
+
+        # Confidence decides whether to keep *looking*, which is the question it
+        # is good for: an unsure answer is a reason to buy more evidence while
+        # there is any left to buy. It no longer decides whether the answer may
+        # be acted on - a reversible mitigation is admitted by naming a cause,
+        # and this loop returning something unsure is how the walk gets started
+        # on an ambiguous incident instead of stopping at one.
         if not hypothesis.is_confident_enough(settings.mitigate_threshold):
             continue
 
@@ -126,15 +202,41 @@ def investigate(
         # comes back unsure, this is still the best thing the investigation
         # learned, and reporting "no cause" over it would misdescribe Argus's
         # own evidence.
-        confident_hypothesis = hypothesis
+        confident_candidates = candidates
 
         if not (the_onset_is_only_a_lower_bound and iteration == 0):
-            return hypothesis
+            return Findings(candidates, _can_widen(reached, schedule), reached + 1)
 
-    if confident_hypothesis is not None:
-        return confident_hypothesis
+    if confident_candidates is not None:
+        return Findings(confident_candidates, _can_widen(reached, schedule), reached + 1)
 
-    return _undetermined(alert, incident_id, metric_buckets, log_lines)
+    # The schedule is spent and no answer cleared the bar. What the loop has is
+    # still what the evidence supports - the widest look's own explanations,
+    # offered without confidence - and it is reported rather than discarded.
+    #
+    # Discarding it was this loop deciding, on the caller's behalf, that an
+    # unsure answer is the same as no answer. It is not: a named cause is an
+    # experiment a reversible mitigation can run in two minutes, and "no cause
+    # determined" over the top of one the model actually gave is Argus
+    # misdescribing its own evidence to a human who then has to find it again.
+    if candidates:
+        return Findings(candidates, _can_widen(reached, schedule), reached + 1)
+
+    return Findings(
+        candidates=[_undetermined(alert, incident_id, metric_buckets, log_lines)],
+        can_widen=_can_widen(reached, schedule),
+        resumes_from=reached + 1,
+    )
+
+
+def _can_widen(reached: int, schedule: list[int]) -> bool:
+    """Whether a later round would read anything the loop has not already read.
+
+    False at the schedule's last step, because its final lookback is the
+    configured maximum - a further round would ask for the same window and pay
+    a model call for the same evidence.
+    """
+    return reached < len(schedule) - 1
 
 
 def _change_window_before(onset: str) -> tuple[str, str]:

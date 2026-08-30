@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # (spec §13, §14). Empty by default so a misconfigured write server fails
     # loudly rather than silently authenticating as nobody.
     unleash_admin_token: str = Field(default="")
+    # The name the provider attributes Argus's own flag writes to - the username
+    # on the credential above, seeded by the Target Environment's compose file
+    # and matched here exactly. It is what lets a change Argus made be told from
+    # a change a human made, so that a later look at "what recently changed"
+    # does not offer Argus its own action as a cause. Empty switches that
+    # filtering off, which is the honest setting for a deployment where Argus
+    # and its operators share one credential and the distinction cannot be made.
+    unleash_actor: str = Field(default="Argus")
 
     write_mcp_host: str = Field(default="localhost")
     write_mcp_port: int = Field(default=8092)
@@ -56,6 +64,14 @@ class Settings(BaseSettings):
     # seeing it at all is a silent miss.
     metrics_window_minutes: int = Field(default=360)
 
+    # What counts as a confident answer. Two things read it, and neither is
+    # "may Argus change a flag": the investigation loop, deciding whether to
+    # keep looking before it answers, and everything that needs a human or
+    # cannot be undone - a pull request, a rollback, a page. A reversible
+    # mitigation is admitted by naming a cause, not by clearing a bar; it is
+    # taken alone, confirmed, and put back when it does not help, and gating
+    # that on confidence stops Argus acting on exactly the ambiguous incidents
+    # the walk was built for.
     mitigate_threshold: float = Field(default=0.75)
 
     # How far back Mitigation looks for the flag change an incident is about.
@@ -87,6 +103,25 @@ class Settings(BaseSettings):
     # schedule starts at the initial lookback and ends at the maximum span,
     # which a single iteration cannot do.
     investigation_max_iterations: int = Field(default=3, ge=2)
+
+    # How many times one incident may be investigated. A round after the first
+    # is bought by a refuted attempt, not by a wider window: Argus changed
+    # production and the service did not answer, which is evidence the model has
+    # never seen and cannot infer from any amount of reading. That is why this
+    # is its own budget rather than whatever the widening schedule has left -
+    # the schedule bounds what there is to *read*, and a hard incident spends it
+    # all before answering, exactly when a second opinion is worth most.
+    investigation_max_rounds: int = Field(default=3, ge=1)
+
+    # How many of one verdict's explanations the walk will try, best first.
+    # A ceiling rather than a quota: a verdict naming fewer is left alone, and
+    # a verdict naming more keeps its most confident. How long an answer the
+    # model gives is its own business, but what that answer costs is not - each
+    # candidate is a real change to production and a wait for the service to
+    # answer, and the graph's traversal budget is derived from this number.
+    # One is the walk Argus had before it could walk: best explanation, then a
+    # human.
+    investigation_max_candidates: int = Field(default=4, ge=1)
 
     # How far a minute has to sit from the service's own calm baseline before
     # it counts as the incident starting. Measured in the baseline's own

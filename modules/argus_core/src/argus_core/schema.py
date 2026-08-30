@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     -- Nullable: not every cause names something this system can identify, and
     -- a hypothesis recorded before this column existed named nothing either.
     subject TEXT,
+    -- Where this hypothesis came in its investigation's ordering, best first.
+    -- Defaulted rather than nullable: a row written before this column existed
+    -- was the only hypothesis its investigation had, which is rank 1.
+    rank INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

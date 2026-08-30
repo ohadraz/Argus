@@ -34,6 +34,28 @@ Always via `uv run ...` (uses the workspace `.venv`, no manual activation needed
 
 **Use `python -m nox`, not the bare `nox` shim** - Windows Smart App Control blocks the unsigned `.exe` stubs in `.venv/Scripts/`, and the block returns after every `uv sync`. When any tool here fails with *"An Application Control policy has blocked this file"* - failing to spawn, or failing to import - see the `smart-app-control-blocks` skill for which of the two fixes applies.
   
+## Answering - this governs every reply, including mid-task ones
+
+- **Two or three sentences by default.** If that is genuinely not enough, give
+  the short answer first and offer to elaborate - do not pre-emptively elaborate.
+- **A yes/no question gets `Yes` or `No` as the first word**, and often as the
+  whole reply. Add at most one sentence, and only when a bare answer would leave
+  the user unable to act.
+- **If the question is not answerable as yes/no, say so** - "that isn't a yes/no
+  question" - then offer either to answer at length or to have it rephrased.
+  Do not quietly answer a different, easier question instead.
+- **Asked for a number, a time, or a status: give it.** No formula, no
+  derivation, no caveats unless the caveat changes the number.
+- **Never restate what was already established** - no recaps of work just
+  finished, no summaries of the plan, no repeating the user's own question back.
+- Length is earned by the question, not by the size of the work behind it. A
+  long investigation still gets a short answer.
+- **Long-running jobs get unprompted progress** - anything on the scale of `e2e`,
+  `e2e_replay`, `record` or a docker build. Report *how many of how many* have
+  finished, elapsed time, and expected time to complete. A `Monitor` is the
+  usual way; the mechanism is a free choice, the reporting is not. This is the
+  one place where saying something unasked is wanted, and it stays one line.
+
 ## Conventions - follow these without being asked
 - **TDD, with `tests/`, `modules/argus_testkit/` and `modules/anthropic_double/` off-limits to Claude.** The policy itself lives in `AGENTS.md` (tool-agnostic, applies to any AI coding agent, not just Claude). Mechanically enforced here via `.claude/settings.json` + a PreToolUse hook (`.claude/hooks/block_test_writes.py`) - Claude cannot create or edit files under any `tests/` directory *in this repo*, nor anywhere in the shared test-support module or the Anthropic double. `Argus-Demo-Target-App` is outside that rule: it is a fixture, its tests are a regression net written after the code rather than a specification written before it, and Claude writes them directly there. Claude may freely *read* and *run* existing tests (e.g. via `uv run python -m nox -s test_module`). For the exact workflow to propose a new test, see the `tdd-new-behavior` skill. **Propose the entire file, never a fragment** - the human pastes it whole, and a set of "add this after line 40" instructions is how a test file quietly ends up not saying what either party thinks it says. Targeted edits only when tiny and precisely located.
 - **Commit messages are a single line.** No body, no bullet list, no trailers. Draft the exact line, get approval on that line, then commit - see the `git-commit-approval` skill. Argus and `Argus-Demo-Target-App` are separate repos and commit separately.

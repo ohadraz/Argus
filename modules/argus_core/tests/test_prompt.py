@@ -7,6 +7,7 @@ from argus_core.anthropic_llm import SYSTEM_PROMPT, build_prompt
 from argus_core.config import get_settings
 from argus_core.ids import new_id
 from argus_core.models.alert import Alert
+from argus_core.models.attempt import Attempt
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.evidence import Evidence
 from argus_core.models.metrics import MetricBucket
@@ -17,6 +18,12 @@ from argus_core.timestamps import parse_iso, to_iso_minute
 # is reporting on, and a test that derived the heading from the code could not
 # notice it disappearing.
 CHANGES_HEADING = "## Changes to this service"
+
+# The heading the attempts section is written under, a literal for the same
+# reason: a later round's whole advantage is being told what was already tried,
+# and a section that quietly stopped being written would look like a model that
+# had simply got worse.
+ATTEMPTS_HEADING = "## Already tried"
 
 
 @pytest.mark.unit
@@ -137,6 +144,54 @@ def test_the_prompt_tells_the_model_where_a_subject_may_come_from() -> None:
     assert "subject" in SYSTEM_PROMPT.lower()
 
 
+@pytest.mark.unit
+def test_the_prompt_carries_what_was_already_tried_and_did_not_help() -> None:
+    # The one thing a later round knows that the first could not: a named cause
+    # was acted on and the shop stayed broken. Withholding it would buy a
+    # second opinion from a model reading exactly the evidence that produced
+    # the first one.
+    a_refuted_attempt = an_attempt_on("monthly-spend-feature", enabled=False)
+
+    prompt = build_prompt(an_incident_after(a_refuted_attempt))
+
+    assert a_refuted_attempt.subject in prompt
+    assert a_refuted_attempt.occurred_at in prompt
+
+
+@pytest.mark.unit
+def test_the_prompt_says_an_attempt_did_not_help_rather_than_only_naming_it() -> None:
+    # An attempt listed without its outcome reads as something that happened,
+    # not as evidence against the cause it was taken on. The outcome is the
+    # whole point of showing it.
+    prompt = build_prompt(
+        an_incident_after(an_attempt_on("monthly-spend-feature", enabled=False))
+    )
+
+    assert "did not" in prompt.lower()
+
+
+@pytest.mark.unit
+def test_the_prompt_says_which_way_an_attempt_moved_the_flag() -> None:
+    # Both directions are real: a feature flag is put back by switching it off,
+    # a withdrawn fallback by switching it on. A model told only that a flag
+    # was "changed" cannot tell which state is now in effect.
+    prompt = build_prompt(
+        an_incident_after(an_attempt_on("legacy-checkout-fallback", enabled=True))
+    )
+
+    assert " on" in prompt
+
+
+@pytest.mark.unit
+def test_a_first_investigation_carries_no_attempts_section() -> None:
+    # Nothing has been tried, and a section saying so would be noise in every
+    # first-round prompt - unlike the change channel, where "nothing changed"
+    # is a finding rather than an absence.
+    prompt = build_prompt(an_incident_where())
+
+    assert ATTEMPTS_HEADING not in prompt
+
+
 WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 SOME_ERROR_RATE = 0.18
 DONT_CARE_P50_MS = 45
@@ -159,6 +214,18 @@ def an_incident_where(*changes: ChangeEvent) -> Evidence:
         log_window_end=buckets[-1].bucket_id,
         change_window_start=to_iso_minute(onset - lookback),
         change_window_end=buckets[0].bucket_id,
+    )
+
+
+def an_incident_after(*attempts: Attempt) -> Evidence:
+    return an_incident_where().model_copy(update={"attempts": list(attempts)})
+
+
+def an_attempt_on(subject: str, enabled: bool) -> Attempt:
+    return Attempt(
+        subject=subject,
+        enabled=enabled,
+        occurred_at=to_iso_minute(WINDOW_START + timedelta(minutes=2)),
     )
 
 

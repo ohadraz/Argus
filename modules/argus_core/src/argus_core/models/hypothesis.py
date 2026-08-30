@@ -44,6 +44,12 @@ class Hypothesis(BaseModel):
     confidence: float | None
     supporting_evidence: list[str]
     subject: str | None = None
+    # Where this hypothesis came in the investigation's own ordering, best
+    # first. Data rather than list position, because rows come back from a
+    # table in no order at all, and an ordering that lived only in a list would
+    # not survive being written down. Defaults to 1: an investigation that named
+    # one explanation named the best one.
+    rank: int = 1
     tested: bool = False
     result: str | None = None
 
@@ -89,8 +95,29 @@ class Hypothesis(BaseModel):
 
         return self
 
+    def is_actionable(self) -> bool:
+        """Whether there is anything here to act on at all.
+
+        The one gate a reversible mitigation needs. Confidence is not the
+        question: an action that is taken one at a time, confirmed against the
+        service, and put back when it does not help costs a couple of minutes
+        and nothing else, so what matters is whether a cause was named - not how
+        sure the model was that it was the right one. Being wrong about a
+        correlated change is the ordinary case, and the walk is what answers it.
+
+        Confidence still decides *order*, and still gates everything a human has
+        to approve or be woken for - see `is_confident_enough`.
+        """
+        return self.cause_type is not None
+
     def is_confident_enough(self, threshold: float) -> bool:
-        """Whether this hypothesis is confident enough to act on (spec §10).
+        """Whether this hypothesis is confident enough to put in front of a
+        human - a pull request, a rollback, a page (spec §10, §13).
+
+        Not what admits a reversible mitigation: that one asks only whether a
+        cause was named. This asks the question confidence is actually good for,
+        which is whether something irreversible or somebody's attention is
+        warranted.
 
         An undetermined hypothesis never is. That is the honest answer - there
         is no cause to act on - rather than a low score standing in for one.

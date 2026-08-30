@@ -28,6 +28,7 @@ from ..framework.builders import (
     a_below_threshold_confidence,
     a_determined_hypothesis,
     a_high_enough_confidence,
+    a_random_id,
     an_incident_state,
     an_undetermined_hypothesis,
 )
@@ -41,6 +42,11 @@ def investigate() -> MagicMock:
 @pytest.fixture
 def record_hypothesis() -> MagicMock:
     return cast(MagicMock, create_autospec(graph.RecordHypothesis, instance=True))
+
+
+@pytest.fixture
+def record_outcome() -> MagicMock:
+    return cast(MagicMock, create_autospec(graph.RecordOutcome, instance=True))
 
 
 @pytest.fixture
@@ -87,6 +93,11 @@ def test_investigator_node_high_confidence_routes_to_mitigating_and_persists(
             assert_that(result).is_equal_to(
                 {
                     "hypothesis": a_confident_hypothesis,
+                    "candidates": [a_confident_hypothesis],
+                    "candidate_index": 0,
+                    "can_widen": False,
+                    "resume_from": 0,
+                    "rounds": 1,
                     "confidence": a_confident_hypothesis.confidence,
                     "status": IncidentStatus.MITIGATING
                 }
@@ -104,12 +115,16 @@ def test_investigator_node_high_confidence_routes_to_mitigating_and_persists(
 
 
 @pytest.mark.unit
-def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
+def test_investigator_node_a_doubtful_cause_is_still_acted_on(
     investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
 ) -> None:
-    # A cause was named, just not confidently enough to act on. The timeline
-    # says a hypothesis was formed, because one was - the escalation is about
-    # the score, not about the evidence running out.
+    # A cause was named, and that is the whole admission test for a reversible
+    # mitigation. Confidence used to gate this, and it was the wrong question:
+    # the action is taken alone, confirmed against the service and put back
+    # when it does not help, so an unsure answer is a reason to try it and see -
+    # not a reason to stop and fetch a human. The ambiguous incident, where the
+    # model splits its confidence across two explanations, is exactly the one
+    # this used to abandon and the walk exists to work through.
     an_investigating_incident_state = _an_investigating_incident()
     some_incident_id = an_investigating_incident_state.incident_id
     a_doubtful_hypothesis = a_determined_hypothesis(
@@ -130,14 +145,19 @@ def test_investigator_node_low_confidence_routes_to_escalated_and_persists(
             assert_that(result).is_equal_to(
                 {
                     "hypothesis": a_doubtful_hypothesis,
+                    "candidates": [a_doubtful_hypothesis],
+                    "candidate_index": 0,
+                    "can_widen": False,
+                    "resume_from": 0,
+                    "rounds": 1,
                     "confidence": a_doubtful_hypothesis.confidence,
-                    "status": IncidentStatus.ESCALATED
+                    "status": IncidentStatus.MITIGATING
                 }
             ),
             assert_that(record_hypothesis).was_called_with(a_doubtful_hypothesis),
             assert_that(transition_incident).was_called_with(
                 some_incident_id,
-                IncidentStatus.ESCALATED,
+                IncidentStatus.MITIGATING,
                 actor=Actor.INVESTIGATOR,
                 action="hypothesis formed",
                 result=a_doubtful_hypothesis.summary,
@@ -172,6 +192,11 @@ def test_investigator_node_undetermined_cause_routes_to_escalated_and_persists(
             assert_that(result).is_equal_to(
                 {
                     "hypothesis": a_hypothesis_with_no_cause,
+                    "candidates": [a_hypothesis_with_no_cause],
+                    "candidate_index": 0,
+                    "can_widen": False,
+                    "resume_from": 0,
+                    "rounds": 1,
                     "confidence": None,
                     "status": IncidentStatus.ESCALATED
                 }
@@ -228,19 +253,25 @@ def test_the_proposal_node_proposes_nothing_when_the_provider_cannot_be_read(
 
 @pytest.mark.unit
 def test_the_gate_lets_an_action_carrying_an_undo_descriptor_through(
-    transition_incident: MagicMock
+    transition_incident: MagicMock, record_outcome: MagicMock
 ) -> None:
     a_gated_incident = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
 
-    result = tier_gate_node(a_gated_incident, transition_incident=transition_incident)
+    result = tier_gate_node(a_gated_incident,
+                            transition_incident=transition_incident,
+                            record_outcome=record_outcome)
 
     assert result == {}
     assert transition_incident.call_count == 0
+    # The candidate is about to be put to the question, so nothing is known
+    # about it yet - a row marked with an outcome here would be marked before
+    # the experiment that produces one.
+    assert record_outcome.call_count == 0
 
 
 @pytest.mark.unit
 def test_the_gate_rejects_an_action_whose_undo_descriptor_is_empty(
-    transition_incident: MagicMock
+    transition_incident: MagicMock, record_outcome: MagicMock
 ) -> None:
     # The guarantee cannot rest on the agent that performs the write also
     # policing itself: a reversible action is only reversible if something
@@ -248,27 +279,58 @@ def test_the_gate_rejects_an_action_whose_undo_descriptor_is_empty(
     # still be checked for free.
     a_gated_incident = _a_mitigating_incident(proposing=_an_action_with_no_undo_descriptor())
 
-    result = tier_gate_node(a_gated_incident, transition_incident=transition_incident)
+    result = tier_gate_node(a_gated_incident,
+                            transition_incident=transition_incident,
+                            record_outcome=record_outcome)
 
-    assert result == {"status": IncidentStatus.ESCALATED}
-    assert transition_incident.call_args.args[1] is IncidentStatus.ESCALATED
+    # The action is cleared rather than the incident ended: the gate is judging
+    # this action, and whether anything follows it is the walk's call.
+    assert result == {"status": IncidentStatus.MITIGATING, "proposed_action": None}
+    assert transition_incident.call_args.args[1] is IncidentStatus.MITIGATING
 
 
 @pytest.mark.unit
 def test_the_gate_rejects_an_incident_with_no_proposed_action(
-    transition_incident: MagicMock
+    transition_incident: MagicMock, record_outcome: MagicMock
 ) -> None:
     a_gated_incident = _a_mitigating_incident()
 
-    result = tier_gate_node(a_gated_incident, transition_incident=transition_incident)
+    result = tier_gate_node(a_gated_incident,
+                            transition_incident=transition_incident,
+                            record_outcome=record_outcome)
 
-    assert result == {"status": IncidentStatus.ESCALATED}
-    assert transition_incident.call_args.args[1] is IncidentStatus.ESCALATED
+    # The action is cleared rather than the incident ended: the gate is judging
+    # this action, and whether anything follows it is the walk's call.
+    assert result == {"status": IncidentStatus.MITIGATING, "proposed_action": None}
+    assert transition_incident.call_args.args[1] is IncidentStatus.MITIGATING
+
+
+@pytest.mark.unit
+def test_a_candidate_the_gate_refused_is_recorded_as_never_having_been_tried(
+    transition_incident: MagicMock, record_outcome: MagicMock
+) -> None:
+    # A refused action is not the candidate being wrong - it is the candidate
+    # never having been put to the question, and its row has to say so. The
+    # reason is written down here because this is the only place that knows it:
+    # the rejection clears the action on the way out.
+    some_candidate = a_determined_hypothesis(a_random_id(), a_high_enough_confidence())
+    a_gated_incident = _a_mitigating_incident(
+        proposing=_an_action_with_no_undo_descriptor(), about=some_candidate
+    )
+
+    tier_gate_node(a_gated_incident,
+                   transition_incident=transition_incident,
+                   record_outcome=record_outcome)
+
+    assert record_outcome.call_args.args[0] == some_candidate.id
+    assert record_outcome.call_args.kwargs["tested"] is False
+    assert "not reversible" in record_outcome.call_args.kwargs["result"]
 
 
 @pytest.mark.unit
 def test_a_confirmed_action_resolves_the_incident(
-    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock
+    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -278,7 +340,8 @@ def test_a_confirmed_action_resolves_the_incident(
     result = mitigation_node(an_action_taking_incident,
                              take=take,
                              record_action=record_action,
-                             transition_incident=transition_incident)
+                             transition_incident=transition_incident,
+                             record_outcome=record_outcome)
 
     assert result["status"] is IncidentStatus.RESOLVED
     assert result["action_outcome"] == "confirmed"
@@ -286,7 +349,8 @@ def test_a_confirmed_action_resolves_the_incident(
 
 @pytest.mark.unit
 def test_a_refuted_action_routes_to_fixing(
-    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock
+    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -296,14 +360,16 @@ def test_a_refuted_action_routes_to_fixing(
     result = mitigation_node(an_action_taking_incident,
                              take=take,
                              record_action=record_action,
-                             transition_incident=transition_incident)
+                             transition_incident=transition_incident,
+                             record_outcome=record_outcome)
 
     assert result["status"] is IncidentStatus.FIXING
 
 
 @pytest.mark.unit
 def test_an_escalated_outcome_never_resolves_the_incident(
-    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock
+    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -313,14 +379,16 @@ def test_an_escalated_outcome_never_resolves_the_incident(
     result = mitigation_node(an_action_taking_incident,
                              take=take,
                              record_action=record_action,
-                             transition_incident=transition_incident)
+                             transition_incident=transition_incident,
+                             record_outcome=record_outcome)
 
     assert result["status"] is IncidentStatus.ESCALATED
 
 
 @pytest.mark.unit
 def test_the_action_row_records_the_undo_descriptor_the_write_returned(
-    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock
+    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     # The descriptor the write tier returned, not the one proposed: it is the
     # record of what actually changed, and it is what a human reading the
@@ -339,9 +407,36 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
     mitigation_node(an_action_taking_incident,
                     take=take,
                     record_action=record_action,
-                    transition_incident=transition_incident)
+                    transition_incident=transition_incident,
+                    record_outcome=record_outcome)
 
     assert record_action.call_args.kwargs["undo_descriptor"] == some_undo_descriptor
+
+
+@pytest.mark.unit
+def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
+    take: MagicMock, record_action: MagicMock, transition_incident: MagicMock,
+    record_outcome: MagicMock
+) -> None:
+    # An action was taken and the service was measured afterwards, so this
+    # candidate was genuinely tested - and the verdict is the answer it was
+    # tested for. Without it the incident records a list of explanations and no
+    # sign of which one the walk was on.
+    some_candidate = a_determined_hypothesis(a_random_id(), a_high_enough_confidence())
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor(), about=some_candidate
+    )
+    take.return_value = _an_outcome(Verdict.REFUTED)
+
+    mitigation_node(an_action_taking_incident,
+                    take=take,
+                    record_action=record_action,
+                    transition_incident=transition_incident,
+                    record_outcome=record_outcome)
+
+    assert record_outcome.call_args.args[0] == some_candidate.id
+    assert record_outcome.call_args.kwargs["tested"] is True
+    assert record_outcome.call_args.kwargs["result"] == "refuted"
 
 
 DONT_CARE_FLAG = "dont-care-flag"
@@ -356,7 +451,9 @@ def _an_investigating_incident() -> IncidentState:
     return an_incident_state(some_alert, IncidentStatus.INVESTIGATING)
 
 
-def _a_mitigating_incident(proposing: Action | None = None) -> IncidentState:
+def _a_mitigating_incident(
+    proposing: Action | None = None, about: Hypothesis | None = None
+) -> IncidentState:
     some_service = "kuki-service"
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
@@ -364,7 +461,7 @@ def _a_mitigating_incident(proposing: Action | None = None) -> IncidentState:
 
     return state.model_copy(
         update={
-            "hypothesis": a_determined_hypothesis(
+            "hypothesis": about or a_determined_hypothesis(
                 state.incident_id, a_high_enough_confidence()
             ),
             "proposed_action": proposing,
@@ -405,4 +502,6 @@ def _an_outcome(verdict: Verdict,
 
 
 def _investigation_returned(investigate: MagicMock, hypothesis: Hypothesis) -> None:
-    investigate.return_value = hypothesis
+    investigate.return_value = agent_investigator.Findings(
+        candidates=[hypothesis], can_widen=False
+    )

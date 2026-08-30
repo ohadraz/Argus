@@ -26,6 +26,17 @@ services:
   unleash-db:
     profiles: ["e2e"]
 
+  # Seeds the credential Argus writes flags with - see the Target Environment's
+  # own compose file for why it exists and why it is written through psql.
+  argus-token-seed:
+    profiles: ["e2e"]
+
+  # Seeds the fallback flag into the state the shop's story says it rests in -
+  # see the Target Environment's own compose file for why it goes through psql
+  # rather than the provider's API.
+  fallback-flag-seed:
+    profiles: ["e2e"]
+
   postgres:
     image: postgres:16
     environment:

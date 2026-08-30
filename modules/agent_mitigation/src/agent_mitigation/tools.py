@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from argus_core.attribution import changes_not_made_by
 from argus_core.config import get_settings
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.metrics import MetricBucket
@@ -19,17 +20,28 @@ Sleeper = Callable[[float], None]
 
 
 def fetch_recent_flag_changes() -> list[FlagChange]:
-    """The flag toggles recorded over the configured lookback, oldest first.
+    """The flag toggles recorded over the configured lookback, oldest first -
+    excluding the ones Argus itself made.
 
     A named function rather than `get_recent_flag_changes` passed directly,
     because the agent needs exactly one of that tool's calling shapes - a
     window ending now - and a seam is only useful if a test can spec against
     the shape the caller actually uses. Deciding the window here also keeps
     `propose_action` free of both configuration and I/O.
-    """
-    lookback = timedelta(minutes=get_settings().flag_change_lookback_minutes)
 
-    return get_recent_flag_changes(since=to_iso(utc_now() - lookback))
+    Argus's own changes are dropped here rather than by the caller, because
+    every caller wants the same thing: what somebody *else* did. Once Argus can
+    act more than once on an incident, its own revert lands in this window, and
+    a window carrying it makes the unambiguous case - one flag changed, so that
+    is the one to put back - report two flags and refuse to act.
+    """
+    settings = get_settings()
+    lookback = timedelta(minutes=settings.flag_change_lookback_minutes)
+
+    return changes_not_made_by(
+        settings.unleash_actor,
+        get_recent_flag_changes(since=to_iso(utc_now() - lookback)),
+    )
 
 
 def fetch_recent_metrics() -> list[MetricBucket]:

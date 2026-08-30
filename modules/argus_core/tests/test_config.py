@@ -70,6 +70,27 @@ def test_an_iteration_budget_of_exactly_two_is_accepted() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_budget_below_one_is_rejected() -> None:
+    # A verdict always names at least its best explanation, so a budget of
+    # zero describes an investigation whose answer is thrown away - and a walk
+    # with nothing to walk, which the graph's traversal budget is derived from.
+    a_budget_that_keeps_nothing = 0
+
+    with pytest.raises(ValidationError, match="investigation_max_candidates"):
+        Settings(investigation_max_candidates=a_budget_that_keeps_nothing)
+
+
+@pytest.mark.unit
+def test_a_candidate_budget_of_exactly_one_is_accepted() -> None:
+    # The single-candidate walk: Argus tries its best explanation and stops.
+    # It is the behaviour that existed before the walk did, and configuring it
+    # back is a legitimate thing to want.
+    the_best_explanation_only = 1
+
+    Settings(investigation_max_candidates=the_best_explanation_only)
+
+
+@pytest.mark.unit
 def test_a_non_positive_deviation_count_is_rejected() -> None:
     # Zero deviations from baseline makes every minute anomalous, including
     # the calm ones the loop needs in order to have a baseline at all.

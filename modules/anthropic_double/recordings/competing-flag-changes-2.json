@@ -1,0 +1,35 @@
+{
+  "content": [
+    {
+      "signature": "CAISggoKjgEIERgCKkBBsZhjxhFAJdX5zCU+u6Crapid2LxRL7MILT/NDnSnNB6p6isDy7Bv/rIZEXKKKePxc+IfXODuATs6fUQPJ7KDMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAavH0NQGEgz4ZPhHJg/AyCwZKD4aDOA/9bG+8AsMP6sPkSIwkUN6Xflzv8xgpIwXufYgUL3ZwFOuMH4X2zlYFRrd1+R+92DfPwrYZCsuFwbZ56eMKqAIXqWv/03a6V05achgPjEqcNhi/IqLBFofKhUU7NM6klwHLa/5eKxHkOI9TmSvyG5AqUB7h42a1UdmYegxRHr7zGkP4LyXKL9uUwYBiUVA0R0jSNioXf6YWfoPYUpToLFGT/WlcEloqSRjpn6tGTzTYDpK0lzNxVqlSurgv8nLYTUtUq1ivwDGEqkCZtxI3Woqm7OamxSj03Jk249Ph8ap7/zit/QoTptBFgqeUMQN1xjdZBkWoWEbc/Nfh0RxUmCil5dq53xV1IeqqKgry29tyaYygaz3yQZvPojQs/mLf6J/jqMafhzyjuFxVhdg215Zm5S/rogGWZlFmAdLAJJkaRQFJ2khwFLm91x2920KnThjfLuGnXL0yplX2eh8A6QZsWZt8dVrkU6xVdCacNqjpq3G61XgiBv/u8mHl3vsUoQKKLXFmx2g0VDnYLiJD6aM23tyy2PITX29ctu5H5I7yF37242dFPN2HPl1mXH68HS0pzpm4L0OLpWyYb+myj7zgQCgtnD5m4rFEm63XoaI+jO3ivCXmwDB5divMM7I7IoUFp6ISuNRqFlHTAeuXvOGu+C0tVsozoSkv8NfjKEUiZM5i7RCOm/getBZUxgFYZHPKvQccLeYCLx0jkw5ATIYEr2bHmshZID/yeAWnt8NaLfOaGH5KLQ6HwPGfczBrUaocdpEJGfz/DMSd5CA7+jAJP3DKC7TPQad5Njs/YGUEcrE6rpvCXOp9hrDTyVU1AhlMeTKtp5XpmtQq+BVEWJgNeQd19bNZ9lxfxbVGl9In2W/wDHwrvaoem8D6BgNwALI/g8o9f1xI3ErIj1Ihh9Ruzp6rST2GoRdxHc1VQ+H8l0KNUA2+6z7dcj8pN7+/uFHveLCeDiBqs/fBzld6QvHQ5mRlQsqhHz2ZmVBDBkl0Gq8wuldHiJ4b9tzOnCzwErkwLN7IPCp3eWIrbiEVI4nOYnyF5PRrUHZAna8aDTfj2jklbYjyaznwCPROEOtceTWl6N4Sqwq6BsloJnYZG8NzBYeNOoINRuhU5SgboK8UqYJa3Ywo+gNMkWFg6VaupzzK6UYiAoN/ktkRbdPuPOAyRMOWxO6eRELJRJOCmYrTaV9Tc8GJu9zNGjDBpbPVnKeN2XiJRVi0okZdG18npfQS4x1QmGI9kJLiNJllRD6R/ipo3sMYnCDvMqqH9facGutBrNi1FiruQc+iy1tXqyG0kP6pqEycUPYhYSxQX9/bea2+7TBHJTELecGDuK0jICXMsTJY9LTKz0j1R2jhgedo+KXOZqitZh6Rvs/tScWc2UoF2z56bkbXwQBortfJ4FEbonI0vCvh1OAyyZav2+R8jCIJp1IyuQjBN4szSu9UU+CSypp4nAcCzn/rY9KSfiDAPHI8KzBQQrhxrLcTYeIGAE=",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "text": "{\"summary\":\"Starting at 12:30 UTC the io-shop error rate jumped from ~1-2% baseline to 18-40%, with a new error signature (ZeroDivisionError: division by zero) replacing the pre-existing low-level UpstreamTimeout noise. The jump coincides exactly with two feature flags being flipped - monthly-spend-feature going off->on and legacy-checkout-fallback going on->off - with no deploys or other config changes recorded for the service in the surrounding 24 hours; the new-code path enabled by monthly-spend-feature is the most likely source of the division-by-zero.\",\"cause_type\":\"feature-flag-toggle\",\"confidence\":0.6,\"supporting_evidence\":[\"2026-08-30T12:30:00Z INFO io-shop: monthly-spend-feature=off 90 / on 110 - 200 evaluations\",\"2026-08-30T12:31:00Z INFO io-shop: monthly-spend-feature=on - 200 evaluations\",\"2026-08-30T12:30:00Z ERROR io-shop: account page request failed - ZeroDivisionError: division by zero\",\"2026-08-30T12:31:00Z WARN io-shop: account page error rate at 40% over the last minute\",\"{\\\"bucket_id\\\": \\\"2026-08-30T12:29:00Z\\\", \\\"error_rate\\\": 0.005, ...}\",\"{\\\"bucket_id\\\": \\\"2026-08-30T12:30:00Z\\\", \\\"error_rate\\\": 0.18, ...}\",\"{\\\"bucket_id\\\": \\\"2026-08-30T12:31:00Z\\\", \\\"error_rate\\\": 0.4, ...}\",\"(no changes were recorded for this service in that window)\"],\"subject\":\"monthly-spend-feature\",\"alternatives\":[{\"summary\":\"The same error spike may instead have been caused by legacy-checkout-fallback being turned off at 12:30, which would route account-page requests off the legacy fallback path and onto code that raises ZeroDivisionError.\",\"cause_type\":\"feature-flag-toggle\",\"confidence\":0.35,\"supporting_evidence\":[\"2026-08-30T12:30:00Z INFO io-shop: legacy-checkout-fallback=off 107 / on 93 - 200 evaluations\",\"2026-08-30T12:31:00Z INFO io-shop: legacy-checkout-fallback=off - 200 evaluations\",\"2026-08-30T12:30:00Z ERROR io-shop: account page request failed - ZeroDivisionError: division by zero\",\"2026-08-30T12:34:00Z WARN io-shop: account page error rate at 36% over the last minute\"],\"subject\":\"legacy-checkout-fallback\"}]}",
+      "type": "text"
+    }
+  ],
+  "id": "msg_011CeYwdedEpk32hKrpWyw35",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 26373,
+    "output_tokens": 1298,
+    "output_tokens_details": {
+      "thinking_tokens": 405
+    },
+    "service_tier": "standard"
+  }
+}

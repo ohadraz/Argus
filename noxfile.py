@@ -271,6 +271,20 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # installed, and a noxfile that fails to import takes every session with it.
 _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 
+# Settings every process in an e2e run shares - the services started here and
+# the pytest process asserting on them. One place, because the two derive
+# different things from the same number: `agent_mitigation` waits this long for
+# the service to recover, and the suite's own timeouts are computed from it. If
+# they disagreed, the suite would either give up before Argus did or wait long
+# after it had.
+#
+# Two minutes rather than the configured three: recovery is judged on the first
+# whole minute after an action, so the window has to outlast that minute's
+# bucket and the scrape that publishes it - and no less. A walk of several
+# attempts pays this wait once per attempt, so the third minute is pure
+# wall-clock in the one suite that already costs the most to run.
+_E2E_SETTINGS = {"MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "120"}
+
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     "anthropic_double",
     ["-m", "anthropic_double.server"],
@@ -301,6 +315,7 @@ def _run_against_the_stack(
     session: nox.Session,
     test_paths: list[str],
     service_env: dict[str, dict[str, str]] | None = None,
+    command: list[str] | None = None,
 ) -> None:
     """Brings the whole stack up, runs `test_paths` against it, tears it down.
 
@@ -327,6 +342,11 @@ def _run_against_the_stack(
     """
     service_env = service_env or {}
     started: list[subprocess.Popen[bytes]] = []
+    # Set on the session's own environment rather than passed to each call:
+    # every child here inherits it - the services that do the waiting and the
+    # pytest process that times them - which is the only way the two cannot
+    # disagree about how long Argus waits.
+    os.environ.update(_E2E_SETTINGS)
     try:
         # `--build` because the Target Service image is built from a sibling
         # working copy, not pulled: without it Compose reuses whatever was
@@ -346,7 +366,7 @@ def _run_against_the_stack(
         # suite. Bringing the stack up is the slow part of a green run and the
         # cheap part of a debugging one.
         session.run(
-            "uv", "run", "python", "-m", "pytest", *test_paths, "-v",
+            *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
             *session.posargs, external=True,
         )
     finally:
@@ -409,4 +429,32 @@ def e2e_replay(session: nox.Session) -> None:
         session,
         ["tests/e2e"],
         service_env={"argus_web": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+    )
+
+
+@nox.session
+def record(session: nox.Session) -> None:
+    """
+    Registers `record` as a nox session, i.e., runnable via
+    `uv run python -m nox -s record -- <name> <scenario>` - for example
+    `-- feature-flag-toggle flag-toggle-red-herring`.
+    Brings the same stack up as `e2e_replay`, but instead of running tests it
+    drives **one real incident** through the Anthropic double in record mode,
+    so the model's actual answer is stored as a replayable recording.
+
+    Paid, and deliberately manual: it needs `ANTHROPIC_API_KEY`, spends tokens
+    on one investigation, and overwrites the recording it is named after. It
+    exists because a recording is the one piece of evidence the offline suites
+    rest on, and a recording captured by hand is one whose request nobody can
+    prove matched what the adapter sends.
+
+    `argus_web` is pointed at the double exactly as in `e2e_replay` - which is
+    what puts the double in the path at all - and the double forwards the call
+    upstream because it was told to record rather than seeded.
+    """
+    _run_against_the_stack(
+        session,
+        test_paths=[],
+        service_env={"argus_web": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+        command=["uv", "run", "python", "scripts/record_incident.py"],
     )

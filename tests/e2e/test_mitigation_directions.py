@@ -11,6 +11,8 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Scenario, all_of, eventually
 
 from tests.e2e.framework.argus import (
+    A_WALK_TIMEOUT_SECONDS,
+    AN_INVESTIGATION_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
     about_the_hypothesis,
     argus_ended_with_status,
@@ -30,7 +32,8 @@ These are about what it then does to a world that can answer back:
   flag back on - the direction a revert-only write tier could not perform at
   all;
 - a flag was switched on, the logs say so, and it was not the cause - so the
-  action is refuted, and the flag has to be found where it was left.
+  action is refuted, the flag has to be found where it was left, and Argus
+  goes on to whatever else the evidence offered before it gives up.
 
 Both are staged by the Target Service, whose telemetry is a live function of
 flag state, so nothing here asserts on what Argus reported about itself. The
@@ -41,11 +44,6 @@ A_RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
 A_RECORDED_FALLBACK_DISABLED = "fallback-disabled"
 
 
-
-A_GENEROUS_MODEL_CALL_SECONDS = 90
-AN_INVESTIGATION_TIMEOUT_SECONDS = (
-    get_settings().investigation_max_iterations * A_GENEROUS_MODEL_CALL_SECONDS
-)
 A_MITIGATION_TIMEOUT_SECONDS = (
     AN_INVESTIGATION_TIMEOUT_SECONDS
     + get_settings().mitigation_verification_timeout_seconds
@@ -96,12 +94,21 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
     # not what is breaking the shop. Argus is right to try it and wrong about
     # the cause, which is the ordinary case of a correlated change.
     #
-    # Two things have to follow. The incident must not reach `resolved` - the
+    # Three things have to follow. The incident must not reach `resolved` - the
     # shop is still broken, and an incident closed over a live fault is worse
-    # than one left open. And the flag must be back on: production state was
+    # than one left open. The flag must be back on: production state was
     # changed on a hypothesis that did not hold, and leaving it changed would
     # mean Argus altered the world for a cause that was not the cause, with
     # nobody told.
+    #
+    # And the incident ends `escalated`, not `fixing`. A refuted action used to
+    # go straight to Code-Fix with the rest of the investigation's explanations
+    # untried; now it goes back to the walk, and a human is reached only once
+    # there is no candidate left to try and no wider look left to buy. The
+    # ending is the observable difference between the two, which is why it is
+    # what this asserts - how many candidates a live model volunteers is the
+    # model's business, and the walk's own arithmetic is covered where it is
+    # free, in the orchestrator's unit tests.
     service = "io-shop"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
@@ -123,10 +130,10 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
                     about_the_hypothesis(
                         the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
                     ),
-                    argus_ended_with_status(IncidentStatus.FIXING),
+                    argus_ended_with_status(IncidentStatus.ESCALATED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),
                 ),
-                timeout=A_MITIGATION_TIMEOUT_SECONDS,
+                timeout=A_WALK_TIMEOUT_SECONDS,
             )
         )
 

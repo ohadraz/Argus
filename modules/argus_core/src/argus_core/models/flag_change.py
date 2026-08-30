@@ -31,6 +31,7 @@ class FlagChange(BaseModel):
     enabled: bool
     occurred_at: str
     # Who the provider attributes the change to. Absent when it does not say.
-    # Not yet load-bearing: Argus authenticates with the same admin credential
-    # a human would, so this cannot presently tell its own revert from theirs.
+    # Load-bearing: Argus writes under a credential of its own, so this is what
+    # tells its own revert from a human's - see `argus_core.attribution`, which
+    # is what stops Argus offering its own action as a candidate cause.
     actor: str | None = None

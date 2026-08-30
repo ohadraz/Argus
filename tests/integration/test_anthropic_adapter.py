@@ -23,7 +23,8 @@ from argus_core.ids import new_id
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.evidence import Evidence
-from argus_testkit.assertions import an_error_was_raised
+from argus_core.models.hypothesis import Hypothesis
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 
 from tests.framework.assertions import (
@@ -69,7 +70,7 @@ def test_a_recorded_verdict_becomes_a_hypothesis(
             _the_llm_verdic_is_feature_flag_cause()
         ) \
         .when(
-            lambda: client.propose_hypothesis(_an_evidence_payload())
+            lambda: client.propose_hypotheses(_an_evidence_payload())[0]
         ) \
         .then(
             the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
@@ -92,7 +93,7 @@ def test_a_recorded_deploy_verdict_becomes_a_bad_deployment_hypothesis(
             _the_llm_verdict_is_a_bad_deployment()
         ) \
         .when(
-            lambda: client.propose_hypothesis(_an_evidence_payload())
+            lambda: client.propose_hypotheses(_an_evidence_payload())[0]
         ) \
         .then(
             the_cause_was_identified_as(CauseType.BAD_DEPLOYMENT),
@@ -112,7 +113,7 @@ def test_a_recorded_undetermined_verdict_carries_no_confidence(
             _the_llm_couldnt_determine_a_verdic()
         ) \
         .when(
-            lambda: client.propose_hypothesis(_an_evidence_payload())
+            lambda: client.propose_hypotheses(_an_evidence_payload())[0]
         ) \
         .then(
             no_cause_was_determined()
@@ -132,7 +133,7 @@ def test_the_hypothesis_belongs_to_the_incident_the_evidence_came_from(
             _the_llm_came_to_some_verdic()
         ) \
         .when(
-            lambda: client.propose_hypothesis(some_evidence)
+            lambda: client.propose_hypotheses(some_evidence)[0]
         ) \
         .then(
             the_hypothesis_belongs_to(some_evidence.incident_id)
@@ -154,7 +155,7 @@ def test_a_refusal_is_not_reported_as_a_malformed_answer(
             _the_llm_stopped_due_to_refusale()
         ) \
         .when(
-            attempting(lambda: client.propose_hypothesis(some_evidence))
+            attempting(lambda: client.propose_hypotheses(some_evidence)[0])
         ) \
         .then(
             an_error_was_raised(ModelRefused)
@@ -175,7 +176,7 @@ def test_a_truncated_response_is_not_reported_as_a_malformed_answer(
             _the_llm_stopped_due_to_max_token()
         ) \
         .when(
-            attempting(lambda: client.propose_hypothesis(some_evidence))
+            attempting(lambda: client.propose_hypotheses(some_evidence)[0])
         ) \
         .then(
             an_error_was_raised(VerdictTruncated)
@@ -196,7 +197,7 @@ def test_a_verdict_missing_a_required_field_is_malformed(
             _the_llm_miss_summary_field()
         ) \
         .when(
-            attempting(lambda: client.propose_hypothesis(some_evidence))
+            attempting(lambda: client.propose_hypotheses(some_evidence)[0])
         ) \
         .then(
             an_error_was_raised(MalformedVerdict)
@@ -216,7 +217,7 @@ def test_a_cause_named_at_null_confidence_is_malformed(
             _the_llm_miss_named_a_cause_with_null_confidence()
         ) \
         .when(
-            attempting(lambda: client.propose_hypothesis(some_evidence))
+            attempting(lambda: client.propose_hypotheses(some_evidence)[0])
         ) \
         .then(
             an_error_was_raised(MalformedVerdict)
@@ -237,11 +238,102 @@ def test_a_rate_limit_reaches_the_caller_as_the_sdks_own_error(
             _the_llm_hit_rate_limit()
         ) \
         .when(
-            attempting(lambda: client.propose_hypothesis(some_evidence))
+            attempting(lambda: client.propose_hypotheses(some_evidence)[0])
         ) \
         .then(
             an_error_was_raised(anthropic.RateLimitError)
         )
+
+
+@pytest.mark.integration
+def test_a_verdict_carrying_alternatives_becomes_several_candidates(
+    double: httpx.Client, client: AnthropicLLMClient
+) -> None:
+    # The runners-up have to survive the same journey the primary answer does -
+    # the wire schema, `messages.parse`, and the join to the incident. A unit
+    # test of that join would pass against a schema the SDK never accepted.
+    #
+    # Injected into a real recorded body rather than recorded separately, so
+    # the envelope around the verdict stays a shape Anthropic actually produced
+    # while the verdict itself carries the field under test.
+    some_evidence = _an_evidence_payload()
+    an_also_ran = "legacy-checkout-fallback"
+    _the_llm_weighed_a_second_explanation = partial(
+        _the_llm_miss_named_a_cause_with,
+        double,
+        "alternatives",
+        [_an_alternative_blaming(an_also_ran)],
+    )
+
+    Scenario()         .given(
+            _the_llm_weighed_a_second_explanation()
+        )         .when(
+            lambda: client.propose_hypotheses(some_evidence)
+        )         .then(
+            all_of(
+                _there_were_candidates(2),
+                _the_candidates_were_ranked_best_first(),
+                _some_candidate_blamed(an_also_ran),
+            )
+        )
+
+
+def _an_alternative_blaming(subject: str) -> dict[str, Any]:
+    # Deliberately the least confident answer available, so its position in the
+    # ordering is a fact about the ordering rather than about whatever
+    # confidence the recording happens to carry.
+    return {
+        "summary": "the fallback that guards the safe path was switched off",
+        "cause_type": CauseType.FEATURE_FLAG_TOGGLE.value,
+        "confidence": 0.0,
+        "supporting_evidence": ["some log line"],
+        "subject": subject,
+    }
+
+
+def _there_were_candidates(expected: int) -> Assertion[list[Hypothesis]]:
+    def assertion(candidates: list[Hypothesis]) -> bool:
+        if len(candidates) != expected:
+            raise AssertionError(
+                f"Expected [{expected}] candidates, got [{len(candidates)}]: "
+                f"{[candidate.summary for candidate in candidates]}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidates_were_ranked_best_first() -> Assertion[list[Hypothesis]]:
+    def assertion(candidates: list[Hypothesis]) -> bool:
+        confidences = [candidate.confidence or 0.0 for candidate in candidates]
+
+        if confidences != sorted(confidences, reverse=True):
+            raise AssertionError(f"Candidates are not best-first: {confidences}")
+
+        if [candidate.rank for candidate in candidates] != list(
+            range(1, len(candidates) + 1)
+        ):
+            raise AssertionError(
+                f"Ranks do not follow the order: "
+                f"{[candidate.rank for candidate in candidates]}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _some_candidate_blamed(subject: str) -> Assertion[list[Hypothesis]]:
+    def assertion(candidates: list[Hypothesis]) -> bool:
+        blamed = [candidate.subject for candidate in candidates]
+
+        if subject not in blamed:
+            raise AssertionError(f"Expected one candidate to blame [{subject}], got {blamed}.")
+
+        return True
+
+    return assertion
 
 
 def _an_evidence_payload() -> Evidence:

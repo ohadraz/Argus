@@ -8,7 +8,7 @@ from argus_core.models.incident_status import IncidentStatus
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 
-from orchestrator.graph import build_graph
+from orchestrator.graph import build_graph, recursion_limit
 from orchestrator.repository import incidents
 
 # Lazily built once per process and kept alive for the process lifetime -
@@ -39,9 +39,22 @@ def create_incident_and_run(alert: Alert) -> str:
         incident_id = incidents.create(conn, alert)
 
     graph = _get_graph()
+    settings = get_settings()
     initial_state = IncidentState(
         incident_id=incident_id, alert=alert, status=IncidentStatus.INVESTIGATING
     )
-    graph.invoke(initial_state, config={"configurable": {"thread_id": incident_id}})
+    graph.invoke(
+        initial_state,
+        config={
+            "configurable": {"thread_id": incident_id},
+            # The walk is a real cycle in the graph, so the default budget of
+            # 25 traversals is one an ordinary incident can exhaust. Derived
+            # from the settings that bound the walk, never guessed.
+            "recursion_limit": recursion_limit(
+                settings.investigation_max_rounds,
+                settings.investigation_max_candidates,
+            ),
+        },
+    )
 
     return incident_id

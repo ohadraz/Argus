@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from argus_core.ids import UuidStr
 from argus_core.models.alert import Alert
+from argus_core.models.attempt import Attempt
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 
@@ -41,6 +42,12 @@ class Evidence(BaseModel):
     the interval it is about is stated - a complete list of changes over an
     unnamed window is not a fact a reader can use.
 
+    `attempts` is what has already been tried for this incident and did not
+    help. Empty for a first investigation, and the reason a later one is worth
+    running at all: without it a second round is the same question over the
+    same evidence, and a model that answered differently would be guessing
+    rather than reasoning.
+
     `incident_id` rides along so the seam stays a one-argument function and
     the hypothesis that comes back is already attached to its incident. It is
     context, not evidence, and is deliberately kept out of the prompt - the
@@ -52,6 +59,7 @@ class Evidence(BaseModel):
     metric_buckets: list[MetricBucket]
     log_lines: list[str]
     change_events: list[ChangeEvent] = []
+    attempts: list[Attempt] = []
     log_window_start: str | None = None
     log_window_end: str | None = None
     change_window_start: str | None = None
