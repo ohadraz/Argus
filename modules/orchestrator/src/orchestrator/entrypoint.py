@@ -9,6 +9,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from orchestrator.graph import build_graph, recursion_limit
+from orchestrator.publishing import acknowledge_alert
 from orchestrator.repository import incidents
 
 # Lazily built once per process and kept alive for the process lifetime -
@@ -37,6 +38,11 @@ def create_incident_and_run(alert: Alert) -> str:
     `Alert` domain object - never a vendor's raw payload."""
     with connect() as conn:
         incident_id = incidents.create(conn, alert)
+
+    # The story's first line, published from here because by the time a node
+    # runs the alert has already been received - and published after the row
+    # exists, so there is an incident for it to belong to.
+    acknowledge_alert(incident_id, alert)
 
     graph = _get_graph()
     settings = get_settings()

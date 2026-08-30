@@ -1,0 +1,81 @@
+{# The whole of the front page below the masthead, and the whole of what its
+   poll swaps in.
+
+   It always asks again, unlike an incident's walk. An incident reaches a
+   terminal status and has nothing further to say; the front page cannot,
+   because the next alert is exactly what somebody watching this screen is
+   waiting for - and a page that stopped polling when the incident it happened
+   to be showing resolved would never show them the one after it. #}
+{# `data-version` is what the page compares a reply against: identical means
+   nothing has happened, and nothing is swapped. See the script in base.html -
+   without it, everything a reader is doing inside this section is destroyed
+   every two seconds. #}
+<section id="now"
+         data-version="{{ incident.version if incident else 'nothing-is-happening' }}"
+         hx-get="/now"
+         hx-trigger="every 2s"
+         hx-swap="outerHTML">
+
+{% if incident %}
+  <p class="alert"
+     data-live-incident="{{ incident.id }}"
+     data-running="{{ 'false' if incident.status.is_terminal() else 'true' }}">
+    <strong>{{ incident.alert.alert_name }}</strong> on
+    <strong>{{ incident.alert.service }}</strong>
+    <span class="status {{ incident.status }}">{{ incident.status }}</span>
+    {# Live while it runs and static once it has finished, so a glance at the
+       screen answers "is this still going" without reading the status word. #}
+    {% if not incident.status.is_terminal() %}<span class="live">live</span>{% endif %}
+    {# The incident's own name. A demo run twice looks identical on screen
+       otherwise, and this is what tells one run from the one before it - the
+       same id the history lists and the URL carries. #}
+    <a class="incident-id" href="/incidents/{{ incident.id }}"
+       title="{{ incident.id }}">#{{ incident.id[:8] }}</a>
+    {# Counted by the browser from these two moments, so it advances a second
+       at a time instead of in the steps a poll can supply - and so that the
+       time passing is not itself a change that forces the page to re-render.
+       A finished incident has an end, and stops. #}
+    <span class="elapsed"
+          data-opened="{{ incident.created_at.isoformat() }}"
+          {% if incident.finished_at %}data-finished="{{ incident.finished_at.isoformat() }}"{% endif %}
+          data-elapsed="{{ incident.elapsed_seconds }}">
+      {{ "%d:%02d"|format(incident.elapsed_seconds // 60, incident.elapsed_seconds % 60) }}
+    </span>
+  </p>
+
+  {# What fired, in a table of its own: the alert's own words are the one thing
+     on this page Argus did not write, and a sentence set loose in the prose
+     reads as Argus's own summary of the incident rather than as the monitoring
+     system's. #}
+  <h2>The alert</h2>
+  <table class="facts">
+    <thead>
+      <tr><th>description</th><th>service</th><th>severity</th><th>opened</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{{ incident.alert.summary or "none given" }}</td>
+        <td>{{ incident.alert.service }}</td>
+        <td>{{ incident.alert.severity or "-" }}</td>
+        <td>{{ incident.created_at | utc("%Y-%m-%d %H:%M:%S") }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>What Argus did</h2>
+  {% with story = incident.story %}
+  {% include "timeline.html" %}
+  {% include "evidence.html" %}
+  {% endwith %}
+
+  <p class="links">
+    <a href="/incidents/{{ incident.id }}">the whole walk</a> ·
+    <a href="/history">every incident</a>
+  </p>
+{% else %}
+  {# Argus is idle most of the time. A screen left open through a demo has to
+     say so, rather than show an empty frame that reads as broken. #}
+  <p class="idle" data-idle="true">Nothing is happening. Argus is watching.</p>
+  <p class="links"><a href="/history">every incident</a></p>
+{% endif %}
+</section>

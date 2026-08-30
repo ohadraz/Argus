@@ -4,11 +4,13 @@
    can finish, but the history cannot - the next incident is exactly what
    somebody watching this screen is waiting for. #}
 <ul class="incidents"
-    hx-get="/history"
+    hx-get="/history/list"
     hx-trigger="every 2s"
     hx-swap="outerHTML">
 {% for incident in incidents %}
   <li class="incident" data-incident="{{ incident.id }}">
+    <a class="incident-id" href="/incidents/{{ incident.id }}"
+       title="{{ incident.id }}">#{{ incident.id[:8] }}</a>
     <a href="/incidents/{{ incident.id }}">{{ incident.alert.alert_name }}</a>
     on <strong>{{ incident.alert.service }}</strong>
     <span class="status {{ incident.status }}">{{ incident.status }}</span>

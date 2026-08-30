@@ -1,0 +1,97 @@
+{# What Argus did, in the order it did it.
+
+   The account of the work rather than of the outcome: which window was asked
+   for, what came back, which minute was called the onset. Every line names who
+   did it, because "what did Argus do" is really "which of its agents did
+   what" - a story whose every sentence has the same silent subject reads as
+   one program doing everything.
+
+   The evidence itself is not in here. An investigation that widens reads the
+   same minutes several times, and a table repeated under each retrieval is
+   six copies of one thing; the metrics and the logs get a table each below,
+   and the line that named a minute links to that minute's row. #}
+<div class="scroll" data-scroll="timeline">
+<table class="timeline-table">
+  <thead>
+    <tr><th>time (UTC)</th><th>who</th><th>what</th></tr>
+  </thead>
+  <tbody>
+  {% for line in story.narration %}
+    <tr class="line" data-line="{{ line.kind }}">
+      <td class="when">{{ line.at | clock }}</td>
+      <td class="who">{{ line.who }}</td>
+      <td class="said">
+        {# The marked word arrives as three plain strings rather than as
+           markup, so nothing the model wrote can carry a tag into the page.
+           A status wears the same badge it wears in the header, so `resolved`
+           is the same green in both places. #}
+        {% if line.emphasis %}
+          {{ line.before_emphasis }}<!--
+          -->{% if line.emphasis_class %}<span class="{{ line.emphasis_class }}">{{ line.emphasis }}</span>
+             {% else %}<em>{{ line.emphasis }}</em>{% endif %}<!--
+          -->{{ line.after_emphasis }}
+        {% else %}
+          {{ line.text }}
+        {% endif %}
+        {# The same struck-out transition the flag table shows, so a change
+           reads as a change wherever it appears on the page. #}
+        {% if line.moved_to %}
+          <span class="moved"><s>{{ line.moved_from }}</s><span class="arrow">→</span><span class="now">{{ line.moved_to }}</span></span>
+        {% endif %}
+        {# A line that mentions evidence points at it. The tables are below the
+           story, and a reader who has to find the right one has been handed a
+           filing system rather than an account. #}
+        {% if line.link_target %}
+          <a class="jump" href="{{ line.link_target }}">{{ line.link_label }}</a>
+        {% endif %}
+        {# The wait says the same thing every few seconds. Counted rather than
+           repeated: the count is the sign of life, the repetition is noise. #}
+        {% if line.repeated > 1 %}
+          <span class="repeated">&times;{{ line.repeated }}</span>
+        {% endif %}
+
+        {# The explanations, ranked, each with what it was formed from. The
+           findings sit under the claim they support, because a reader asking
+           "why does it think that" is looking at the claim when they ask. #}
+        {% if line.candidates %}
+        <ol class="candidates">
+          {% for candidate in line.candidates %}
+          <li data-candidate="{{ candidate.rank }}">
+            <span class="claim">{{ candidate.summary }}</span>
+            {% if candidate.confidence %}
+              <span class="confidence">confidence {{ candidate.confidence }}</span>
+            {% endif %}
+            {# A finding that names a minute the page holds points at it.
+               One that does not is shown as written: matching prose to a log
+               line would be a guess, and a link that points confidently at the
+               wrong evidence is worse than none. #}
+            {% if candidate.evidence %}
+            <ul class="findings">
+              {% for finding in candidate.evidence %}
+              <li>
+                {{ finding.text }}
+                {% if finding.links_to_minute %}
+                  <a class="jump" href="#minute-{{ finding.links_to_minute }}">the minute</a>
+                {% endif %}
+                {% if finding.links_to_lines %}
+                  <a class="jump" href="#log-at-{{ finding.links_to_lines }}">its log lines</a>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    {# A real answer rather than a failure: an incident can escalate before
+       anything has looked at it, and one from before the stream existed
+       recorded nothing at all. #}
+    <tr class="empty"><td colspan="3">Nothing has been recorded for this incident.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

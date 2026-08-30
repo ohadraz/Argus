@@ -10,12 +10,211 @@
 {# Vendored rather than pulled from a CDN. A demo that needs the internet to
    render is a demo with one more thing that can fail in the room. #}
 <script src="/assets/htmx.min.js"></script>
+<script>
+// The page asks for the incident every two seconds, and almost every answer is
+// identical to what is already on screen - an investigation does something new
+// every few seconds at best. Swapping anyway replaces every element, and a
+// replaced element is a new element: a table being read jumps back to its
+// first row, a minute somebody followed a link to scrolls out of sight, and
+// the status badge starts its pulse over from the beginning.
+//
+// So the fragment carries a version of what it says, and a reply that says the
+// same thing is not swapped at all. That is the whole fix: the page stops
+// moving unless the incident does.
+//
+// Listeners go on `document` rather than `document.body`, because this runs in
+// the head where there is not a body yet - and a listener added to `null` is
+// the failure that made the two-second jump look unfixable.
+(function () {
+  var scrolled = {};
+
+  function frames(fn) {
+    document.querySelectorAll('[data-scroll]').forEach(fn);
+  }
+
+  document.addEventListener('htmx:beforeSwap', function (event) {
+    var target = event.detail.target;
+    var arriving = /data-version="([^"]*)"/.exec(event.detail.serverResponse || '');
+
+    if (target && arriving && target.getAttribute('data-version') === arriving[1]) {
+      event.detail.shouldSwap = false;
+      return;
+    }
+
+    // A real change, so the frames are about to be rebuilt: remember where the
+    // reader was in each, and whether they were following the end of it.
+    // Keyed by name rather than by position, because the evidence tables
+    // appear as the first metrics and the first logs arrive, and an index
+    // would hand the logs the metrics' position.
+    frames(function (frame) {
+      scrolled[frame.dataset.scroll] = {
+        top: frame.scrollTop,
+        following: atTheEnd(frame),
+      };
+    });
+  });
+
+  document.addEventListener('htmx:afterSwap', function () {
+    // A different incident is a different page: the tables are somebody else's
+    // now, and putting the reader back where they were in the last one leaves
+    // them halfway down an unrelated story. So the view starts over.
+    if (theIncidentChanged()) {
+      scrolled = {};
+      window.scrollTo(0, 0);
+    }
+
+    frames(restore);
+    elapse();
+  });
+
+  var showing = null;
+
+  function theIncidentChanged() {
+    var shown = document.querySelector('[data-live-incident]');
+    var now = shown ? shown.dataset.liveIncident : null;
+    var changed = showing !== null && now !== showing;
+
+    showing = now;
+
+    return changed;
+  }
+
+  // How close to the bottom still counts as following the newest row. A few
+  // pixels of slack, because a table is rarely scrolled to exactly its last
+  // pixel and a reader who meant to be at the end should not be treated as
+  // having left it.
+  var STILL_AT_THE_END = 40;
+
+  function atTheEnd(frame) {
+    return frame.scrollHeight - frame.scrollTop - frame.clientHeight <= STILL_AT_THE_END;
+  }
+
+  // A table follows its newest row until the reader looks away from it, and
+  // starts following again the moment they scroll back to the end. That is the
+  // whole rule, and it is the shop console's rule too: what is happening now
+  // is at the bottom, so being at the bottom means wanting to see it - and
+  // being anywhere else means reading something, which nothing should
+  // interrupt.
+  function restore(frame) {
+    var was = scrolled[frame.dataset.scroll];
+
+    if (was === undefined || was.following) {
+      frame.scrollTop = frame.scrollHeight;
+      return;
+    }
+
+    frame.scrollTop = was.top;
+  }
+
+  document.addEventListener('DOMContentLoaded', function () { frames(restore); });
+
+  // The elapsed time is a clock, not a fact about the incident, so the browser
+  // counts it: kept on the server it would change on every poll, every poll
+  // would be a change, and nothing above would ever skip a swap. It also reads
+  // better - seconds that advance one at a time rather than two at a time.
+  function elapse() {
+    document.querySelectorAll('.elapsed[data-opened]').forEach(function (shown) {
+      var opened = Date.parse(shown.dataset.opened);
+      var ended = shown.dataset.finished ? Date.parse(shown.dataset.finished) : Date.now();
+      var seconds = Math.max(0, Math.floor((ended - opened) / 1000));
+
+      shown.textContent = Math.floor(seconds / 60) + ':' +
+                          String(seconds % 60).padStart(2, '0');
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', elapse);
+  setInterval(elapse, 1000);
+
+  // The masthead shrinks once the page has been scrolled, and comes back at
+  // the top. One class, so the sizes stay in the stylesheet with the rest.
+  //
+  // Two thresholds rather than one: it has to be scrolled well past the point
+  // where it shrank before it grows again, so a scroll that hovers around the
+  // threshold does not toggle it on every pixel.
+  var SHRINK_PAST = 96;
+  var GROW_BEFORE = 24;
+
+  function fitTheMasthead() {
+    var masthead = document.querySelector('header');
+
+    if (!masthead) return;
+
+    var compact = masthead.classList.contains('compact');
+
+    if (window.scrollY > SHRINK_PAST) { compact = true; }
+    if (window.scrollY < GROW_BEFORE) { compact = false; }
+
+    masthead.classList.toggle('compact', compact);
+    // The line under it - the alert, the status, the elapsed time - sticks
+    // directly below, and the masthead changes height when it shrinks. So its
+    // height is measured and published rather than written into the
+    // stylesheet, where it would be right at one size and wrong at the other.
+    document.documentElement.style.setProperty(
+      '--masthead', masthead.getBoundingClientRect().height + 'px'
+    );
+  }
+
+  // The space the page keeps for the masthead: its *full* height, whatever
+  // height it is currently wearing.
+  //
+  // This is what makes the shrinking work at all. The masthead is out of the
+  // flow, and the room left for it never changes - so shrinking it cannot
+  // shorten the document. A masthead that shortened the document pulled the
+  // scroll position up with it, which took the page back under the threshold,
+  // which grew it again: the flicker that looked like the shrinking simply not
+  // working. Nothing about thresholds could have fixed that; the page has to
+  // stop moving when the masthead does.
+  //
+  // Measured rather than written down, because the height is a photograph's
+  // aspect ratio times a viewport-relative width, and the class is taken off
+  // to measure it because it is the full height that is being reserved.
+  function reserveTheMasthead() {
+    var masthead = document.querySelector('header');
+
+    if (!masthead) return;
+
+    var compact = masthead.classList.contains('compact');
+
+    // No transition while it is measured, or the height read back is whatever
+    // the animation happened to be passing through.
+    masthead.classList.add('measuring');
+    masthead.classList.remove('compact');
+
+    var full = masthead.getBoundingClientRect().height;
+
+    masthead.classList.toggle('compact', compact);
+    masthead.getBoundingClientRect();
+    masthead.classList.remove('measuring');
+
+    document.documentElement.style.setProperty('--masthead-full', full + 'px');
+  }
+
+  function fitAndReserve() {
+    reserveTheMasthead();
+    fitTheMasthead();
+  }
+
+  document.addEventListener('DOMContentLoaded', fitAndReserve);
+  // The artwork decides the full height and is not measurable until it has
+  // loaded, so the reservation is taken again once it has.
+  window.addEventListener('load', fitAndReserve);
+  document.addEventListener('htmx:afterSwap', fitTheMasthead);
+  window.addEventListener('scroll', fitTheMasthead, {passive: true});
+  window.addEventListener('resize', fitAndReserve, {passive: true});
+})();
+</script>
 <style>
   :root {
     /* Dark, whatever the browser prefers. Argus watches a shop whose console
        is dark beside it, and two screens in a demo that disagree about their
        ground look like two unrelated tools. */
     color-scheme: dark;
+    /* The page's own ground, stated rather than left to the browser's default
+       canvas. A sticky masthead and a sticky table heading both have to paint
+       something opaque over what scrolls under them, and "whatever this
+       browser calls dark" is not a colour they can be given. */
+    --ground: #101319;
     --ink:   #141a2c;
     --eye:   #3f7d8c;
     --gold:  #c9a227;
@@ -25,39 +224,261 @@
     --line:  rgba(63,125,140,.30);
     --muted: rgba(128,128,128,.16);
   }
-  body { font: 14px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0;
-         padding: 0 24px 48px; max-width: 1100px; }
+  /* Sized against the screen rather than for a laptop, because this is shown
+     on whatever display the room has - a 1080p projector, a 4K television
+     across twenty feet, or the machine it was written on. Every size below is
+     a `clamp`: a floor that stays readable on a small window, a ceiling that
+     stops a huge screen turning the page into a poster, and a viewport-based
+     middle that scales smoothly between them. No breakpoints and nothing to
+     know in advance about the room.
 
-  header { display: flex; align-items: center; gap: 22px; padding: 18px 0 22px;
-           border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+     `vmin` for type rather than `vw`: it follows the smaller side, so a very
+     wide screen makes the page wider without also making the text enormous. */
+  /* The top padding is the room kept for the masthead, which is out of the
+     flow - see `reserveTheMasthead`. It is the full height even while the
+     masthead is shrunk, so that shrinking cannot change how tall the document
+     is. The fallback is a sensible height for the moment before the artwork
+     has loaded and the real one can be measured. */
+  body { font: clamp(14px, 1.05vmin + 8px, 21px)/1.55 ui-sans-serif, system-ui, sans-serif;
+         margin: 0 auto;
+         padding: calc(var(--masthead-full, 9em) + 24px) clamp(24px, 2.4vw, 56px) 48px;
+         max-width: min(1900px, 94vw); background: var(--ground); }
+
+  /* The masthead stays put: on a long incident the tables scroll for pages,
+     and a screen with no title on it is a screen an audience cannot place -
+     particularly beside the shop's own console, which looks similar.
+
+     Fixed and *shrinking*, because at full size it is a third of a television.
+     Past the first scroll it becomes a band: smaller mark, smaller title, no
+     strapline, nav still in reach.
+
+     Fixed rather than sticky, and that is what makes the shrinking hold: out
+     of the flow it cannot change the height of the document, so the page does
+     not move when it does. The body keeps its room (see `reserveTheMasthead`),
+     and the width matches the body's own content box so the two are one
+     column. */
+  header { position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+           width: min(1900px, 94vw); z-index: 10; background: var(--ground);
+           display: flex; align-items: center; gap: 22px; padding: 18px 0 22px;
+           border-bottom: 1px solid var(--line);
+           transition: padding .18s ease; }
+  header.compact { padding: 8px 0 10px; }
+  /* Held still while its full height is measured: a height read mid-animation
+     is a reservation that is wrong by however far the animation had got. */
+  header.measuring, header.measuring img { transition: none; }
+  header.compact img { width: clamp(56px, 5vw, 92px); }
+  header.compact h1 { font-size: clamp(16px, 1.2vmin + 11px, 24px); }
+  header.compact h1 small { display: none; }
   /* The artwork is a photograph of a figurine on a dark ground, so its own
      edges are a hard rectangle against the page. Masking it to an oval with a
      feathered rim leaves the figure and dissolves the frame. */
-  header img { width: 200px; height: auto; flex: none;
+  header img { width: clamp(140px, 13vw, 300px); height: auto; flex: none;
+               transition: width .18s ease;
                -webkit-mask-image: radial-gradient(ellipse 48% 48% at 50% 46%,
                                    #000 58%, transparent 100%);
                mask-image: radial-gradient(ellipse 48% 48% at 50% 46%,
                            #000 58%, transparent 100%); }
-  h1 { font-size: 26px; margin: 0; letter-spacing: .16em; font-weight: 500;
-       text-transform: uppercase; }
-  h1 small { display: block; font-size: 11px; letter-spacing: .28em;
-             opacity: .65; margin-top: 6px; font-weight: 400;
+  h1 { font-size: clamp(22px, 2.1vmin + 14px, 40px); margin: 0;
+       letter-spacing: .16em; font-weight: 500; text-transform: uppercase; }
+  h1 small { display: block; font-size: .45em; letter-spacing: .28em;
+             opacity: .8; margin-top: 6px; font-weight: 400;
              text-transform: none; }
   a { color: var(--eye); }
 
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .12em;
-       opacity: .55; margin: 30px 0 10px; }
+  /* Section headings, column headings and the other quiet text used to sit
+     around .5 opacity. That reads as "secondary" at desk distance and as
+     "unreadable" from across a room, so everything quiet here is quiet by a
+     smaller margin than it was. */
+  h2 { font-size: .82em; text-transform: uppercase; letter-spacing: .12em;
+       opacity: .75; margin: 26px 0 10px; }
   ul { list-style: none; padding: 0; margin: 0; }
 
   .status { display: inline-block; padding: 1px 9px; border-radius: 999px;
-            font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+            font-size: .78em; letter-spacing: .08em; text-transform: uppercase;
             border: 1px solid var(--line); }
-  .status.resolved  { color: var(--good);  border-color: var(--good); }
-  .status.escalated { color: var(--bad);   border-color: var(--bad); }
-  .status.investigating, .status.mitigating, .status.fixing {
-            color: var(--amber); border-color: var(--amber); }
+  /* The status is the one thing on this page somebody reads from across a
+     room, so it carries the state in colour and in motion rather than in a
+     word: red while nobody knows what is wrong, amber once Argus is acting on
+     an answer, green and finally still when it is over. The pulse stopping is
+     as much of the signal as the colour changing - a screen that keeps moving
+     after the incident ends never says it ended. */
+  @keyframes breathing { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
-  .when { opacity: .6; font-variant-numeric: tabular-nums; }
+  .status.investigating { color: var(--bad); border-color: var(--bad);
+                          animation: breathing 1.6s ease-in-out infinite; }
+  .status.mitigating, .status.fixing {
+                          color: var(--amber); border-color: var(--amber);
+                          animation: breathing 1.6s ease-in-out infinite; }
+  .status.resolved  { color: var(--good);  border-color: var(--good); }
+  /* Escalated is over too - it stops moving for the same reason resolved
+     does - and stays red because it ended by giving up. */
+  .status.escalated { color: var(--bad);   border-color: var(--bad); }
+
+  /* A status named inside a sentence is a word, not a control: it takes the
+     colour and the capitals and none of the pill, because a badge in running
+     text reads as something you could press. The header keeps the badge, where
+     it is the state of the incident rather than a mention of one. */
+  .moved-to { font-weight: 600; letter-spacing: .04em; }
+  .moved-to.investigating { color: var(--bad); }
+  .moved-to.mitigating, .moved-to.fixing { color: var(--amber); }
+  .moved-to.resolved { color: var(--good); }
+  .moved-to.escalated { color: var(--bad); }
+
+  /* The verdict is the sentence the whole mitigation was for. Red or green and
+     in capitals, so it is findable on a screen being read from across a room
+     without reading the line it sits in. */
+  .verdict { font-weight: 600; letter-spacing: .04em; }
+  .verdict.confirmed { color: var(--good); }
+  .verdict.refuted   { color: var(--bad); }
+
+  /* A change, not two words: the state it left struck through and greyed to
+     silver, the state it is in now picked out in gold. Gold rather than red or
+     green, because which direction is the bad one depends on the flag - on is
+     the incident for a feature, and off is the incident for a fallback. */
+  .moved { white-space: nowrap; }
+  .moved s { color: #9aa0a6; font-weight: 400; }
+  .moved .arrow { opacity: .5; padding: 0 4px; }
+  .moved .now { color: var(--gold); font-weight: 600; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .status { animation: none !important; }
+  }
+
+  .when { opacity: .78; font-variant-numeric: tabular-nums; }
+
+  /* What the incident is and whether it is still going, kept on screen under
+     the masthead. It is the one line that answers "what am I looking at" -
+     scrolled away, the tables below are numbers belonging to nothing. The
+     offset is measured (see `fitTheMasthead`), because the masthead is a
+     different height once it shrinks. */
+  .alert { position: sticky; top: var(--masthead, 4.6em); z-index: 8;
+           background: var(--ground); margin: 0; padding: 10px 0;
+           border-bottom: 1px solid var(--line); }
+
+  nav { margin-left: auto; display: flex; gap: 22px; font-size: .8em;
+        letter-spacing: .12em; text-transform: uppercase; }
+
+  /* The one thing on the page that moves on its own, so it says so quietly
+     rather than by animating - a demo screen that blinks pulls the eye away
+     from the shop's console beside it. */
+  .live { color: var(--amber); font-size: .78em; letter-spacing: .16em;
+          text-transform: uppercase; }
+  .elapsed { font-variant-numeric: tabular-nums; opacity: .75; }
+  /* Short, because eight characters of a uuid identify a demo run perfectly
+     well and the whole of one is a wall of hex on a screen being read from
+     across a room. The full id is on the element for anyone who needs it. */
+  .incident-id { font-family: ui-monospace, monospace; font-size: .82em;
+                 color: var(--gold); text-decoration: none;
+                 border: 1px solid var(--line); border-radius: 4px;
+                 padding: 1px 6px; }
+  .idle { opacity: .8; padding: 40px 0; font-size: 1.15em; }
+
+  /* Each table gets its own bounded, scrollable frame. The three of them are
+     long and grow at different rates - a widening investigation adds log lines
+     by the hundred - and a page where the timeline is pushed below the fold by
+     its own evidence is a page nobody can follow while the incident runs. */
+  /* A share of the screen rather than a fixed height, so the three tables
+     grow with the display instead of staying laptop-sized on a television.
+     Floored so they are still usable in a small window. */
+  .scroll { max-height: max(220px, 26vh); overflow: auto; border: 1px solid var(--line);
+            border-radius: 4px; margin: 0 0 8px; }
+
+  /* The evidence tables side by side, because the whole account is meant to be
+     one screen: stacked, the logs push the timeline off the top of it and a
+     reader watching an incident has to scroll to see the thing that is moving.
+     Falls back to one column where there is no room for two.
+
+     Each table has a place of its own rather than the next free one, because
+     they do not arrive together: the investigator reads metrics, logs and
+     production changes, and mitigation reads the flag history minutes later.
+     Packed in arrival order, that last table appears *between* two that a
+     reader is already looking at and shifts them both - so the screen a person
+     was reading becomes a different screen while they read it. Named areas
+     keep the four places fixed and simply leave one empty until it is filled. */
+  .evidence { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px;
+              align-items: start;
+              grid-template-areas: "metrics logs"
+                                   "flags   changes"; }
+  .evidence .metrics-read { grid-area: metrics; }
+  .evidence .logs-read    { grid-area: logs; }
+  .evidence .flags-read   { grid-area: flags; }
+  .evidence .changes-read { grid-area: changes; }
+  @media (max-width: 900px) {
+    .evidence { grid-template-columns: 1fr;
+                grid-template-areas: "metrics" "logs" "flags" "changes"; }
+  }
+
+  /* Borders separate rather than collapsed, and it is not cosmetic: with
+     collapsed borders a sticky heading's background is painted with the
+     table's border layer rather than above the cells, so rows scroll straight
+     through the headings whatever stacking order the heading is given. Zero
+     spacing keeps the collapsed look. */
+  table { border-collapse: separate; border-spacing: 0; width: 100%; }
+  /* The heading rides along as the body scrolls under it, so a reader who has
+     scrolled into the middle of a window still knows which column is p95.
+     `z-index` because a sticky heading is not automatically above what scrolls
+     past it - without it the rows are painted over the top of it - and the
+     background is opaque for the same reason. */
+  thead th { position: sticky; top: 0; z-index: 3; background: var(--ground);
+             text-align: left; font-weight: 400; opacity: 1; font-size: .78em;
+             text-transform: uppercase; letter-spacing: .1em;
+             padding: 6px 14px; border-bottom: 1px solid var(--line); }
+  /* A row linked to from the timeline stops clear of the sticky heading
+     rather than underneath it - and with a line's worth of room under the
+     heading, because a highlighted row pressed right against it reads as part
+     of the heading rather than as the row that was pointed at. */
+  tbody tr { scroll-margin-top: 4.4em; }
+  td { padding: 4px 14px; vertical-align: top;
+       border-bottom: 1px solid var(--muted); }
+
+  /* What fired, on one line under its headings. It is four short facts, and a
+     column of labelled rows spent a third of the screen saying them. */
+  .facts { margin-bottom: 14px; }
+  .facts td { border-bottom: none; }
+
+  .timeline-table .when { white-space: nowrap; font-variant-numeric: tabular-nums;
+                          opacity: .78; }
+  .timeline-table .who  { white-space: nowrap; color: var(--eye); }
+  .repeated { margin-left: 8px; opacity: .7; font-variant-numeric: tabular-nums; }
+  .jump { margin-left: 8px; font-size: .78em; letter-spacing: .06em;
+          text-transform: uppercase; }
+
+  .buckets, .logs-table { font-variant-numeric: tabular-nums; }
+  /* The same red the shop's console reddens an elevated minute in. */
+  .buckets .bad { color: var(--bad); font-weight: 600; }
+  /* Any row jumped to from the timeline, so a link lands somewhere visible
+     rather than leaving a reader to work out which row moved. Every table, not
+     just the metrics: a link into the logs that highlighted nothing would look
+     like a link that had not worked. */
+  /* Tinted as well as outlined: an outline on a table row is painted
+     inconsistently between browsers, and a link that highlights nothing looks
+     like a link that did not work. */
+  tbody tr:target { outline: 1px solid var(--gold);
+                    background: rgba(201, 162, 39, .12); }
+
+  .logs-table { font-size: .88em; }
+  .logs-table .level { text-transform: uppercase; font-size: .85em;
+                       letter-spacing: .08em; opacity: .9; }
+  .logs-table .message { word-break: break-word; }
+  .logs-table .warn  { color: var(--amber); }
+  .logs-table .error { color: var(--bad); }
+
+  .changes { margin: 6px 0 0; }
+  .changes li { padding: 2px 0; }
+
+  /* The candidates, ranked, under the line that formed them. Numbered by the
+     list itself so the rank a reader sees is the rank the investigation gave,
+     with nothing to keep in sync. */
+  .candidates { margin: 6px 0 2px; padding-left: 1.6em; }
+  .candidates > li { padding: 3px 0; }
+
+  .confidence { opacity: .75; font-variant-numeric: tabular-nums; }
+  /* The findings a claim rests on: quieter than the claim, and indented under
+     it, so the eye reads the claims down the list and stops at the one it
+     wants to check. */
+  .findings { margin: 2px 0 4px; padding-left: 1.1em; opacity: .8;
+              font-size: .92em; }
+  .findings li { padding: 1px 0; list-style: "- "; }
 </style>
 </head>
 <body>
@@ -67,6 +488,12 @@
      itself, and the two are not interchangeable. #}
   <img src="/assets/argus.png" alt="Argus, the hundred-eyed herdsman">
   <h1>Argus<small>{% block strapline %}what it saw, and what it did{% endblock %}</small></h1>
+  {# Every screen reachable from every other one, so nobody has to know a URL
+     to get from the incident in front of them to the one before it. #}
+  <nav>
+    <a href="/">now</a>
+    <a href="/history">history</a>
+  </nav>
 </header>
 {% block content %}{% endblock %}
 </body>

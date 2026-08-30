@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Protocol
 
 from agent_codefix import propose_fix
@@ -12,6 +13,16 @@ from agent_mitigation.tools import fetch_recent_flag_changes, utc_now
 from agent_postmortem import write_postmortem
 from argus_core.config import get_settings
 from argus_core.db import connect
+from argus_core.events import (
+    ActionTaken,
+    AgentInvoked,
+    FlagChangesRetrieved,
+    Publisher,
+    StatusChanged,
+    VerdictReached,
+    nobody,
+    publish,
+)
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
@@ -24,6 +35,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from orchestrator.publishing import record_event
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
 
@@ -38,11 +50,14 @@ class Investigate(Protocol):
         *,
         resume_from: int = 0,
         already_refuted: list[Attempt] | None = None,
+        publisher: Publisher = nobody,
     ) -> Findings: ...
 
 
 class RecordHypothesis(Protocol):
-    def __call__(self, hypothesis: Hypothesis) -> None: ...
+    # Positional-only: the hypothesis is all this is called with, so any
+    # single-argument callable is one, whatever it named its parameter.
+    def __call__(self, hypothesis: Hypothesis, /) -> None: ...
 
 
 class RecordOutcome(Protocol):
@@ -62,7 +77,18 @@ class FetchFlagChanges(Protocol):
 
 
 class TakeAction(Protocol):
-    def __call__(self, action: Action) -> Outcome: ...
+    # The action is positional, so any callable naming it whatever it likes is
+    # one. The incident and the publisher are keyword-only and defaulted: they
+    # are what the action narrates itself against, and a caller with neither
+    # takes the same action and tells nobody about it.
+    def __call__(
+        self,
+        action: Action,
+        /,
+        *,
+        incident_id: str | None = None,
+        publisher: Publisher = nobody,
+    ) -> Outcome: ...
 
 
 class RecordAction(Protocol):
@@ -134,6 +160,7 @@ def _record_action(
 def mitigation_proposal_node(
     state: IncidentState,
     fetch_flag_changes: FetchFlagChanges = fetch_recent_flag_changes,
+    publisher: Publisher = nobody,
 ) -> dict[str, Any]:
     """Chooses the reversible action that answers the hypothesis, and stops
     there (spec §7.3).
@@ -154,7 +181,19 @@ def mitigation_proposal_node(
     try:
         flag_changes = fetch_flag_changes()
     except Exception:
+        # Deliberately unpublished. An empty history here would state that
+        # nothing had changed, where what happened is that nobody could say -
+        # and the two look identical on a page while meaning opposite things.
         return {"proposed_action": None}
+
+    # The whole basis of the action about to be proposed: which flag moved,
+    # which way, and when. Published from the node that reads it, because by
+    # the time an action exists this history has already been reduced to a
+    # single decision about a single flag.
+    publish(
+        FlagChangesRetrieved(incident_id=state.incident_id, changes=list(flag_changes)),
+        publisher,
+    )
 
     return {"proposed_action": propose_action(state.hypothesis, flag_changes)}
 
@@ -238,6 +277,7 @@ def investigator_node(
     investigate: Investigate = _investigate,
     record_hypothesis: RecordHypothesis = _record_hypothesis,
     transition_incident: TransitionIncident = _transition_incident,
+    publisher: Publisher = nobody,
 ) -> dict[str, Any]:
     """Forms a hypothesis, decides mitigate-vs-escalate by confidence, and
     persists both the hypothesis and the resulting status transition
@@ -247,9 +287,15 @@ def investigator_node(
     tested without a live Target Service or database - mirroring the seams
     `agent_investigator.investigate()` establishes for its own retrieval and
     model calls."""
+    publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.INVESTIGATOR), publisher)
+
     findings = investigate(
         alert=state.alert,
         incident_id=state.incident_id,
+        # Handed down rather than left to the agent's own default, so the
+        # Investigator's account of what it read and this node's account of
+        # what it did are one narration instead of two.
+        publisher=publisher,
         # Both empty on a first round. On a later one they are what makes the
         # round worth paying for: where to pick the widening schedule up, and
         # what has already been tried and did not help.
@@ -290,6 +336,14 @@ def investigator_node(
         result=hypothesis.summary,
         confidence=hypothesis.confidence,
     )
+    publish(
+        StatusChanged(
+            incident_id=state.incident_id,
+            to_status=next_status,
+            detail=_what_the_investigation_did(hypothesis),
+        ),
+        publisher,
+    )
     return {
         "hypothesis": hypothesis,
         "candidates": findings.candidates,
@@ -324,6 +378,7 @@ def mitigation_node(
     record_action: RecordAction = _record_action,
     transition_incident: TransitionIncident = _transition_incident,
     record_outcome: RecordOutcome = _record_outcome,
+    publisher: Publisher = nobody,
 ) -> dict[str, Any]:
     """Performs the action the gate admitted, and records what came of it
     (spec §7.3, §11.1).
@@ -343,9 +398,37 @@ def mitigation_node(
     if state.proposed_action is None or state.hypothesis is None:
         return _nothing_to_act_on(state, transition_incident)
 
-    result = take(state.proposed_action)
+    publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
+    # Published from here rather than from inside Mitigation, which is not
+    # incident-scoped: neither `take_action` nor `Action` carries an incident,
+    # and threading one through an agent purely so it can narrate would put a
+    # field in the domain for the account's benefit.
+    publish(
+        ActionTaken(
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            action_type=state.proposed_action.action_type,
+            subject=state.hypothesis.subject,
+            enabled=state.proposed_action.enabled,
+        ),
+        publisher,
+    )
+
+    # The incident and the publisher travel with the action, so the wait for
+    # the service to answer - the longest silence in an incident - is narrated
+    # from inside Mitigation, where the looking actually happens.
+    result = take(state.proposed_action, incident_id=state.incident_id, publisher=publisher)
     outcome = str(result.verdict)
     next_status = _status_after(result.verdict)
+
+    publish(
+        VerdictReached(
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            outcome=outcome,
+        ),
+        publisher,
+    )
 
     record_action(
         state.incident_id,
@@ -365,6 +448,14 @@ def mitigation_node(
         actor=Actor.MITIGATION,
         action="mitigation attempted",
         result=result.detail,
+    )
+    publish(
+        StatusChanged(
+            incident_id=state.incident_id,
+            to_status=next_status,
+            detail=result.detail,
+        ),
+        publisher,
     )
     # This candidate was genuinely tested: an action was taken and the service
     # was measured afterwards. The verdict is the answer it was tested for, so
@@ -693,10 +784,18 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[In
     §10's diagram is wired, even though this change's happy path only
     drives `investigating -> mitigating -> resolved`."""
     graph: StateGraph[IncidentState] = StateGraph(IncidentState)
-    graph.add_node("investigator", investigator_node)
-    graph.add_node("mitigation_proposal", mitigation_proposal_node)
+    # The subscriber is bound here rather than defaulted on the nodes. A node's
+    # collaborators default to the real thing because a caller that wants the
+    # real thing is the ordinary case; publishing is the exception, since the
+    # ordinary case for a node called on its own - in a test - is that nobody
+    # is listening. Wiring it where the graph is assembled keeps a unit test
+    # away from the database without every one of them having to say so.
+    graph.add_node("investigator", partial(investigator_node, publisher=record_event))
+    graph.add_node(
+        "mitigation_proposal", partial(mitigation_proposal_node, publisher=record_event)
+    )
     graph.add_node("tier_gate", tier_gate_node)
-    graph.add_node("mitigation", mitigation_node)
+    graph.add_node("mitigation", partial(mitigation_node, publisher=record_event))
     graph.add_node("next_candidate", next_candidate_node)
     graph.add_node("codefix", codefix_node)
     graph.add_node("communicator", communicator_node)

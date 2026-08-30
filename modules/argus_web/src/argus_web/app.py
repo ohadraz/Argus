@@ -56,7 +56,19 @@ def _in_utc(moment: datetime, pattern: str = "%Y-%m-%d %H:%M") -> str:
     return f"{moment.astimezone(UTC).strftime(pattern)} UTC"
 
 
+def _on_the_clock(moment: datetime, pattern: str = "%H:%M:%S") -> str:
+    """A moment in UTC, unlabelled - for a column whose heading says UTC once.
+
+    The same conversion `_in_utc` does and none of its suffix: a table that
+    repeats the zone on every row of forty spends a column's width saying one
+    thing forty times, and on a screen being read from across a room that width
+    is the message column's.
+    """
+    return moment.astimezone(UTC).strftime(pattern)
+
+
 templates.env.filters["utc"] = _in_utc
+templates.env.filters["clock"] = _on_the_clock
 
 
 @app.post("/webhooks/alerts", status_code=202)
@@ -70,6 +82,35 @@ def receive_alert(payload: dict[str, Any]) -> dict[str, str]:
 
 
 @app.get("/", response_class=HTMLResponse)
+def live_page(request: Request) -> HTMLResponse:
+    """What is happening now: the front door.
+
+    An incident rather than a list of them. Somebody who opens Argus during an
+    incident came for the incident, and a list in front of it is one click of
+    indirection ahead of the only thing they wanted.
+    """
+    with connect() as conn:
+        return templates.TemplateResponse(
+            request, "live.html", {"incident": reads.read_live_incident(conn)}
+        )
+
+
+@app.get("/now", response_class=HTMLResponse)
+def live_body(request: Request) -> HTMLResponse:
+    """The front page's own poll, and the whole of what it swaps in.
+
+    It never stops asking, unlike an incident's walk. An incident can finish;
+    the front page cannot, because the next alert is exactly what somebody
+    watching this screen is waiting for - and a page that stopped polling when
+    the incident it happened to be showing resolved would never show them.
+    """
+    with connect() as conn:
+        return templates.TemplateResponse(
+            request, "live_body.html", {"incident": reads.read_live_incident(conn)}
+        )
+
+
+@app.get("/history", response_class=HTMLResponse)
 def history_page(request: Request) -> HTMLResponse:
     """Every incident Argus has been woken for, newest first.
 
@@ -82,7 +123,7 @@ def history_page(request: Request) -> HTMLResponse:
         )
 
 
-@app.get("/history", response_class=HTMLResponse)
+@app.get("/history/list", response_class=HTMLResponse)
 def history_list(request: Request) -> HTMLResponse:
     """The list on its own, for the history's poll to swap in.
 
@@ -102,8 +143,11 @@ def incident_page(request: Request, incident_id: str) -> HTMLResponse:
     candidate with what was tried for it, and the transitions it went through."""
     with connect() as conn:
         incident = _an_incident_or_404(conn, incident_id)
+        story = reads.read_story(conn, incident_id)
 
-    return templates.TemplateResponse(request, "incident.html", {"incident": incident})
+    return templates.TemplateResponse(
+        request, "incident.html", {"incident": incident, "story": story}
+    )
 
 
 @app.get("/incidents/{incident_id}/walk", response_class=HTMLResponse)
@@ -116,8 +160,11 @@ def incident_walk(request: Request, incident_id: str) -> HTMLResponse:
     """
     with connect() as conn:
         incident = _an_incident_or_404(conn, incident_id)
+        story = reads.read_story(conn, incident_id)
 
-    return templates.TemplateResponse(request, "walk.html", {"incident": incident})
+    return templates.TemplateResponse(
+        request, "walk.html", {"incident": incident, "story": story}
+    )
 
 
 @app.get("/incidents/{incident_id}/postmortem", response_class=HTMLResponse)

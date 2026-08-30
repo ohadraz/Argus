@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 import psycopg
-from orchestrator.repository import actions, hypotheses, incidents, postmortems, timeline
+from orchestrator.repository import (
+    actions,
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    timeline,
+)
 
 from argus_web.views import (
     IncidentDetail,
     IncidentSummary,
+    LiveIncident,
     PostmortemView,
+    Story,
     build_incident_detail,
     build_incident_summary,
+    build_live_incident,
     build_postmortem_view,
+    build_story,
 )
 
 """Everything the view is allowed to know about an incident.
@@ -47,6 +58,32 @@ def read_incident(conn: psycopg.Connection, incident_id: str) -> IncidentDetail 
         attempts=actions.get_by_incident(conn, incident_id),
         timeline=timeline.get_timeline_events(conn, incident_id),
     )
+
+
+def read_live_incident(conn: psycopg.Connection) -> LiveIncident | None:
+    """The incident somebody opening Argus is looking for, or `None` when there
+    has never been one.
+
+    Which incident that is belongs to the repository - "the newest one still
+    running, else the newest there is" is a question about the rows, and
+    answering it here would be this page deciding what counts as current.
+    """
+    incident = incidents.get_current(conn)
+
+    if incident is None:
+        return None
+
+    return build_live_incident(incident, events.get_by_incident(conn, incident.id))
+
+
+def read_story(conn: psycopg.Connection, incident_id: str) -> Story:
+    """One incident's account of its own work: what it did, and what it read.
+
+    Empty for an incident that recorded nothing, which is a real answer: an
+    incident from before the stream existed, or one that escalated before
+    anything looked at it.
+    """
+    return build_story(events.get_by_incident(conn, incident_id))
 
 
 def read_postmortem(conn: psycopg.Connection, incident_id: str) -> PostmortemView | None:

@@ -7,6 +7,13 @@ from typing import Any
 
 from argus_core.anomaly import has_recovered_since
 from argus_core.config import get_settings
+from argus_core.events import (
+    AwaitingRecovery,
+    Publisher,
+    RecoveryChecked,
+    nobody,
+    publish,
+)
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.timestamps import to_iso_minute
 
@@ -51,7 +58,9 @@ def take_action(action: Action,
                 set_state: FlagSetter = set_flag,
                 fetch_metrics: MetricsFetcher = fetch_recent_metrics,
                 now: Clock = utc_now,
-                sleep: Sleeper = time.sleep) -> Outcome:
+                sleep: Sleeper = time.sleep,
+                incident_id: str | None = None,
+                publisher: Publisher = nobody) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
     Three things happen in order, and the order is the point. The flag is set,
@@ -68,6 +77,11 @@ def take_action(action: Action,
     An action that could not be taken at all is `ESCALATED`, not `REFUTED`:
     nothing was changed, so there is nothing to judge and nothing to undo, and
     a verdict here would describe an experiment that never ran.
+
+    `incident_id` is optional because an `Action` is not incident-scoped and
+    neither is this call - a caller with no incident to attribute the wait to
+    narrates nothing, which is better than an event hung on an incident that
+    was invented to hold it.
     """
     try:
         undo_descriptor = set_state(action.flag, action.enabled)
@@ -77,7 +91,7 @@ def take_action(action: Action,
             detail=f"could not set flag [{action.flag}]: {error}",
         )
 
-    if _the_service_recovered(fetch_metrics, now, sleep):
+    if _the_service_recovered(fetch_metrics, now, sleep, incident_id, publisher):
         return Outcome(
             verdict=Verdict.CONFIRMED,
             detail=(
@@ -117,13 +131,19 @@ def mitigate(hypothesis: Hypothesis,
 
 def _the_service_recovered(fetch_metrics: MetricsFetcher,
                            now: Clock,
-                           sleep: Sleeper) -> bool:
+                           sleep: Sleeper,
+                           incident_id: str | None = None,
+                           publisher: Publisher = nobody) -> bool:
     """Whether the service returns to baseline within the time allowed.
 
     False on expiry rather than an error, because that is a real answer about
     the world: the action was taken and did not visibly help in the time it was
     given. Calling it an error would route an incident to a human over what is
     ordinary evidence against a hypothesis.
+
+    Each look is published. This is the one stretch of an incident where Argus
+    is doing something and has nothing to show for it yet, and a page that went
+    quiet here would read as a page that had stopped.
     """
     settings = get_settings()
     started_at = now()
@@ -135,8 +155,28 @@ def _the_service_recovered(fetch_metrics: MetricsFetcher,
     # two states together.
     first_whole_minute = to_iso_minute(started_at + timedelta(minutes=1))
 
+    def say(event: AwaitingRecovery | RecoveryChecked) -> None:
+        """Narrates the wait, where there is an incident to narrate it for."""
+        if incident_id is not None:
+            publish(event, publisher)
+
+    if incident_id is not None:
+        say(AwaitingRecovery(
+            incident_id=incident_id,
+            from_minute=first_whole_minute,
+            seconds_allowed=settings.mitigation_verification_timeout_seconds,
+        ))
+
     while True:
-        if has_recovered_since(fetch_metrics(), first_whole_minute):
+        recovered = has_recovered_since(fetch_metrics(), first_whole_minute)
+        if incident_id is not None:
+            say(RecoveryChecked(
+                incident_id=incident_id,
+                minute=first_whole_minute,
+                recovered=recovered,
+            ))
+
+        if recovered:
             return True
 
         if now() >= deadline:

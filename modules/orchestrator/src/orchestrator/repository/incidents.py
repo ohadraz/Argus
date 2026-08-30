@@ -81,6 +81,37 @@ def get_recent(conn: psycopg.Connection) -> list[Incident]:
         return cursor.fetchall()
 
 
+def get_current(conn: psycopg.Connection) -> Incident | None:
+    """The incident a live view opens on: the newest one that has not finished,
+    and where none is running, the newest there has ever been.
+
+    No stored pointer to a "current" incident, because a pointer is a second
+    thing that can be wrong about which incident is running. The rule is a
+    question the rows already answer, and it is right whenever one incident
+    runs at a time - which is what the demo does, and what it degrades from
+    sensibly rather than by showing nothing.
+
+    The fallback matters as much as the rule. An incident that vanished from
+    the front page the moment it resolved would leave the screen exactly when
+    everybody in the room is looking at it.
+
+    Ordering on the terminal statuses rather than filtering by them, so the
+    whole rule is one query: `false` sorts before `true`, which puts every
+    unfinished incident above every finished one, newest first within each.
+    """
+    terminal = [status for status in IncidentStatus if status.is_terminal()]
+
+    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+        cursor.execute(
+            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at "
+            "  FROM incident "
+            "ORDER BY status = ANY(%s), created_at DESC "
+            " LIMIT 1",
+            (terminal,),
+        )
+        return cursor.fetchone()
+
+
 def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(

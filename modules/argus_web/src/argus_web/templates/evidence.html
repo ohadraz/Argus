@@ -1,0 +1,143 @@
+{# What Argus read, gathered: every minute of metrics and every log line it
+   retrieved, each said once.
+
+   Side by side, because the account is meant to be one screen - stacked, the
+   logs push the timeline off the top of it, and the timeline is the part that
+   moves.
+
+   These are the values out of the recorded events, never re-fetched at render
+   time: the log store moves on, and a page that asked again would be showing
+   what the service says now instead of what Argus read. #}
+<div class="evidence">
+
+{% if story.metrics %}
+<section class="metrics-read">
+  <h2 id="metrics-read">Metrics it read</h2>
+  <div class="scroll" data-scroll="metrics">
+  <table class="buckets">
+    <thead>
+      <tr><th>minute (UTC)</th><th>errors</th><th>p50</th><th>p95</th><th>requests</th></tr>
+    </thead>
+    <tbody>
+    {# Marked at the rate the shop's own console reddens a row at. Two screens
+       side by side in a demo that mark different minutes make a reader
+       translate between them. The row carries its minute as an id so the
+       timeline's onset line can point straight at it. #}
+    {% for bucket in story.metrics %}
+      <tr id="minute-{{ bucket.bucket_id }}"
+          data-bucket="{{ bucket.bucket_id }}"
+          data-elevated="{{ 'true' if bucket.elevated else 'false' }}">
+        <td>{{ bucket.when }}</td>
+        <td class="{{ 'bad' if bucket.elevated else '' }}">
+          {{ "%.1f%%"|format(bucket.error_rate * 100) }}
+        </td>
+        <td>{{ bucket.p50_ms }}</td>
+        <td>{{ bucket.p95_ms }}</td>
+        <td>{{ bucket.request_volume }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+{% if story.flag_changes %}
+<section class="flags-read">
+  <h2 id="flags-read">Feature flag history it read</h2>
+  <div class="scroll" data-scroll="flags">
+  <table class="flags-table">
+    <thead>
+      <tr><th>when (UTC)</th><th>flag</th><th>moved</th><th>who</th></tr>
+    </thead>
+    <tbody>
+    {# What the action was chosen from, and the one step of the walk an
+       audience most wants to check: which flag moved, which way, and who moved
+       it. `actor` is what tells Argus's own revert from a human's change.
+
+       Each flag's newest row carries the flag's own anchor, because that is
+       the change an action undid - and the row an action's link means. #}
+    {% for toggle in story.flag_changes %}
+      <tr {% if toggle.latest_for_flag %}id="flag-{{ toggle.flag }}"{% endif %}
+          data-flag="{{ toggle.flag }}">
+        <td class="when">{{ toggle.when }}</td>
+        <td><em>{{ toggle.flag }}</em></td>
+        {# The state it left is struck through: the flag is not off any more,
+           and saying so in the row is what makes it a change rather than a
+           pair of words with an arrow between them. #}
+        <td class="moved">
+          <s>{{ toggle.was }}</s><span class="arrow">→</span><span class="now">{{ toggle.now }}</span>
+        </td>
+        <td>{{ toggle.actor or "-" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+{% if story.read_changes %}
+<section class="changes-read">
+  <h2 id="changes-read">Production changes it read</h2>
+  <div class="scroll" data-scroll="changes">
+  <table class="changes-table">
+    <thead>
+      <tr><th>when</th><th>kind</th><th>reference</th><th>what changed</th><th>who</th></tr>
+    </thead>
+    <tbody>
+    {# A table of its own rather than a list inside the timeline row that
+       retrieved it: what changed on the service is the third channel's
+       evidence, and it is read the same way the other two are. #}
+    {% for change in story.changes %}
+      <tr data-change="{{ change.reference }}">
+        <td class="when">{{ change.occurred_at }}</td>
+        <td>{{ change.kind }}</td>
+        <td><code>{{ change.reference }}</code></td>
+        <td>{{ change.summary }}</td>
+        <td>{{ change.actor or "-" }}</td>
+      </tr>
+    {% else %}
+      {# An empty answer is a finding, not an absent one: nothing was deployed
+         in the window, which is what rules a deploy out as the cause. #}
+      <tr class="empty"><td colspan="5">Nothing changed on the service in the window it asked about.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+{% if story.logs %}
+<section class="logs-read">
+  <h2 id="logs-read">Logs it read</h2>
+  <div class="scroll" data-scroll="logs">
+  <table class="logs-table">
+    <thead>
+      <tr><th>time (UTC)</th><th>level</th><th>line</th></tr>
+    </thead>
+    <tbody>
+    {# The row carries the line exactly as the service wrote it, stamp and
+       level included, while the columns show it arranged. The arrangement is
+       for reading; the original is the evidence, and it is never thrown
+       away. #}
+    {# The first line of each minute carries that minute's anchor, so a finding
+       that cites 20:37 lands on the lines of 20:37 rather than on the table. #}
+    {% set seen = namespace(minute='') %}
+    {% for log in story.logs %}
+      {% set minute = log.stamp[:16] if log.stamp else '' %}
+      <tr class="log {{ log.level }}" data-level="{{ log.level }}" title="{{ log.text }}"
+          {% if minute and minute != seen.minute %}id="log-at-{{ minute }}"{% endif %}>
+      {% set seen.minute = minute %}
+        <td class="when">{{ log.when }}</td>
+        <td class="level">{{ log.level if log.level != 'plain' else '' }}</td>
+        <td class="message">{{ log.message }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+</div>

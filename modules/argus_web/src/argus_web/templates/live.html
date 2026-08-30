@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Argus - what is happening now{% endblock %}
+{% block strapline %}what it is doing, as it does it{% endblock %}
+
+{% block content %}
+{# Everything on this page can change, including which incident is on it, so
+   the fragment is the page. #}
+{% include "live_body.html" %}
+{% endblock %}

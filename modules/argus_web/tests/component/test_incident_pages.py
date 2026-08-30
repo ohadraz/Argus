@@ -37,7 +37,7 @@ def test_the_history_lists_incidents_newest_first() -> None:
         older = incidents.create(conn, an_older_alert)
         newer = incidents.create(conn, a_newer_alert)
 
-    listed = _attribute("incident", _get("/"))
+    listed = _attribute("incident", _get("/history"))
 
     assert listed.index(newer) < listed.index(older), (
         "Expected the newer incident above the older one."
@@ -52,7 +52,7 @@ def test_the_history_links_to_each_incident() -> None:
     with psycopg.connect(DATABASE_URL) as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    assert f'href="/incidents/{incident_id}"' in _get("/")
+    assert f'href="/incidents/{incident_id}"' in _get("/history")
 
 
 @pytest.mark.component
@@ -60,7 +60,7 @@ def test_the_history_keeps_asking_for_more() -> None:
     # The demo posture is somebody watching Argus's screen for it to react. A
     # history that only lists what existed when the page was opened means the
     # incident they are waiting for never arrives.
-    assert "hx-trigger" in _get("/")
+    assert "hx-trigger" in _get("/history")
 
 
 @pytest.mark.component
@@ -72,7 +72,7 @@ def test_the_polled_history_fragment_carries_the_incidents() -> None:
     with psycopg.connect(DATABASE_URL) as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    assert incident_id in _attribute("incident", _get("/history"))
+    assert incident_id in _attribute("incident", _get("/history/list"))
 
 
 @pytest.mark.component
@@ -85,7 +85,7 @@ def test_a_time_is_shown_in_the_zone_it_is_written_in() -> None:
     with psycopg.connect(DATABASE_URL) as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    assert "UTC" in _get("/")
+    assert "UTC" in _get("/history")
     assert "UTC" in _get(f"/incidents/{incident_id}")
 
 

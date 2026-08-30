@@ -5,6 +5,19 @@ from datetime import timedelta
 
 from argus_core.anomaly import earliest_bucket_is_anomalous, find_onset
 from argus_core.config import get_settings
+from argus_core.events import (
+    ChangesRetrieved,
+    HypothesisFormed,
+    IncidentEvent,
+    LogsRetrieved,
+    MetricsRetrieved,
+    OnsetDetected,
+    Publisher,
+    RetrievalChannel,
+    RetrievalRequested,
+    nobody,
+    publish,
+)
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
 from argus_core.models.evidence import Evidence
@@ -64,6 +77,7 @@ def investigate(
     propose_hypotheses: HypothesisProposer = propose_hypotheses,
     resume_from: int = 0,
     already_refuted: list[Attempt] | None = None,
+    publisher: Publisher = nobody,
 ) -> Findings:
     """Investigates one incident as a bounded ReAct loop (spec §9), returning
     what it concluded - including that it concluded nothing.
@@ -104,34 +118,72 @@ def investigate(
 
     The four collaborators are default-argument seams: the real retrieval
     calls and the real model in production, doubles in a test, and no
-    monkeypatching either way.
+    monkeypatching either way. `publisher` is a fifth of the same kind, and the
+    only one whose absence changes nothing: the loop publishes an account of
+    what it read and concluded, and reaches the same conclusion whether or not
+    anybody is listening (spec §4 principle 6).
     """
     settings = get_settings()
     alert_time = to_iso(alert.started_at) if alert.started_at is not None else None
+
+    def say(event: IncidentEvent) -> None:
+        """Narrates one step. Never raises - see `argus_core.events.publish`."""
+        publish(event, publisher)
 
     # Fetched once, outside the loop: the metrics window is a single fixed
     # span (spec §16), so re-reading it each iteration would return the same
     # four numbers a minute and locate the same onset. Widening is what the
     # *log* window does.
+    # Anchored on the alert rather than bounded, which is what the event says:
+    # the span is the metrics tool's own (spec §16), not this loop's to name.
+    say(RetrievalRequested(
+        incident_id=incident_id,
+        channel=RetrievalChannel.METRICS,
+        window_start=alert_time,
+    ))
     metric_buckets = fetch_metrics(alert_time)
+    say(MetricsRetrieved(
+        incident_id=incident_id,
+        window_start=metric_buckets[0].bucket_id if metric_buckets else None,
+        window_end=metric_buckets[-1].bucket_id if metric_buckets else None,
+        buckets=metric_buckets,
+    ))
+
     onset = find_onset(metric_buckets)
 
     if onset is None:
         # Nothing was read, so nothing was spent - but there is also nothing a
         # wider log window could fix. The onset is located from the metrics,
         # which are a single fixed span that widening does not touch.
+        undetermined = _undetermined(alert, incident_id, metric_buckets, log_lines=[])
+        say(_formed(undetermined))
+
         return Findings(
-            candidates=[_undetermined(alert, incident_id, metric_buckets, log_lines=[])],
+            candidates=[undetermined],
             can_widen=False,
             resumes_from=resume_from,
         )
+
+    say(OnsetDetected(incident_id=incident_id, onset=onset))
 
     # Also fetched once, and only now that the onset is known - it is what the
     # change window is anchored on. Wider than any log window the schedule
     # reaches and read in full the first time, so re-reading it per iteration
     # would return the same handful of rows at the same cost.
     change_window_start, change_window_end = _change_window_before(onset)
+    say(RetrievalRequested(
+        incident_id=incident_id,
+        channel=RetrievalChannel.CHANGES,
+        window_start=change_window_start,
+        window_end=change_window_end,
+    ))
     change_events = fetch_change_events(alert.service, change_window_start, change_window_end)
+    say(ChangesRetrieved(
+        incident_id=incident_id,
+        window_start=change_window_start,
+        window_end=change_window_end,
+        changes=change_events,
+    ))
 
     schedule = widening_schedule(
         settings.log_initial_lookback_minutes,
@@ -166,7 +218,19 @@ def investigate(
             continue
 
         window_start, window_end = _window_around(onset, lookback_minutes, alert_time)
+        say(RetrievalRequested(
+            incident_id=incident_id,
+            channel=RetrievalChannel.LOGS,
+            window_start=window_start,
+            window_end=window_end,
+        ))
         log_lines = fetch_logs(window_start, window_end)
+        say(LogsRetrieved(
+            incident_id=incident_id,
+            window_start=window_start,
+            window_end=window_end,
+            lines=log_lines,
+        ))
 
         reached = iteration
         candidates = propose_hypotheses(
@@ -183,6 +247,9 @@ def investigate(
                 change_window_end=change_window_end,
             )
         )
+
+        for candidate in candidates:
+            say(_formed(candidate))
 
         # The loop's control flow reads the best answer, as it always has. The
         # rest ride along for the walk that tries them when this one fails.
@@ -226,6 +293,24 @@ def investigate(
         candidates=[_undetermined(alert, incident_id, metric_buckets, log_lines)],
         can_widen=_can_widen(reached, schedule),
         resumes_from=reached + 1,
+    )
+
+
+def _formed(hypothesis: Hypothesis) -> HypothesisFormed:
+    """One candidate as the narration carries it.
+
+    The candidate's own id travels with it, so the story and the walk are the
+    same hypothesis seen twice rather than two accounts to be reconciled.
+    """
+    return HypothesisFormed(
+        incident_id=hypothesis.incident_id,
+        hypothesis_id=hypothesis.id,
+        summary=hypothesis.summary,
+        cause_type=hypothesis.cause_type,
+        confidence=hypothesis.confidence,
+        subject=hypothesis.subject,
+        rank=hypothesis.rank,
+        evidence=hypothesis.supporting_evidence,
     )
 
 

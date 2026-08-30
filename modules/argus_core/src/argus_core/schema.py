@@ -71,6 +71,27 @@ CREATE TABLE IF NOT EXISTS timeline_event (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- What Argus did, as it did it (spec §4 principle 6) - the account beside the
+-- conclusions the other tables hold. Append-only: a line of the story is never
+-- amended, because an account that can be edited afterwards is not one.
+--
+-- `seq` orders it rather than `at`. Two events can share a moment to the
+-- microsecond, and "the order they were published in" is a promise the
+-- narration rests on, so it is kept by the sequence the rows were written in
+-- rather than by a clock that can tie.
+--
+-- The event is stored whole in `payload`, and `kind` beside it is what a
+-- reader discriminates on. The columns are not a second copy to keep in step -
+-- they are what the table is queried by.
+CREATE TABLE IF NOT EXISTS incident_event (
+    seq BIGSERIAL PRIMARY KEY,
+    id UUID NOT NULL UNIQUE,
+    incident_id UUID NOT NULL REFERENCES incident(id),
+    kind TEXT NOT NULL,
+    at TIMESTAMPTZ NOT NULL,
+    payload JSONB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS postmortem (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
