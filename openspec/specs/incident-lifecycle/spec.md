@@ -32,6 +32,11 @@ When no cause is determined, the Investigator reports a confidence below the
 mitigate threshold and the incident routes to `escalated` rather than continuing
 the happy path.
 
+`mitigating` SHALL be re-enterable. A refuted action returns the incident to
+`mitigating` for the next candidate rather than leaving it, and the incident
+leaves `mitigating` only on a confirmed action, on an outcome that could not be
+taken at all, or when the walk has run out of candidates and wider looks.
+
 #### Scenario: No scenario seeded escalates rather than resolving
 - **GIVEN** a new `Incident` in `investigating` status, and no scenario active on the Target Service
 - **WHEN** the graph runs to completion
@@ -49,12 +54,19 @@ the happy path.
 - **WHEN** the flag provider is asked for the flag's state
 - **THEN** the flag is off
 
-#### Scenario: An action that does not resolve the symptom routes to fixing
+#### Scenario: An action that does not resolve the symptom is followed by the next candidate
 - **GIVEN** an incident whose mitigation was taken and whose metrics still depart
-  from baseline afterwards
+  from baseline afterwards, and an untried candidate above the mitigate threshold
+- **WHEN** the graph runs
+- **THEN** the recorded outcome for that candidate is `refuted` and the incident
+  remains in `mitigating` for the next candidate rather than leaving for `fixing`
+
+#### Scenario: A walk with nothing left routes onward from mitigating
+- **GIVEN** an incident whose candidates are all refuted and whose widening
+  schedule has reached its maximum
 - **WHEN** the graph runs to completion
-- **THEN** the recorded outcome is `refuted` and the incident's status is
-  `fixing`, not `resolved`
+- **THEN** the incident leaves `mitigating`, a human is paged, and the final
+  status is not `resolved`
 
 #### Scenario: A refuted incident leaves the environment as it was found
 - **GIVEN** an incident whose mitigation was refuted
@@ -112,7 +124,6 @@ changed and what would restore it.
 - **THEN** the row for that action carries its outcome and an undo descriptor
   naming the flag and the state it had been in
 
-
 ### Requirement: Escalation on insufficient evidence is distinguishable from a confident outcome
 The system SHALL record, on an incident that escalated because investigation
 exhausted its iterations or its window span, that the escalation was for
@@ -124,3 +135,17 @@ determine the cause" from "Argus was confident and something else failed".
   hypothesis reaching the mitigate threshold
 - **WHEN** the incident transitions to `escalated`
 - **THEN** the timeline records that the escalation was for insufficient evidence
+
+### Requirement: A human is kept informed during a walk and paged once at its end
+The system SHALL post an update for a human after each refuted or rejected attempt while candidates or wider looks remain, saying what was tried, what it did, and what is next. It SHALL raise a page exactly once, when the walk ends without a confirmed fix. A page SHALL NOT be raised per refuted attempt.
+
+#### Scenario: Refutations mid-walk inform rather than page
+- **GIVEN** an incident with three candidates
+- **WHEN** the first two are refuted
+- **THEN** two updates are posted and no page is raised
+
+#### Scenario: The end of a walk pages once
+- **GIVEN** an incident whose walk has exhausted its candidates and its schedule
+- **WHEN** the walk ends
+- **THEN** exactly one page is raised
+
