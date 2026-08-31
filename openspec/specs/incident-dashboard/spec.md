@@ -38,6 +38,8 @@ Nothing the view exposes SHALL stage, mitigate, approve, undo or delete anything
 
 ### Requirement: An incident that does not exist says so
 
+A request for an incident the database does not hold SHALL be answered as not found. An empty page shaped like an incident reads as an incident that did nothing, which is a different and worse claim than "there is no such incident".
+
 #### Scenario: An unknown incident id
 
 - **WHEN** a page is opened for an incident id that never existed
@@ -82,7 +84,7 @@ Log lines and metric departures SHALL be displayed with the hypothesis that cite
 
 ### Requirement: Past incidents remain readable
 
-The page SHALL offer a history of incidents and their outcomes, and the postmortem where one exists. A demo that can only show the incident currently running cannot show what the system has learned.
+The view SHALL offer a history of incidents and their outcomes, and the postmortem where one exists, reached through the view's navigation rather than as its front page - what is happening now is what somebody opening Argus during an incident came for. A demo that can only show the incident currently running cannot show what the system has learned.
 
 #### Scenario: Opening a past incident
 
@@ -93,6 +95,11 @@ The page SHALL offer a history of incidents and their outcomes, and the postmort
 
 - **WHEN** an incident that has no postmortem is shown
 - **THEN** the page says there is none, and does not fail
+
+#### Scenario: Reaching the history
+
+- **WHEN** a reader opens Argus and wants an earlier incident
+- **THEN** the history is reachable through the view's navigation, without knowing a URL
 
 ### Requirement: Argus is identifiable
 
