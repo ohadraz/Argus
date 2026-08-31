@@ -5,16 +5,16 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
       - name: lint
         run: uv run python -m nox -s lint
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
 
       - name: Sync workspace
         run: uv sync --all-packages
@@ -30,8 +30,8 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
 
       - name: Sync workspace
         run: uv sync --all-packages
@@ -84,17 +84,17 @@ jobs:
       # subdirectories, and Argus runs from its own. The compose file and the
       # local dev layout stay exactly as they are.
       - name: Check out Argus
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: Argus
 
       - name: Check out the Target Service
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ohadraz/Argus-Demo-Target-App
           path: Argus-Demo-Target-App
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v10.0.1
 
       - name: Sync workspace
         run: uv sync --all-packages
@@ -110,10 +110,10 @@ jobs:
     outputs:
       modules: ${{ steps.combine.outputs.modules }}
     steps:
-      - uses: actions/checkout@v4  # clones the repo onto the runner
+      - uses: actions/checkout@v7  # clones the repo onto the runner
         with:
           fetch-depth: 0  # fetch full history for diff
-      - uses: astral-sh/setup-uv@v3  # the filter step below asks noxfile.py which modules have tests
+      - uses: astral-sh/setup-uv@v10.0.1  # the filter step below asks noxfile.py which modules have tests
       - id: filter
         run: |
           BASE="${{ github.event.before }}"
@@ -166,7 +166,7 @@ jobs:
       # all the way back to the first push, we still need a green test run - run it.
       - id: history
         if: steps.filter.outputs.modules == '[]' && steps.filter.outputs.tests_changed == 'false'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const owner = context.repo.owner;
@@ -246,9 +246,32 @@ jobs:
     strategy:
       matrix:
         module: ${{ fromJSON(needs.detect-changes.outputs.modules) }}
+
+    # Same two-repo arrangement as `e2e-replay`, and for a smaller-sounding
+    # reason that bites just as hard: `docker-compose.yml` *includes* the Target
+    # Environment's compose file from the sibling repo, and Compose parses the
+    # whole file before it looks at which service was asked for. With the
+    # sibling missing, `docker compose up postgres` fails on a path that has
+    # nothing to do with Postgres - and two modules' suites bring Postgres up
+    # for themselves (`orchestrator`'s repository tests, `argus_web`'s component
+    # tests), so the failure lands on whichever of them a push happens to touch.
+    defaults:
+      run:
+        working-directory: Argus
+
     steps:
-      - uses: actions/checkout@v4  # clones the repo onto the runner
-      - uses: astral-sh/setup-uv@v3  # installs `uv` onto the runner
+      - name: Check out Argus
+        uses: actions/checkout@v7
+        with:
+          path: Argus
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v7
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: Argus-Demo-Target-App
+
+      - uses: astral-sh/setup-uv@v10.0.1  # installs `uv` onto the runner
 
       - name: test changed modules
         run: uv run python -m nox -s "test_module(module='${{ matrix.module }}')"

@@ -358,14 +358,14 @@ def _run_against_the_stack(
     started pointed somewhere else. `service_env` maps a name in
     `_LOCAL_SERVICES` to the settings that service alone should see.
 
-    Brings up docker-compose's `postgres` service (always-on, base definition)
-    plus the whole Target Environment - the Target Service, the feature-flag
-    provider and that provider's database, `include`d from the sibling repo's
-    own compose file and carrying the `e2e` Compose profile, since it's a
-    demo/test fixture rather than something Argus depends on - and the local
-    `read_mcp`, `anthropic_double` and `argus_web` processes (none
-    containerized - design.md's decision). Teardown runs even if the tests fail,
-    so nothing is left running.
+    Brings up docker-compose's `postgres` service plus the whole Target
+    Environment - the Target Service, the feature-flag provider and that
+    provider's database, `include`d from the sibling repo's own compose file -
+    and the local `read_mcp`, `anthropic_double` and `argus_web` processes (none
+    containerized - design.md's decision). Everything, which is why no service
+    is named: this is the one caller that wants the lot. A suite needing only
+    the database names it instead - see `docker-compose.yml`. Teardown runs even
+    if the tests fail, so nothing is left running.
 
     Teardown passes `-v` so Postgres's anonymous volume goes with the
     container. Without it the database survives between runs, and since the
@@ -392,8 +392,7 @@ def _run_against_the_stack(
         # is silent in the worst way - the run goes green against yesterday's
         # fixture, or 404s on an endpoint the source plainly has.
         session.run(
-            "docker", "compose", "--profile", "e2e", "up", "-d", "--wait", "--build",
-            external=True,
+            "docker", "compose", "up", "-d", "--wait", "--build", external=True,
         )
         for name, module_args, ready_url in _LOCAL_SERVICES:
             started.append(_start_service(module_args, env=service_env.get(name)))
@@ -409,7 +408,7 @@ def _run_against_the_stack(
     finally:
         for process in reversed(started):
             _stop_service(process)
-        session.run("docker", "compose", "--profile", "e2e", "down", "-v", external=True)
+        session.run("docker", "compose", "down", "-v", external=True)
 
 
 @nox.session

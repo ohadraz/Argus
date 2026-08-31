@@ -19,9 +19,9 @@ jobs:
   full-sweep:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v10.0.1
 
       - name: Sync workspace
         run: uv sync --all-packages

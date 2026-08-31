@@ -11,32 +11,18 @@
 include:
   - path: ../Argus-Demo-Target-App/docker-compose.yml
 
+# Nothing here re-declares an included service. `include` does not merge: a name
+# that appears both here and in the included file is a conflict, not an
+# override, and Compose refuses the whole file over it - so the Target
+# Environment's services are taken exactly as its own repo defines them.
+#
+# What starts is therefore chosen by naming it, not by profile. A suite that
+# needs only the database asks for only the database
+# (`docker compose up -d --wait postgres`, which is what the repository and
+# component conftests do); the e2e stack asks for everything. The cost is that a
+# bare `docker compose up` now starts the Target Environment too - acceptable,
+# because every path that matters says what it wants.
 services:
-  # Included services carry no profile of their own, so they would start on a
-  # plain `docker compose up`. These three entries add nothing but the `e2e`
-  # profile, merged onto the definitions above: the Target Environment is a
-  # fixture, not something Argus depends on, and it stays out of the default up
-  # exactly as it did when it was defined here.
-  target-service:
-    profiles: ["e2e"]
-
-  unleash:
-    profiles: ["e2e"]
-
-  unleash-db:
-    profiles: ["e2e"]
-
-  # Seeds the credential Argus writes flags with - see the Target Environment's
-  # own compose file for why it exists and why it is written through psql.
-  argus-token-seed:
-    profiles: ["e2e"]
-
-  # Seeds the fallback flag into the state the shop's story says it rests in -
-  # see the Target Environment's own compose file for why it goes through psql
-  # rather than the provider's API.
-  fallback-flag-seed:
-    profiles: ["e2e"]
-
   postgres:
     image: postgres:16
     environment:
