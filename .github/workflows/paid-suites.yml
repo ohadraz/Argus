@@ -132,6 +132,8 @@ jobs:
         run: uv run python -m nox -s e2e
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # See `ci.yml`'s e2e-replay step: a fixture token, not a secret.
+          UNLEASH_ADMIN_TOKEN: "*:*.argus-demo-admin-token"
 
       # scheduled form, if this is ever put on a weekly cron of its own - note
       # it must be a *different* cron line from contract's, or the two become
