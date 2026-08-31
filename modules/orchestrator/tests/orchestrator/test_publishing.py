@@ -263,7 +263,7 @@ def _an_action_is_proposed(flag_changes: Any, publisher: Any) -> dict[str, Any]:
     state = state.model_copy(update={
         "hypothesis": a_determined_hypothesis(_SOME_INCIDENT_ID, a_high_enough_confidence())
     })
-    fetch = flag_changes if callable(flag_changes) else lambda: flag_changes
+    fetch: Any = flag_changes if callable(flag_changes) else lambda: flag_changes
 
     return mitigation_proposal_node(state, fetch_flag_changes=fetch, publisher=publisher)
 
