@@ -1,9 +1,11 @@
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -242,6 +244,35 @@ def _stop_service(process: subprocess.Popen[bytes], timeout: float = 10.0) -> No
         process.wait()
 
 
+def _refuse_a_stack_that_is_already_up() -> None:
+    """Fails before anything is started if a previous stack still holds a port.
+
+    A leaked service is the worst kind of leftover, because nothing downstream
+    notices it. `_start_service` launches the replacement, uvicorn dies on the
+    bind, and `_wait_for_http` then finds the *old* process listening and calls
+    it ready - so the suite runs against code from another checkout and a
+    database that has since been dropped and recreated underneath it. Every
+    failure that produces points somewhere other than the cause.
+
+    The teardown stops whatever this session started, so this can only trigger
+    after a run that was killed outright - a second Ctrl+C, a closed terminal -
+    which is exactly when nobody is left to remember it happened.
+    """
+    for name, _, ready_url in _LOCAL_SERVICES:
+        port = urllib.parse.urlparse(ready_url).port
+        with socket.socket() as probe:
+            probe.settimeout(1.0)
+            if probe.connect_ex(("127.0.0.1", port)) != 0:
+                continue
+
+        raise RuntimeError(
+            f"port {port} is already in use, so [{name}] cannot start - a stack "
+            f"from an earlier run is still up. Stop it first: "
+            f"Get-NetTCPConnection -State Listen -LocalPort {port} | "
+            f"ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force }}"
+        )
+
+
 def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
     """Blocks until `url` answers at all, or `timeout` elapses.
 
@@ -344,6 +375,9 @@ def _run_against_the_stack(
     file in the repo describes. An e2e run should start from nothing anyway.
     """
     service_env = service_env or {}
+    # Before docker, before anything: a stack left running by a killed run does
+    # not announce itself, and every symptom it causes points elsewhere.
+    _refuse_a_stack_that_is_already_up()
     started: list[subprocess.Popen[bytes]] = []
     # Set on the session's own environment rather than passed to each call:
     # every child here inherits it - the services that do the waiting and the
