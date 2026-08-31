@@ -55,6 +55,12 @@ Always via `uv run ...` (uses the workspace `.venv`, no manual activation needed
   finished, elapsed time, and expected time to complete. A `Monitor` is the
   usual way; the mechanism is a free choice, the reporting is not. This is the
   one place where saying something unasked is wanted, and it stays one line.
+- **Never pipe a backgrounded command through `Select-Object`/`head`/`tail`.**
+  They buffer until the process exits, so the output file stays empty and there
+  is nothing to report progress *from* - on exactly the long jobs the rule above
+  is about. Run it raw, let the file fill live, and filter with `Grep`/`Read`
+  when checking it. Same reason a truncated tail hides the real failure: read
+  the whole log, narrow afterwards.
 
 ## Conventions - follow these without being asked
 - **TDD, with `tests/`, `modules/argus_testkit/` and `modules/anthropic_double/` off-limits to Claude.** The policy itself lives in `AGENTS.md` (tool-agnostic, applies to any AI coding agent, not just Claude). Mechanically enforced here via `.claude/settings.json` + a PreToolUse hook (`.claude/hooks/block_test_writes.py`) - Claude cannot create or edit files under any `tests/` directory *in this repo*, nor anywhere in the shared test-support module or the Anthropic double. `Argus-Demo-Target-App` is outside that rule: it is a fixture, its tests are a regression net written after the code rather than a specification written before it, and Claude writes them directly there. Claude may freely *read* and *run* existing tests (e.g. via `uv run python -m nox -s test_module`). For the exact workflow to propose a new test, see the `tdd-new-behavior` skill. **Propose the entire file, never a fragment** - the human pastes it whole, and a set of "add this after line 40" instructions is how a test file quietly ends up not saying what either party thinks it says. Targeted edits only when tiny and precisely located.
