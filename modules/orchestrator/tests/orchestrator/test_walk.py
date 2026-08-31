@@ -13,7 +13,7 @@ from argus_core.models.attempt import Attempt
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.incident_status import IncidentStatus, status_after
 from orchestrator import graph
 from orchestrator.graph import (
     communicator_node,
@@ -44,6 +44,10 @@ the gate refusing it, and the service refusing to recover - arrive at the same
 place, because "what now" has one answer and splitting it across two nodes
 would be two chances to get it wrong.
 
+The node reports what it found and never a status. Where that leaves the
+incident is derived from the state it produced, which is what `_the_route_taken`
+does here and what the graph does in production.
+
 A longer walk is a longer silence before a human hears anything, which is what
 the war-room update is for: each attempt is posted as it happens, and the page
 is kept for the moment autonomy is actually spent.
@@ -64,11 +68,6 @@ def record_hypothesis() -> MagicMock:
 
 
 @pytest.fixture
-def transition_incident() -> MagicMock:
-    return MagicMock()
-
-
-@pytest.fixture
 def post_update() -> MagicMock:
     return cast(MagicMock, create_autospec(agent_communicator.post_update))
 
@@ -80,7 +79,7 @@ def raise_page() -> MagicMock:
 
 @pytest.mark.unit
 def test_every_candidate_the_investigation_offered_is_recorded(
-    investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock
 ) -> None:
     # The incident's record should say what was considered, not only what was
     # acted on. A runner-up that never reached the table is a finding a human
@@ -94,7 +93,6 @@ def test_every_candidate_the_investigation_offered_is_recorded(
         _an_incident_being_investigated(incident_id),
         investigate=investigate,
         record_hypothesis=record_hypothesis,
-        transition_incident=transition_incident,
     )
 
     assert record_hypothesis.call_count == 2
@@ -102,7 +100,7 @@ def test_every_candidate_the_investigation_offered_is_recorded(
 
 @pytest.mark.unit
 def test_the_investigation_hands_the_walk_its_candidates(
-    investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock
 ) -> None:
     incident_id = a_random_id()
     the_best_answer = a_determined_hypothesis(incident_id, a_high_enough_confidence())
@@ -113,7 +111,6 @@ def test_the_investigation_hands_the_walk_its_candidates(
         _an_incident_being_investigated(incident_id),
         investigate=investigate,
         record_hypothesis=record_hypothesis,
-        transition_incident=transition_incident,
     )
 
     assert updates["candidates"] == [the_best_answer, a_runner_up]
@@ -123,7 +120,7 @@ def test_the_investigation_hands_the_walk_its_candidates(
 
 @pytest.mark.unit
 def test_a_resumed_investigation_is_told_where_to_pick_up_and_what_failed(
-    investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock
 ) -> None:
     # Both halves of what makes a second round worth paying for. Without the
     # resume point it re-reads the window that has already been read; without
@@ -141,7 +138,6 @@ def test_a_resumed_investigation_is_told_where_to_pick_up_and_what_failed(
         a_second_round,
         investigate=investigate,
         record_hypothesis=record_hypothesis,
-        transition_incident=transition_incident,
     )
 
     assert investigate.call_args.kwargs["resume_from"] == 1
@@ -149,30 +145,23 @@ def test_a_resumed_investigation_is_told_where_to_pick_up_and_what_failed(
 
 
 @pytest.mark.unit
-def test_a_refuted_candidate_hands_over_to_the_next_one(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_a_refuted_candidate_hands_over_to_the_next_one(post_update: MagicMock) -> None:
     incident_id = a_random_id()
     the_refuted_candidate = a_determined_hypothesis(
         incident_id, a_high_enough_confidence()
     )
     the_next_candidate = a_determined_hypothesis(incident_id, a_high_enough_confidence())
+    a_walk = _a_walk_at(incident_id, [the_refuted_candidate, the_next_candidate], index=0)
 
-    updates = next_candidate_node(
-        _a_walk_at(incident_id, [the_refuted_candidate, the_next_candidate], index=0),
-        transition_incident=transition_incident,
-        post_update=post_update,
-    )
+    updates = next_candidate_node(a_walk, post_update=post_update)
 
     assert updates["candidate_index"] == 1
     assert updates["hypothesis"] == the_next_candidate
-    assert updates["status"] == IncidentStatus.MITIGATING
+    assert _the_route_taken(a_walk, updates) == "mitigating"
 
 
 @pytest.mark.unit
-def test_what_was_tried_is_remembered_for_the_round_after(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_what_was_tried_is_remembered_for_the_round_after(post_update: MagicMock) -> None:
     # A later investigation is only worth running because it can be told this.
     # Recorded here rather than in the investigator node, so the fact stays
     # attached to the attempt that produced it.
@@ -181,7 +170,6 @@ def test_what_was_tried_is_remembered_for_the_round_after(
 
     updates = next_candidate_node(
         _a_walk_at(incident_id, [a_candidate], index=0, acted_on=SOME_FLAG),
-        transition_incident=transition_incident,
         post_update=post_update,
     )
 
@@ -189,28 +177,21 @@ def test_what_was_tried_is_remembered_for_the_round_after(
 
 
 @pytest.mark.unit
-def test_a_walk_with_a_candidate_left_carries_on(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_a_walk_with_a_candidate_left_carries_on(post_update: MagicMock) -> None:
     incident_id = a_random_id()
     candidates = [
         a_determined_hypothesis(incident_id, a_high_enough_confidence()),
         a_determined_hypothesis(incident_id, a_high_enough_confidence()),
     ]
+    a_walk = _a_walk_at(incident_id, candidates, index=0)
 
-    updates = next_candidate_node(
-        _a_walk_at(incident_id, candidates, index=0),
-        transition_incident=transition_incident,
-        post_update=post_update,
-    )
+    updates = next_candidate_node(a_walk, post_update=post_update)
 
-    assert _the_route_taken(updates) == "mitigating"
+    assert _the_route_taken(a_walk, updates) == "mitigating"
 
 
 @pytest.mark.unit
-def test_a_spent_list_buys_another_investigation(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_a_spent_list_buys_another_investigation(post_update: MagicMock) -> None:
     # Every explanation this round offered has been tried and failed, which is
     # the moment another round is worth paying for - and what pays for it is the
     # refutation rather than a wider window. Argus changed production and the
@@ -220,42 +201,36 @@ def test_a_spent_list_buys_another_investigation(
     # answer comes back refuted.
     incident_id = a_random_id()
     the_only_candidate = a_determined_hypothesis(incident_id, a_high_enough_confidence())
+    a_walk = _a_walk_at(incident_id, [the_only_candidate], index=0, rounds=1)
 
-    updates = next_candidate_node(
-        _a_walk_at(incident_id, [the_only_candidate], index=0, rounds=1),
-        transition_incident=transition_incident,
-        post_update=post_update,
-    )
+    updates = next_candidate_node(a_walk, post_update=post_update)
 
-    assert _the_route_taken(updates) == "investigating"
-    assert updates["status"] == IncidentStatus.INVESTIGATING
+    assert _the_route_taken(a_walk, updates) == "investigating"
 
 
 @pytest.mark.unit
-def test_a_walk_that_has_used_every_round_ends(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_a_walk_that_has_used_every_round_ends(post_update: MagicMock) -> None:
     # The bound is a count of rounds rather than the walk's own judgement: each
     # round is a model call and another set of real changes to production, and
     # "keep going until something works" is not a stopping condition.
+    #
+    # It ends in `fixing`, not `escalated`: nothing reversible is left and what
+    # remains is a permanent fix, which is what Code-Fix is for. `escalated`
+    # comes later, once Code-Fix has nothing either.
     incident_id = a_random_id()
     the_only_candidate = a_determined_hypothesis(incident_id, a_high_enough_confidence())
     every_round_spent = get_settings().investigation_max_rounds
-
-    updates = next_candidate_node(
-        _a_walk_at(incident_id, [the_only_candidate], index=0, rounds=every_round_spent),
-        transition_incident=transition_incident,
-        post_update=post_update,
+    a_walk = _a_walk_at(
+        incident_id, [the_only_candidate], index=0, rounds=every_round_spent
     )
 
-    assert _the_route_taken(updates) == "escalated"
-    assert updates["status"] == IncidentStatus.ESCALATED
+    updates = next_candidate_node(a_walk, post_update=post_update)
+
+    assert _the_route_taken(a_walk, updates) == "fixing"
 
 
 @pytest.mark.unit
-def test_a_doubtful_candidate_is_tried_like_any_other(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_a_doubtful_candidate_is_tried_like_any_other(post_update: MagicMock) -> None:
     # Confidence orders the list; it does not decide who gets on it. By the time
     # the walk reaches a doubtful candidate, every explanation the model
     # believed more has been tried and refuted - so the ranking that made this
@@ -266,20 +241,19 @@ def test_a_doubtful_candidate_is_tried_like_any_other(
     a_doubtful_candidate = a_determined_hypothesis(
         incident_id, a_below_threshold_confidence()
     )
-
-    updates = next_candidate_node(
-        _a_walk_at(incident_id, [the_refuted_candidate, a_doubtful_candidate], index=0),
-        transition_incident=transition_incident,
-        post_update=post_update,
+    a_walk = _a_walk_at(
+        incident_id, [the_refuted_candidate, a_doubtful_candidate], index=0
     )
 
-    assert _the_route_taken(updates) == "mitigating"
+    updates = next_candidate_node(a_walk, post_update=post_update)
+
+    assert _the_route_taken(a_walk, updates) == "mitigating"
     assert updates["hypothesis"] == a_doubtful_candidate
 
 
 @pytest.mark.unit
 def test_a_candidate_blaming_a_flag_already_tried_is_skipped(
-    transition_incident: MagicMock, post_update: MagicMock
+    post_update: MagicMock
 ) -> None:
     # The same subject, twice on one list. Changing it again would be running
     # the experiment that has already been run and undone, against a world that
@@ -297,7 +271,6 @@ def test_a_candidate_blaming_a_flag_already_tried_is_skipped(
             index=0,
             acted_on=SOME_FLAG,
         ),
-        transition_incident=transition_incident,
         post_update=post_update,
     )
 
@@ -307,12 +280,17 @@ def test_a_candidate_blaming_a_flag_already_tried_is_skipped(
 
 @pytest.mark.unit
 def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
-    investigate: MagicMock, record_hypothesis: MagicMock, transition_incident: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock
 ) -> None:
     # A second investigation is told what was tried, and is free to conclude the
     # same thing anyway - being told does not oblige it to change its mind. What
     # it must not do is send the walk back to change the same flag a second
     # time, which would spend the round budget flipping one flag back and forth.
+    #
+    # The round reports that it found nothing worth trying, which is what ends
+    # the incident. It is a fact about the investigation, not a status: the walk
+    # leaves an identical candidate list behind when it runs out, and those two
+    # do not end the same way.
     incident_id = a_random_id()
     the_same_explanation_again = _a_candidate_blaming(incident_id, SOME_FLAG)
     investigate.return_value = _findings_of(the_same_explanation_again)
@@ -324,16 +302,13 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
         a_round_after_that_flag_was_tried,
         investigate=investigate,
         record_hypothesis=record_hypothesis,
-        transition_incident=transition_incident,
     )
 
-    assert updates["status"] == IncidentStatus.ESCALATED
+    assert updates["nothing_worth_trying"] is True
 
 
 @pytest.mark.unit
-def test_a_candidate_naming_no_cause_is_never_tried(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_a_candidate_naming_no_cause_is_never_tried(post_update: MagicMock) -> None:
     # The one thing on the list that is not an experiment. "I found no cause"
     # names nothing to change, which is a different answer from "I am unsure
     # which of these it is" - and acting on it would mean changing production
@@ -341,25 +316,22 @@ def test_a_candidate_naming_no_cause_is_never_tried(
     incident_id = a_random_id()
     the_refuted_candidate = a_determined_hypothesis(incident_id, a_high_enough_confidence())
     a_candidate_naming_nothing = an_undetermined_hypothesis(incident_id)
-
-    updates = next_candidate_node(
-        _a_walk_at(
-            incident_id,
-            [the_refuted_candidate, a_candidate_naming_nothing],
-            index=0,
-            rounds=get_settings().investigation_max_rounds,
-        ),
-        transition_incident=transition_incident,
-        post_update=post_update,
+    a_walk = _a_walk_at(
+        incident_id,
+        [the_refuted_candidate, a_candidate_naming_nothing],
+        index=0,
+        rounds=get_settings().investigation_max_rounds,
     )
 
-    assert _the_route_taken(updates) == "escalated"
+    updates = next_candidate_node(a_walk, post_update=post_update)
+
+    assert _the_route_taken(a_walk, updates) == "fixing"
     assert "hypothesis" not in updates
 
 
 @pytest.mark.unit
 def test_an_attempt_that_settled_nothing_is_posted_while_moves_remain(
-    transition_incident: MagicMock, post_update: MagicMock
+    post_update: MagicMock
 ) -> None:
     # The war room is how a longer walk stays watchable. Without it a human
     # sees silence from the first attempt until the last, and an incident being
@@ -371,18 +343,14 @@ def test_an_attempt_that_settled_nothing_is_posted_while_moves_remain(
     ]
 
     next_candidate_node(
-        _a_walk_at(incident_id, candidates, index=0),
-        transition_incident=transition_incident,
-        post_update=post_update,
+        _a_walk_at(incident_id, candidates, index=0), post_update=post_update
     )
 
     assert post_update.call_count == 1
 
 
 @pytest.mark.unit
-def test_an_update_names_what_was_tried(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_an_update_names_what_was_tried(post_update: MagicMock) -> None:
     # "An attempt failed" is not something a watching human can act on. What
     # was changed is - it is the fact that tells them whether to step in.
     incident_id = a_random_id()
@@ -393,7 +361,6 @@ def test_an_update_names_what_was_tried(
 
     next_candidate_node(
         _a_walk_at(incident_id, candidates, index=0, acted_on=SOME_FLAG),
-        transition_incident=transition_incident,
         post_update=post_update,
     )
 
@@ -401,9 +368,7 @@ def test_an_update_names_what_was_tried(
 
 
 @pytest.mark.unit
-def test_another_round_is_posted_too(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_another_round_is_posted_too(post_update: MagicMock) -> None:
     # Buying another investigation is a move, not an ending - and the most
     # confusing moment to leave unannounced, because Argus goes quiet while it
     # thinks.
@@ -412,7 +377,6 @@ def test_another_round_is_posted_too(
 
     next_candidate_node(
         _a_walk_at(incident_id, [the_only_candidate], index=0, rounds=1),
-        transition_incident=transition_incident,
         post_update=post_update,
     )
 
@@ -420,9 +384,7 @@ def test_another_round_is_posted_too(
 
 
 @pytest.mark.unit
-def test_a_walk_out_of_moves_posts_no_update(
-    transition_incident: MagicMock, post_update: MagicMock
-) -> None:
+def test_a_walk_out_of_moves_posts_no_update(post_update: MagicMock) -> None:
     # The end of the walk is the page's to announce, and the page is the one
     # message that must not arrive in a crowd.
     incident_id = a_random_id()
@@ -435,7 +397,6 @@ def test_a_walk_out_of_moves_posts_no_update(
             index=0,
             rounds=get_settings().investigation_max_rounds,
         ),
-        transition_incident=transition_incident,
         post_update=post_update,
     )
 
@@ -542,15 +503,24 @@ def _a_walk_at(
     )
 
 
-def _the_route_taken(updates: dict[str, Any]) -> str:
+def _the_route_taken(state: IncidentState, updates: dict[str, Any]) -> str:
     """The route the graph takes on the state this node produced.
 
-    Routing reads the status the node set, as every other route function here
-    does - so this asserts the decision the node actually made rather than one
-    re-derived from its inputs.
+    The status is derived rather than read off the updates, because the node no
+    longer supplies one - so this asserts where the node's work actually leaves
+    the incident, by exactly the path the graph takes. `narration` is dropped on
+    the way, as the graph drops it: it is what the node said, not part of the
+    state.
     """
+    work = {key: value for key, value in updates.items() if key != "narration"}
+    after = state.model_copy(update=work)
+
     return route_after_next_candidate(
-        _an_incident_being_investigated(a_random_id()).model_copy(update=updates)
+        after.model_copy(
+            update={
+                "status": status_after(after, get_settings().investigation_max_rounds)
+            }
+        )
     )
 
 

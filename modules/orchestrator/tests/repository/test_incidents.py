@@ -210,3 +210,44 @@ def _exactly_one_timeline_event_was_recorded(conn: psycopg.Connection,
 def test_get_returns_none_for_unknown_incident() -> None:
     with psycopg.connect(DATABASE_URL) as conn:
         assert incidents.get(conn, "00000000-0000-0000-0000-000000000000") is None
+
+
+@pytest.mark.integration
+def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> None:
+    # An action refused at the tier gate is worth recording and moves nothing:
+    # the incident was already mitigating and still is. Narration and transition
+    # were one function only by accident, and this is the case that proves it -
+    # a rejection written through `transition` would claim the incident entered
+    # a status it had not left.
+    some_alert = Alert(service="gate-service", alert_name="HighErrorRate")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        incident_id = incidents.create(conn, some_alert)
+        incidents.transition(
+            conn,
+            incident_id,
+            IncidentStatus.MITIGATING,
+            actor=Actor.INVESTIGATOR,
+            action="dont care",
+        )
+
+        incidents.record_note(
+            conn,
+            incident_id,
+            actor=Actor.MITIGATION,
+            action="action rejected at the tier gate",
+            result="the proposed action carries no undo descriptor",
+        )
+
+        incident = incidents.get(conn, incident_id)
+        events = timeline.get_timeline_events(conn, incident_id)
+
+    assert incident is not None and incident.status == "mitigating"
+    assert [event.to_status for event in events] == [
+        "investigating",
+        "mitigating",
+        "mitigating",
+    ]
+    assert events[-1].action == "action rejected at the tier gate"
+    assert events[-1].actor == "mitigation"
+

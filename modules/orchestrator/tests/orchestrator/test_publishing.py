@@ -11,7 +11,6 @@ from argus_core.events import (
     FlagChangesRetrieved,
     IncidentEvent,
     Publisher,
-    StatusChanged,
     VerdictReached,
     nobody,
 )
@@ -38,9 +37,11 @@ from ..framework.builders import (
 
 The agents narrate what they alone know - which window was read, what the
 model answered. The Orchestrator narrates what it alone knows: that the alert
-arrived at all, which agent it invoked, where the incident moved, and what came
-back from an action it had already gated. Between them the two accounts are one
-story.
+arrived at all, which agent it invoked, and what came back from an action it
+had already gated. Between them the two accounts are one story.
+
+Where the incident moved is published in one place, by the wrapper that derives
+it - see `test_status_wrapper.py`. A node has no status to announce.
 """
 
 
@@ -99,18 +100,6 @@ def test_the_investigation_publishes_to_the_same_place_the_graph_does() -> None:
     )
 
     assert what_the_investigation_was_given == [published.append]
-
-
-@pytest.mark.unit
-def test_the_graph_says_where_the_incident_moved() -> None:
-    # The status on the page is where the incident is; the transitions are how
-    # it got there, and a walk that moved twice is only legible from them.
-    published: list[IncidentEvent] = []
-
-    _the_investigator_runs(publisher=published.append)
-
-    moved = [event for event in published if isinstance(event, StatusChanged)]
-    assert [event.to_status for event in moved] == [IncidentStatus.MITIGATING]
 
 
 @pytest.mark.unit
@@ -245,7 +234,6 @@ def _the_investigator_runs(publisher: Any,
         state,
         investigate=investigate,
         record_hypothesis=lambda dont_care_hypothesis: None,
-        transition_incident=lambda *dont_care_args, **dont_care_keywords: None,
         publisher=publisher,
     )
 
@@ -284,7 +272,6 @@ def _an_action_is_taken(candidate: Any,
         state,
         take=lambda dont_care_action, **dont_care_keywords: outcome,
         record_action=lambda *dont_care_args, **dont_care_keywords: None,
-        transition_incident=lambda *dont_care_args, **dont_care_keywords: None,
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
         **keywords,
     )

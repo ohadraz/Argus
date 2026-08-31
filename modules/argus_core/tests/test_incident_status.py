@@ -35,7 +35,7 @@ def test_a_mitigating_incident_is_still_going() -> None:
 
 @pytest.mark.unit
 def test_a_fixing_incident_is_still_going() -> None:
-    # `fixing` reads like an ending and is not one: it is where a refuted
-    # action goes to ask whether there is another candidate to try, so an
-    # incident sitting in it is an incident mid-walk.
+    # `fixing` reads like an ending and is not one: it is where an incident
+    # sits while Code-Fix looks for a permanent fix, so an incident in it is
+    # one Argus is still working on.
     assert IncidentStatus.FIXING.is_terminal() is False

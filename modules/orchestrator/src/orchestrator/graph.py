@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 from typing import Any, Protocol
 
@@ -29,11 +30,12 @@ from argus_core.models.attempt import Attempt
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.incident_status import IncidentStatus, status_after
 from argus_core.timestamps import to_iso
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from pydantic import BaseModel
 
 from orchestrator.publishing import record_event
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
@@ -114,6 +116,20 @@ class TransitionIncident(Protocol):
     ) -> None: ...
 
 
+class RecordNote(Protocol):
+    # The same narration a transition carries, minus the one thing that makes a
+    # transition one. A node that has something to say and moved nothing says it
+    # through here.
+    def __call__(
+        self,
+        incident_id: str,
+        actor: Actor,
+        action: str,
+        result: str | None = None,
+        confidence: float | None = None,
+    ) -> None: ...
+
+
 def _record_hypothesis(hypothesis: Hypothesis) -> None:
     with connect() as conn:
         hypotheses.record(conn, hypothesis)
@@ -139,6 +155,20 @@ def _transition_incident(
         )
 
 
+def _record_note(
+    incident_id: str,
+    actor: Actor,
+    action: str,
+    result: str | None = None,
+    confidence: float | None = None,
+) -> None:
+    with connect() as conn:
+        incidents.record_note(
+            conn, incident_id, actor=actor, action=action,
+            result=result, confidence=confidence,
+        )
+
+
 def _record_action(
     incident_id: str,
     hypothesis_id: str,
@@ -155,6 +185,108 @@ def _record_action(
             outcome=outcome,
             undo_descriptor=undo_descriptor,
         )
+
+
+class Narration(BaseModel):
+    """What a node says it just did, on its way past.
+
+    Three of these are the `timeline_event` columns a human reads the incident
+    from. `detail` is what the published `StatusChanged` carries, which is not
+    always the same sentence: the Investigator's event names what the
+    investigation did, while Mitigation's names what came back from the action.
+    Defaulting it to `action` keeps the ordinary case to one field.
+
+    A node returns this alongside its work and never writes it anywhere. Nothing
+    about narration is a node's to decide except the words.
+    """
+
+    action: str
+    result: str | None = None
+    confidence: float | None = None
+    detail: str | None = None
+
+    def published_detail(self) -> str:
+        return self.detail if self.detail is not None else self.action
+
+
+def with_status(
+    node: Callable[[IncidentState], dict[str, Any]],
+    actor: Actor,
+    max_rounds: int,
+    transition_incident: TransitionIncident = _transition_incident,
+    record_note: RecordNote = _record_note,
+    publisher: Publisher = nobody,
+) -> Callable[..., dict[str, Any]]:
+    """Wraps a node so that the status it implies is derived, written and
+    published in one place (spec §7.1, §10).
+
+    The return type is `Callable[...]` rather than the exact one-argument
+    signature, because that is what LangGraph's `add_node` overloads accept -
+    the same shape `functools.partial` produced when nodes were registered
+    directly.
+
+    Applied at registration time rather than called inside each node, because
+    the guarantee wanted here - a status is written only when the incident
+    enters it - is not one five nodes can be trusted to remember. They forgot it
+    twice: a refuted action wrote `fixing` and was overwritten one node later,
+    and an exhausted walk wrote `escalated` on its way into Code-Fix.
+
+    The three inputs to a row come from three places that actually know them.
+    The status comes from `status_after`, which is the state machine. The words
+    come from the node, which is the only thing that knows what it just did. The
+    actor comes from this call, because which agent a node belongs to is fixed
+    when the graph is built and was being repeated inside every node as a
+    constant.
+
+    `narration` is popped rather than passed on. Left in the updates it would
+    become a field of `IncidentState`, checkpointed with the incident forever,
+    describing whichever node happened to run last.
+    """
+    def run(state: IncidentState) -> dict[str, Any]:
+        updates = dict(node(state))
+        narration = updates.pop("narration", None)
+        next_status = status_after(state.model_copy(update=updates), max_rounds)
+
+        if next_status == state.status:
+            if narration is not None:
+                record_note(
+                    state.incident_id,
+                    actor=actor,
+                    action=narration.action,
+                    result=narration.result,
+                    confidence=narration.confidence,
+                )
+
+            return updates
+
+        # A node that can move the incident has to say why: a transition with no
+        # account of itself is a row a human cannot read the incident from.
+        if narration is None:
+            raise ValueError(
+                f"node moved incident [{state.incident_id}] to [{next_status}] "
+                f"without narrating it"
+            )
+
+        transition_incident(
+            state.incident_id,
+            next_status,
+            actor=actor,
+            action=narration.action,
+            result=narration.result,
+            confidence=narration.confidence,
+        )
+        publish(
+            StatusChanged(
+                incident_id=state.incident_id,
+                to_status=next_status,
+                detail=narration.published_detail(),
+            ),
+            publisher,
+        )
+
+        return {**updates, "status": next_status}
+
+    return run
 
 
 def mitigation_proposal_node(
@@ -200,7 +332,6 @@ def mitigation_proposal_node(
 
 def tier_gate_node(
     state: IncidentState,
-    transition_incident: TransitionIncident = _transition_incident,
     record_outcome: RecordOutcome = _record_outcome,
 ) -> dict[str, Any]:
     """Refuses to let a reversible action reach its call without a way back
@@ -218,6 +349,12 @@ def tier_gate_node(
     unreversible proposal spend the whole of Argus's autonomy. Where nothing
     follows, the node that decides that says so.
 
+    It moves the incident nowhere - a rejection is the end of this attempt, not
+    of the incident, so the status is `mitigating` before and after. The
+    narration is the whole point of the return: this is the only place that
+    knows what was refused and why, and the rejection clears the action on the
+    way out.
+
     Silently passing an ungated action would be the failure this node exists to
     make impossible; silently dropping it would leave an incident that simply
     stopped.
@@ -227,21 +364,14 @@ def tier_gate_node(
     if reason is None:
         return {}
 
-    transition_incident(
-        state.incident_id,
-        IncidentStatus.MITIGATING,
-        actor=Actor.MITIGATION,
-        action="action rejected at the tier gate",
-        result=reason,
-    )
     # The candidate's own row says it was never put to the question, and why.
-    # Recorded here because this is the only place that knows the reason: the
-    # rejection clears the action on the way out, so no later node could
-    # reconstruct what was refused or what was wrong with it.
     if state.hypothesis is not None:
         record_outcome(state.hypothesis.id, tested=False, result=reason)
 
-    return {"status": IncidentStatus.MITIGATING, "proposed_action": None}
+    return {
+        "proposed_action": None,
+        "narration": Narration(action="action rejected at the tier gate", result=reason),
+    }
 
 
 def _why_the_action_cannot_proceed(action: Action | None) -> str | None:
@@ -276,15 +406,18 @@ def investigator_node(
     state: IncidentState,
     investigate: Investigate = _investigate,
     record_hypothesis: RecordHypothesis = _record_hypothesis,
-    transition_incident: TransitionIncident = _transition_incident,
     publisher: Publisher = nobody,
 ) -> dict[str, Any]:
-    """Forms a hypothesis, decides mitigate-vs-escalate by confidence, and
-    persists both the hypothesis and the resulting status transition
-    (spec §7.2, §10). `investigate`/`record_hypothesis`/`transition_incident`
-    default to the real investigation call and repository writes,
-    injectable so this node's routing/persistence logic can be unit
-    tested without a live Target Service or database - mirroring the seams
+    """Forms a hypothesis, records every candidate it considered, and reports
+    whether any of them is worth acting on (spec §7.2, §10).
+
+    It does not decide the incident's status. What it reports -
+    `nothing_worth_trying`, the candidate list, the index of the one to try - is
+    what the status is derived from, one place further out.
+
+    `investigate`/`record_hypothesis` default to the real investigation call and
+    repository write, injectable so this node's logic can be unit tested without
+    a live Target Service or database - mirroring the seams
     `agent_investigator.investigate()` establishes for its own retrieval and
     model calls."""
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.INVESTIGATOR), publisher)
@@ -318,9 +451,12 @@ def investigator_node(
     # try - not how sure the model is that this one is right. An ambiguous
     # incident is exactly the case that produced middling confidence and no
     # action at all, which is the case the walk exists for.
-    next_status: IncidentStatus = (
-        IncidentStatus.MITIGATING if next_up is not None else IncidentStatus.ESCALATED
-    )
+    #
+    # Reported rather than acted on. That this round found nothing worth trying
+    # is what the investigation learned, and it is the one thing that tells an
+    # investigation with nothing to offer apart from a walk that has worked
+    # through everything it was offered - the two leave the same list behind.
+    nothing_worth_trying = next_up is None
     # Every candidate, not only the one about to be tried. The incident's
     # record should say what was considered as well as what was acted on - a
     # runner-up that never reached the table is a finding a human picking the
@@ -328,22 +464,6 @@ def investigator_node(
     for candidate in findings.candidates:
         record_hypothesis(candidate)
 
-    transition_incident(
-        state.incident_id,
-        next_status,
-        actor=Actor.INVESTIGATOR,
-        action=_what_the_investigation_did(hypothesis),
-        result=hypothesis.summary,
-        confidence=hypothesis.confidence,
-    )
-    publish(
-        StatusChanged(
-            incident_id=state.incident_id,
-            to_status=next_status,
-            detail=_what_the_investigation_did(hypothesis),
-        ),
-        publisher,
-    )
     return {
         "hypothesis": hypothesis,
         "candidates": findings.candidates,
@@ -352,7 +472,12 @@ def investigator_node(
         "resume_from": findings.resumes_from,
         "rounds": state.rounds + 1,
         "confidence": hypothesis.confidence,
-        "status": next_status,
+        "nothing_worth_trying": nothing_worth_trying,
+        "narration": Narration(
+            action=_what_the_investigation_did(hypothesis),
+            result=hypothesis.summary,
+            confidence=hypothesis.confidence,
+        ),
     }
 
 
@@ -376,7 +501,6 @@ def mitigation_node(
     state: IncidentState,
     take: TakeAction = take_action,
     record_action: RecordAction = _record_action,
-    transition_incident: TransitionIncident = _transition_incident,
     record_outcome: RecordOutcome = _record_outcome,
     publisher: Publisher = nobody,
 ) -> dict[str, Any]:
@@ -384,9 +508,10 @@ def mitigation_node(
     (spec §7.3, §11.1).
 
     Reached only through the gate, so the action is known to exist and to carry
-    a way back. `resolved` follows from a confirmed verdict alone: an incident
-    marked resolved while the condition that caused it is still in effect is
-    worse than one left open, because nobody looks at it again.
+    a way back. The verdict it returns is the strongest evidence anything in
+    this graph has - it was measured against re-queried metrics - and it is
+    reported here rather than turned into a status, because turning it into one
+    was how `refuted` came to mean two different things in two places.
 
     The row records the descriptor the *write tier returned* rather than the
     one proposed, since that is the account of what actually changed.
@@ -396,7 +521,7 @@ def mitigation_node(
     # a row nothing can attribute. The gate guarantees both are here; this says
     # so in a way the type checker can read.
     if state.proposed_action is None or state.hypothesis is None:
-        return _nothing_to_act_on(state, transition_incident)
+        return _nothing_to_act_on()
 
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
     # Published from here rather than from inside Mitigation, which is not
@@ -419,7 +544,6 @@ def mitigation_node(
     # from inside Mitigation, where the looking actually happens.
     result = take(state.proposed_action, incident_id=state.incident_id, publisher=publisher)
     outcome = str(result.verdict)
-    next_status = _status_after(result.verdict)
 
     publish(
         VerdictReached(
@@ -442,21 +566,6 @@ def mitigation_node(
         outcome=outcome,
         undo_descriptor=result.undo_descriptor,
     )
-    transition_incident(
-        state.incident_id,
-        next_status,
-        actor=Actor.MITIGATION,
-        action="mitigation attempted",
-        result=result.detail,
-    )
-    publish(
-        StatusChanged(
-            incident_id=state.incident_id,
-            to_status=next_status,
-            detail=result.detail,
-        ),
-        publisher,
-    )
     # This candidate was genuinely tested: an action was taken and the service
     # was measured afterwards. The verdict is the answer it was tested for, so
     # it belongs on the candidate's own row and not only on the timeline - a
@@ -465,22 +574,15 @@ def mitigation_node(
     if state.hypothesis is not None:
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
 
-    return {"action_outcome": outcome, "status": next_status}
+    return {
+        "action_outcome": outcome,
+        "narration": Narration(
+            action="mitigation attempted", result=result.detail, detail=result.detail
+        ),
+    }
 
 
-def _status_after(verdict: Verdict) -> IncidentStatus:
-    if verdict is Verdict.CONFIRMED:
-        return IncidentStatus.RESOLVED
-
-    if verdict is Verdict.REFUTED:
-        return IncidentStatus.FIXING
-
-    return IncidentStatus.ESCALATED
-
-
-def _nothing_to_act_on(
-    state: IncidentState, transition_incident: TransitionIncident
-) -> dict[str, Any]:
+def _nothing_to_act_on() -> dict[str, Any]:
     """The unreachable case, handled rather than assumed away.
 
     The gate escalates an unproposed action, so nothing should arrive here
@@ -488,21 +590,16 @@ def _nothing_to_act_on(
     true would fail inside a state-changing step, which is the worst place to
     discover it.
     """
-    outcome = str(Verdict.ESCALATED)
-    transition_incident(
-        state.incident_id,
-        IncidentStatus.ESCALATED,
-        actor=Actor.MITIGATION,
-        action="mitigation attempted",
-        result="no action reached the mitigation step",
-    )
-
-    return {"action_outcome": outcome, "status": IncidentStatus.ESCALATED}
+    return {
+        "action_outcome": str(Verdict.ESCALATED),
+        "narration": Narration(
+            action="mitigation attempted", result="no action reached the mitigation step"
+        ),
+    }
 
 
 def next_candidate_node(
     state: IncidentState,
-    transition_incident: TransitionIncident = _transition_incident,
     post_update: PostUpdate = _post_update,
 ) -> dict[str, Any]:
     """Decides what happens after an attempt settled nothing (spec §7.3).
@@ -535,33 +632,26 @@ def next_candidate_node(
     next_candidate = next_up[1] if next_up is not None else None
 
     if next_candidate is not None:
-        transition_incident(
-            state.incident_id,
-            IncidentStatus.MITIGATING,
-            actor=Actor.MITIGATION,
-            action="moving on to the next candidate",
-            result=next_candidate.summary,
-            confidence=next_candidate.confidence,
-        )
         post_update(
             state.incident_id,
             f"{_what_the_attempt_did(state)}. Trying next: {next_candidate.summary}",
         )
+        # Narration, and no transition behind it: the incident was mitigating
+        # before this and is mitigating after. Moving to the next candidate is
+        # progress through a phase, not out of one.
         return {
             "attempts": attempts,
             "candidate_index": next_index,
             "hypothesis": next_candidate,
             "confidence": next_candidate.confidence,
-            "status": IncidentStatus.MITIGATING,
+            "narration": Narration(
+                action="moving on to the next candidate",
+                result=next_candidate.summary,
+                confidence=next_candidate.confidence,
+            ),
         }
 
     if state.rounds < get_settings().investigation_max_rounds:
-        transition_incident(
-            state.incident_id,
-            IncidentStatus.INVESTIGATING,
-            actor=Actor.MITIGATION,
-            action="every explanation was refuted, investigating again",
-        )
         # The most confusing moment to leave unannounced: Argus goes quiet
         # while it buys a wider look, and silence is what a stuck agent and a
         # thinking one have in common.
@@ -573,24 +663,24 @@ def next_candidate_node(
         return {
             "attempts": attempts,
             "candidate_index": next_index,
-            "status": IncidentStatus.INVESTIGATING,
+            "narration": Narration(
+                action="every explanation was refuted, investigating again"
+            ),
         }
 
-    transition_incident(
-        state.incident_id,
-        IncidentStatus.ESCALATED,
-        actor=Actor.MITIGATION,
-        action="no explanation left to try",
-        result=(
-            f"{len(attempts)} action(s) were taken and undone, and the evidence "
-            f"offers nothing further to try"
-        ),
-    )
-
+    # Nothing reversible is left, and what remains is a permanent fix - which is
+    # the one thing `fixing` means. Reported, not decided: the index past the end
+    # of the list and a spent round budget are what say so.
     return {
         "attempts": attempts,
         "candidate_index": next_index,
-        "status": IncidentStatus.ESCALATED,
+        "narration": Narration(
+            action="no explanation left to try",
+            result=(
+                f"{len(attempts)} action(s) were taken and undone, and the evidence "
+                f"offers nothing further to try"
+            ),
+        ),
     }
 
 
@@ -677,17 +767,16 @@ def route_after_next_candidate(state: IncidentState) -> str:
     if state.status == IncidentStatus.INVESTIGATING:
         return "investigating"
 
-    return "escalated"
+    return "fixing"
 
 
 def route_after_mitigation(state: IncidentState) -> str:
     """A confirmed action resolves; anything else that left the world intact
     hands over to the walk.
 
-    `fixing` is where a refuted action used to go - straight to Code-Fix, with
-    the rest of the investigation's explanations untried. It now goes to the
-    node that decides whether there is another one to try, and Code-Fix is
-    reached only once there is not.
+    A refuted action stays in `mitigating` and goes to the node that decides
+    whether another explanation is left to try. Code-Fix is reached only once
+    there is not, which is what "Argus is out of reversible moves" means.
 
     An `escalated` outcome still ends things immediately: the action could not
     be taken at all, so nothing was changed and nothing was measured, and a
@@ -695,16 +784,28 @@ def route_after_mitigation(state: IncidentState) -> str:
     """
     if state.status == IncidentStatus.RESOLVED:
         return "resolved"
-    if state.status == IncidentStatus.FIXING:
+    if state.status == IncidentStatus.MITIGATING:
         return "next_candidate"
     return "escalated"
 
 
 def codefix_node(state: IncidentState) -> dict[str, Any]:
-    """Real node so the graph's shape matches spec §10's full FSM
-    (design.md Non-Goals) - not reached by this change's happy path."""
+    """Looks for a permanent fix, once no reversible action is left (spec §7.4).
+
+    Still a stub, and the return value is the honest part of it: reporting that
+    no fix was found is a real answer, and it is what carries the incident on to
+    a human. Leaving it silent was how an incident could reach the end of the
+    graph still marked `fixing`, which is a status nothing was working on.
+    """
     propose_fix(state.hypothesis.summary if state.hypothesis else "")
-    return {}
+
+    return {
+        "fix_found": False,
+        "narration": Narration(
+            action="no code-level fix found",
+            result="the incident is being handed to a human",
+        ),
+    }
 
 
 def route_after_codefix(state: IncidentState) -> str:
@@ -790,16 +891,36 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[In
     # ordinary case for a node called on its own - in a test - is that nobody
     # is listening. Wiring it where the graph is assembled keeps a unit test
     # away from the database without every one of them having to say so.
-    graph.add_node("investigator", partial(investigator_node, publisher=record_event))
-    graph.add_node(
-        "mitigation_proposal", partial(mitigation_proposal_node, publisher=record_event)
+    #
+    # Every node is wrapped so the status its work implies is derived, written
+    # and published in one place. The actor is supplied here because which agent
+    # a node belongs to is a fact about the graph, not about the node.
+    max_rounds = get_settings().investigation_max_rounds
+    deciding_status = partial(
+        with_status, max_rounds=max_rounds, publisher=record_event
     )
-    graph.add_node("tier_gate", tier_gate_node)
-    graph.add_node("mitigation", partial(mitigation_node, publisher=record_event))
-    graph.add_node("next_candidate", next_candidate_node)
-    graph.add_node("codefix", codefix_node)
-    graph.add_node("communicator", communicator_node)
-    graph.add_node("postmortem", postmortem_node)
+
+    graph.add_node(
+        "investigator",
+        deciding_status(
+            partial(investigator_node, publisher=record_event), Actor.INVESTIGATOR
+        ),
+    )
+    graph.add_node(
+        "mitigation_proposal",
+        deciding_status(
+            partial(mitigation_proposal_node, publisher=record_event), Actor.MITIGATION
+        ),
+    )
+    graph.add_node("tier_gate", deciding_status(tier_gate_node, Actor.MITIGATION))
+    graph.add_node(
+        "mitigation",
+        deciding_status(partial(mitigation_node, publisher=record_event), Actor.MITIGATION),
+    )
+    graph.add_node("next_candidate", deciding_status(next_candidate_node, Actor.MITIGATION))
+    graph.add_node("codefix", deciding_status(codefix_node, Actor.CODEFIX))
+    graph.add_node("communicator", deciding_status(communicator_node, Actor.COMMUNICATOR))
+    graph.add_node("postmortem", deciding_status(postmortem_node, Actor.POSTMORTEM))
 
     graph.add_edge(START, "investigator")
     graph.add_conditional_edges(
@@ -835,7 +956,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[In
         {
             "mitigating": "mitigation_proposal",
             "investigating": "investigator",
-            "escalated": "codefix",
+            "fixing": "codefix",
         },
     )
     graph.add_conditional_edges(

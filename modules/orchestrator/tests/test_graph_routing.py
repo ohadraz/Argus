@@ -44,10 +44,10 @@ def test_route_after_mitigation_resolves() -> None:
 
 @pytest.mark.unit
 def test_route_after_mitigation_hands_a_refuted_action_to_the_walk() -> None:
-    # A refuted action used to go straight to Code-Fix with the rest of the
-    # investigation's explanations untried. It now asks whether there is
-    # another one to try, and Code-Fix is what happens when there is not.
-    assert route_after_mitigation(_a_state("fixing")) == "next_candidate"
+    # A refuted action stays in `mitigating` - the same phase of the same
+    # incident, with another explanation about to be tried. It asks the walk
+    # whether there is one, and Code-Fix is what happens when there is not.
+    assert route_after_mitigation(_a_state("mitigating")) == "next_candidate"
 
 
 @pytest.mark.unit

@@ -47,6 +47,16 @@ class IncidentState(BaseModel):
     # passed between the two, because a gate the acting node could bypass by
     # re-deriving the action would guard nothing.
     proposed_action: Action | None = None
+    # Whether the round that just ran found any candidate worth acting on. The
+    # Investigator's own answer, recorded because it is the one thing that
+    # distinguishes an investigation with nothing to offer from a walk that has
+    # worked through everything it was offered - the two leave the same list
+    # behind, and they are not the same incident.
+    nothing_worth_trying: bool = False
+    # What Code-Fix found, and `None` until it has run. Three-valued rather than
+    # a bool, because "no fix yet" and "no fix to be had" are the difference
+    # between an incident still being worked on and one a human now owns.
+    fix_found: bool | None = None
     # Derivable from `hypothesis`, kept because the graph's state is what the
     # Dashboard reads (§7.7) and a confidence-over-time view wants it flat.
     confidence: float | None = None

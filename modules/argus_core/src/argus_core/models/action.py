@@ -10,7 +10,8 @@ class Verdict(StrEnum):
     """What an attempted mitigation says about the hypothesis behind it.
 
     `CONFIRMED` and `REFUTED` are the two answers spec §7.3 asks Mitigation
-    for, and they route the incident to `resolved` and `fixing` respectively.
+    for. A confirmed action resolves the incident; a refuted one leaves it
+    where it was, in `mitigating`, for the next explanation on the list.
     `ESCALATED` is not a third opinion on the hypothesis - it means no verdict
     was reached at all, because nothing could be done or because the
     environment was left in a state Argus cannot account for.

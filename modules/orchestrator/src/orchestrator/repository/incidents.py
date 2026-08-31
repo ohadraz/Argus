@@ -53,7 +53,12 @@ def transition(
     confidence: float | None = None,
 ) -> None:
     """Updates `Incident.status` and writes the paired `TimelineEvent` row in
-    the same transaction (spec §7.1, §11.1's single-writer rule)."""
+    the same transaction (spec §7.1, §11.1's single-writer rule).
+
+    For a status the incident is actually entering. Work that is worth recording
+    and moved nothing goes to `record_note` instead - see there for why the two
+    are separate.
+    """
     with conn.cursor() as cursor:
         cursor.execute("UPDATE incident SET status = %s WHERE id = %s", (to_status, incident_id))
         cursor.execute(
@@ -61,6 +66,38 @@ def transition(
             "(incident_id, to_status, actor, action, result, confidence) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
             (incident_id, to_status, actor, action, result, confidence),
+        )
+    conn.commit()
+
+
+def record_note(
+    conn: psycopg.Connection,
+    incident_id: str,
+    actor: Actor,
+    action: str,
+    result: str | None = None,
+    confidence: float | None = None,
+) -> None:
+    """Writes a `TimelineEvent` row for work that did not move the incident.
+
+    Narration and transition are two operations that were one function only by
+    accident. An action refused at the tier gate is the case that separates
+    them: it is worth recording, and the incident was already `mitigating` and
+    still is. Written through `transition` it would claim the incident entered a
+    status it had never left, which is exactly the false record the timeline is
+    read to avoid.
+
+    The row carries the status the incident is already in, taken from the row
+    itself rather than from the caller - a caller that had to supply it could
+    supply the wrong one, and then this function would be a transition after
+    all.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO timeline_event "
+            "(incident_id, to_status, actor, action, result, confidence) "
+            "SELECT %s, status, %s, %s, %s, %s FROM incident WHERE id = %s",
+            (incident_id, actor, action, result, confidence, incident_id),
         )
     conn.commit()
 

@@ -75,11 +75,17 @@ _PLAIN = "plain"
 _ARGUS = "Argus"
 _INVESTIGATOR = "Investigator Agent"
 _MITIGATION = "Mitigation Agent"
+_CODEFIX = "Code-Fix Agent"
+_COMMUNICATOR = "Communicator Agent"
+_POSTMORTEM = "Postmortem Agent"
 
 _AGENTS = {
     Actor.ORCHESTRATOR: _ARGUS,
     Actor.INVESTIGATOR: _INVESTIGATOR,
     Actor.MITIGATION: _MITIGATION,
+    Actor.CODEFIX: _CODEFIX,
+    Actor.COMMUNICATOR: _COMMUNICATOR,
+    Actor.POSTMORTEM: _POSTMORTEM,
 }
 
 # What each retrieval channel is, said so that somebody who has never read the

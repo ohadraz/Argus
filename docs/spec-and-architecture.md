@@ -242,8 +242,10 @@ stateDiagram-v2
     investigating --> mitigating: hypothesis confidence >= threshold
     investigating --> escalated: confidence stays low after N iterations
     mitigating --> resolved: mitigation confirmed
-    mitigating --> fixing: mitigation refuted / not applicable
-    mitigating --> escalated: reversible actions exhausted, still unresolved
+    mitigating --> mitigating: mitigation refuted, another candidate to try
+    mitigating --> investigating: candidates exhausted, rounds remain
+    mitigating --> escalated: action could not be taken at all
+    mitigating --> fixing: no reversible action left to try
     fixing --> resolved: PR opened + target repo's test suite passes against it
     fixing --> escalated: no code-level fix found after N iterations
     resolved --> [*]: postmortem generated
@@ -252,7 +254,9 @@ stateDiagram-v2
 
 Confidence threshold for `investigating → mitigating`: **0.75**. Escalation trigger: **3 failed hypothesis iterations**. Both are named, environment-driven config - the first values to tune against benchmark results (§21).
 
-Every transition is written as a paired `TimelineEvent` row, per the Orchestrator's single-writer rule (§7.1, §11.1).
+`mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. Only `escalated` and `resolved` are terminal.
+
+Every transition is written as a paired `TimelineEvent` row, per the Orchestrator's single-writer rule (§7.1, §11.1). A status is written only when the incident enters it: the timeline is read as the account of where the incident has been, so a status set and overwritten by the next node is never recorded at all.
 
 ## 11. Memory & Data Architecture
 
