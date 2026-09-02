@@ -5,14 +5,12 @@ from collections.abc import Iterator
 import httpx
 import pytest
 
-from tests.e2e.framework.argus import TARGET_SERVICE_BASE_URL
+from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS, TARGET_SERVICE_BASE_URL
 from tests.e2e.framework.flags import (
     every_flag_was_switched_off,
     only_the_shops_own_flag_was_left_in_the_provider,
     the_flag_provider_forgot_every_change,
 )
-
-REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 @pytest.fixture(autouse=True)

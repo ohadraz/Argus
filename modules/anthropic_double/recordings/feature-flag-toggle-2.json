@@ -1,0 +1,50 @@
+{
+  "content": [
+    {
+      "signature": "CAISowIKjgEIERgCKkC+31nisDujksjaE8JumQnt5J303ySz6lwfTlLwDupr70P1qEIJfUplIjewmbc3dTQ7CJcXdXPiKFZck7bV+QTcMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAcK73dQGEgyeFP/i2SHueqRCJKgaDE1oS4oQoi1/GAI4eSIwmEtNUtgAzqMctirFIhSoBSBbZwXOJBKcKiNYGAUUM6H1s0wh8jdAFfXToAyXLsDIKkJVa6JkbYGJoe/1jI97UbYTTQPpTEf5i6YleMi8EOK/0bLRjITcGRQsIWHhuhRERm3E9EAeG72F1AuVY6yb6WwtxNMYAQ==",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01DsFHxTSGw2wn9yqxKHnxH9",
+      "input": {
+        "hypotheses": [
+          {
+            "cause_type": "feature-flag-toggle",
+            "confidence": 0.94,
+            "subject": "monthly-spend-feature','supporting_evidence':[]",
+            "summary": "The feature flag 'monthly-spend-feature' was toggled from off to on at 23:15, and the newly enabled code path throws ZeroDivisionError on the account page, driving the error rate from ~1% to ~35%.",
+            "supporting_evidence": []
+          }
+        ]
+      },
+      "name": "final_answer",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CedaQrbXfPzJdRK4poPDF",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2319
+    },
+    "cache_creation_input_tokens": 2319,
+    "cache_read_input_tokens": 9483,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 223,
+    "output_tokens_details": {
+      "thinking_tokens": 26
+    },
+    "service_tier": "standard"
+  }
+}

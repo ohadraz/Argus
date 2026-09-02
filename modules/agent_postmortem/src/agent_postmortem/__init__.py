@@ -11,7 +11,9 @@ def write_postmortem(incident_id: str) -> dict[str, object]:
     no completeness self-check (design.md Non-Goals)."""
     return {
         "root_cause": STUB_ROOT_CAUSE,
-        "cost_estimate": {"amount_usd": 0, "assumptions": ["stub - no real cost model"]},
+        "customer_loss_estimate_usd": None,
+        "engineer_minutes": None,
+        "tokens_spent": None,
         "assumptions": ["stub - no real evidence gathered"],
         "executive_summary": STUB_EXECUTIVE_SUMMARY,
         "checklist_complete": False,

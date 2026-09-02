@@ -10,11 +10,17 @@ class ChangeKind(StrEnum):
 
     A closed set for the same reason `CauseType` is one: a model weighing a
     deploy against a flag flip needs them to be distinct values it can reason
-    about, not free text that happens to differ. One member today; the flag
-    source is its own change.
+    about, not free text that happens to differ.
+
+    Two members, from the two systems that record a change to what a service
+    does. They stay separate rather than collapsing into "something changed"
+    because what follows differs: a flag toggle has a reversible action behind
+    it and a deploy does not, and the model is asked to weigh one against the
+    other.
     """
 
     DEPLOY = "deploy"
+    FLAG_TOGGLE = "flag-toggle"
 
 
 class ChangeEvent(BaseModel):

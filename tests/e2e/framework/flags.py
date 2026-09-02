@@ -10,7 +10,7 @@ from argus_core.config import get_settings
 from argus_core.models.metrics import MetricBucket
 from argus_testkit import Assertion
 
-from tests.e2e.framework.argus import TARGET_SERVICE_BASE_URL
+from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS, TARGET_SERVICE_BASE_URL
 
 """Asserting on the world Argus acted on, and putting that world back.
 
@@ -23,8 +23,6 @@ Everything takes the webhook's `httpx.Response` for the same reason the rest of
 the e2e framework does - it is what a `Scenario`'s `when` produces - even where
 the assertion does not need it.
 """
-
-REQUEST_TIMEOUT_SECONDS = 10.0
 
 # The provider's own database, published by the Target Environment's compose
 # file. Reached directly because the provider offers no other way back to a
@@ -44,7 +42,8 @@ THE_HUMANS_ADMIN_TOKEN = "*:*.argus-demo-admin-token"
 # its `UNLEASH_FLAG`. Every other flag in the provider was put there by a case -
 # either directly, or by seeding a scenario that stages its own flag - and is
 # this suite's to remove again.
-THE_SHOPS_OWN_FLAG = "monthly-spend-feature"
+THE_DEMO_FLAG = "monthly-spend-feature"
+
 
 # The provider's table of recorded changes, and the event types that record a
 # flag being switched. Internal to the provider, which is why they are named
@@ -206,7 +205,7 @@ def only_the_shops_own_flag_was_left_in_the_provider() -> None:
     version - re-verify on a bump, like every other admin path here.
     """
     for flag in _the_flags_the_provider_holds():
-        if flag != THE_SHOPS_OWN_FLAG:
+        if flag != THE_DEMO_FLAG:
             _delete_flag(flag)
 
 

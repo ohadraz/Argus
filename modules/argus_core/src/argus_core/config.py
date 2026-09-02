@@ -64,16 +64,6 @@ class Settings(BaseSettings):
     # seeing it at all is a silent miss.
     metrics_window_minutes: int = Field(default=360)
 
-    # What counts as a confident answer. Two things read it, and neither is
-    # "may Argus change a flag": the investigation loop, deciding whether to
-    # keep looking before it answers, and everything that needs a human or
-    # cannot be undone - a pull request, a rollback, a page. A reversible
-    # mitigation is admitted by naming a cause, not by clearing a bar; it is
-    # taken alone, confirmed, and put back when it does not help, and gating
-    # that on confidence stops Argus acting on exactly the ambiguous incidents
-    # the walk was built for.
-    mitigate_threshold: float = Field(default=0.75)
-
     # How far back Mitigation looks for the flag change an incident is about.
     # Far shorter than `change_lookback_minutes`, and deliberately so: that one
     # asks "how far back may a cause plausibly lie" for an investigation, where
@@ -97,12 +87,32 @@ class Settings(BaseSettings):
     # `messages.parse` and the real schema transform still run.
     anthropic_base_url: str = Field(default="")
 
-    # How many times the investigation loop may re-read before giving up
-    # (spec §10). Each iteration reaches further back, per the widening
-    # schedule derived from the log window settings above. At least two: the
-    # schedule starts at the initial lookback and ends at the maximum span,
-    # which a single iteration cannot do.
-    investigation_max_iterations: int = Field(default=3, ge=2)
+    # What bounds one investigation once the model, rather than a schedule,
+    # decides what to read. Three of them, because they fail differently and
+    # none implies the others: a model reading three-hour windows is cheap in
+    # calls and ruinous in tokens, one looping on a narrow window is the
+    # reverse, and one frugal in both can still leave a human waiting past the
+    # point the answer was worth having.
+    #
+    # How many retrievals the model may make in total, across every turn.
+    # Counted in calls rather than turns, since a model may ask for several
+    # channels at once. Roughly four times what one round of the schedule this
+    # replaces would read, because the point of the change is that a model
+    # which needs a fourth look may take one.
+    investigation_max_tool_calls: int = Field(default=12, ge=1)
+
+    # The ceiling on what one investigation may cost, both directions summed.
+    # Input dominates: the API is stateless, so every turn resends the whole
+    # transcript, and a conversation's cost grows with the square of its
+    # length. Set from the measured spend of the loop this replaces at its
+    # maximum iterations, with room for the extra turns a tool loop takes -
+    # the worst case is meant to start no worse than what it replaces.
+    investigation_max_tokens: int = Field(default=150_000, ge=1)
+
+    # How long an investigation may run before it is called off, whatever it
+    # has or has not spent. This is the bound that answers to the human
+    # waiting on the incident rather than to the accountant.
+    investigation_max_seconds: float = Field(default=300.0, gt=0.0)
 
     # How many times one incident may be investigated. A round after the first
     # is bought by a refuted attempt, not by a wider window: Argus changed

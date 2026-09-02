@@ -92,11 +92,61 @@ CREATE TABLE IF NOT EXISTS incident_event (
     payload JSONB NOT NULL
 );
 
+-- Every call Argus made out of its own process, kept so a run can be
+-- re-examined without making them again (spec §4 principle 6, §11.1).
+--
+-- Not incident state and not narration. The domain tables hold what Argus
+-- concluded and `incident_event` holds the account a human reads; this holds
+-- the calls themselves, at a granularity nobody reads for pleasure - one row
+-- per model completion or tool call, with both payloads whole. That is what
+-- lets the eval harness re-score a benchmark run offline instead of paying for
+-- it twice.
+--
+-- `seq` for the same reason `incident_event` has one: two calls can share a
+-- timestamp to the microsecond, and the order they were made in is the only
+-- thing that makes a conversation readable back.
+--
+-- Written by the process that made the call, never by an MCP server - the
+-- servers stay pure, as spec §13's boundary requires.
+--
+-- No cost column. No API returns a price, so any figure here would come from a
+-- rate card copied into this repo: right until the vendor moves it, silently
+-- wrong after, and wrong in a column somebody would later sum with confidence.
+-- The token counts are inside `response`, where they are what the model
+-- actually reported, and pricing them is the reader's job at the rate of the
+-- day they ask.
+CREATE TABLE IF NOT EXISTS replay_log (
+    seq BIGSERIAL PRIMARY KEY,
+    id UUID NOT NULL UNIQUE,
+    incident_id UUID NOT NULL REFERENCES incident(id),
+    call_type TEXT NOT NULL,
+    target TEXT NOT NULL,
+    request JSONB NOT NULL,
+    response JSONB NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS postmortem (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
     root_cause TEXT,
-    cost_estimate JSONB,
+    -- Three figures rather than one blob, and three rather than two: what the
+    -- incident cost the business, what it cost the humans, and what it cost
+    -- Argus are different quantities in different units, measured by different
+    -- means. Only the first is an estimate.
+    --
+    -- Columns because the eval tier aggregates them - tokens across a
+    -- benchmark run, minutes across a quarter - and a JSON blob would mean
+    -- re-deriving that at query time, which is the same reason the tables
+    -- beside this one are structured.
+    --
+    -- All nullable: a postmortem written before anyone recorded how long they
+    -- spent is still a postmortem, and a zero would claim nobody spent
+    -- anything.
+    customer_loss_estimate_usd NUMERIC,
+    engineer_minutes INTEGER,
+    tokens_spent INTEGER,
     assumptions JSONB,
     executive_summary TEXT,
     checklist_complete BOOLEAN NOT NULL DEFAULT false,

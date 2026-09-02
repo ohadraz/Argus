@@ -46,7 +46,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 | Correct mitigation | ≥ 80% correct mitigation on single-cause benchmark scenarios |
 | Root cause accuracy | ≥ 70% correct root cause across benchmark suite |
 | Safe autonomy | 0 irreversible actions without human approval, across all test runs |
-| Useful documentation | Postmortem has timeline, root cause, actions taken, and a cost estimate with stated assumptions, for 100% of resolved incidents |
+| Useful documentation | Postmortem has timeline, root cause, actions taken, what the incident cost the business as a stated estimate, and what it cost in engineer minutes and tokens as measurements, for 100% of resolved incidents |
 | Know its limits | Escalates (rather than loops or guesses) on scenarios designed to be unsolvable |
 
 ## 4. Design Principles
@@ -129,8 +129,8 @@ No HTTP surface of its own; `argus_web` (§7.9) calls its entrypoint in-process 
 Responsibilities:
 - Create the `Incident` row and invoke the graph, called by `argus_web`.
 - Run the tier-gate node (§13) before any mutating tool call reaches an MCP server.
-- Own the escalation decision (iteration counter + confidence threshold, both config).
-- Trigger memory-lookup and log-query steps during investigation (§9).
+- Own the escalation decision (the round budget, and whether the investigation named anything left to try).
+- Trigger the memory lookup that seeds an investigation (§9).
 - Sole writer of all incident-domain Postgres state (`Incident.status`, `HYPOTHESIS`, `ACTION`, `TIMELINE_EVENT`, §11.1) - agents propose changes, the Orchestrator persists them, pairing every state mutation with a `TIMELINE_EVENT` row (§10, §11.1).
 
 ### 7.2 Investigator agent
@@ -151,7 +151,7 @@ Owns all Slack writes (creates the incident channel, posts structured status upd
 
 ### 7.6 Postmortem agent
 
-Triggered once on transition into `resolved` or `escalated`. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, cost estimate with assumptions, executive summary. Self-checks against a completeness checklist; retries once with missing fields flagged, then hands off regardless - it must terminate even on partial success. Afterward it writes a summary + embedding to long-term memory (§11.2).
+Triggered once on transition into `resolved` or `escalated`. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, what it cost - one estimate with its assumptions and two measurements (§21.3) - and an executive summary. Self-checks against a completeness checklist; retries once with missing fields flagged, then hands off regardless - it must terminate even on partial success. Afterward it writes a summary + embedding to long-term memory (§11.2).
 
 ### 7.7 Incident view
 
@@ -199,7 +199,7 @@ Several patterns, applied to different sub-problems:
 
 ## 9. The Investigation Loop
 
-The `investigating` phase (§10) looks like one node from outside, but runs a ReAct loop with a fixed first two steps:
+The `investigating` phase (§10) looks like one node from outside, but runs a ReAct loop: a conversation the model drives and the loop bounds, with a fixed opening.
 
 ```mermaid
 flowchart TD
@@ -208,39 +208,42 @@ flowchart TD
     C --> D{Did any minute leave the baseline?}
     D -->|No| K[Exit to escalated: nothing anomalous to explain]
     D -->|Yes| E[Identify onset: earliest minute that left the baseline and stayed there]
-    E --> M[Query get_change_events: wide window ending at onset, read once]
-    M --> F[Query get_log_lines: from before the onset to the alert]
-    F --> G[Form/update hypothesis + confidence]
-    G --> H{Confidence >= threshold?}
-    H -->|Yes| I[Exit to mitigating]
-    H -->|No, iterations remain| J[Widen: the next lookback on the schedule]
-    J --> F
-    H -->|No, iterations exhausted| L[Exit to escalated: insufficient evidence]
+    E --> F[Open the conversation: brief, alert, onset, buckets, what earlier rounds read and tried]
+    F --> G[Model turn]
+    G --> H{What did the turn do?}
+    H -->|Called final_answer| I[Exit to mitigating with ranked candidates]
+    H -->|Asked for evidence| J[Dispatch each call, publish it, append the results]
+    H -->|Neither| J
+    J --> L{Any bound reached?}
+    L -->|No| G
+    L -->|Yes| M[Exit to escalated: insufficient evidence, naming the bound]
 ```
 
-Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-F are the three-channel, windowed retrieval from §16, which keeps this loop from ever reading a full, unbounded log stream.
+Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-E are fixed because the onset is a **measurement, not a decision**: it anchors every window the model can ask for and every later comparison between runs, and a sampled call that locates it differently on a second run makes two investigations of one incident incomparable and the eval suite a measurement of noise. The model is not denied the metrics - it may read them again itself - but it cannot skip the first read or contest what it found. A window in which no minute departs from the baseline has no onset to anchor on and nothing to explain, so the loop exits immediately without asking the model at all: there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
 
-Two of the three channels are read **once, before the loop**, not once per iteration. The metrics summary covers a single fixed span (§16) wider than any log window the loop may ask for, so re-reading it would return the same four numbers a minute and locate the same onset. The change events are read as soon as the onset is known - they need it, since their window ends there - over a span wider still, and there are only ever a handful of rows, so a second read would return the same list at the same cost. Only the *log* window widens. A window in which no minute departs from the baseline has no onset to anchor on and nothing to explain, so it exits immediately without asking the model - there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
+From there **the model chooses**: which of the three channels (§16) to pull, over what window, in what order, and when it has seen enough. It is offered those three retrieval tools and a fourth, `final_answer`, whose input schema is the ranked-hypotheses shape. Calling it is the only typed exit, which keeps the seam impossible to satisfy without producing a verdict, and makes "the model stopped asking and wrote prose" a detectable outcome rather than something to be parsed hopefully - a text-only turn is told it answered nothing and gets another turn if the budget allows one. A call the loop cannot serve - an unknown tool name, an inverted window, a window already read - comes back as a failed tool result the model can correct on its next turn, never as an exception that kills an investigation that has already paid for everything before it.
 
-Widening is not left to the model's sense of dissatisfaction. Low self-reported confidence is one trigger, but an unreliable one - a model that formed a plausible hypothesis from too little evidence reports high confidence and never widens, because it cannot miss what it never saw. The deterministic check is structural: **if the earliest bucket in the metrics window is already anomalous, the incident began before the window did**, so the onset located there is only a *lower bound* and the first log window provably did not contain the incident's start. Read literally, that condition says there is no calm stretch on screen to serve as a baseline - which is the same thing. It reads off the metrics summary the loop already has, not off the model's introspection.
+Termination is the loop's, in **three independent bounds**: tool calls, cumulative tokens, and wall-clock seconds. They fail differently and none implies the others - a model reading three-hour windows is cheap in calls and ruinous in tokens, one looping on a narrow window is the reverse, and one frugal in both can still leave a human waiting past the point the answer was worth having. Bounding only the calls, the tempting single knob, bounds the least expensive of the three. Each is checked between turns and none is expressed to the model, because a bound it could ask to extend is not a bound. When the tool-call bound is one turn from binding the model is told so on the tool result it is already reading, so it can spend that turn answering from what it has instead of asking for evidence it will never be shown; that is a hint, and the loop cuts at the bound whatever the model does with it.
 
-That check does not decide *whether* to widen - low confidence already does, and the metrics window is one fixed span, so the condition cannot change between iterations. It decides **whether a confident answer is believed**: when the onset is only a lower bound, the first answer costs one widening before the loop accepts it. That is the one guard in the system against a *confidently wrong* verdict, which is otherwise undetectable by construction - the model reports certainty about evidence it was never shown, and no confidence threshold can catch it. A confident answer reached before the budget ran out is held, not discarded: if every wider look comes back unsure, that finding is still the best thing the investigation learned, and reporting "no cause" over it would misdescribe Argus's own evidence.
+A model that reads what it has already read learns nothing and pays a turn for it, so **a window served once is refused the second time** rather than fetched again, with the refusal saying so. The metrics the loop read itself count as read, since those minutes are in the opening message. What was read is also what the investigation reports alongside its candidates, so a later round - bought by a refutation, not by a wider window - is told what the round before it saw, and so that a channel nobody asked for stays distinguishable from one that was asked and came back empty.
 
-The change-event channel (§16) attacks the same problem from the other side: deploys and configuration changes are read as structured rows over a span far wider than any log window, rather than hoped for inside one. It does not retire the acceptance rule. A change is a candidate to judge against the symptoms, never proof, and the channel is legitimately silent about causes it does not cover - a flag toggle is diagnosed from log prose. There the loop is once again a model reading the tail of an incident whose start it never saw, and one widening remains the price of being believed. Widening does not re-read the changes; it reaches the log window further back, which is where the prose tying a candidate change to the symptoms lives.
+**The onset is sometimes only a lower bound**, and the model is told when it is. The check is structural rather than introspective: if the earliest bucket in the metrics window is already anomalous, the incident began before the window did, so the onset located there is a floor and a window anchored on it may not contain the cause. Read literally, that condition says there is no calm stretch on screen to serve as a baseline - which is the same thing. It matters because the failure it guards against is undetectable from the model's own report: one that formed a plausible hypothesis from too little evidence reports high confidence, because it cannot miss what it was never shown. Stating the lower bound as a fact in the opening message is what lets the model know to reach further back; no confidence threshold could tell it.
 
-How far each iteration reaches is not stepped into either - it is a **schedule derived up front** from the initial lookback, the maximum span and the iteration budget, as a geometric progression from the first to the last. With the shipped defaults (30, 180, 3) that is 30, 73, 180 minutes. Small steps first because causes cluster near the onset; the long reach last. Deriving it up front is what makes the final iteration land *exactly* on the maximum span, so "the onset predates everything retrievable" is a conclusion the loop can actually reach rather than a branch no run ever takes - which is what a step-and-clamp rule (double each time, stop at the ceiling) silently produces whenever the budget or the ceiling is reconfigured.
+The change-event channel (§16) attacks the same problem from the other side: deploys and configuration changes are read as structured rows over a span far wider than any log window, rather than hoped for inside one. A change is a candidate to judge against the symptoms, never proof, and the channel is legitimately silent about causes it does not cover - a flag toggle is diagnosed from log prose, which is why reaching further back in the *logs* is what ties a candidate change to the symptoms. Spending the whole budget on one channel is permitted: requiring a spread would be re-imposing a fixed sequence under another name, and the incident that changes alone explain is exactly the case this loop exists to allow.
 
 "Anomalous" throughout means *relative to the service's own calm baseline in the same window* (§16), never a fixed error rate or latency. A service that normally sits at 8% errors is not permanently on fire, and one that normally sits at 0.5% should not have to reach 10% before Argus notices. An absolute threshold would also duplicate - and eventually contradict - the threshold the operator already configured in their own alerting tool, which is what fired the alert in the first place.
 
-Exhaustion is a real outcome, not a formality. When the iteration budget or the maximum span runs out without a hypothesis clearing the threshold, the loop exits to `escalated` carrying "insufficient evidence" - never a hypothesis manufactured to fill the field. "Argus could not determine the cause" must be expressible and must be distinguishable from a confident answer, both because a human picking up the incident needs to know which one they were handed, and because a widening trigger built on confidence has nothing truthful to read otherwise.
+Exhaustion is a real outcome, not a formality. When a bound binds before `final_answer` is called, the loop exits to `escalated` carrying "insufficient evidence" - one candidate with no cause and no confidence, never a hypothesis manufactured to fill the field - and the summary **names every bound that ran out**. "I ran out of time" and "I read everything I was allowed to and still could not tell" are different accounts of the same escalation and call for different things from the human who picks it up, and which one they hear must not depend on the order the checks happen to be written in.
+
+The price of the model driving retrieval is that non-determinism moves into the control flow, not just the answer: two runs of the same incident can read different evidence, so a bug can reproduce intermittently. The transcript is the mitigation, which is why every retrieval and its result is published as it happens (§4 principle 6, §11.1) rather than reconstructed afterwards.
 
 ## 10. Incident State Machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> investigating: webhook received
-    investigating --> mitigating: hypothesis confidence >= threshold
-    investigating --> escalated: confidence stays low after N iterations
+    investigating --> mitigating: a named cause worth trying
+    investigating --> escalated: budget spent, or nothing left to try
     mitigating --> resolved: mitigation confirmed
     mitigating --> mitigating: mitigation refuted, another candidate to try
     mitigating --> investigating: candidates exhausted, rounds remain
@@ -252,7 +255,7 @@ stateDiagram-v2
     escalated --> [*]: postmortem generated (partial) + human paged
 ```
 
-Confidence threshold for `investigating → mitigating`: **0.75**. Escalation trigger: **3 failed hypothesis iterations**. Both are named, environment-driven config - the first values to tune against benchmark results (§21).
+What admits the walk is a *named* cause, not a confident one: a reversible mitigation taken alone, confirmed against the service and put back when it does not help costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
 
 `mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. Only `escalated` and `resolved` are terminal.
 
@@ -326,7 +329,9 @@ erDiagram
         uuid id PK
         uuid incident_id FK
         text root_cause
-        jsonb cost_estimate
+        numeric customer_loss_estimate_usd
+        int engineer_minutes
+        int tokens_spent
         jsonb assumptions
         text executive_summary
         bool checklist_complete
@@ -339,8 +344,7 @@ erDiagram
         jsonb request
         jsonb response
         int latency_ms
-        numeric cost_usd
-        timestamp ts
+        timestamp at
     }
 ```
 
@@ -442,7 +446,7 @@ Every action is tiered, which determines how much autonomy the agent has:
 | Read-only | query logs, read Slack, read code | Fully autonomous |
 | Reversible mitigation | toggle flag back, roll back deploy | Autonomous, but announced in Slack immediately + logged, with an explicit "undo" recorded |
 | Irreversible / high blast radius | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
-| Give up / escalate | confidence stays below threshold after N iterations, or no reversible action resolves the alert | Autonomous - pages a human with full context, doesn't keep guessing |
+| Give up / escalate | the investigation's budget binds before it names a cause, or no reversible action resolves the alert | Autonomous - pages a human with full context, doesn't keep guessing |
 
 Enforced redundantly at four layers:
 
@@ -508,26 +512,28 @@ Unbounded logs are slow and a poor use of context, so retrieval is windowed in t
 
 | Channel | Question | Window | Read |
 | --- | --- | --- | --- |
-| `get_metrics_summary` | *When* did it start? | one fixed, wide span around `T0` | once |
-| `get_change_events` | *What changed?* | `[onset - change_lookback, onset]` | once |
-| `get_log_lines` | What did the service say? | `[onset - lookback, T0]` | once per iteration, widening |
+| `get_metrics_summary` | *When* did it start? | one fixed, wide span around `T0` | once by the loop, before the model's first turn; again only if the model asks |
+| `get_change_events` | *What changed?* | defaults to `[onset - change_lookback, onset]` | whenever the model asks, over the window it names |
+| `get_log_lines` | What did the service say? | defaults to `[onset - lookback, T0]` | whenever the model asks, over the window it names |
 
 **Time window.** The metrics and log phases anchor differently, because they cost differently. Metrics are pre-aggregated - one minute is four numbers - so the summary is fetched wide around the alert timestamp `T0`, spanning the full configured maximum. What it yields is the incident's *onset*: the first minute whose values break from baseline **and stay broken**. Log lines are expensive, so they are fetched over a window that *starts* before that onset rather than around `T0` - an alert fires when a threshold trips, which can be well after the incident began, so a window centred on `T0` can miss the causal change entirely. The cheap phase aims the expensive one.
 
-The window **ends at `T0`**. The onset is inferred from a noisy signal and can be wrong; the alert is the one moment the service is known to have been unhealthy. A window closing a few minutes past a mislocated onset is unrecoverable - every widening reaches further back from a minute nothing happened in, and never towards the minutes somebody complained about - where a window closing at `T0` turns the same mistake into extra log lines. The maximum span still binds, and it is the *start* that gives way to it: the end of this window is the half known to be inside the incident.
+The window **ends at `T0`**. The onset is inferred from a noisy signal and can be wrong; the alert is the one moment the service is known to have been unhealthy. A window closing a few minutes past a mislocated onset is unrecoverable - every wider look reaches further back from a minute nothing happened in, and never towards the minutes somebody complained about - where a window closing at `T0` turns the same mistake into extra log lines. The maximum span still binds, and it is the *start* that gives way to it: the end of this window is the half known to be inside the incident.
 
 **Onset means a departure that persisted.** A single minute above the threshold is not an incident: an incident is a state the service is in, so it is still there the minute after, where a lone departed measurement has by then already recovered. Anchoring on one points the whole investigation at a minute nothing happened in. So the onset is the first minute of a run that lasts, and a run still going when the window ends counts however short it is - an incident that began a minute ago has not failed to persist, it has yet to be given the chance.
 
 **The threshold is measured against the quiet stretch's own worst minutes**, not against its average one. The two agree on a continuous signal and disagree completely on a sampled one: an error rate measured over a few hundred requests a minute is quantised into steps, so most quiet minutes report the identical figure, the average deviation between them is zero, and a threshold built on it collapses onto the baseline - at which point every ordinary minute reads as the incident starting. Reading the spread off the top of the calm stretch instead keeps the rule relative, and keeps it honest about how much a quiet service actually moves.
 
-Only the log window iterates, and only at its start: widening reaches further back, while the end stays at `T0`. The metrics window is fixed at the configured maximum span and stays there - narrowing the cheap signal would hide the very onset it exists to find, and it is small enough that there is no reason to be stingy. The log window's initial lookback is config, setting the *first* iteration only; later iterations choose their own (§9), bounded by that same maximum span the server enforces, so widening cannot degenerate into a full dump. The risk is asymmetric - too wide wastes context, too narrow loses the evidence silently - so these are tunable per benchmark scenario rather than hardcoded.
+**The windows are the model's; the bounds are not.** A retrieval tool takes either end of its window, both, or neither, and what the model leaves out defaults: the log window to the configured lookback before the onset through to `T0`, the change window to the configured lookback ending at the onset. Naming only where to start says something real - read from here to wherever you would have stopped - so neither end is made mandatory to restate an anchor the model was already given.
+
+Two bounds hold whatever it asks for. A log window wider than the maximum span is **clamped at its start**, for the reason above, and the clamp is stated in the tool result: a model that asked for three hours, silently got one, and found nothing would read the absence of evidence as evidence of absence. And a window whose end precedes its start, or whose instants do not parse, comes back as a correctable failure rather than an empty result, since an empty result is a conclusion. The metrics window is not the model's at all - it is fixed at the configured maximum span, because narrowing the cheap signal would hide the very onset it exists to find, and it is small enough that there is no reason to be stingy. The risk is asymmetric - too wide wastes context, too narrow loses the evidence silently - so the lookbacks and the ceiling are tunable per benchmark scenario rather than hardcoded.
 
 **The three channels:**
 1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first: it locates the onset the other two anchor on.
 2. `get_change_events(service, window)` - the deploys and configuration changes recorded for the service, as structured rows.
 3. `get_log_lines(window, filters)` - raw lines from before the onset the summary located through to the alert.
 
-**Why changes are their own channel.** A symptom is a rate; a cause is an *event*, and the lag between the two is unbounded. A deploy that exhausts a connection pool may take an hour to show as errors, and no log lookback is reliably the right one - widening buys log noise linearly while the changes stay a handful of rows however far back the window reaches. So they are queried directly, over a span deliberately wider than the log ceiling (a cross-field invariant enforces `change_lookback_minutes > log_max_window_minutes`, since a change window no wider than the logs' could surface nothing the logs did not).
+**Why changes are their own channel.** A symptom is a rate; a cause is an *event*, and the lag between the two is unbounded. A deploy that exhausts a connection pool may take an hour to show as errors, and no log lookback is reliably the right one - a wider log window buys noise linearly while the changes stay a handful of rows however far back the window reaches. So they are queried directly, over a span deliberately wider than the log ceiling (a cross-field invariant enforces `change_lookback_minutes > log_max_window_minutes`, since a change window no wider than the logs' could surface nothing the logs did not).
 
 That window **ends at the onset**, not at `T0` and not at "now": a change made after the incident began did not begin it. This is where the change channel and the log channel part company - the log window runs on to `T0` because the service kept talking about the incident throughout, while a change recorded during it is by definition not its cause.
 
@@ -537,9 +543,11 @@ Parsing a vendor's response into change events is deterministic code, never a mo
 
 **Why the log phase takes a window and not a list of anomalous minutes.** Scoping log retrieval to the minutes the summary flagged is wrong: it can only ever return symptoms. A cause is a point-in-time *event* - a flag flipped, a version deployed - and the error rate reacts to it a minute or more later, so the causal line sits in a minute that still looks perfectly healthy and would be excluded by exactly the filter meant to find it. Anomalous minutes tell you *when* to look; the window is what reaches back *before* them. This is also why the log window anchors on onset rather than on the loudest bucket.
 
-All three live in `argus-read-mcp` (§12.1) - autonomy tier is a property of the server, so the Investigator gains a `fetch_change_events` seam and never learns which vendor answers it. Windowing and filtering are the server's responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic. One change source per change type: deploys come from Argo CD's revision history, flag flips from the flag provider's audit log.
+Retrieval belongs to `argus-read-mcp` (§12.1) - autonomy tier is a property of the server, so the Investigator gains a `fetch_change_events` seam and never learns which vendor answers it. Windowing and filtering are the server's responsibility, not the adapter's - the port only guarantees "return the log"; not every backend (e.g. a filesystem or S3 adapter) could support server-side filtering, so the logic stays centralized and adapter-agnostic. One change source per change type: deploys come from Argo CD's revision history, flag flips from the flag provider's audit log.
 
-The Investigator's default path (§9): aggregate → locate onset → read what changed before it → read a narrow window anchored on it - never a full dump.
+Where a provider serves its own history only to a credential that can also write - as Unleash serves its audit log to admin tokens alone - that source is read through the write tier instead, and the two histories are merged behind the same seam. This bends the placement, not the boundary: reading is strictly less than the write tier can already do, and the claim the split makes is that the *read* process cannot mutate. The alternative - a token that can change flags, held by the read-only server - would trade a placement for the guarantee itself.
+
+The Investigator's opening (§9) is always the same: aggregate → locate onset → state it. What it reads after that is its own, and every window it can name is bounded - never a full dump.
 
 ## 17. Model Selection Per Task
 
@@ -719,20 +727,26 @@ A library of scripted chaos scenarios injected into the Target Environment (§15
 - **Root-cause accuracy** (does the cause match ground truth?)
 - **Mitigation correctness** (right action for the actual cause)
 - **Wasted actions** (incorrect hypotheses tested before the correct one)
+- **Tokens spent** (per incident, counted from the replay log rather than estimated, and split by what was read from cache rather than sent)
 - **False positive rate** (mitigating something that wasn't the cause)
 - **Escalation precision/recall** (escalates exactly when it should?)
 - **PR fix quality** (does the patch make the injected-bug test pass?)
-- **Postmortem completeness** (timeline, root cause, cost estimate, assumptions present)
+- **Postmortem completeness** (timeline, root cause, what it cost, assumptions present)
 
 ### 21.3 Cost/impact estimation methodology
 
 Kept transparent and simple rather than falsely precise:
 ```
 affected_users ≈ error_count_during_incident / baseline_error_rate_delta
-customer_cost_estimate ≈ affected_users × avg_revenue_per_user × incident_duration_hours × impact_weight
-internal_cost_estimate ≈ engineer_hours_involved × loaded_hourly_rate + agent_compute_cost
+customer_loss_estimate_usd ≈ affected_users × avg_revenue_per_user × incident_duration_hours × impact_weight
 ```
 Label these clearly as **estimates with stated assumptions** in the postmortem - grade postmortems on whether assumptions are disclosed, not on numeric "accuracy" (there's no ground-truth dollar figure).
+
+What the response itself cost is reported rather than estimated, as two measured figures: `engineer_minutes` and `tokens_spent`. Neither is converted to a currency. A loaded hourly rate belongs to the organisation reading the postmortem and a token price belongs to the vendor, so a dollar total would age badly - and putting one beside `customer_loss_estimate_usd` would make a measured number look like an estimate and the estimate look measured.
+
+So a postmortem carries three quantities in three units, not one figure: what the incident cost the business, what it cost the people who responded, and what it cost Argus. They are stored as three columns rather than one document because the eval tier aggregates them - tokens across a benchmark run, minutes across a quarter - and because merging them would require exactly the two rates this section declines to invent.
+
+Tokens earn their place beside the minutes because they separate two things a single total merges: an incident that was expensive because it was genuinely hard to diagnose, and one that was expensive because the investigation went round more times than it needed to.
 
 ### 21.4 Evaluation harness (implementation)
 
@@ -765,7 +779,7 @@ The evaluator consumes the §11.1 Postgres tables directly, plus the Target Serv
 | 5 | Slack integration | Reads hints, posts updates, creates/manages incident channel |
 | 6 | Code-Fix agent (RAG + PR) | Given an unresolved-by-mitigation incident, finds relevant code and opens a draft PR |
 | 7 | Long-term memory + retrieval | Past incidents retrievable and used to seed new investigations |
-| 8 | Postmortem + executive summary generation | Full doc with timeline, root cause, cost estimate |
+| 8 | Postmortem + executive summary generation | Full doc with timeline, root cause, what it cost |
 | 9 | Incident view | A live incident's walk + the history, served by the Web Application (§7.7, §7.9) |
 | 10 | Benchmark suite + evaluation run | All §21.1 scenarios scripted and run, metrics collected |
 | 11 | Dockerized deployment (Railway or similar) | One-command deploy, demo-ready |
@@ -788,7 +802,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Metrics | OTLP for emission, Prometheus-compatible query API for reads (§12) | OTLP is a real emission standard; Prometheus's query API is the closest thing to a de facto read standard |
 | Logs | Target Service HTTP log endpoint, windowed retrieval (§16) | No standard exists; dumb full-log endpoint keeps windowing logic in `argus-read-mcp`, not the adapter, so other backends (filesystem, S3) stay swappable without filtering support |
 | Change events | Argo CD's application API for deploys, one source per change type, mapped to a vendor-neutral `ChangeEvent` (§16) | A cause is an event, not a rate, and can precede its symptoms by an unbounded lag - no log lookback reaches it reliably. Parsing is deterministic code, never a model: a hallucinated deploy is a fabricated cause |
-| Confidence thresholds | Mitigation ≥ 0.75, escalate after 3 failed iterations (§10) | Empirically tunable, but named config from day one |
+| Investigation bounds | Three independent budgets - tool calls, cumulative tokens, wall-clock seconds - enforced by the loop and never expressed to the model (§9) | They fail differently and none implies the others; a bound the model could ask to extend is not a bound |
 | Repository structure | `uv` workspace, one `pyproject.toml` per module (§20) | Independent versioning/deployment inside one repo |
 | Testing discipline | TDD in Argus's own repo - the coding agent never writes/edits/deletes tests there (§18.3). Separately, the runtime Code-Fix agent writes tests freely in the Target Service repo, except one protected ground-truth fixture (§13) | Two distinct rules, two agents, two reasons: development process integrity vs. evaluation grading integrity |
 | Model selection | Per-task model class, spread across free-tier providers (§17) | Matches call volume/reasoning needs and avoids one provider's rate limit stalling a demo |
@@ -800,7 +814,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 - LLM cost/latency of multiple agent hops per incident - consider caching and scenario replay for the benchmark suite (§21.4) so eval runs don't re-spend tokens, and load-test per-incident latency for the live demo path (webhook → resolution) specifically, not just the benchmark re-run path.
 - How much of the windowing strategy (§16) generalizes if a future adapter swaps Prometheus, Argo CD or the Target Service's log endpoint for something else (CloudWatch, Elasticsearch, S3) - the ports-and-adapters design (§12) is meant to allow this, and the `jsonb` adapter-config shape (§11.3) is meant to make it schema-free, but no second adapter has been built to validate either claim.
 - Alert ingestion needs to accept any reasonable third-party format (Grafana, Datadog, PagerDuty, a team's own webhook, ...) without a hand-written parser per vendor - this isn't ports-and-adapters (§12), since Argus doesn't choose who sends it alerts. The intended mechanism is LLM-based structured extraction at the `argus_web` boundary: a single, non-agentic LLM call that fills in the `Alert` domain model's schema from the raw payload, validated by the model itself - not a ReAct loop. Not yet built - the walking-skeleton change deliberately ships one hardcoded, deterministic parser (Grafana's format) to prove the graph/DB wiring first, without also taking on LLM-extraction-reliability risk in the same change. Generic ingestion is real, tracked future work, likely its own follow-up change once the skeleton lands.
-- The confidence-threshold numbers in §10 (0.75 to mitigate, escalate after 3 failed iterations) are testable, not fixed - expect to tune them against real benchmark results (§21).
+- The investigation's three budgets (§9) and the round budget (§10) are testable, not fixed - expect to tune them against real benchmark results (§21). The token ceiling in particular is set from a measured worst case rather than derived, and how often it binds is itself a metric the eval suite reports.
 - Whether MCP (§12) vs. a simpler internal tool-calling layer was right for the course timeline - worth a retrospective once a few MCP servers are built; either satisfies the "Tools/MCP" requirement, but the tradeoff is easier to judge with real implementation experience.
 - Alert ingestion needs to accept any reasonable third-party format
   (Grafana, Datadog, PagerDuty, a team's own webhook, ...) without a hand-written parser per vendor - this isn't ports-and-adapters (§12), since Argus doesn't choose who sends it alerts. The intended mechanism is LLM-based structured extraction at the `argus_web` boundary: a single, non-agentic LLM call that fills in the `Alert` domain model's schema from the raw payload, validated by the model itself - not a ReAct loop. Generic ingestion is real, tracked future work, likely its own follow-up change once the skeleton lands.

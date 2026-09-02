@@ -60,7 +60,12 @@ def typecheck(session: nox.Session) -> None:
     """
     Registers `typecheck` as a nox session, i.e., runnable via `uv run python -m nox -s typecheck`.
     Runs mypy --strict (via pyproject.toml's `[tool.mypy]`) on the entire modules/
-    directory. Skips gracefully if no modules exist yet. Uses `--all-packages` so
+    directory and on the cross-module suites in tests/. Both, because a test is
+    code: the assertions a suite makes about a type are worth as much as the
+    type, and a helper that quietly stopped matching what it stands in for is a
+    test passing for the wrong reason. Each module ships a `py.typed`, which is
+    what lets a suite outside `modules/` see its types rather than an opaque
+    `Any`. Skips gracefully if no modules exist yet. Uses `--all-packages` so
     every workspace member's dependencies are installed regardless of what a prior
     plain `uv sync`/`uv run` happened to resolve (without it, mypy can spuriously
     report "Cannot find implementation or library stub" for a dependency that's
@@ -68,7 +73,10 @@ def typecheck(session: nox.Session) -> None:
     """
     if not MODULES:
         session.skip("no modules/ yet - nothing to type-check")
-    session.run("uv", "run", "--all-packages", "python", "-m", "mypy", "modules", external=True)
+    session.run(
+        "uv", "run", "--all-packages", "python", "-m", "mypy", "modules", "tests",
+        external=True
+    )
 
 @nox.session
 @nox.parametrize("module", MODULES)
@@ -155,7 +163,10 @@ def integration(session: nox.Session) -> None:
     `uv run python -m nox -s integration`.
     Runs the cross-module tests in root `tests/integration/`, with the Anthropic
     double up so the real LLM adapter is exercised end to end against recorded
-    responses.
+    responses. Postgres comes up too, but from the suite's own `conftest.py`
+    rather than from here: it is the one dependency the tests state for
+    themselves, and a session that started it would be starting it for the
+    files that do not need it as well.
 
     Free and keyless by design, which is why it is separate from `e2e` rather
     than a step inside it: every answer is replayed from a stored recording, so
@@ -177,10 +188,12 @@ def integration(session: nox.Session) -> None:
 def eval_(session: nox.Session) -> None:
     """
     Registers `eval` as a nox session, i.e., runnable via `uv run python -m nox -s eval`.
-    Runs the evals: fixed evidence against the real model, asserting on the
-    `cause_type` it picks. These judge the *model*, not Argus's plumbing, so
-    they need a real `ANTHROPIC_API_KEY` and spend tokens on every run - which
-    is why they are their own session and never part of `test_all`.
+    Runs the evals: fixed evidence against the real model, scored as a pass
+    rate over what it concludes and what it chose to read to conclude it. These
+    judge the *model*, not Argus's plumbing, so they need a real
+    `ANTHROPIC_API_KEY` and spend tokens on every run - a whole tool-use
+    investigation per sample - which is why they are their own session and
+    never part of `test_all`.
 
     The function is `eval_` because `eval` is a Python builtin. nox does not
     strip the underscore, so the session name is set explicitly on the

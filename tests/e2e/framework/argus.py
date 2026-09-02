@@ -6,7 +6,10 @@ from typing import Any
 
 import httpx
 import psycopg
+from agent_investigator.tools import ANSWER_TOOL
+from anthropic_double import recordings
 from argus_core.config import get_settings
+from argus_core.llm.adapters.anthropic_adapter import TOOL_USE_TYPE
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, all_of
 from orchestrator.repository import hypotheses, incidents, postmortems, timeline
@@ -29,13 +32,21 @@ ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 
 WEBHOOK_PATH = "/webhooks/alerts"
 
-# A real investigation is up to `investigation_max_iterations` model calls,
-# each one adaptive thinking at high effort. Argus answers in seconds when it
-# is confident on the first pass; this bound is what "the loop ran out of
-# iterations" looks like in wall-clock time, not the expected duration.
-A_GENEROUS_MODEL_CALL_SECONDS = 90
-AN_INVESTIGATION_TIMEOUT_SECONDS = (
-    get_settings().investigation_max_iterations * A_GENEROUS_MODEL_CALL_SECONDS
+REQUEST_TIMEOUT_SECONDS = 10.0
+
+# An investigation is bounded by `investigation_max_seconds`, but the budget is
+# only consulted between turns - a model call already in flight runs to
+# completion past it. So the wall-clock worst case is that bound plus one call,
+# each one adaptive thinking at high effort. Argus answers in seconds when it is
+# confident on the first pass; this is what "the investigation ran out of time"
+# looks like, not the expected duration.
+GENEROUS_MODEL_CALL_SECONDS = 90
+INVESTIGATION_TIMEOUT_SECONDS = int(
+    get_settings().investigation_max_seconds + GENEROUS_MODEL_CALL_SECONDS
+)
+MITIGATION_TIMEOUT_SECONDS = (
+    INVESTIGATION_TIMEOUT_SECONDS
+    + get_settings().mitigation_verification_timeout_seconds
 )
 
 # A walk tries its candidates one at a time, and each one waits out the
@@ -47,11 +58,19 @@ AN_INVESTIGATION_TIMEOUT_SECONDS = (
 # minutes of a suite sitting on a failure before reporting it. A run that
 # somehow exceeds this is a slow failure either way; a bound nobody waits for is
 # not a safety net.
-A_WALK_TIMEOUT_SECONDS = int(
-    AN_INVESTIGATION_TIMEOUT_SECONDS
+WALK_TIMEOUT_SECONDS = int(
+    INVESTIGATION_TIMEOUT_SECONDS
     + get_settings().investigation_max_candidates
     * get_settings().mitigation_verification_timeout_seconds
 )
+
+# The recordings that answer for the model, by the names they are stored under
+# in modules/anthropic_double/recordings/.
+RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
+RECORDED_BAD_DEPLOYMENT = "bad-deployment"
+RECORDED_FALLBACK_DISABLED = "fallback-disabled"
+RECORDED_ABSENCE_OF_EVIDENCE = "no-evidence"
+RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
 
 
 def argus_is_triggered_with_alert(
@@ -71,7 +90,7 @@ def argus_is_triggered_with_alert(
         return httpx.post(
             f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
             json=payload,
-            timeout=A_WALK_TIMEOUT_SECONDS,
+            timeout=WALK_TIMEOUT_SECONDS,
         )
 
     return step
@@ -240,12 +259,12 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
     `name-2`, `name-3` - so the answers were always there to serve; nothing
     served them in order.
 
-    The last one repeats until reset rather than running out, because the
-    investigation loop asks the model between one and
-    `investigation_max_iterations` times depending on what it retrieved. Seeding
-    a fixed count would couple every e2e case to the current iteration budget.
-    How many times the model was asked is asserted in the Investigator's own
-    unit tests, where it is free.
+    Whether the last one repeats is `_repeats_for`'s to decide, and it turns on
+    whether that answer ended the investigation. A verdict repeats, because how
+    many rounds the walk takes depends on the live service rather than on what
+    was recorded; a retrieval does not, because repeating one is never an
+    answer. How many times the model was asked is asserted in the
+    Investigator's own unit tests, where it is free.
 
     Resets first, because a seed from an earlier case answers until it is
     cleared, and a test whose verdict came from the previous test's recording
@@ -268,12 +287,39 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
 
             response = control.post(
                 "/double-control/seed",
-                json={"recording": answers[-1], "repeat": None},
+                json={"recording": answers[-1], "repeat": _repeats_for(answers[-1])},
             )
 
         return response.status_code == HttpStatus.OK
 
     return step
+
+
+def _repeats_for(recording: str) -> int | None:
+    """How many times the last recorded answer may be served.
+
+    For ever is right only when that answer ends an investigation: a verdict
+    answers a second round the same way, which is what lets a case replay
+    without knowing how many rounds the walk will take - and how many it takes
+    depends on the live service recovering, not on what was recorded.
+
+    A retrieval repeated is never an answer. The run re-reads one window until
+    its budget is spent and reports "insufficient evidence", which reads as a
+    prompt problem rather than as the short recording it is. Seeded once
+    instead, the queue runs dry and the double says so in one response.
+
+    Which kind it is, is read from the turn's content and not from its
+    `stop_reason`, which cannot tell them apart: ending the investigation is
+    itself a tool call, so a verdict and a log read both stop for the same
+    reason. Terminality is Argus's vocabulary, not the API's.
+    """
+    called = [
+        block.get("name")
+        for block in recordings.load(recording).get("content", [])
+        if block.get("type") == TOOL_USE_TYPE
+    ]
+
+    return None if not called or ANSWER_TOOL in called else 1
 
 
 def _the_answers_recorded_for(recording: str, control: httpx.Client) -> list[str]:

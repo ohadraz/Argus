@@ -27,6 +27,19 @@ it.
 The distinction from `some_`: a `some_` value is expected to show up somewhere
 later in the test; a `dont_care_` value never is.
 
+**Ask what the test reads, not what the value looks like.** A value can look
+load-bearing and still be `dont_care_`. In a test that a message carrying only
+speech asks for no tool, the speech is `dont_care_what_it_said` - the property
+under test comes from the *builder* (a message that only spoke has no tool-call
+block, whatever string it holds), so no string could change the outcome.
+Naming it `some_no_tool_request` would claim the content is doing work it is
+not, which is exactly the confusion these prefixes exist to remove.
+
+The test to apply: could any other value of this type fail the assertion? If
+not, it is `dont_care_`, however meaningful it reads. And if the answer is yes
+- text shaped like a tool call that must still not become one - that is a
+different test, with a `some_` value, and it deserves its own name.
+
 **`a_`/`an_` - builders.** A function that constructs a test object or value is
 named as an indefinite article phrase, so call sites read as prose.
 

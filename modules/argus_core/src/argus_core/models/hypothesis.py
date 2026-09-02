@@ -41,7 +41,12 @@ class Hypothesis(BaseModel):
     incident_id: UuidStr
     summary: str
     cause_type: CauseType | None
-    confidence: float | None
+    # A probability, so it lives on the scale probabilities live on. Declared
+    # here because it is the only place it can be: the answer tool's schema
+    # cannot carry `minimum` and `maximum` - a strict tool schema rejects
+    # bounds on a number - so a model writing 1.4 is refused on the way into
+    # the domain rather than on the way out of the API.
+    confidence: float | None = Field(ge=0.0, le=1.0)
     supporting_evidence: list[str]
     subject: str | None = None
     # Where this hypothesis came in the investigation's own ordering, best

@@ -11,6 +11,18 @@ dependencies = [
     "anthropic>=1.0",
 ]
 
+# `test_module` resolves each module against its own dependencies alone, so a
+# test helper this module's suite imports has to be declared here or it is
+# simply absent on CI, however well-populated the local workspace venv is.
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
+]
+
+
+[tool.uv.sources]
+argus-argus_testkit = { workspace = true }
+
 
 [build-system]
 requires = ["hatchling"]

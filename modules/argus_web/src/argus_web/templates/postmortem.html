@@ -33,14 +33,15 @@
 </ul>
 {% endif %}
 
-{% if postmortem.cost_estimate %}
-<h2>Cost</h2>
+<h2>What it cost</h2>
 <ul class="cost">
-{% for name, value in postmortem.cost_estimate.items() %}
-  <li><span class="name">{{ name }}</span> {{ value }}</li>
-{% endfor %}
+  <li><span class="name">customer loss (estimated)</span>
+    {{ postmortem.customer_loss_estimate_usd if postmortem.customer_loss_estimate_usd is not none else 'not estimated' }}</li>
+  <li><span class="name">engineer minutes</span>
+    {{ postmortem.engineer_minutes if postmortem.engineer_minutes is not none else 'not recorded' }}</li>
+  <li><span class="name">tokens spent</span>
+    {{ postmortem.tokens_spent if postmortem.tokens_spent is not none else 'not recorded' }}</li>
 </ul>
-{% endif %}
 
 <p class="checklist" data-complete="{{ 'true' if postmortem.checklist_complete else 'false' }}">
   Checklist {{ "complete" if postmortem.checklist_complete else "incomplete" }}

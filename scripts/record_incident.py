@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
 import psycopg
+from anthropic_double.recordings import RECORDINGS_DIR
 from argus_core.config import get_settings
 from argus_core.timestamps import to_iso
 
@@ -145,15 +148,56 @@ def _drive_one_incident(service: str, alert_name: str) -> str:
     return str(response.json().get("incident_id", "unknown"))
 
 
-def _recorded_names(name: str) -> list[str]:
-    with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
-        available = control.get("/double-control/state").json()
+def _the_set_named(name: str) -> list[Path]:
+    """Every file one recording's answers are stored across, in answer order.
 
-    return [
-        recording
-        for recording in available.get("available_recordings", [])
-        if recording == name or recording.startswith(f"{name}-")
+    A recording is not one file: a walk takes as many turns as it takes, and
+    each answer is stored beside the last under a numbered name. The digits
+    are checked rather than just the prefix, because two recordings can share
+    one - `feature-flag-toggle-red-herring` is not the fourth answer of
+    `feature-flag-toggle`.
+    """
+    belonging = [
+        path
+        for path in RECORDINGS_DIR.glob(f"{name}*.json")
+        if path.stem == name or path.stem[len(name) + 1:].isdigit()
     ]
+
+    # By the number rather than by the name: the first answer carries no digits
+    # at all, and sorting the rest as text would put a tenth answer second.
+    return sorted(belonging, key=lambda path: int(path.stem[len(name) + 1:] or 1))
+
+
+def _discard_what_was_not_answered_again(name: str, started_at: float) -> list[Path]:
+    """Deletes the answers of the previous recording this run did not replace.
+
+    Not housekeeping - correctness. `save` overwrites one file at a time, so a
+    walk that ends in two turns leaves the third through eighth answers of the
+    walk before it exactly where they were, and the double serves them: the
+    replayed investigation reads six answers to questions this recording never
+    asked, and escalates on evidence from another incident. The failure is
+    silent both ways round, because a longer new recording overwrites the lot
+    and looks fine.
+
+    Done after the run rather than before it, and by what the run actually
+    wrote. Clearing up front is the same mistake in the other direction: an
+    incident that never reaches the model - one escalated on retrieval alone,
+    which is a real path and a tested one - records nothing, and a store
+    emptied in advance of it loses a recording that no rerun can put back.
+
+    Returns what it deleted, so a run can say so rather than leaving the
+    difference between "this walk was shorter" and "your store just lost six
+    files" to be noticed later.
+    """
+    stale = [
+        path
+        for path in _the_set_named(name)
+        if path.stat().st_mtime < started_at
+    ]
+    for path in stale:
+        path.unlink()
+
+    return stale
 
 
 def main() -> int:
@@ -166,7 +210,12 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("name", help="what to store the recording as")
-    parser.add_argument("scenario", help="the Target Service scenario to stage first")
+    parser.add_argument(
+        "scenario",
+        nargs="?",
+        help="the Target Service scenario to stage first; omit to stage nothing, "
+             "which is how the absence-of-evidence recording is captured",
+    )
     parser.add_argument("--service", default="io-shop")
     parser.add_argument("--alert-name", default="HighErrorRate")
     parser.add_argument(
@@ -181,13 +230,27 @@ def main() -> int:
     else:
         _arm_the_double(arguments.name)
 
-    _stage(arguments.scenario)
+    # Read before anything is written, and from the clock the files are stamped
+    # by: what makes an answer stale is that this run did not write it, and
+    # every comparison after this point is against this moment.
+    started_at = time.time()
+
+    if arguments.scenario:
+        _stage(arguments.scenario)
+
     incident_id = _drive_one_incident(arguments.service, arguments.alert_name)
 
-    print(f"incident [{incident_id}] drove scenario [{arguments.scenario}]")
+    print(f"incident [{incident_id}] drove scenario [{arguments.scenario or 'none'}]")
 
     if not arguments.replay:
-        print(f"recorded: {', '.join(_recorded_names(arguments.name)) or 'nothing'}")
+        discarded = _discard_what_was_not_answered_again(arguments.name, started_at)
+        written = [path.stem for path in _the_set_named(arguments.name)]
+        print(f"recorded: {', '.join(written) or 'nothing'}")
+        if discarded:
+            print(
+                f"discarded: {', '.join(path.stem for path in discarded)} "
+                f"- answers of a longer walk this run did not need"
+            )
 
     print("timeline:")
     for entry in _the_timeline_of(incident_id):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from functools import partial
 from typing import Any, Protocol
 
@@ -31,13 +31,20 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus, status_after
+from argus_core.models.reading import Reading
+
+# `records_nothing` is aliased because `events` and `replay` each call their
+# no-op sink `nobody`, correctly and for the same reason - and this module
+# holds both.
+from argus_core.replay import Recorder
+from argus_core.replay import nobody as records_nothing
 from argus_core.timestamps import to_iso
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
-from orchestrator.publishing import record_event
+from orchestrator.publishing import record_call, record_event
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
 
@@ -50,9 +57,10 @@ class Investigate(Protocol):
         # seams between these and `incident_id`. A protocol that allowed them
         # positionally would be describing a call nothing can make.
         *,
-        resume_from: int = 0,
-        already_refuted: list[Attempt] | None = None,
+        already_read: Sequence[Reading] | None = None,
+        already_refuted: Sequence[Attempt] | None = None,
         publisher: Publisher = nobody,
+        recorder: Recorder = records_nothing,
     ) -> Findings: ...
 
 
@@ -407,6 +415,7 @@ def investigator_node(
     investigate: Investigate = _investigate,
     record_hypothesis: RecordHypothesis = _record_hypothesis,
     publisher: Publisher = nobody,
+    recorder: Recorder = records_nothing,
 ) -> dict[str, Any]:
     """Forms a hypothesis, records every candidate it considered, and reports
     whether any of them is worth acting on (spec §7.2, §10).
@@ -429,10 +438,14 @@ def investigator_node(
         # Investigator's account of what it read and this node's account of
         # what it did are one narration instead of two.
         publisher=publisher,
+        # The same handing-down for the receipts. The agent's own default
+        # records nowhere, which is right for a unit test and wrong for a run
+        # nobody can afford to repeat.
+        recorder=recorder,
         # Both empty on a first round. On a later one they are what makes the
-        # round worth paying for: where to pick the widening schedule up, and
-        # what has already been tried and did not help.
-        resume_from=state.resume_from,
+        # round worth paying for: what earlier rounds already read, and what has
+        # already been tried and did not help.
+        already_read=state.already_read,
         already_refuted=state.attempts,
     )
     # Routing reads the best answer, as it always has. The rest are what the
@@ -468,8 +481,9 @@ def investigator_node(
         "hypothesis": hypothesis,
         "candidates": findings.candidates,
         "candidate_index": next_up[0] if next_up is not None else 0,
-        "can_widen": findings.can_widen,
-        "resume_from": findings.resumes_from,
+        # Everything read across this incident, not only this round's, so a
+        # third round is told about the first as well as the second.
+        "already_read": [*state.already_read, *findings.already_read],
         "rounds": state.rounds + 1,
         "confidence": hypothesis.confidence,
         "nothing_worth_trying": nothing_worth_trying,
@@ -903,7 +917,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[In
     graph.add_node(
         "investigator",
         deciding_status(
-            partial(investigator_node, publisher=record_event), Actor.INVESTIGATOR
+            partial(investigator_node, publisher=record_event, recorder=record_call),
+            Actor.INVESTIGATOR
         ),
     )
     graph.add_node(

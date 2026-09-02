@@ -7,6 +7,7 @@ from .alert import Alert
 from .attempt import Attempt
 from .hypothesis import Hypothesis
 from .incident_status import IncidentStatus
+from .reading import Reading
 
 
 class IncidentState(BaseModel):
@@ -31,11 +32,12 @@ class IncidentState(BaseModel):
     # investigation as evidence - it is the one thing a second round knows that
     # the first could not.
     attempts: list[Attempt] = []
-    # Whether a further, wider investigation would read anything new, and where
-    # it would start. Both come from the investigation itself, which owns the
-    # widening schedule.
-    can_widen: bool = False
-    resume_from: int = 0
+    # What earlier rounds of this incident retrieved - which channel, over which
+    # window. Carried so that a later round can be told what the one before it
+    # saw: it may read the same window again, since that evidence is not in its
+    # own transcript, but it should know it would be re-reading rather than
+    # reaching somewhere new.
+    already_read: list[Reading] = []
     # How many times this incident has been investigated. What bounds the walk,
     # because what buys a later round is the refutation rather than the window:
     # an attempt that failed is evidence no amount of reading produces, and a

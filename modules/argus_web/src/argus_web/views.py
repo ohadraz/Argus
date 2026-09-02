@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from hashlib import sha256
 from typing import assert_never
 
@@ -12,6 +13,7 @@ from argus_core.events import (
     AlertAcknowledged,
     AwaitingRecovery,
     ChangesRetrieved,
+    ChannelsUnread,
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
@@ -174,7 +176,9 @@ class PostmortemView(BaseModel):
     writes and the incident detail beside it is polled every two seconds."""
 
     root_cause: str | None
-    cost_estimate: dict[str, object] | None
+    customer_loss_estimate_usd: Decimal | None
+    engineer_minutes: int | None
+    tokens_spent: int | None
     assumptions: list[str] | None
     executive_summary: str | None
     checklist_complete: bool
@@ -443,7 +447,9 @@ def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
     """Shapes the postmortem row for transport."""
     return PostmortemView(
         root_cause=postmortem.root_cause,
-        cost_estimate=postmortem.cost_estimate,
+        customer_loss_estimate_usd=postmortem.customer_loss_estimate_usd,
+        engineer_minutes=postmortem.engineer_minutes,
+        tokens_spent=postmortem.tokens_spent,
         assumptions=postmortem.assumptions,
         executive_summary=postmortem.executive_summary,
         checklist_complete=postmortem.checklist_complete,
@@ -850,6 +856,18 @@ def _a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = (
                 f"Read the flag provider's history - "
                 f"{recent} recent flag change{'s' if recent != 1 else ''}"
+            )
+        case ChannelsUnread():
+            who = _INVESTIGATOR
+            # Said out loud because the page cannot show it any other way: a
+            # channel nobody asked for leaves exactly the same gap as one that
+            # was read and had nothing in it, and a reader who cannot tell
+            # them apart cannot tell an incomplete investigation from an
+            # inconclusive one.
+            unread = ", ".join(channel.value for channel in event.channels)
+            text = (
+                f"Did not read {unread}" if event.channels
+                else "Read every channel available"
             )
         case OnsetDetected():
             who = _INVESTIGATOR

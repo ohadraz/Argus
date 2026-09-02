@@ -3,8 +3,9 @@ from __future__ import annotations
 from argus_core.db import connect
 from argus_core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
 from argus_core.models.alert import Alert
+from argus_core.replay import ReplayEntry
 
-from orchestrator.repository import events
+from orchestrator.repository import events, replay
 
 """The one subscriber the event stream has.
 
@@ -27,6 +28,22 @@ def record_event(event: IncidentEvent) -> None:
     to raise, and the seam is what makes that harmless."""
     with connect() as conn:
         events.record(conn, event)
+
+
+def record_call(entry: ReplayEntry) -> None:
+    """Persists one call Argus made out of its own process.
+
+    The replay log's subscriber, and the same arrangement as `record_event`
+    beside it: `argus_core` says what an entry is and how it is handed over,
+    and this side - which already holds a database connection - is the only
+    thing that knows where it goes.
+
+    Called only through `argus_core.replay.record`, which catches and drops a
+    failure here. So this is free to raise: a receipt that could not be filed
+    must not take down the investigation it was describing.
+    """
+    with connect() as conn:
+        replay.record(conn, entry)
 
 
 def acknowledge_alert(incident_id: str,

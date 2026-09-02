@@ -5,12 +5,15 @@ from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
-from argus_core.config import get_settings
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Scenario, all_of, eventually
 
 from tests.e2e.framework.argus import (
+    INVESTIGATION_TIMEOUT_SECONDS,
+    MITIGATION_TIMEOUT_SECONDS,
+    RECORDED_BAD_DEPLOYMENT,
+    RECORDED_FLAG_TOGGLE,
     TARGET_SERVICE_BASE_URL,
     about_the_hypothesis,
     argus_ended_with_status,
@@ -19,6 +22,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import (
+    THE_DEMO_FLAG,
     another_flag_was_toggled_on,
     the_flag_provider_forgot_every_change,
     the_flag_provider_reports,
@@ -64,31 +68,7 @@ by a recording, so it would pass replayed and fail live - a test that reports
 which harness ran it rather than what Argus does.
 """
 
-# The recordings that answer for the model, by the names they are stored under
-# in modules/anthropic_double/recordings/.
-A_RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
-A_RECORDED_BAD_DEPLOYMENT = "bad-deployment"
-
-
-# A real investigation is up to `investigation_max_iterations` model calls,
-# each one adaptive thinking at high effort. Argus answers in seconds when it
-# is confident on the first pass; this bound is what "the loop ran out of
-# iterations" looks like in wall-clock time, not the expected duration.
-A_GENEROUS_MODEL_CALL_SECONDS = 90
-AN_INVESTIGATION_TIMEOUT_SECONDS = (
-    get_settings().investigation_max_iterations * A_GENEROUS_MODEL_CALL_SECONDS
-)
-
-# Mitigation waits for a metric minute that began after its action before it
-# will call a hypothesis confirmed, so an incident that mitigates takes at
-# least a minute longer than one that only investigates.
-A_MITIGATION_TIMEOUT_SECONDS = (
-    AN_INVESTIGATION_TIMEOUT_SECONDS
-    + get_settings().mitigation_verification_timeout_seconds
-)
-
-THE_DEMO_FLAG = "monthly-spend-feature"
-AN_UNRELATED_FLAG = "an-unrelated-feature"
+SOME_UNRELATED_FLAG = "an-unrelated-feature"
 
 
 @pytest.mark.e2e
@@ -109,7 +89,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
     Scenario() \
         .given(
             _a_feature_flag_was_toggled_on(),
-            the_model_answers_from(A_RECORDED_FLAG_TOGGLE),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE),
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -125,7 +105,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
                     the_service_returned_to_baseline(),
                 ),
-                timeout=A_MITIGATION_TIMEOUT_SECONDS,
+                timeout=MITIGATION_TIMEOUT_SECONDS,
             )
         )
 
@@ -158,7 +138,7 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
     Scenario() \
         .given(
             _a_bad_version_was_deployed(),
-            the_model_answers_from(A_RECORDED_BAD_DEPLOYMENT),
+            the_model_answers_from(RECORDED_BAD_DEPLOYMENT),
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -172,7 +152,7 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
                     ),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                 ),
-                timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
+                timeout=INVESTIGATION_TIMEOUT_SECONDS,
             )
         )
 
@@ -205,7 +185,7 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
         .given(
             _a_feature_flag_was_toggled_on(),
             the_flag_provider_forgot_every_change,
-            the_model_answers_from(A_RECORDED_FLAG_TOGGLE),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE),
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -218,7 +198,7 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
                     # reason to stop, not a reason to try it and see.
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),
                 ),
-                timeout=AN_INVESTIGATION_TIMEOUT_SECONDS,
+                timeout=INVESTIGATION_TIMEOUT_SECONDS,
             )
         )
 
@@ -243,8 +223,8 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
     Scenario() \
         .given(
             _a_feature_flag_was_toggled_on(),
-            another_flag_was_toggled_on(AN_UNRELATED_FLAG),
-            the_model_answers_from(A_RECORDED_FLAG_TOGGLE),
+            another_flag_was_toggled_on(SOME_UNRELATED_FLAG),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE),
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -257,10 +237,10 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
                     # Untouched. Naming one flag is not licence to tidy the
                     # other, and a second revert would be a production change
                     # nothing diagnosed.
-                    the_flag_provider_reports(AN_UNRELATED_FLAG, enabled=True),
+                    the_flag_provider_reports(SOME_UNRELATED_FLAG, enabled=True),
                     the_service_returned_to_baseline(),
                 ),
-                timeout=A_MITIGATION_TIMEOUT_SECONDS,
+                timeout=MITIGATION_TIMEOUT_SECONDS,
             )
         )
 

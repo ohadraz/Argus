@@ -86,7 +86,19 @@ def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypo
 
 
 def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypothesis | None:
-    """The most recent hypothesis formed for an incident.
+    """The best answer of the most recent investigation of an incident.
+
+    Rank first, then recency - not recency alone. A verdict is written one
+    candidate per transaction, best first, so the newest row of an investigation
+    is its *weakest* alternative, the one that names no cause at all. Ordering
+    by time alone therefore answers "what did Argus conclude?" with the reading
+    it explicitly ranked last, and does so most confidently exactly when the
+    model offered the most alternatives.
+
+    Rank alone would be no better: an incident investigated a second time has
+    two candidates ranked first, and the earlier one has already been refuted.
+    Recency breaks that tie, which leaves this reading the newest round's best
+    answer under both.
 
     `created_at` orders the rows but is not selected: it is an audit fact the
     table records, and nothing in the domain reads it.
@@ -97,7 +109,7 @@ def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypoth
             "       supporting_evidence, subject, rank, tested, result "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
-            "ORDER BY created_at DESC "
+            "ORDER BY rank, created_at DESC "
             " LIMIT 1",
             (incident_id,),
         )

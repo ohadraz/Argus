@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Protocol
@@ -140,6 +141,25 @@ class ChangesRetrieved(_Event):
     changes: list[ChangeEvent]
 
 
+class ChannelsUnread(_Event):
+    """The channels an investigation never asked about.
+
+    Absence is the one thing an append-only account cannot state by itself. A
+    channel nobody asked for and a channel that was read and came back empty
+    leave the same silence behind, and they mean opposite things: the first is
+    a gap in the investigation, the second is a finding about the service. A
+    reader inferring that from what is *missing* would have to know what could
+    have been there, and be right about it.
+
+    Published once, when the investigation ends, because that is the first
+    moment "never asked" is true of anything - mid-run, every unread channel is
+    only unread so far.
+    """
+
+    kind: Literal["channels-unread"] = "channels-unread"
+    channels: list[RetrievalChannel]
+
+
 class OnsetDetected(_Event):
     """The minute the incident is judged to have started, named as the bucket
     it was found in."""
@@ -255,6 +275,7 @@ type IncidentEvent = Annotated[
         | MetricsRetrieved
         | LogsRetrieved
         | ChangesRetrieved
+        | ChannelsUnread
         | FlagChangesRetrieved
         | OnsetDetected
         | HypothesisFormed
@@ -317,3 +338,34 @@ def publish(event: IncidentEvent, publisher: Publisher = nobody) -> None:
     except Exception:
         _logger.warning("could not publish %s for incident %s",
                         type(event).__name__, event.incident_id, exc_info=True)
+
+
+class Narrator:
+    """Everything one incident says about itself, in one place.
+
+    A component that narrates does two things at every step: name the incident
+    the event belongs to, and hand it to whoever is listening. Both are the
+    same for every event it will ever publish, so both are said once here
+    rather than at each call - which is what keeps an incident id from being
+    threaded through every function that has something to report.
+
+    Nothing here can fail: `publish` swallows a subscriber's exception, and a
+    narrator with no publisher reaches nobody by design. A component holding
+    one behaves identically whether or not anybody is listening (spec §4
+    principle 6), and that is easiest to guarantee when the ordinary default is
+    that nobody is.
+    """
+
+    def __init__(self, incident_id: str, publisher: Publisher = nobody) -> None:
+        self._incident_id = incident_id
+        self._publisher = publisher
+
+    def say(self, event: Callable[..., IncidentEvent], **about: Any) -> None:
+        """Publishes one event about this incident.
+
+        The event type is passed rather than an instance, so that the incident
+        it belongs to is supplied here and cannot be omitted or got wrong at a
+        call site. `about` is the rest of that event's own fields, and it is
+        the event's model that validates them - this is a seam, not a schema.
+        """
+        publish(event(incident_id=self._incident_id, **about), self._publisher)

@@ -6,6 +6,11 @@ requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core",
     "argus-read_mcp_client",
+    # For the flag provider's audit log, which is the change channel's second
+    # source. Read-only, and on the write client only because the provider
+    # serves its history to admin credentials - which `argus-read-mcp` holds
+    # none of, by design.
+    "argus-write_mcp_client",
 ]
 
 
@@ -18,6 +23,7 @@ dev = [
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
 argus-read_mcp_client = { workspace = true }
+argus-write_mcp_client = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

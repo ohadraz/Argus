@@ -1,5 +1,10 @@
 {
   "permissions": {
+    "allow": [
+      "Read(.claude/HANDOVER.md)",
+      "Edit(.claude/HANDOVER.md)",
+      "Write(.claude/HANDOVER.md)"
+    ],
     "deny": [
       "Edit(tests/**)",
       "Edit(**/tests/**)"

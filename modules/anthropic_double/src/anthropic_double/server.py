@@ -134,10 +134,13 @@ class _State:
     def next_recording_name(self) -> str:
         """Names successive recordings in one record-mode run.
 
-        The investigation loop makes up to `investigation_max_iterations`
-        calls, and each one is a distinct response worth keeping - so the
-        second and later calls get a numbered suffix rather than overwriting
-        the first.
+        A tool-using investigation is a conversation, and each of its turns is
+        a separate request with its own response - so the second and later
+        responses get a numbered suffix rather than overwriting the first.
+
+        How many there are is the model's to decide rather than a configured
+        count: it keeps asking for evidence until it answers or the loop's
+        budget stops it.
         """
         assert self.record_as is not None
         self.recorded += 1

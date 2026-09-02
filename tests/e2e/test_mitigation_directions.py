@@ -5,22 +5,23 @@ from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
-from argus_core.config import get_settings
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Scenario, all_of, eventually
 
 from tests.e2e.framework.argus import (
-    A_WALK_TIMEOUT_SECONDS,
-    AN_INVESTIGATION_TIMEOUT_SECONDS,
+    MITIGATION_TIMEOUT_SECONDS,
+    RECORDED_FALLBACK_DISABLED,
+    RECORDED_FLAG_TOGGLE_RED_HERRING,
     TARGET_SERVICE_BASE_URL,
+    WALK_TIMEOUT_SECONDS,
     about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.flags import the_flag_provider_reports
+from tests.e2e.framework.flags import THE_DEMO_FLAG, the_flag_provider_reports
 from tests.framework.assertions import the_cause_was_identified_as
 
 """Mitigation against a real provider, in both directions and both outcomes.
@@ -40,16 +41,6 @@ flag state, so nothing here asserts on what Argus reported about itself. The
 provider's own answer about the flag is the evidence.
 """
 
-A_RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
-A_RECORDED_FALLBACK_DISABLED = "fallback-disabled"
-
-
-A_MITIGATION_TIMEOUT_SECONDS = (
-    AN_INVESTIGATION_TIMEOUT_SECONDS
-    + get_settings().mitigation_verification_timeout_seconds
-)
-
-THE_DEMO_FLAG = "monthly-spend-feature"
 THE_FALLBACK_FLAG = "legacy-checkout-fallback"
 
 
@@ -71,7 +62,7 @@ def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
     Scenario() \
         .given(
             _a_fallback_flag_was_switched_off(),
-            the_model_answers_from(A_RECORDED_FALLBACK_DISABLED)
+            the_model_answers_from(RECORDED_FALLBACK_DISABLED)
 
         ) \
         .when(
@@ -83,7 +74,7 @@ def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
                     argus_ended_with_status(IncidentStatus.RESOLVED),
                     the_flag_provider_reports(THE_FALLBACK_FLAG, enabled=True),
                 ),
-                timeout=A_MITIGATION_TIMEOUT_SECONDS,
+                timeout=MITIGATION_TIMEOUT_SECONDS,
             )
         )
 
@@ -119,7 +110,7 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
     Scenario() \
         .given(
             _a_flag_was_toggled_but_is_not_the_cause(),
-            the_model_answers_from(A_RECORDED_FLAG_TOGGLE),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING),
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -133,7 +124,7 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),
                 ),
-                timeout=A_WALK_TIMEOUT_SECONDS,
+                timeout=WALK_TIMEOUT_SECONDS,
             )
         )
 
