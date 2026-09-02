@@ -80,4 +80,4 @@ fail, and only then writing the code under it.
 - [x] 8.2 `integration`, and `e2e_replay` in the background.
 - [x] 8.3 Spec §7.6 and §21.3 updated to the estimate this actually computes -
       a revenue rate, not a user count - per the `spec-doc-style` skill.
-- [ ] 8.4 One-line commit, approved before it is made.
+- [x] 8.4 One-line commit, approved before it is made.
