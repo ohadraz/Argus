@@ -60,11 +60,26 @@ window closes SHALL NOT be offered.
 - **WHEN** the change channel is read
 - **THEN** the flag history is asked for changes since that instant
 
-### Requirement: An unreadable change source fails the investigation
+## MODIFIED Requirements
 
-The system SHALL raise when any change source cannot be read, and SHALL NOT report an
-unreadable source as a source that was read and found empty. "Nothing changed" is a
-conclusion acted upon, and it MUST NOT be reachable by failing to look.
+### Requirement: An unreachable change source is an error, not an empty answer
+The system SHALL fail loudly when any change source cannot be reached or answers with an
+error, and SHALL NOT report "no changes" in that case. Silence and absence are opposite
+facts, and reporting one as the other would let an outage become evidence that nothing
+changed. This SHALL hold for every source the channel reads, so that adding one cannot
+quietly turn a failure into an empty history.
+
+#### Scenario: An unreachable source raises rather than returning nothing
+- **GIVEN** a change source that cannot be reached
+- **WHEN** change events are requested
+- **THEN** the request fails with an error naming the unreachable source, and
+  no empty result is produced
+
+#### Scenario: An error response is not mistaken for an empty history
+- **GIVEN** a change source answering with an error status
+- **WHEN** change events are requested
+- **THEN** the request fails, and the failure is distinguishable from a window
+  that genuinely contained no changes
 
 #### Scenario: The flag history cannot be read
 - **GIVEN** a flag provider that cannot be reached

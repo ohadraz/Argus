@@ -23,7 +23,7 @@ first service whose logging is quieter.
 
 ## Impact
 
-- **Affected specs**: `investigator-change-retrieval`
+- **Affected specs**: `change-event-retrieval`
 - **Affected code**: `argus_core.models.change_event`, `agent_investigator.retrieval`,
   `modules/agent_investigator/pyproject.toml`
 - **Not affected**: the read tier's own change source, the dispatcher, the tool schema.
