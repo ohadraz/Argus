@@ -201,6 +201,7 @@ def _an_incident(alert: Alert | None = None) -> Incident:
         slack_channel_id=None,
         pr_url=None,
         created_at=datetime(2026, 8, 30, 10, 15, tzinfo=UTC),
+        ended_at=None
     )
 
 

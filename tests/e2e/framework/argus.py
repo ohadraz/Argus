@@ -6,13 +6,12 @@ from typing import Any
 
 import httpx
 import psycopg
-from agent_investigator.tools import ANSWER_TOOL
-from anthropic_double import recordings
+from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from argus_core.config import get_settings
-from argus_core.llm.adapters.anthropic_adapter import TOOL_USE_TYPE
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.replay import CallType
 from argus_testkit import Assertion, all_of
-from orchestrator.repository import hypotheses, incidents, postmortems, timeline
+from orchestrator.repository import hypotheses, incidents, postmortems, replay, timeline
 
 """Talking to a running Argus stack, and asserting on what it did.
 
@@ -71,6 +70,11 @@ RECORDED_BAD_DEPLOYMENT = "bad-deployment"
 RECORDED_FALLBACK_DISABLED = "fallback-disabled"
 RECORDED_ABSENCE_OF_EVIDENCE = "no-evidence"
 RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
+RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
+
+
+# Not arbitrary! the Target Service names itself in its own log
+THE_SERVICE_NAME = "io-shop"
 
 
 def argus_is_triggered_with_alert(
@@ -230,10 +234,32 @@ def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx.Response]:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
-            if postmortems.get_by_incident(conn, incident_id) is None:
-                raise AssertionError(
-                    f"No postmortem exists for incident [{incident_id}]."
-                )
+            postmortem = postmortems.get_by_incident(conn, incident_id)
+
+        if postmortem is None:
+            raise AssertionError(f"No postmortem exists for incident [{incident_id}].")
+
+        # What separates a real postmortem from the stub that stood here: prose
+        # the model wrote about this incident, and a token count only the
+        # replay log could have supplied.
+        if not postmortem.root_cause or not postmortem.executive_summary:
+            raise AssertionError(
+                f"Postmortem for [{incident_id}] carries no prose: "
+                f"root cause [{postmortem.root_cause!r}], "
+                f"summary [{postmortem.executive_summary!r}].")
+
+        if postmortem.tokens_spent is None:
+            raise AssertionError(
+                f"Postmortem for [{incident_id}] reports no tokens spent, so nothing "
+                f"counted what the incident cost.")
+
+        spent_before_the_postmortem = _tokens_spent_excluding_postmortem(incident_id)
+
+        if postmortem.tokens_spent != spent_before_the_postmortem:
+            raise AssertionError(
+                f"Postmortem for [{incident_id}] reports [{postmortem.tokens_spent}] "
+                f"tokens spent, and its replay log adds up to "
+                f"[{spent_before_the_postmortem}].")
 
         return True
 
@@ -259,12 +285,12 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
     `name-2`, `name-3` - so the answers were always there to serve; nothing
     served them in order.
 
-    Whether the last one repeats is `_repeats_for`'s to decide, and it turns on
-    whether that answer ended the investigation. A verdict repeats, because how
-    many rounds the walk takes depends on the live service rather than on what
-    was recorded; a retrieval does not, because repeating one is never an
-    answer. How many times the model was asked is asserted in the
-    Investigator's own unit tests, where it is free.
+    Every answer is served once, in order. Nothing repeats: the postmortem's
+    answer sits behind the verdict, and a seed that answered twice would park
+    at the head of the queue and hand the verdict to the call that comes after
+    it. A replay that wants more answers than were recorded therefore runs the
+    queue dry and fails saying so, rather than quietly re-deriving the walk it
+    already took.
 
     Resets first, because a seed from an earlier case answers until it is
     cleared, and a test whose verdict came from the previous test's recording
@@ -277,49 +303,16 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
     def step() -> bool:
         with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
-            answers = _the_answers_recorded_for(recording, control)
 
-            for answered_once in answers[:-1]:
+            for answered_once in _the_answers_recorded_for(recording, control):
                 control.post(
                     "/double-control/seed",
                     json={"recording": answered_once, "repeat": 1},
                 ).raise_for_status()
 
-            response = control.post(
-                "/double-control/seed",
-                json={"recording": answers[-1], "repeat": _repeats_for(answers[-1])},
-            )
-
-        return response.status_code == HttpStatus.OK
+        return True
 
     return step
-
-
-def _repeats_for(recording: str) -> int | None:
-    """How many times the last recorded answer may be served.
-
-    For ever is right only when that answer ends an investigation: a verdict
-    answers a second round the same way, which is what lets a case replay
-    without knowing how many rounds the walk will take - and how many it takes
-    depends on the live service recovering, not on what was recorded.
-
-    A retrieval repeated is never an answer. The run re-reads one window until
-    its budget is spent and reports "insufficient evidence", which reads as a
-    prompt problem rather than as the short recording it is. Seeded once
-    instead, the queue runs dry and the double says so in one response.
-
-    Which kind it is, is read from the turn's content and not from its
-    `stop_reason`, which cannot tell them apart: ending the investigation is
-    itself a tool call, so a verdict and a log read both stop for the same
-    reason. Terminality is Argus's vocabulary, not the API's.
-    """
-    called = [
-        block.get("name")
-        for block in recordings.load(recording).get("content", [])
-        if block.get("type") == TOOL_USE_TYPE
-    ]
-
-    return None if not called or ANSWER_TOOL in called else 1
 
 
 def _the_answers_recorded_for(recording: str, control: httpx.Client) -> list[str]:
@@ -362,3 +355,31 @@ def _the_order_it_was_answered_in(name: str) -> int:
     _, _, suffix = name.rpartition("-")
 
     return int(suffix) if suffix.isdigit() else 1
+
+
+def _tokens_spent_excluding_postmortem(incident_id: str) -> int:
+    """Every token the incident spent up to the moment it was written up.
+
+    The postmortem's own calls are left out, and have to be: it counts what
+    the incident cost before asking the model to describe it, so its own
+    conversation is not part of the figure it reports. Which calls those are is
+    read from the tools each request offered - an incident that never reached a
+    model at all then adds up to nothing, which is a measurement rather than a
+    gap.
+    """
+    with psycopg.connect(DATABASE_URL) as conn:
+        entries = replay.get_by_incident(conn, incident_id)
+
+    return sum(
+        entry.response.get("input_tokens", 0)
+        + entry.response.get("output_tokens", 0)
+        + entry.response.get("cache_read_tokens", 0)
+        + entry.response.get("cache_write_tokens", 0)
+        for entry in entries
+        if entry.call_type == CallType.LLM and not _asked_for_a_postmortem(entry.request)
+    )
+
+
+def _asked_for_a_postmortem(request: dict[str, Any]) -> bool:
+    return any(tool.get("name") == SUBMIT_TOOL_NAME
+               for tool in request.get("tools", []))

@@ -13,7 +13,13 @@ CREATE TABLE IF NOT EXISTS incident (
     status TEXT NOT NULL,
     slack_channel_id TEXT,
     pr_url TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- When the incident stopped being one, stamped on the transition that
+    -- ended it. Null while it is still being worked - which `fixing` is,
+    -- however terminal it reads. How long an incident lasted is reported
+    -- rather than derived, because deriving it from the last row written
+    -- would make it an accident of what happened to be logged last.
+    ended_at TIMESTAMPTZ
 );
 
 -- `id` keeps its default for hand-written rows, but the application supplies

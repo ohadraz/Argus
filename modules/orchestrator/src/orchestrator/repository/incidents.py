@@ -20,6 +20,10 @@ class Incident(BaseModel):
     slack_channel_id: str | None
     pr_url: str | None
     created_at: datetime
+    # Absent while the incident is still being worked, which is a state it
+    # spends most of its life in and `fixing` keeps it in despite reading like
+    # an ending.
+    ended_at: datetime | None
 
 
 def create(conn: psycopg.Connection, alert: Alert) -> str:
@@ -58,9 +62,25 @@ def transition(
     For a status the incident is actually entering. Work that is worth recording
     and moved nothing goes to `record_note` instead - see there for why the two
     are separate.
+
+    A transition into a terminal status also stamps `ended_at`, in the same
+    statement rather than in a second one: the two facts are one event, and a
+    status written without its time would leave an incident that has ended
+    looking like one still running.
+
+    `now()` rather than a time the caller supplies - the database already
+    stamps `created_at`, and a duration measured between two clocks is a
+    duration measuring the difference between them.
     """
+    ends_the_incident = to_status.is_terminal()
+
     with conn.cursor() as cursor:
-        cursor.execute("UPDATE incident SET status = %s WHERE id = %s", (to_status, incident_id))
+        cursor.execute(
+            "UPDATE incident "
+            "   SET status = %s, ended_at = CASE WHEN %s THEN now() ELSE ended_at END "
+            " WHERE id = %s",
+            (to_status, ends_the_incident, incident_id),
+        )
         cursor.execute(
             "INSERT INTO timeline_event "
             "(incident_id, to_status, actor, action, result, confidence) "
@@ -111,7 +131,7 @@ def get_recent(conn: psycopg.Connection) -> list[Incident]:
     """
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at "
+            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at, ended_at "
             "  FROM incident "
             "ORDER BY created_at DESC"
         )
@@ -140,7 +160,7 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
 
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at "
+            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at, ended_at "
             "  FROM incident "
             "ORDER BY status = ANY(%s), created_at DESC "
             " LIMIT 1",
@@ -152,7 +172,7 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
 def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at "
+            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at, ended_at "
             "  FROM incident "
             " WHERE id = %s",
             (incident_id,),

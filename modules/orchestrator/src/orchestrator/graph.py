@@ -11,7 +11,7 @@ from agent_investigator import Findings
 from agent_investigator import investigate as _investigate
 from agent_mitigation import Action, Outcome, Verdict, propose_action, take_action
 from agent_mitigation.tools import fetch_recent_flag_changes, utc_now
-from agent_postmortem import write_postmortem
+from agent_postmortem import PostmortemDocument
 from argus_core.config import get_settings
 from argus_core.db import connect
 from argus_core.events import (
@@ -44,6 +44,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
+from orchestrator.postmortem import write_postmortem_for
 from orchestrator.publishing import record_call, record_event
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
@@ -124,6 +125,16 @@ class TransitionIncident(Protocol):
     ) -> None: ...
 
 
+class WritePostmortem(Protocol):
+    # Positional-only: the incident is all this is called with, and the real
+    # one carries a recorder behind it that a stand-in has no use for.
+    def __call__(self, incident_id: str, /) -> PostmortemDocument: ...
+
+
+class RecordPostmortem(Protocol):
+    def __call__(self, incident_id: str, document: PostmortemDocument, /) -> None: ...
+
+
 class RecordNote(Protocol):
     # The same narration a transition carries, minus the one thing that makes a
     # transition one. A node that has something to say and moved nothing says it
@@ -193,6 +204,11 @@ def _record_action(
             outcome=outcome,
             undo_descriptor=undo_descriptor,
         )
+
+
+def _record_postmortem(incident_id: str, document: PostmortemDocument) -> None:
+    with connect() as conn:
+        postmortems.record(conn, incident_id, document.model_dump(mode="json"))
 
 
 class Narration(BaseModel):
@@ -858,11 +874,27 @@ def _why_a_human_is_needed(state: IncidentState) -> str:
     return "escalating: there was no action Argus could take on this incident"
 
 
-def postmortem_node(state: IncidentState) -> dict[str, Any]:
-    content = write_postmortem(state.incident_id)
-    with connect() as conn:
-        postmortems.record(conn, state.incident_id, content)
+def postmortem_node(
+    state: IncidentState,
+    write: WritePostmortem = write_postmortem_for,
+    record: RecordPostmortem = _record_postmortem,
+) -> dict[str, Any]:
+    """Writes the incident up, and stores whatever was written (spec §7.6).
+
+    The last node, and the only one whose work nothing downstream reads - which
+    is why it stores a partial document rather than discarding one. A page
+    finding nothing where a postmortem should be cannot tell "never written"
+    from "lost", and the incident is over either way.
+
+    Both collaborators are injected for the usual reason: what a postmortem
+    says belongs to the agent and how a row is stored belongs to the
+    repository, so this node's own logic - that the two are joined at all - can
+    be tested without a database or a model.
+    """
+    record(state.incident_id, write(state.incident_id))
+
     return {}
+
 
 
 # One attempt is four traversals - proposal, gate, mitigation, next_candidate -

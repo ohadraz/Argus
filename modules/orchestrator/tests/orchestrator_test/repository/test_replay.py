@@ -127,6 +127,65 @@ def test_an_incident_that_made_no_calls_reads_as_empty_rather_than_missing() -> 
         assert replay.get_by_incident(conn, incident_id) == []
 
 
+@pytest.mark.integration
+def test_what_an_incident_spent_is_every_count_its_model_calls_reported() -> None:
+    # All four counts, not `input_tokens` and `output_tokens`. With caching on,
+    # most of a prompt arrives as a cache read, and a total that ignored those
+    # would report an investigation as a fraction of what it cost - and the
+    # cheaper it was cached, the more wrong the figure.
+    some_input_tokens = 22
+    some_output_tokens = 308
+    some_cache_read_tokens = 9_479
+    some_cache_write_tokens = 1_204
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+        replay.record(conn, _a_model_call(incident_id,
+                                          input_tokens=some_input_tokens,
+                                          output_tokens=some_output_tokens,
+                                          cache_read_tokens=some_cache_read_tokens,
+                                          cache_write_tokens=some_cache_write_tokens))
+
+        spent = replay.get_tokens_spent(conn, incident_id)
+
+    assert spent == (some_input_tokens + some_output_tokens
+                     + some_cache_read_tokens + some_cache_write_tokens)
+
+
+@pytest.mark.integration
+def test_what_an_incident_spent_counts_nothing_for_the_tools_it_called() -> None:
+    # A retrieval is a call out of the process and costs no tokens. Counted
+    # here it would inflate every incident by however many windows it read,
+    # and most by more than the model.
+    dont_care_tool = "get_log_lines"
+    dont_care_request: dict[str, object] = {}
+    dont_care_response: dict[str, object] = {"lines": []}
+    dont_care_latency_ms = 12
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+        replay.record(conn, ReplayEntry(
+            incident_id=incident_id,
+            call_type=CallType.MCP,
+            target=dont_care_tool,
+            request=dont_care_request,
+            response=dont_care_response,
+            latency_ms=dont_care_latency_ms,
+        ))
+
+        assert replay.get_tokens_spent(conn, incident_id) == 0
+
+
+@pytest.mark.integration
+def test_an_incident_that_called_no_model_spent_nothing_rather_than_nothing_known() -> None:
+    # A real path: escalating on retrieval alone never reaches a model. Zero
+    # is the measurement, and the postmortem is entitled to print it.
+    with psycopg.connect(DATABASE_URL) as conn:
+        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+
+        assert replay.get_tokens_spent(conn, incident_id) == 0
+
+
 def _an_alert() -> Alert:
     return Alert(service="io-shop", alert_name="HighErrorRate")
 
@@ -177,3 +236,31 @@ def _the_recorded_calls_are(conn: psycopg.Connection,
         return True
 
     return assertion
+
+
+def _a_model_call(incident_id: str,
+                  input_tokens: int,
+                  output_tokens: int,
+                  cache_read_tokens: int,
+                  cache_write_tokens: int) -> ReplayEntry:
+    """One recorded model call, whose response is a turn as one is stored."""
+    dont_care_request: dict[str, object] = {"transcript": []}
+    dont_care_text = "kukibuki"
+    dont_care_tool_calls: list[dict[str, Any]] = []
+    dont_care_latency_ms = 980
+
+    return ReplayEntry(
+        incident_id=incident_id,
+        call_type=CallType.LLM,
+        target=SOME_MODEL,
+        request=dont_care_request,
+        response={
+            "text": dont_care_text,
+            "tool_calls": dont_care_tool_calls,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens
+        },
+        latency_ms=dont_care_latency_ms,
+    )

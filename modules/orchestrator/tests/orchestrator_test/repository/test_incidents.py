@@ -122,6 +122,94 @@ def test_get_current_is_none_when_there_has_never_been_an_incident() -> None:
         assert incidents.get_current(conn) is None
 
 
+@pytest.mark.integration
+def test_an_incident_that_resolved_records_when_it_ended() -> None:
+    # How long an incident lasted is a figure the postmortem reports, so it is
+    # recorded when it happens rather than inferred later from whichever row
+    # was written last - an inference that changes silently the moment
+    # anything is logged late.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.transition(
+                    conn,
+                    incident_id,
+                    IncidentStatus.RESOLVED,
+                    actor=Actor.MITIGATION,
+                    action="dont care",
+                )
+            ) \
+            .then(
+                the_incident_records_an_end(incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_that_escalated_records_when_it_ended() -> None:
+    # Escalation is an ending too. An incident nobody could resolve still cost
+    # what it cost, and a postmortem that could not say how long it ran would
+    # be missing the figure for exactly the incidents that ran longest.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.transition(
+                    conn,
+                    incident_id,
+                    IncidentStatus.ESCALATED,
+                    actor=Actor.ORCHESTRATOR,
+                    action="dont care",
+                )
+            ) \
+            .then(
+                the_incident_records_an_end(incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_still_being_worked_records_no_end() -> None:
+    # `fixing` is the case worth stating: it reads like an ending and is not
+    # one - Code-Fix is still looking - so an incident stamped on the way into
+    # it would report a duration for something still running.
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        the_incident_records_no_end = partial(_the_incident_records_no_end, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.transition(
+                    conn,
+                    incident_id,
+                    IncidentStatus.FIXING,
+                    actor=Actor.ORCHESTRATOR,
+                    action="dont care",
+                )
+            ) \
+            .then(
+                the_incident_records_no_end(incident_id)
+            )
+
+
 def _no_incidents_at_all(conn: psycopg.Connection) -> None:
     """An empty table, which is the one state "the newest incident" cannot be
     set up into by adding a row."""
@@ -251,3 +339,44 @@ def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> No
     assert events[-1].action == "action rejected at the tier gate"
     assert events[-1].actor == "mitigation"
 
+
+
+def _the_incident_records_an_end(conn: psycopg.Connection, incident_id: str) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None:
+            raise AssertionError(f"No incident found with id [{incident_id}].")
+
+        if incident.ended_at is None:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to record when it ended, got none."
+            )
+
+        if incident.ended_at < incident.created_at:
+            raise AssertionError(
+                f"Expected an end at or after the start [{incident.created_at}], "
+                f"got [{incident.ended_at}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_records_no_end(conn: psycopg.Connection, incident_id: str) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None:
+            raise AssertionError(f"No incident found with id [{incident_id}].")
+
+        if incident.ended_at is not None:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to record no end while it is still "
+                f"being worked, got [{incident.ended_at}]."
+            )
+
+        return True
+
+    return assertion

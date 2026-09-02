@@ -485,14 +485,21 @@ def e2e_replay(session: nox.Session) -> None:
 def record(session: nox.Session) -> None:
     """
     Registers `record` as a nox session, i.e., runnable via
-    `uv run python -m nox -s record -- <name> <scenario>` - for example
-    `-- feature-flag-toggle flag-toggle-red-herring`.
+    `uv run python -m nox -s record -- <name> [<name> ...]` - for example
+    `-- flag-toggle-red-herring`, or `-- all` for every recording the offline
+    suites rest on.
     Brings the same stack up as `e2e_replay`, but instead of running tests it
-    drives **one real incident** through the Anthropic double in record mode,
-    so the model's actual answer is stored as a replayable recording.
+    drives **a real incident per name** through the Anthropic double in record
+    mode, so the model's actual answers are stored as replayable recordings.
+
+    Names alone: what each recording stages and which alert it fires is a
+    mapping inside the script, because the world a recording was captured in
+    has to be the world the case replaying it arranges. However many names are
+    given, the stack is built, brought up and torn down **once** - it is the
+    slow part of a run, and nothing about it differs per recording.
 
     Paid, and deliberately manual: it needs `ANTHROPIC_API_KEY`, spends tokens
-    on one investigation, and overwrites the recording it is named after. It
+    on one investigation per name, and overwrites the recordings it names. It
     exists because a recording is the one piece of evidence the offline suites
     rest on, and a recording captured by hand is one whose request nobody can
     prove matched what the adapter sends.
@@ -505,7 +512,10 @@ def record(session: nox.Session) -> None:
         session,
         test_paths=[],
         service_env={"argus_web": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
-        command=["uv", "run", "python", "scripts/record_incident.py"],
+        # `-m`, not the path: the script reuses the e2e suite's own world-reset
+        # rather than keeping a second copy of it, and only the module form puts
+        # the repo root on the path for `tests.` to resolve.
+        command=["uv", "run", "python", "-m", "scripts.record_incident"],
     )
 
 

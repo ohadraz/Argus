@@ -1,7 +1,7 @@
 {
   "content": [
     {
-      "signature": "CAIS4gIKjgEIERgCKkDRAbpWGvp1Br5PcQdZXFYT0B5M0Q1MGUUghzNLH3Ec31d12gxywcSC9bK4TbzKyMS6NqJpfq0CFqgS89j9mFf/Mg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAcm83dQGEgzkECqxQkYM8y7ML5MaDOZ8wcbYKCo1wWDaLCIwV1t7IsVRYhHPFnx+rat6BnUTLnwlQ2kZQlMnKd+qH/otUxOn/hxuiNv1pEW4xs2AKoABzXLOQnvd9nbo56ntbxW4Q6iJOqOGVw9Yi2oMVwaH4S63OH20FiTggDnNU4gy2Dr8/DvH+nIMVjvDsO62OoMAhhF9Mj5cUsLaENKHxOnrVTEN/Y44fJ9XMQa2wBXvoq5wdKt7/4sjEHE/Ps60fLJ1HetCL0Yb9q96eIzFWzoCQccYAQ==",
+      "signature": "CAISuAMKjgEIERgCKkDI6Bg3cAM+We4JcEV725X6YuLaoFbbhZWR1sXFJbE6GdEoDpEw1b0RQOEtLJ7UogNaHoEemtRwXTnMLuLWhQPaMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAa6u4tQGEgxne5htcDLeZxjaSQQaDGugmMiR38VlAB1fcyIw6Z+rT7bj8yvIssSRbCvp7WflWlfBwd7YYCB0+utT3IkJyiSakkd/xiCvalHsK4aRKtYBVGpApwpYQyTDTJR6ue+AxZiVKi+CkIeSvjE2koyFJqsal4RiOKn3R7mxi2SCGJmt3OBKx9z7St/k5Ath598LYzhVTNjhhmo1g/7AtZij1C5AZgebYFhmMVEEyLMVVA5gKZVmtiCfrZ5RVEqWJ3k3sxRpgcIrFxhXXjSd8lDlHdMVUfnjoo2LtY5aSeNEo79yoHZibHL4vsrIgNTuLbcSvp++MNj5yC2y0FMVazY95mZ6IJ6D2SfUxcBjkgDPeJXtgXJhBAlnd5sVlLhCUIXBDQaooAaoBRgB",
       "thinking": "",
       "type": "thinking"
     },
@@ -9,27 +9,26 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_014v61hA8s3o8k7uVUtYKvUH",
+      "id": "toolu_01XBKG8B4yAc7LYuw6mDBbFg",
       "input": {
         "hypotheses": [
           {
             "cause_type": "bad-deployment",
-            "confidence": 0.82,
+            "confidence": 0.85,
             "subject": "9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e",
-            "summary": "The deploy of revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e at 23:19 introduced a latency regression: p95 climbed from a 220ms baseline through 900ms and 1800ms into 5000ms timeouts, driving error rate from 0.01 to 0.12 within three minutes of the deploy. It is the only recorded change in the whole lookback window.",
+            "summary": "The deploy of revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e at 21:34 introduced a latency regression: p95 climbed from a 220ms baseline immediately after the deploy (900ms at 21:35, 1800ms at 21:36, 5000ms timeouts at 21:37) with error rate rising 1%->12%. It is the only recorded change in the 24h lookback and it lands one minute before the first departed minute.",
             "supporting_evidence": [
-              "{\"kind\": \"deploy\", \"occurred_at\": \"2026-09-01T23:19:00Z\", \"reference\": \"9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", \"summary\": \"deployed revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", \"actor\": \"kuki\"}",
-              "2026-09-01T23:20:00Z WARN io-shop: p95 latency climbing",
-              "2026-09-01T23:21:00Z WARN io-shop: p95 latency at 1800ms, up from a 220ms baseline",
-              "2026-09-01T23:22:00Z ERROR io-shop: request timeout after 5000ms",
-              "{\"bucket_id\": \"2026-09-01T23:19:00Z\", \"error_rate\": 0.01, \"p95_ms\": 220} \u2192 {\"bucket_id\": \"2026-09-01T23:22:00Z\", \"error_rate\": 0.12, \"p95_ms\": 5000}"
+              "{\"kind\": \"deploy\", \"occurred_at\": \"2026-09-02T21:34:00Z\", \"reference\": \"9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", \"summary\": \"deployed revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", \"actor\": \"kuki\"}",
+              "{\"bucket_id\": \"2026-09-02T21:35:00Z\", \"error_rate\": 0.02, \"p50_ms\": 95, \"p95_ms\": 900}",
+              "2026-09-02T21:36:00Z WARN io-shop: p95 latency at 1800ms, up from a 220ms baseline",
+              "2026-09-02T21:37:00Z ERROR io-shop: request timeout after 5000ms"
             ]
           },
           {
             "cause_type": null,
             "confidence": null,
             "subject": null,
-            "summary": "Alternatively the degradation is a progressive latency/timeout failure in a dependency or resource (connection pool, downstream call) that happened to begin one minute after an unrelated deploy; request volume falls slightly while latency rises monotonically, which fits saturation as well as bad code. No flag toggle or dependency detail appears in the retrieved evidence, so no specific subject can be named.",
+            "summary": "Alternatively the degradation came from something outside the service's own change record - e.g. a slow dependency, resource saturation, or a config/flag change made elsewhere - and the 21:34 deploy is coincidental. The logs show only generic latency warnings and timeouts, naming no component, so this cannot be excluded.",
             "supporting_evidence": []
           }
         ]
@@ -38,7 +37,7 @@
       "type": "tool_use"
     }
   ],
-  "id": "msg_011CedaavSVCDTrsh26PMxet",
+  "id": "msg_011CefLPKfn2daBPczciMDNL",
   "model": "claude-opus-5",
   "role": "assistant",
   "stop_details": null,
@@ -48,15 +47,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 344
+      "ephemeral_5m_input_tokens": 341
     },
-    "cache_creation_input_tokens": 344,
-    "cache_read_input_tokens": 3198,
+    "cache_creation_input_tokens": 341,
+    "cache_read_input_tokens": 3187,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 885,
+    "output_tokens": 835,
     "output_tokens_details": {
-      "thinking_tokens": 45
+      "thinking_tokens": 74
     },
     "service_tier": "standard"
   }

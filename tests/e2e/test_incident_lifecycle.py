@@ -8,6 +8,7 @@ from argus_testkit import Scenario, all_of, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
+    THE_SERVICE_NAME,
     argus_created_a_postmortem_for_the_incident,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
@@ -26,10 +27,9 @@ def test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem() -> Non
     # diagnosed. This is the honest-failure path (spec §9); before the ReAct
     # change the Investigator returned a fabricated hypothesis at a fixed 0.9
     # here, and this test asserted the resolve that followed from it.
-    some_service = "kuki-service"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
-    some_alert = a_grafana_style_alert_with(service=some_service,
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=some_alert_name,
                                             severity=some_severity)
 

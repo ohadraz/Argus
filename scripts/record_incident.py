@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 import psycopg
@@ -13,7 +14,22 @@ from anthropic_double.recordings import RECORDINGS_DIR
 from argus_core.config import get_settings
 from argus_core.timestamps import to_iso
 
-"""Captures a real model answer as a replayable recording.
+from tests.e2e.framework.argus import (
+    RECORDED_ABSENCE_OF_EVIDENCE,
+    RECORDED_BAD_DEPLOYMENT,
+    RECORDED_FALLBACK_DISABLED,
+    RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_RED_HERRING,
+    RECORDED_FLAG_TOGGLE_UNCORROBORATED,
+    THE_SERVICE_NAME,
+)
+from tests.e2e.framework.flags import (
+    only_the_boot_flags_were_left_in_the_provider,
+    the_boot_flags_were_put_back,
+    the_flag_provider_forgot_every_change,
+)
+
+"""Captures real model answers as replayable recordings.
 
 Recording is a proxy inside the Anthropic double rather than a script that
 builds its own request: the double is told to record, then the stack drives one
@@ -26,8 +42,21 @@ command rather than four hand-typed curls whose order matters - seeds take
 precedence over record mode, so a double that was seeded by a previous run
 records nothing and the mistake looks like a working run.
 
-Costs one real investigation, which is why it is a session nobody runs by
-accident and never part of a suite.
+It takes recording *names* and nothing else. What each one stages, and which
+alert it fires, is the mapping below rather than something typed at the command
+line: a recording is replayed for one specific e2e case, so the world it was
+captured in is a property of the recording, not a choice. Getting that wrong is
+not a failure - it is a plausible-looking recording of the wrong incident, paid
+for and committed.
+
+Several names in one run share one stack, and `all` is every name. The stack is
+the slow part - a build, a compose up, four local services - and it is brought
+up once by the nox session around this script whether it captures one recording
+or five. What is *not* shared is the world: each recording is captured in the
+same reset environment the e2e suite arranges for the case that replays it.
+
+Costs one real investigation per name, which is why it is a session nobody runs
+by accident and never part of a suite.
 """
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
@@ -36,6 +65,53 @@ ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 DATABASE_URL = get_settings().database_url
 
 A_WHOLE_INVESTIGATION_SECONDS = 900.0
+
+
+class _Recording(NamedTuple):
+    """One recording, and the incident that has to happen for it to exist.
+
+    `scenario` is `None` for the one recording captured against a shop with
+    nothing wrong in its logs - absence of evidence is itself the case under
+    test, and it is staged by staging nothing.
+
+    `and_then` is whatever the replaying case arranges *after* seeding the
+    scenario and before the alert. A recording is a queue of answers served in
+    order, not a model that reasons afresh, so a walk replayed in a world
+    unlike the one it was captured in runs longer than the queue and the double
+    runs dry mid-incident. Anything a case stages, this stages too.
+    """
+    name: str
+    scenario: str | None
+    alert_name: str
+    and_then: Callable[[], None] | None = None
+
+
+# Every recording the offline suites rest on, in the order a full run captures
+# them. The names are imported from the e2e framework rather than spelled here:
+# a recording this script stores under a name nothing replays is a recording
+# that cost money and answers no question.
+EVERY_RECORDING: tuple[_Recording, ...] = (
+    _Recording(RECORDED_FLAG_TOGGLE, "feature-flag-toggle", "HighErrorRate"),
+    _Recording(RECORDED_BAD_DEPLOYMENT, "bad-deployment", "HighLatency"),
+    _Recording(RECORDED_FALLBACK_DISABLED, "fallback-disabled", "HighErrorRate"),
+    _Recording(
+        RECORDED_FLAG_TOGGLE_RED_HERRING, "flag-toggle-red-herring", "HighErrorRate"
+    ),
+    # The same scenario as the first, in a world where the provider has no
+    # record of the flag having changed - so Mitigation refuses to write to a
+    # flag only the model names, and the walk goes back to investigate. That
+    # walk is longer than the corroborated one, which is why it cannot share
+    # its recording.
+    _Recording(
+        RECORDED_FLAG_TOGGLE_UNCORROBORATED,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        the_flag_provider_forgot_every_change
+    ),
+    _Recording(RECORDED_ABSENCE_OF_EVIDENCE, None, "HighErrorRate")
+)
+
+EVERY_RECORDING_KEYWORD = "all"
 
 
 def _an_alert_for(service: str, alert_name: str) -> dict[str, Any]:
@@ -123,6 +199,27 @@ def _arm_the_double(name: str) -> None:
         control.post("/double-control/record", json={"name": name}).raise_for_status()
 
 
+def _a_world_this_recording_can_be_captured_in() -> None:
+    """Puts the Target Environment back before each incident is driven.
+
+    The e2e suite's own teardown, step for step and in its order: the service's
+    scenario reset, both boot flags put back where the stack starts them, every
+    flag the environment did not boot with deleted, the provider's record of
+    what changed erased. Reused rather than restated, because a recording
+    captured in a world the replaying case never arranges is a recording of a
+    different incident.
+
+    This is what one shared stack costs. Running the session per recording got
+    a virgin world from `compose down -v`; here the previous recording's
+    mitigations are still on the flags, and its toggles are still in the
+    history the next investigation reads as evidence.
+    """
+    httpx.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=30.0)
+    the_boot_flags_were_put_back()
+    only_the_boot_flags_were_left_in_the_provider()
+    the_flag_provider_forgot_every_change()
+
+
 def _stage(scenario_id: str) -> None:
     httpx.post(
         f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
@@ -200,51 +297,35 @@ def _discard_what_was_not_answered_again(name: str, started_at: float) -> list[P
     return stale
 
 
-def main() -> int:
-    # The timeline printed at the end quotes the model, and the model writes
-    # arrows and dashes this console cannot encode - a Windows terminal defaults
-    # to a legacy codepage, and printing one character outside it raises. That
-    # ended a *paid* run in a traceback after the recordings were safely on
-    # disk, which reads as a failed recording and invites running it again.
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+def _capture(recording: _Recording, service: str, replaying: bool) -> None:
+    """Drives the one incident this recording is of, and says what came of it."""
+    print(f"=== {recording.name} ===")
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("name", help="what to store the recording as")
-    parser.add_argument(
-        "scenario",
-        nargs="?",
-        help="the Target Service scenario to stage first; omit to stage nothing, "
-             "which is how the absence-of-evidence recording is captured",
-    )
-    parser.add_argument("--service", default="io-shop")
-    parser.add_argument("--alert-name", default="HighErrorRate")
-    parser.add_argument(
-        "--replay",
-        action="store_true",
-        help="serve the stored recording instead of calling the real API",
-    )
-    arguments = parser.parse_args()
-
-    if arguments.replay:
-        _replay_from(arguments.name)
+    if replaying:
+        _replay_from(recording.name)
     else:
-        _arm_the_double(arguments.name)
+        _arm_the_double(recording.name)
 
     # Read before anything is written, and from the clock the files are stamped
     # by: what makes an answer stale is that this run did not write it, and
     # every comparison after this point is against this moment.
     started_at = time.time()
 
-    if arguments.scenario:
-        _stage(arguments.scenario)
+    _a_world_this_recording_can_be_captured_in()
 
-    incident_id = _drive_one_incident(arguments.service, arguments.alert_name)
+    if recording.scenario:
+        _stage(recording.scenario)
 
-    print(f"incident [{incident_id}] drove scenario [{arguments.scenario or 'none'}]")
+    if recording.and_then:
+        recording.and_then()
 
-    if not arguments.replay:
-        discarded = _discard_what_was_not_answered_again(arguments.name, started_at)
-        written = [path.stem for path in _the_set_named(arguments.name)]
+    incident_id = _drive_one_incident(service, recording.alert_name)
+
+    print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")
+
+    if not replaying:
+        discarded = _discard_what_was_not_answered_again(recording.name, started_at)
+        written = [path.stem for path in _the_set_named(recording.name)]
         print(f"recorded: {', '.join(written) or 'nothing'}")
         if discarded:
             print(
@@ -256,7 +337,71 @@ def main() -> int:
     for entry in _the_timeline_of(incident_id):
         print(entry)
 
-    return 0
+
+def _what_was_asked_for(names: list[str]) -> list[_Recording]:
+    """The recordings named, or every one of them.
+
+    An unknown name is refused rather than recorded under: the mapping is the
+    whole point of taking names alone, and a typo would otherwise cost a real
+    investigation and store its answer where nothing reads it.
+    """
+    known = {recording.name: recording for recording in EVERY_RECORDING}
+
+    if names == [EVERY_RECORDING_KEYWORD]:
+        return list(EVERY_RECORDING)
+
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        raise SystemExit(
+            f"unknown recording(s): {', '.join(unknown)} - "
+            f"known: {', '.join(known)}, or '{EVERY_RECORDING_KEYWORD}'"
+        )
+
+    return [known[name] for name in names]
+
+
+def main() -> int:
+    # The timeline printed at the end quotes the model, and the model writes
+    # arrows and dashes this console cannot encode - a Windows terminal defaults
+    # to a legacy codepage, and printing one character outside it raises. That
+    # ended a *paid* run in a traceback after the recordings were safely on
+    # disk, which reads as a failed recording and invites running it again.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "names",
+        nargs="+",
+        help=f"the recordings to capture, or '{EVERY_RECORDING_KEYWORD}' for all of "
+             f"them; each stages the scenario and fires the alert it belongs to",
+    )
+    parser.add_argument("--service", default=THE_SERVICE_NAME)
+    parser.add_argument(
+        "--replay",
+        action="store_true",
+        help="serve the stored recordings instead of calling the real API",
+    )
+    arguments = parser.parse_args()
+
+    asked_for = _what_was_asked_for(arguments.names)
+    failed: list[str] = []
+
+    # One failure does not end the run. The stack is up and paid for by the
+    # time anything is captured, and a scenario that fails to record is a
+    # reason to look at that scenario - not a reason to throw away the four
+    # recordings that would have worked.
+    for recording in asked_for:
+        try:
+            _capture(recording, arguments.service, arguments.replay)
+        except Exception as error:
+            print(f"FAILED {recording.name}: {error!r}")
+            failed.append(recording.name)
+
+    print(f"captured {len(asked_for) - len(failed)} of {len(asked_for)}")
+    if failed:
+        print(f"failed: {', '.join(failed)}")
+
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

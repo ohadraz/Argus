@@ -14,7 +14,9 @@ from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     TARGET_SERVICE_BASE_URL,
+    THE_SERVICE_NAME,
     about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
@@ -79,7 +81,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
     # back at baseline, are the difference between a mitigation and a report of
     # one - and they are read from the provider and the service directly,
     # never from what Argus wrote about itself.
-    service = "io-shop"  # Not arbitrary! the Target Service names itself in its own log
+    service = "io-shop"  
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=service,
@@ -130,8 +132,7 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
     # on. Diagnosable and unmitigable is the honest state.
     some_alert_name = "HighLatency"
     some_severity = "critical"
-    some_service = "kukibuki-service"
-    some_alert = a_grafana_style_alert_with(service=some_service,
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=some_alert_name,
                                             severity=some_severity)
 
@@ -185,7 +186,7 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
         .given(
             _a_feature_flag_was_toggled_on(),
             the_flag_provider_forgot_every_change,
-            the_model_answers_from(RECORDED_FLAG_TOGGLE),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE_UNCORROBORATED),
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

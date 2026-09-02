@@ -394,4 +394,5 @@ def _an_incident(status: IncidentStatus, alert: Alert | None = None) -> Incident
         slack_channel_id=None,
         pr_url=None,
         created_at=_OPENED_AT,
+        ended_at=None
     )

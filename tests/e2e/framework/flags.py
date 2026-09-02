@@ -38,11 +38,19 @@ FLAG_PROVIDER_DATABASE_URL = "postgresql://unleash:unleash@localhost:5433/unleas
 # under the human's credential, which is the shop's.
 THE_HUMANS_ADMIN_TOKEN = "*:*.argus-demo-admin-token"
 
-# The one flag the Target Service brings into existence for itself, mirroring
-# its `UNLEASH_FLAG`. Every other flag in the provider was put there by a case -
-# either directly, or by seeding a scenario that stages its own flag - and is
-# this suite's to remove again.
+# The two flags the Target Environment brings into existence for itself, and
+# the state each rests in when it does. The shop creates the feature flag off
+# at startup, mirroring its `UNLEASH_FLAG`; the environment's compose file
+# seeds the fallback on, by writing to the provider's database rather than
+# through its API, so that a kill switch which has been on for months carries
+# no toggle in the history.
+#
+# Every other flag in the provider was put there by a case - either directly,
+# or by seeding a scenario that stages its own - and is this suite's to remove
+# again.
 THE_DEMO_FLAG = "monthly-spend-feature"
+THE_FALLBACK_FLAG = "legacy-checkout-fallback"
+THE_BOOT_STATE: dict[str, bool] = {THE_DEMO_FLAG: False, THE_FALLBACK_FLAG: True}
 
 
 # The provider's table of recorded changes, and the event types that record a
@@ -160,6 +168,12 @@ def the_flag_provider_forgot_every_change() -> None:
     evidence the next case would reason about, and a suite whose cases inherit
     each other's history is a suite whose results depend on their order.
 
+    Toggles only, which is exactly the boot state and not an approximation of
+    it: the shop's flag is created through the provider's API and so has a
+    creation event from the moment the stack came up, while the fallback is
+    seeded straight into the provider's database and has none. Neither is a
+    toggle, and the history a fresh stack starts with holds no toggle at all.
+
     Down here rather than through the API because the provider offers no other
     route: its event endpoints are read-only by design, it is an audit log, and
     deleting the flag leaves the flag's history behind and adds two entries
@@ -175,37 +189,43 @@ def the_flag_provider_forgot_every_change() -> None:
         connection.commit()
 
 
-def every_flag_was_switched_off() -> None:
-    """Leaves no flag on, whichever case turned which one on.
+def the_boot_flags_were_put_back() -> None:
+    """Returns the environment's own two flags to the state it starts them in.
 
-    Paired with forgetting the changes rather than replacing it: the history is
-    what Mitigation reads, and the live state is what the Target Service reads.
-    A world put back has to be right for both.
+    Not "everything off": off is the boot state of the feature flag and the
+    broken state of the fallback, which is a kill switch and rests on. A
+    teardown that switched both off would hand the next case a shop that is
+    already failing, and - worse for anything replaying a recording - one whose
+    fault nothing in the history explains.
+
+    Switching a flag to the state it is already in is free here: the provider
+    records a toggle only where something actually moved, and the erase that
+    follows this in teardown clears whatever did move.
     """
-    for flag in flags_evaluating_true():
-        switch_flag(flag, enabled=False)
+    for flag, enabled in THE_BOOT_STATE.items():
+        switch_flag(flag, enabled=enabled)
 
 
-def only_the_shops_own_flag_was_left_in_the_provider() -> None:
-    """Removes every flag a case brought into existence, keeping the shop's.
+def only_the_boot_flags_were_left_in_the_provider() -> None:
+    """Removes every flag a case brought into existence, keeping the shop's two.
 
     The provider is shared with the demo, which shows its console to an
     audience, and a flag left behind by a test run is a flag somebody has to
     explain standing in front of one. Switching a flag off is not enough:
     off and absent look nothing alike in a list of flags.
 
-    The shop's own flag is kept because the shop creates it at startup and
-    reads it on every request - removing it would be breaking the fixture
-    rather than cleaning up after a case. Everything else is a case's doing,
-    including the fallback flag, which now comes into existence only when the
-    scenario that stages it is seeded.
+    The environment's own two are kept because the environment creates them at
+    startup and the shop reads both on every request - removing either would be
+    breaking the fixture rather than cleaning up after a case, and a fallback
+    flag that a scenario has to re-create is not the flag the stack booted
+    with.
 
     Deletion is two calls in this provider: archiving a flag hides it, and only
     a second call against the archive removes it. Verified against the pinned
     version - re-verify on a bump, like every other admin path here.
     """
     for flag in _the_flags_the_provider_holds():
-        if flag != THE_DEMO_FLAG:
+        if flag not in THE_BOOT_STATE:
             _delete_flag(flag)
 
 

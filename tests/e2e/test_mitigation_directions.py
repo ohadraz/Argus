@@ -14,6 +14,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     TARGET_SERVICE_BASE_URL,
+    THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     about_the_hypothesis,
     argus_ended_with_status,
@@ -21,7 +22,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.flags import THE_DEMO_FLAG, the_flag_provider_reports
+from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG, the_flag_provider_reports
 from tests.framework.assertions import the_cause_was_identified_as
 
 """Mitigation against a real provider, in both directions and both outcomes.
@@ -41,8 +42,6 @@ flag state, so nothing here asserts on what Argus reported about itself. The
 provider's own answer about the flag is the evidence.
 """
 
-THE_FALLBACK_FLAG = "legacy-checkout-fallback"
-
 
 @pytest.mark.e2e
 def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
@@ -52,10 +51,9 @@ def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
     # has been off for a year. Only the provider's record of what changed can
     # tell Argus which flag this is about, and only a write tier that can set a
     # flag either way can end it.
-    service = "io-shop"
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
-    some_alert = a_grafana_style_alert_with(service=service,
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=some_alert_name,
                                             severity=some_severity)
 
