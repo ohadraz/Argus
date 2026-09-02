@@ -1,65 +1,42 @@
 # investigator-react-loop Specification
 
 ## Purpose
-Covers the `investigating` phase as spec §9's bounded ReAct loop: deterministic
-onset detection from the metrics summary, onset-anchored log retrieval that
-widens on a derived schedule, the LLM verdict each iteration, and the exit
-conditions - including the honest "insufficient evidence" outcome.
+Covers the `investigating` phase as spec §9's bounded loop: deterministic onset
+detection from the metrics summary, the retrieval the model asks for over the
+windows it names, and the exit conditions - including the honest "insufficient
+evidence" outcome.
 
 ## Requirements
 ### Requirement: The investigating phase runs a bounded iterative loop
-The system SHALL run investigation as an iterative loop rather than a single
-pass. Each iteration SHALL read log lines for a window anchored on the onset
-located in the metrics summary, and produce a hypothesis with a confidence. The
-loop SHALL exit as soon as a hypothesis is both confident enough to act on and
-trustworthy by the acceptance rule below, and SHALL run no more than the
-configured maximum number of iterations.
+The system SHALL run investigation as a bounded multi-turn exchange with the model
+rather than a single pass. Each turn SHALL let the model call a retrieval tool or answer,
+and the exchange SHALL end when the model produces a typed answer or when a configured
+bound is reached, whichever comes first. How many turns an investigation takes SHALL NOT
+be fixed in advance: an incident whose cause is evident from one channel SHALL be
+answerable without reading the others.
 
-#### Scenario: A confident first iteration exits immediately
-- **GIVEN** an incident whose window shows a calm stretch before the onset, and
-  whose first iteration produces a hypothesis at or above the mitigate threshold
-- **WHEN** the Investigator investigates
-- **THEN** it returns that hypothesis and performs no further iterations
+#### Scenario: A confident answer from one channel ends the investigation
+- **GIVEN** an incident whose change events plainly account for the departure
+- **WHEN** the model reads them and answers
+- **THEN** the investigation returns that answer and performs no further retrieval
 
-#### Scenario: The iteration budget is never exceeded
-- **GIVEN** an incident where no iteration ever reaches the mitigate threshold
-- **WHEN** the Investigator investigates
-- **THEN** it performs exactly the configured maximum number of iterations and
-  no more
+#### Scenario: The bound is never exceeded
+- **GIVEN** an incident on which the model never produces an answer
+- **WHEN** the investigation runs
+- **THEN** it ends at the first configured bound reached and makes no further tool calls
 
 ### Requirement: The metrics summary is read once, before the loop
-The system SHALL read the metrics summary a single time for one fixed, wide
-window, rather than once per iteration. Only the log window widens across
-iterations. A window in which no minute departs from the baseline SHALL end the
-investigation with no determined cause and without asking the model at all.
+The system SHALL read the metrics summary a single time before the conversation with the
+model is opened, for one fixed, wide window, and SHALL locate the onset from it. A window
+in which no minute departs from the baseline SHALL end the investigation with no
+determined cause and without opening the conversation at all. The model MAY read metrics
+again over another window as an ordinary tool call.
 
 #### Scenario: No anomalous bucket means no onset and no model call
 - **GIVEN** a metrics summary in which no bucket is anomalous
 - **WHEN** the Investigator investigates
 - **THEN** it does not report a determined cause, does not fabricate an onset,
   and does not ask the model
-
-### Requirement: Log retrieval each iteration starts before the onset and ends at the alert
-The system SHALL derive the onset from the metrics summary - the earliest
-anomalous bucket within the window - and SHALL request log lines for a window
-starting before that onset, so that a change event preceding the first
-anomalous minute is retrievable. That window SHALL end at the alert time rather
-than a fixed interval past the onset: the onset is inferred and may be wrong,
-where the alert is the one moment the service is known to have been unhealthy,
-and a window closing before it can exclude the incident entirely. The requested
-span SHALL stay within the configured maximum, giving way at the start rather
-than at the end.
-
-#### Scenario: The window starts before the onset
-- **GIVEN** a metrics summary whose earliest anomalous bucket is at some minute
-- **WHEN** the Investigator retrieves log lines for that iteration
-- **THEN** the requested window starts strictly before that minute
-
-#### Scenario: The window reaches the alert
-- **GIVEN** an alert that fired well after the onset located in the metrics
-- **WHEN** the Investigator retrieves log lines for that iteration
-- **THEN** the requested window ends at the alert time, covering the minutes
-  between the onset and it
 
 ### Requirement: A minute is anomalous relative to the window's own baseline
 The system SHALL classify a metric bucket by comparing it against the calm
@@ -128,131 +105,86 @@ to persist.
   before the window and the onset found in it is only a lower bound
 
 ### Requirement: A confident answer from a window with no visible start is not trusted on sight
-The system SHALL withhold acceptance of an otherwise-confident hypothesis when
-the earliest bucket in the metrics window is anomalous, because the onset
-located there is only a lower bound and the first log window therefore did not
-contain the incident's start. In that case the loop SHALL widen and ask again
-before accepting an answer. This check SHALL be made from the metrics summary
-in code, never from the model's own account of its certainty, since a model
-that formed a hypothesis from too little evidence reports high confidence and
-cannot miss what it was never shown.
+The system SHALL state to the model, as a fact in the opening message, that the onset it
+is given is only a lower bound whenever the earliest bucket in the metrics window is
+anomalous - because the incident began before anything retrievable and a confident answer
+from that evidence is least trustworthy and least detectable. This determination SHALL be
+made from the metrics summary in code, never from the model's own account of its
+certainty. The system SHALL NOT withhold the model's answer on this ground, since the
+model can now widen its own window and is told why it might need to.
 
-#### Scenario: A confident first answer from a mid-incident window costs one widening
+#### Scenario: A lower-bound onset is stated as such
 - **GIVEN** a metrics window whose earliest bucket is anomalous
-- **WHEN** the first iteration produces a hypothesis at or above the mitigate
-  threshold
-- **THEN** the Investigator does not return it immediately, and asks the model
-  again on a strictly wider log window
+- **WHEN** the conversation is opened
+- **THEN** the opening message says the onset is a lower bound and that the incident
+  began before the retrievable window
 
-#### Scenario: The better-informed answer is the one returned
-- **GIVEN** a metrics window whose earliest bucket is anomalous, and two
-  confident hypotheses in turn
-- **WHEN** the loop accepts an answer
-- **THEN** it returns the hypothesis from the wider window, not the first one
-
-#### Scenario: A confident answer is kept when later iterations are unsure
-- **GIVEN** a first iteration that was confident but not trusted, followed by
-  iterations that never reach the threshold again
-- **WHEN** the iteration budget is spent
-- **THEN** the Investigator returns that confident hypothesis rather than
-  reporting no cause
-
-### Requirement: Widening reaches strictly further back each iteration
-The system SHALL request a strictly earlier log window start on each successive
-iteration, so that an iteration can see something the previous one could not.
-
-#### Scenario: Each iteration reaches further back than the last
-- **GIVEN** an investigation that runs more than one iteration
-- **WHEN** its log retrieval calls are compared in order
-- **THEN** each requested window starts strictly earlier than the one before it
-
-### Requirement: The widening schedule is derived from configuration
-The system SHALL derive each iteration's lookback from the configured initial
-lookback, maximum window span, and iteration budget, as an increasing sequence
-whose first entry is the initial lookback and whose last entry is exactly the
-maximum span. No lookback SHALL exceed the maximum span.
-
-#### Scenario: The schedule starts at the initial lookback and ends at the maximum
-- **GIVEN** a configured initial lookback, maximum span, and iteration budget
-- **WHEN** the widening schedule is derived
-- **THEN** it has one entry per iteration, its first entry is the initial
-  lookback, and its last entry is the maximum span
-
-#### Scenario: The schedule increases with every step
-- **GIVEN** a derived widening schedule
-- **WHEN** its entries are compared in order
-- **THEN** each is strictly greater than the one before it
-
-#### Scenario: Reconfiguring the budget still ends at the maximum
-- **GIVEN** an iteration budget changed to a different number of iterations
-- **WHEN** the schedule is derived again
-- **THEN** its last entry is still exactly the maximum span
+#### Scenario: A visible start is not qualified
+- **GIVEN** a metrics window with a calm stretch before its onset
+- **WHEN** the conversation is opened
+- **THEN** the opening message states the onset without that qualification
 
 ### Requirement: Exhaustion reports insufficient evidence rather than a guess
-The system SHALL exit investigation with no determined cause and no confidence
-when the iteration budget is spent without any hypothesis having been accepted,
-or when no minute in the metrics window was anomalous. It SHALL NOT return a
-hypothesis manufactured to fill the field, and the outcome SHALL be
-distinguishable from a confident answer. The reported reason SHALL distinguish
-an incident that began before the retrievable window from one where the
-evidence was read and still explained nothing.
+The system SHALL exit investigation with no determined cause and no confidence when a
+configured bound is reached without the model having answered, or when no minute in the
+metrics window was anomalous. It SHALL NOT return a hypothesis manufactured to fill the
+field, and the outcome SHALL be distinguishable from a confident answer. The reported
+reason SHALL distinguish an incident that began before the retrievable window, one where
+the evidence was read and still explained nothing, and one that ran out of budget.
 
-#### Scenario: A spent iteration budget escalates
-- **GIVEN** an incident where the configured maximum iterations complete with
-  no hypothesis reaching the mitigate threshold
+#### Scenario: A spent budget escalates
+- **GIVEN** an incident where a configured bound is reached with no answer from the model
 - **WHEN** the loop finishes
-- **THEN** it reports no determined cause and no confidence, and the incident
-  routes to `escalated`
+- **THEN** it reports no determined cause and no confidence, says which bound ended it,
+  and the incident routes to `escalated`
 
-#### Scenario: An onset beyond the maximum span escalates
-- **GIVEN** a final iteration at the maximum window span whose earliest bucket
-  is still anomalous
+#### Scenario: An onset beyond the retrievable window escalates
+- **GIVEN** a metrics window whose earliest bucket is anomalous and a model that reads
+  the widest window available and still identifies nothing
 - **WHEN** the loop finishes
-- **THEN** it reports no determined cause, indicating the incident began before
-  the retrievable window
+- **THEN** it reports no determined cause, indicating the incident began before the
+  retrievable window
 
 ### Requirement: The loop retrieves change events as a third input
-The system SHALL retrieve the changes made to the service before investigating,
-once per investigation over the configured change lookback, and SHALL include
-them in the evidence shown to the model alongside the metric buckets and the
-log lines. The retrieval SHALL happen once rather than per iteration, for the
-same reason the metrics summary does: the window is already wide and the rows
-are sparse, so re-reading returns what was already read.
+The system SHALL offer change-event retrieval to the model as one of its tools, over a
+window the model names, so that a change preceding the onset is reachable. The system
+SHALL NOT retrieve change events on the model's behalf before it is asked, and SHALL NOT
+require that they be read: an incident answerable from logs alone SHALL be answerable
+without paying for them.
 
-The change window SHALL end at the onset and reach back from it by the
-configured lookback. A change made after the incident began did not begin it,
+The default change window offered to the model SHALL end at the onset and reach back from
+it by the configured lookback. A change made after the incident began did not begin it,
 and offering it as a candidate invites attribution by mere proximity.
 
-#### Scenario: The change window ends at the onset
-- **GIVEN** a metrics summary whose earliest anomalous bucket is at some minute
-- **WHEN** the Investigator retrieves change events
-- **THEN** the requested window ends at that minute and starts the configured
-  change lookback before it
+#### Scenario: The default change window ends at the onset
+- **GIVEN** a model that calls the change-events tool without naming a window
+- **WHEN** the call is dispatched
+- **THEN** the window requested ends at the onset and starts the configured change
+  lookback before it
 
-#### Scenario: Change events reach the model as evidence
+#### Scenario: Change events reach the model as a tool result
 - **GIVEN** a change source reporting a change before the incident's onset
-- **WHEN** the Investigator asks the model for a hypothesis
-- **THEN** the evidence it shows includes that change event
+- **WHEN** the model calls the change-events tool
+- **THEN** that change event is in the result it receives
 
-#### Scenario: Changes are retrieved once across a widening investigation
-- **GIVEN** an investigation that runs more than one iteration
-- **WHEN** its retrieval calls are counted
-- **THEN** change events were retrieved once, while log lines were retrieved
-  once per iteration
-
-#### Scenario: A cause older than the log window is still visible
-- **GIVEN** a change that occurred further before the onset than any log window
-  the loop is permitted to request
-- **WHEN** the Investigator investigates
-- **THEN** that change is still among the evidence shown to the model
+#### Scenario: A cause older than any log window is still reachable
+- **GIVEN** a change that occurred further before the onset than the maximum log span
+- **WHEN** the model calls the change-events tool over the change lookback
+- **THEN** that change is in the result it receives
 
 ### Requirement: A failed change retrieval stops the investigation rather than shrinking it
 The system SHALL let a change-source failure surface as a failure, and SHALL
 NOT continue with logs alone while reporting a cause as though the change
-evidence had been seen and found empty.
+evidence had been seen and found empty. This SHALL apply when the model calls the tool
+and it fails; it SHALL NOT apply when the model chose not to call it at all.
 
 #### Scenario: An unreachable change source does not become a quiet logs-only investigation
 - **GIVEN** a change source that cannot be reached
-- **WHEN** the Investigator investigates
+- **WHEN** the model calls the change-events tool
 - **THEN** the investigation fails rather than producing a hypothesis drawn
   from logs alone
+
+#### Scenario: Not asking for changes is not a failure
+- **GIVEN** an investigation the model answered from logs and metrics alone
+- **WHEN** the investigation finishes
+- **THEN** it returns that answer, and the unread change channel is not an error

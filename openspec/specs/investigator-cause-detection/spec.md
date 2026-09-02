@@ -4,13 +4,13 @@
 TBD - created by archiving change investigator-hypothesis-loop. Update Purpose after archive.
 ## Requirements
 ### Requirement: Investigator determines cause_type from the Target Service's current logs
-The system SHALL retrieve logs via the `argus-read-mcp` server's
-`get_log_lines` tool during investigation, windowed and anchored on the metric
-onset, and SHALL retrieve the changes made to the service via that server's
-`get_change_events` tool over a wider window. It SHALL determine a `cause_type`
-by asking a real LLM to judge the retrieved evidence - metrics, logs and
-changes together. Deterministic keyword matching SHALL NOT be the mechanism,
-and the model SHALL NOT be the thing that parses a change source's response.
+The system SHALL make the `argus-read-mcp` server's `get_log_lines` and
+`get_change_events` tools available to the model during investigation, and SHALL
+dispatch them when the model calls them. It SHALL determine a `cause_type`
+by asking a real LLM to judge the evidence it retrieved - metrics, logs and
+changes, whichever of them it chose to read. Deterministic keyword matching SHALL NOT be
+the mechanism, and the model SHALL NOT be the thing that parses a change source's
+response: a tool result SHALL reach the model already typed.
 An undetermined cause SHALL be reported at a confidence below the mitigate
 threshold.
 
@@ -28,6 +28,12 @@ threshold.
   (`NULL`), at a confidence below the mitigate threshold, and the incident
   routes to `escalated` rather than to `mitigating`
 
+#### Scenario: A cause is determinable without every channel being read
+- **GIVEN** an incident whose change events account for the departure on their own
+- **WHEN** the model answers having read changes and metrics but not logs
+- **THEN** the determined `cause_type` is accepted, and the unread channel is not
+  treated as missing evidence
+
 ### Requirement: cause_type is persisted on the hypothesis row
 The system SHALL write the determined `cause_type` (or leave it `NULL` if undetermined) to the `hypothesis` table's `cause_type` column, in addition to `description` and `confidence`.
 
@@ -38,14 +44,21 @@ The system SHALL write the determined `cause_type` (or leave it `NULL` if undete
 
 
 ### Requirement: The evidence behind a cause determination is recorded
-The system SHALL record which retrieved log lines the verdict relied on, so a
+The system SHALL record which retrieved evidence the verdict relied on, so a
 human picking up the incident can tell what the determination was based on and
-distinguish a well-evidenced call from a thin one.
+distinguish a well-evidenced call from a thin one. Since which channels were read is
+the model's choice, the record SHALL also make plain what was retrieved and what was
+not.
 
 #### Scenario: Supporting evidence accompanies a determined cause
 - **GIVEN** the Investigator determines a cause for an incident
 - **WHEN** the hypothesis is recorded
-- **THEN** the log lines the verdict relied on are recorded with it
+- **THEN** the evidence the verdict relied on is recorded with it
+
+#### Scenario: What was never read is distinguishable from what came back empty
+- **GIVEN** an investigation in which the model never called the change-events tool
+- **WHEN** the incident's record is examined
+- **THEN** it shows that channel as unread, not as read and empty
 
 ### Requirement: A bad deployment is a determinable cause
 The system SHALL include a bad deployment among the causes it can determine,

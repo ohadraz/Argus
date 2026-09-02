@@ -155,7 +155,7 @@ follow the same rule: proposed whole, never as fragments.
       single-shot prompt and marked provisional in the file: nothing has been measured
       against the loop yet, and they are meant to be re-set from what it scores.
 - [x] 8.6 Re-record and confirm `e2e_replay` stays green on one recorded path.
-- [ ] 8.7 Run the paid `e2e` once against the real model before merge.
+- [x] 8.7 Run the paid `e2e` once against the real model before merge.
 
 ## 9. Documentation
 
