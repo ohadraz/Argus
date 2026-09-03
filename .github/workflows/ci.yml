@@ -60,13 +60,6 @@ jobs:
 
       - name: integration
         run: uv run python -m nox -s integration
-        env:
-          # Not a secret, and not read by anything: every call in this suite
-          # goes to the Anthropic double. The SDK refuses to construct a client
-          # without *some* credential, so a job with none fails before the
-          # double is ever reached - which reads as an adapter fault and is a
-          # missing environment variable.
-          ANTHROPIC_API_KEY: "the-double-never-reads-this"
 
   # The whole pipeline, on every push, for nothing.
   #

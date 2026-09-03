@@ -179,7 +179,20 @@ def integration(session: nox.Session) -> None:
     try:
         _wait_for_http(name, ready_url)
         session.run(
-            "uv", "run", "python", "-m", "pytest", "tests/integration", "-v", external=True
+            "uv", "run", "python", "-m", "pytest", "tests/integration", "-v",
+            external=True,
+            # Said here rather than left to a developer's `.env`, which is what
+            # "keyless by design" has to mean: a machine holding neither
+            # variable would otherwise build a client against the real API and
+            # fail on a 401, and one holding a real key would *succeed* against
+            # it - a suite that spends tokens on a push, silently.
+            #
+            # The key is a placeholder the double never reads; the SDK simply
+            # refuses to construct a client without one.
+            env={
+                "ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL,
+                "ANTHROPIC_API_KEY": "the-double-never-reads-this"
+            }
         )
     finally:
         _stop_service(double_process)
