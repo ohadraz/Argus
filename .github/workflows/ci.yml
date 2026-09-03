@@ -29,8 +29,30 @@ jobs:
   # behind the manual paid workflow.
   integration:
     runs-on: ubuntu-latest
+
+    # Runs from the Argus checkout rather than the workspace root, for the same
+    # reason `e2e-replay` does - see the two-repo layout there.
+    defaults:
+      run:
+        working-directory: Argus
+
     steps:
-      - uses: actions/checkout@v7
+      # This suite brings up only postgres, but the compose file it asks is the
+      # root one, and that file `include`s the Target Environment's. Compose
+      # resolves an include before it looks at which service was named, so a
+      # runner holding only this repo fails on `up postgres` - a stack error
+      # that reads like a database problem and is not one.
+      - name: Check out Argus
+        uses: actions/checkout@v7
+        with:
+          path: Argus
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v7
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: Argus-Demo-Target-App
+
       - uses: astral-sh/setup-uv@v10.0.1
 
       - name: Sync workspace
