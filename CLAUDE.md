@@ -33,6 +33,8 @@ Always via `uv run ...` (uses the workspace `.venv`, no manual activation needed
 - `uv run python -m nox -s e2e` - brings up docker-compose stack, runs e2e and integration tests, tears down. Reaches the **real** API and spends tokens - the manual pre-merge run
 
 **Use `python -m nox`, not the bare `nox` shim** - Windows Smart App Control blocks the unsigned `.exe` stubs in `.venv/Scripts/`, and the block returns after every `uv sync`. When any tool here fails with *"An Application Control policy has blocked this file"* - failing to spawn, or failing to import - see the `smart-app-control-blocks` skill for which of the two fixes applies.
+
+**A `|` inside an argument breaks permission matching - keep pipe characters out of arguments entirely.** The allowlist matcher splits the command text on `|` (and `&&`, `||`, `;`) before matching, without respecting quotes: every segment must match a rule on its own, or the whole command falls back to a permission prompt. So any `|` that is *not* a real pipe - a regex alternation, a format string, a column separator, a literal in a message or path - produces junk segments that match nothing, and an otherwise-allowed command stops and waits. This is about the character, not about any particular tool: before running anything, scan the command for `|` and confirm each one is an actual pipe. Where one isn't, use the equivalent that avoids the character - a list or repeated flag instead of an alternation (`-Pattern "a","b"`, `grep -e a -e b`), a character class (`[ab]`), a different delimiter, or a heredoc/script file for literal text. If there is no such alternative, expect the prompt.
   
 ## Answering - this governs every reply, including mid-task ones
 
