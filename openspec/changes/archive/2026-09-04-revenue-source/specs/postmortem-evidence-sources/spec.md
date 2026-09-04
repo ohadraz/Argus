@@ -6,8 +6,9 @@ as an amount per currency taken in, without naming any payment provider above
 the port. A single currency is the ordinary case and not the guaranteed one: a
 shop paid in two currencies has two amounts and no total, and a port promising
 one figure would have to invent the rate that produced it. The port SHALL NOT
-take a service argument: revenue is account-wide, and narrowing it to the
-affected path is what the estimate's weight already does.
+take a service argument: revenue is account-wide, and the estimate reads it
+twice - once for a calm window, once for the incident - rather than narrowing
+it to a path.
 
 #### Scenario: A window is answered with an amount
 - **WHEN** revenue is requested for a window

@@ -93,7 +93,7 @@ behind the seam the tests above already use.
 - [x] 7.2 `integration`, and `e2e_replay` in the background.
 - [x] 7.3 Spec §21.3 updated to say the estimate names its currency and
       discloses the rate it was converted at, per the `spec-doc-style` skill.
-- [ ] 7.4 One-line commit, approved before it is made. The Target Service's
+- [x] 7.4 One-line commit, approved before it is made. The Target Service's
       change is its own commit in its own repo.
 
 ## 8. The loss is measured, not modelled
