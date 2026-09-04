@@ -338,7 +338,7 @@ _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 # they disagreed, the suite would either give up before Argus did or wait long
 # after it had.
 #
-# Four minutes, where the configured default is three. Recovery is judged on
+# Six minutes, where the configured default is three. Recovery is judged on
 # the first whole minute after an action, so the window has to outlast that
 # minute's bucket and the scrape that publishes it. Two minutes covers that on
 # an idle machine and does not on a loaded one - a build running beside the
@@ -347,12 +347,15 @@ _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 # the double for an answer nobody recorded. The suite then fails pointing at
 # the recording.
 #
+# Four was measured to be too short on a GitHub runner, which is the slowest
+# machine this suite runs on and the only one nobody is watching.
+#
 # A walk pays this wait once per attempt, so the extra time lands only on the
 # cases that genuinely wait it out - a refuted action, an escalation with
 # nothing left to try. Wall-clock is the cheaper of the two things to spend
 # here; the other is trust in what a red run means.
 _E2E_SETTINGS = {
-    "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "240",
+    "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "360",
     # What the shop took, read from the Target Service's own Stripe-shaped
     # endpoint instead of from Stripe - the arrangement `e2e_replay` has with
     # the Anthropic double, one address below the vendor's SDK, so the SDK's
