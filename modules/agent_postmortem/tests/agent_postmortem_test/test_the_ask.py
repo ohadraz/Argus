@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from agent_postmortem import IncidentEvidence, PostmortemDocument, write_postmortem
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
-from agent_postmortem.sources import Engagement, EngagementAnswer, Metrics, Revenue
+from agent_postmortem.sources import (
+    Engagement,
+    EngagementAnswer,
+    Metrics,
+    Rates,
+    RateTable,
+    Revenue,
+)
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.tool_definition import ToolDefinition
@@ -18,9 +26,9 @@ from argus_testkit import Assertion, Kept, Scenario, all_of
 
 Two halves of one rule. The model is handed everything Argus knows about the
 incident, because prose written about half an incident is prose that invents
-the other half - and it is asked for exactly one number, because every other
-number is already measured and a model's arithmetic about a measurement is not
-a second opinion, it is a second answer nobody can tell apart from the first.
+the other half - and it is asked for no number at all, because every figure in
+the document is measured and a model's arithmetic about a measurement is not a
+second opinion, it is a second answer nobody can tell apart from the first.
 
 The last test is the one that matters most and looks least like it: a summary
 that names a figure Argus never computed must leave the stored figure alone.
@@ -37,7 +45,9 @@ DONT_CARE_HOURLY_REVENUE = 4_800
 DONT_CARE_REVENUE_WINDOW = timedelta(hours=1)
 DONT_CARE_ENGAGED_MINUTES = 25
 DONT_CARE_RESPONDERS = 2
-DONT_CARE_IMPACT_WEIGHT = 0.5
+DONT_CARE_RATE_DATE = date(2026, 9, 2)
+
+SOME_CURRENCY = "usd"
 
 
 @pytest.mark.unit
@@ -132,22 +142,20 @@ def test_the_prose_the_model_writes_never_moves_the_figures_beside_it() -> None:
             # The first run - the reference figure
             written_flatly := _a_postmortem_written_with(
                 _an_evidence_bundle(),
-                llm=_a_model_answering(executive_summary=a_flat_summary,
-                                       impact_weight=DONT_CARE_IMPACT_WEIGHT))
+                llm=_a_model_answering(executive_summary=a_flat_summary))
         ) \
         .when(
             # the second run - the dramatic prose
             lambda: _a_postmortem_written_with(
                 _an_evidence_bundle(),
-                llm=_a_model_answering(executive_summary=a_dramatic_summary,
-                                       impact_weight=DONT_CARE_IMPACT_WEIGHT))
+                llm=_a_model_answering(executive_summary=a_dramatic_summary))
         ) \
         .then(
             all_of(
                 # uses the dramatic summary
                 _reports_executive_summary(a_dramatic_summary),
                 # but the estimate is the same as the first run's
-                _estimates_a_loss_of(written_flatly.customer_loss_estimate_usd)
+                _estimates_a_loss_of(written_flatly.customer_loss_estimate)
             )
         )
 
@@ -168,6 +176,7 @@ def test_a_model_given_no_metrics_is_told_they_are_unknown_rather_than_flat() ->
             lambda: write_postmortem(
                 an_evidence_bundle,
                 revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=DONT_CARE_ENGAGED_MINUTES,
                     responders=DONT_CARE_RESPONDERS),
@@ -185,6 +194,7 @@ def _a_postmortem_written_with(evidence: IncidentEvidence,
     return write_postmortem(
         evidence,
         revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+        rates=_rates_in(SOME_CURRENCY),
         engagement=_an_engagement_source_reporting(minutes=DONT_CARE_ENGAGED_MINUTES,
                                                    responders=DONT_CARE_RESPONDERS),
         metrics=_metrics_showing_a_rise(),
@@ -211,8 +221,10 @@ def _an_evidence_bundle(alert_summary: str = "dont care",
 
 
 def _a_revenue_source_reporting(amount: float) -> Revenue:
-    def revenue_between(window_start: datetime, window_end: datetime) -> Decimal | None:
-        return Decimal(amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)
+    def revenue_between(window_start: datetime,
+                        window_end: datetime) -> Mapping[str, Decimal] | None:
+        return {SOME_CURRENCY: Decimal(
+            amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)}
 
     return revenue_between
 
@@ -262,27 +274,24 @@ def _a_model_recording_into(asks: Kept[Transcript],
             if offered_tools is not None:
                 offered_tools.take(tools)
 
-            return _a_complete_answer(tools[0].name,
-                                      executive_summary="dont care",
-                                      impact_weight=DONT_CARE_IMPACT_WEIGHT)
+            return _a_complete_answer(tools[0].name, executive_summary="dont care")
 
     return RecordingModel()
 
 
-def _a_model_answering(executive_summary: str, impact_weight: float) -> LLMClient:
+def _a_model_answering(executive_summary: str) -> LLMClient:
     class OneAnswer:
         def converse(self,
                      transcript: Transcript,
                      tools: list[ToolDefinition],
                      max_tokens: int = 4096) -> Turn:
-            return _a_complete_answer(tools[0].name, executive_summary, impact_weight)
+            return _a_complete_answer(tools[0].name, executive_summary)
 
     return OneAnswer()
 
 
 def _a_complete_answer(tool_name: str,
-                       executive_summary: str,
-                       impact_weight: float) -> Turn:
+                       executive_summary: str) -> Turn:
     return Turn(
         text="",
         tool_calls=[ToolCall(
@@ -291,8 +300,6 @@ def _a_complete_answer(tool_name: str,
             arguments={
                 "root_cause": "dont care",
                 "executive_summary": executive_summary,
-                "impact_weight": impact_weight,
-                "impact_weight_reason": "dont care",
                 "assumptions": []
             }
         )],
@@ -352,10 +359,10 @@ def _reports_executive_summary(expected: str) -> Assertion[PostmortemDocument]:
 
 def _estimates_a_loss_of(expected: Decimal | None) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
-        if document.customer_loss_estimate_usd != expected:
+        if document.customer_loss_estimate != expected:
             raise AssertionError(
                 f"expected the computed estimate [{expected}], "
-                f"got [{document.customer_loss_estimate_usd}]")
+                f"got [{document.customer_loss_estimate}]")
 
         return True
 
@@ -387,3 +394,16 @@ def _the_model_was_not_told_of_a_rise(asks: Kept[Transcript]) -> Assertion[Postm
         return True
 
     return assertion
+
+
+def _rates_in(base: str) -> Rates:
+    """A rate table in the currency this file's revenue are already in.
+
+    No rate for anything else: a test that never takes money abroad has no
+    conversion to make, and the table is here only to say which currency the
+    document reports in.
+    """
+    def rates() -> RateTable | None:
+        return RateTable(base=base, on=DONT_CARE_RATE_DATE, per_unit={})
+
+    return rates

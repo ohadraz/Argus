@@ -1,13 +1,21 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
 from agent_postmortem import IncidentEvidence, PostmortemDocument, write_postmortem
 from agent_postmortem.prompting import ROOT_CAUSE_FIELD
-from agent_postmortem.sources import Engagement, EngagementAnswer, Metrics, Revenue
+from agent_postmortem.sources import (
+    Engagement,
+    EngagementAnswer,
+    Metrics,
+    Rates,
+    RateTable,
+    Revenue,
+)
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.tool_definition import ToolDefinition
@@ -35,15 +43,15 @@ INCIDENT_END = INCIDENT_START + timedelta(minutes=30)
 
 DONT_CARE_INCIDENT_ID = "e5e5e5e5-0000-4000-8000-000000000005"
 DONT_CARE_TOKENS_SPENT = 1_000
-DONT_CARE_HOURLY_REVENUE = 4_800
-DONT_CARE_REVENUE_WINDOW = timedelta(hours=1)
 DONT_CARE_ENGAGED_MINUTES = 25
 DONT_CARE_RESPONDERS = 2
-DONT_CARE_IMPACT_WEIGHT = 0.5
 
-# What those figures come to: 4800 an hour, half an hour, a 28% rise in
-# errors, half of it on a path that carried revenue.
-THE_COMPUTED_ESTIMATE = "$336"
+SOME_REVENUE_PER_PERIOD = 4_800
+SOME_RATE_PERIOD = timedelta(hours=1)
+SOME_REVENUE_DURING_THE_INCIDENT = Decimal("900")
+SOME_CURRENCY = "usd"
+
+DONT_CARE_RATE_DATE = date(2026, 9, 2)
 
 
 @pytest.mark.unit
@@ -142,7 +150,11 @@ def test_a_summary_naming_the_computed_figure_is_accepted() -> None:
     # The check is on figures Argus did not arrive at, not on figures. A
     # summary forbidden to mention what the incident cost would be a summary
     # written for nobody.
-    some_computed_figure = THE_COMPUTED_ESTIMATE
+    some_computed_figure = _the_loss_from(SOME_REVENUE_PER_PERIOD, 
+                                          SOME_RATE_PERIOD, 
+                                          INCIDENT_START, 
+                                          INCIDENT_END, 
+                                          SOME_REVENUE_DURING_THE_INCIDENT)
     some_summary_stating_the_figure = f"the outage cost roughly {some_computed_figure}"
     asks: Kept[Transcript] = Kept()
 
@@ -153,6 +165,10 @@ def test_a_summary_naming_the_computed_figure_is_accepted() -> None:
         .when(
             lambda: _a_postmortem_written_with(
                 an_evidence_bundle,
+                rate=SOME_REVENUE_PER_PERIOD,
+                per=SOME_RATE_PERIOD,
+                until=INCIDENT_START,
+                and_then=SOME_REVENUE_DURING_THE_INCIDENT,
                 llm=_a_model_answering(
                     _an_answer(executive_summary=some_summary_stating_the_figure),
                     recording_into=asks))
@@ -181,6 +197,7 @@ def test_a_summary_naming_any_figure_at_all_is_challenged_when_nothing_was_compu
             lambda: write_postmortem(
                 an_evidence_bundle,
                 revenue=_a_revenue_source_that_cannot_answer(),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(),
                 metrics=_metrics_showing_a_rise(),
                 llm=_a_model_answering(
@@ -250,11 +267,21 @@ def test_a_model_that_ignores_the_tool_twice_is_written_down_as_incomplete() -> 
         )
 
 
-def _a_postmortem_written_with(evidence: IncidentEvidence,
-                               llm: LLMClient) -> PostmortemDocument:
+def _a_postmortem_written_with(
+        evidence: IncidentEvidence,
+        llm: LLMClient,
+        rate: float = SOME_REVENUE_PER_PERIOD,
+        per: timedelta = SOME_RATE_PERIOD,
+        until: datetime = INCIDENT_START,
+        and_then: Decimal = SOME_REVENUE_DURING_THE_INCIDENT
+) -> PostmortemDocument:
     return write_postmortem(
         evidence,
-        revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+        revenue=_a_shop_whose_revenue_was(rate=rate,
+                                          per=per,
+                                          until=until,
+                                          and_then=and_then),
+        rates=_rates_in(SOME_CURRENCY),
         engagement=_an_engagement_source_reporting(),
         metrics=_metrics_showing_a_rise(),
         llm=llm
@@ -280,8 +307,6 @@ def _an_answer(root_cause: str = "dont care",
     return {
         "root_cause": root_cause,
         "executive_summary": executive_summary,
-        "impact_weight": DONT_CARE_IMPACT_WEIGHT,
-        "impact_weight_reason": "dont care",
         "assumptions": []
     }
 
@@ -366,15 +391,33 @@ def _a_model_answering_in_prose_then(*answers: dict[str, Any],
     return ProseFirst()
 
 
-def _a_revenue_source_reporting(amount: float) -> Revenue:
-    def revenue_between(window_start: datetime, window_end: datetime) -> Decimal | None:
-        return Decimal(amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)
+def _a_shop_whose_revenue_was(rate: float,
+                              per: timedelta,
+                              until: datetime,
+                              and_then: Decimal) -> Revenue:
+    """A shop trading steadily until the incident, and differently during it.
+
+    Any window before `until` answers in proportion to its length, which is
+    what lets the agent pick a baseline window this test never has to name.
+    The window starting at `until` is the incident itself, and it happened
+    once, so it answers one fixed sum.
+    """
+    def revenue_between(window_start: datetime,
+                        window_end: datetime) -> Mapping[str, Decimal] | None:
+        if window_start >= until:
+            return {SOME_CURRENCY: and_then}
+
+        window_asked_for = window_end - window_start
+        revenue_at_the_calm_rate = Decimal(rate * window_asked_for / per)
+
+        return {SOME_CURRENCY: revenue_at_the_calm_rate}
 
     return revenue_between
 
 
 def _a_revenue_source_that_cannot_answer() -> Revenue:
-    def revenue_between(dont_care_start: datetime, dont_care_end: datetime) -> Decimal | None:
+    def revenue_between(dont_care_start: datetime,
+                        dont_care_end: datetime) -> Mapping[str, Decimal] | None:
         return None
 
     return revenue_between
@@ -574,3 +617,31 @@ def _the_correction_answered_the_call_it_rejected(
         return True
 
     return assertion
+
+
+def _rates_in(base: str) -> Rates:
+    """A rate table in the currency this file's revenue are already in.
+
+    No rate for anything else: a test that never takes money abroad has no
+    conversion to make, and the table is here only to say which currency the
+    document reports in.
+    """
+    def rates() -> RateTable | None:
+        return RateTable(base=base, on=DONT_CARE_RATE_DATE, per_unit={})
+
+    return rates
+
+
+def _the_loss_from(rate: float,
+                   per: timedelta,
+                   between: datetime,
+                   and_the_end_at: datetime,
+                   less_revenue_of: Decimal) -> Decimal:
+    """What the incident cost, as the test works it out for itself.
+
+    Its own arithmetic rather than a call into the agent's: a test that
+    computed the expectation the way the code does would agree with it however
+    wrong both were.
+    """
+    return (Decimal(rate) * Decimal(str((and_the_end_at - between) / per))
+            - less_revenue_of)

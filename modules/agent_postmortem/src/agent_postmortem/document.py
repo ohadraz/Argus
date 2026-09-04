@@ -16,15 +16,27 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
-# How the estimate's one judgment announces itself in the assumptions. A
-# constant rather than a phrase written at each end, because the document and
-# anything reading it have to agree on the wording, and two spellings of it
-# would leave a disclosed assumption looking undisclosed.
-IMPACT_WEIGHT_ASSUMPTION_LABEL = "impact weight"
+# How a conversion announces itself in the assumptions. A constant rather than
+# a phrase written at each end, because the document and anything reading it
+# have to agree on the wording, and two spellings would leave a disclosed
+# assumption looking undisclosed. Money taken abroad
+# reaches the estimate through a rate, and a figure converted at a rate nobody
+# can see is a figure nobody can check.
+EXCHANGE_RATE_ASSUMPTION_LABEL = "exchange rate"
+
+# How money left out of the figure announces itself. A shop can be paid in a
+# currency the rate source prices nothing for, and the estimate then covers
+# some of what was taken rather than all of it - which is a real answer, but
+# only while the document says which part is missing.
+EXCLUDED_CURRENCY_ASSUMPTION_LABEL = "excluded currency"
 
 # Said when a figure is missing because nobody could answer, so that the gap
 # reads as an unanswered question rather than as a measurement of nothing.
 REVENUE_UNAVAILABLE_ASSUMPTION = "no loss estimate: the revenue source could not be read"
+ONSET_UNKNOWN_ASSUMPTION = (
+    "no loss estimate: no minute departed from the baseline, so there is no "
+    "measured incident to attribute a loss to"
+)
 ENGAGEMENT_UNAVAILABLE_ASSUMPTION = (
     "no engineer minutes: no source could say when a person engaged"
 )
@@ -43,7 +55,12 @@ class PostmortemDocument(BaseModel):
 
     root_cause: str | None
     executive_summary: str | None
-    customer_loss_estimate_usd: Decimal | None
+    customer_loss_estimate: Decimal | None
+    # What currency that figure is in, carried rather than looked up. The
+    # reporting currency is configured, so a document that left a reader to
+    # read it back from settings would relabel figures already published the
+    # day somebody changed it. `None` where there is no figure to label.
+    estimate_currency: str | None
     engineer_minutes: int | None
     responders: int | None
     tokens_spent: int | None

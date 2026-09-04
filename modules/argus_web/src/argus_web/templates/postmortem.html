@@ -36,7 +36,11 @@
 <h2>What it cost</h2>
 <ul class="cost">
   <li><span class="name">customer loss (estimated)</span>
-    {{ postmortem.customer_loss_estimate_usd if postmortem.customer_loss_estimate_usd is not none else 'not estimated' }}</li>
+    {% if postmortem.customer_loss_estimate is not none %}
+      {{ postmortem.customer_loss_estimate }} {{ (postmortem.estimate_currency or '')|upper }}
+    {% else %}
+      not estimated
+    {% endif %}</li>
   <li><span class="name">engineer minutes</span>
     {{ postmortem.engineer_minutes if postmortem.engineer_minutes is not none else 'not recorded' }}</li>
   <li><span class="name">tokens spent</span>

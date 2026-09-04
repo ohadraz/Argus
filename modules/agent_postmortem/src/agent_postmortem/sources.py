@@ -16,15 +16,42 @@ not become a postmortem reporting that the incident cost nothing.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import datetime
+from collections.abc import Callable, Mapping
+from datetime import date, datetime
 from decimal import Decimal
 
 from argus_core.models.metrics import MetricBucket
 from pydantic import BaseModel
 
-# What the service took between two instants, or `None` if nobody could say.
-type Revenue = Callable[[datetime, datetime], Decimal | None]
+# What the service took between two instants, per currency, or `None` if
+# nobody could say. A mapping rather than an amount because a shop paid in two
+# currencies has two figures and no total: producing one needs a rate, a rate
+# has a date, and both are disclosures this document has to make rather than
+# something a source may fold in on the way past.
+type Revenue = Callable[[datetime, datetime], Mapping[str, Decimal] | None]
+
+class RateTable(BaseModel):
+    """One day's exchange rates, and the currency they are quoted against.
+
+    `base` is what the document reports in. It lives here rather than beside
+    the reporting-currency setting because a rate only means anything against
+    the currency it was quoted for, and holding the two apart would let a
+    figure be converted at one anchor and published as another.
+
+    `on` is the day the rates were published, never the day the incident
+    happened: rates move, an estimate is written afterwards, and a reader
+    checking the arithmetic needs to know which day's number was used.
+    """
+
+    base: str
+    on: date
+    # How many units of each currency one unit of `base` buys.
+    per_unit: Mapping[str, Decimal]
+
+
+# The rates to convert with, or `None` if none could be had - neither fetched
+# now nor held from an earlier day.
+type Rates = Callable[[], RateTable | None]
 
 # Pre-aggregated service metrics over a window - the same channel the
 # Investigator reads, asked for a wider window than it ever had reason to.

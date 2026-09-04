@@ -176,7 +176,8 @@ class PostmortemView(BaseModel):
     writes and the incident detail beside it is polled every two seconds."""
 
     root_cause: str | None
-    customer_loss_estimate_usd: Decimal | None
+    customer_loss_estimate: Decimal | None
+    estimate_currency: str | None
     engineer_minutes: int | None
     tokens_spent: int | None
     assumptions: list[str] | None
@@ -447,7 +448,8 @@ def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
     """Shapes the postmortem row for transport."""
     return PostmortemView(
         root_cause=postmortem.root_cause,
-        customer_loss_estimate_usd=postmortem.customer_loss_estimate_usd,
+        customer_loss_estimate=postmortem.customer_loss_estimate,
+        estimate_currency=postmortem.estimate_currency,
         engineer_minutes=postmortem.engineer_minutes,
         tokens_spent=postmortem.tokens_spent,
         assumptions=postmortem.assumptions,

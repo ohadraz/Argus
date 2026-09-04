@@ -14,20 +14,23 @@ would be describing a different incident.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 
 import psycopg
 from agent_postmortem import IncidentEvidence, PostmortemDocument, write_postmortem
 from agent_postmortem.sources import EngagementAnswer
+from argus_core.config import get_settings
 from argus_core.db import connect
-from argus_core.events import LogsRetrieved
+from argus_core.events import LogsRetrieved, OnsetDetected
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
-from argus_core.timestamps import to_iso
+from argus_core.timestamps import parse_iso, to_iso
 
+from orchestrator.rates import todays_rates
 from orchestrator.repository import actions, events, hypotheses, incidents, replay, timeline
 
 
@@ -42,24 +45,36 @@ def write_postmortem_for(incident_id: str,
     """
     with connect() as conn:
         evidence = gather_evidence(conn, incident_id)
+        rates = todays_rates(conn, get_settings().reporting_currency)
 
     return write_postmortem(
         evidence,
-        revenue=_no_revenue_source,
+        revenue=_the_shops_takings,
+        rates=lambda: rates,
         engagement=_no_engagement_source,
         metrics=_metrics_between,
         llm=_a_recording_client(Replay(incident_id, recorder))
     )
 
 
-def _no_revenue_source(dont_care_start: datetime, dont_care_end: datetime) -> Decimal | None:
-    """No source of revenue exists yet - see the `revenue-source` change.
+def _the_shops_takings(started_at: datetime,
+                       ended_at: datetime) -> Mapping[str, Decimal] | None:
+    """What the shop took over the incident, read from the payment provider.
 
-    A port that answers "nobody could say" rather than one that is absent: the
-    agent already knows what to do with an unanswered question, and this is
-    the honest answer until an adapter arrives.
+    Imported inside for the same reason the metrics channel is: choosing this
+    pulls in a vendor's SDK, and a unit test of the gathering above should not
+    have to have one installed.
+
+    A provider that cannot be read - or a deployment holding no credential -
+    answers `None` rather than zero. The agent already knows what to do with an
+    unanswered question, and "the incident cost nothing" is not it.
     """
-    return None
+    from revenue_source import taken_between
+    from revenue_source.stripe_adapter import charges_between
+
+    takings = taken_between(started_at, ended_at, charges=charges_between)
+
+    return takings.amounts if takings is not None else None
 
 
 def _no_engagement_source(dont_care_incident_id: str) -> EngagementAnswer | None:
@@ -113,6 +128,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         incident_id=incident_id,
         started_at=incident.created_at,
         ended_at=incident.ended_at,
+        onset_at=_when_it_actually_began(conn, incident_id),
         alert_summary=_what_was_alerted(incident.alert_payload),
         timeline=_what_happened(conn, incident_id),
         candidates=_what_was_considered(conn, incident_id),
@@ -120,6 +136,26 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         log_lines=_what_was_read(conn, incident_id),
         tokens_spent=replay.get_tokens_spent(conn, incident_id)
     )
+
+
+def _when_it_actually_began(conn: psycopg.Connection,
+                            incident_id: str) -> datetime | None:
+    """The onset the Investigator measured, as it published it.
+
+    Read from the account rather than re-derived: the onset was found by
+    walking the metrics for a departure from baseline while the incident was
+    live, and a postmortem measuring it again from a wider window would date
+    the same incident differently from the page that showed it.
+
+    `None` where no onset was ever published - an incident that never reached
+    an investigation, or one whose metrics could not be read. The document
+    then falls back to the alert's own time, which is late but real.
+    """
+    onsets = [event.onset
+              for event in events.get_by_incident(conn, incident_id)
+              if isinstance(event, OnsetDetected)]
+
+    return parse_iso(onsets[0]) if onsets else None
 
 
 def _what_was_alerted(alert_payload: dict[str, object]) -> str:

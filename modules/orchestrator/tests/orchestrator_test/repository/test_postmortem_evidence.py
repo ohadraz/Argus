@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import psycopg
 import pytest
 from agent_postmortem import IncidentEvidence
-from argus_core.events import LogsRetrieved
+from argus_core.events import LogsRetrieved, OnsetDetected
 from argus_core.ids import new_id
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.timestamps import parse_iso
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
@@ -156,6 +159,85 @@ def test_an_incident_that_does_not_exist_cannot_be_summarised() -> None:
             .then(
                 an_error_was_raised(ValueError)
             )
+
+
+@pytest.mark.integration
+def test_the_evidence_carries_the_onset_the_investigation_measured() -> None:
+    # The instant the service actually began to fail, which is not the instant
+    # Argus was told: an alert fires on a rule that needs some minutes of bad
+    # traffic to trip. The loss is measured from the onset, so those minutes
+    # are the difference between a baseline of calm trade and one that already
+    # contains the damage.
+    #
+    # Read from what the Investigator published rather than measured again
+    # here. A postmortem that re-derived it from a wider window would date the
+    # same incident differently from the page that showed it.
+    some_onset = "2026-09-02T11:50"
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(
+                    conn, incident_id, OnsetDetected(incident_id=incident_id,
+                                                     onset=some_onset))
+            ) \
+            .then(
+                _carries_the_onset(parse_iso(some_onset))
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_whose_onset_was_never_found_carries_none() -> None:
+    # A window in which no minute departed from the baseline has no onset to
+    # anchor on (spec §9), so the investigation exits without publishing one.
+    # The gathering must report that rather than substituting the alert's own
+    # time, because the document refuses to cost an incident it cannot date.
+    with psycopg.connect(DATABASE_URL) as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_no_onset()
+            )
+
+
+def _the_evidence_after_publishing(conn: psycopg.Connection,
+                                   incident_id: str,
+                                   event: OnsetDetected) -> IncidentEvidence:
+    events.record(conn, event)
+
+    return gather_evidence(conn, incident_id)
+
+
+def _carries_the_onset(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.onset_at != expected:
+            raise AssertionError(
+                f"Expected the onset [{expected}], got [{evidence.onset_at}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_no_onset() -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.onset_at is not None:
+            raise AssertionError(
+                f"Expected no onset where none was published, got "
+                f"[{evidence.onset_at}] - the alert's own time would date the "
+                f"loss from after the damage began.")
+
+        return True
+
+    return assertion
 
 
 def _an_incident_that_ended(conn: psycopg.Connection) -> str:

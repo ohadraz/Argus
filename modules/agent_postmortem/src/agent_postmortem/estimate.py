@@ -1,29 +1,31 @@
 """What the incident cost the business, and the arithmetic behind it.
 
-Spec §21.3 states the estimate as `affected_users x avg_revenue_per_user x
-duration x impact_weight`. Neither of the first two terms is obtainable: a
-payment provider can say what was taken in a window and cannot say by how many
-people, since a guest checkout is attached to no customer at all. So the same
-quantity is reached from the side that *is* measurable:
+    loss = what the calm hour predicted - what actually came in
 
-    loss = revenue_per_hour x duration_hours x error_rate_delta x impact_weight
+Both terms are money the payment provider reported, over two windows: the hour
+before the onset, and the incident itself (spec §21.3). A provider cannot say
+how many people were affected - a guest checkout is attached to no customer at
+all - and does not have to, because it can say what the shop took. The one
+thing it cannot report is the sale that never happened, which is exactly the
+difference between the two windows.
 
-The substitution is exact where the original was guessing, and it drops an
-assumption on the way: a revenue rate already reflects how many visitors buy,
-where a user count multiplied by an average pretends every affected visitor
-would have.
+Nothing here is a judgement, and no term is a proxy for another: every figure
+is money over a window, measured by the party that took it.
 
-Three of the four terms are measured. The fourth is the model's, and the
-document says so.
+The error rate is measured too, but only to tell the model what happened. No
+figure rests on it.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso
+
+from agent_postmortem.sources import RateTable
 
 # How far before the incident to ask what the service normally takes. An hour
 # is long enough that a quiet minute does not become the baseline, and short
@@ -59,23 +61,58 @@ def error_rate_delta(buckets: list[MetricBucket],
     return _mean(during) - _mean(before)
 
 
-def revenue_per_hour(amount: Decimal, over_hours: float) -> float:
-    """A rate, from an amount and the span it was taken over."""
-    return float(amount) / over_hours
+def in_the_reporting_currency(taken: Mapping[str, Decimal],
+                              rates: RateTable) -> tuple[Decimal, list[str]]:
+    """One figure out of several, and whatever could not be converted.
+
+    The rates say how many units of a currency one unit of the base buys, so
+    money taken abroad is divided by its rate rather than multiplied - the
+    direction that turns eighty euros into a hundred dollars rather than
+    sixty-four.
+
+    A currency the table has no rate for is returned as excluded rather than
+    dropped silently or counted at par. Both of those publish a figure that
+    looks measured and is not; naming it lets the document say what is missing
+    from the total it reports.
+    """
+    total = Decimal(0)
+    excluded: list[str] = []
+
+    for currency, amount in taken.items():
+        if currency == rates.base:
+            total += amount
+        elif currency in rates.per_unit:
+            total += amount / rates.per_unit[currency]
+        else:
+            excluded.append(currency)
+
+    return total, excluded
 
 
-def loss_estimate(rate_per_hour: float,
-                  duration_hours: float,
-                  delta: float,
-                  impact_weight: float) -> Decimal:
-    """The four terms, multiplied in the order the spec states them.
+def loss_between(taken_before: Decimal,
+                 over_hours: float,
+                 taken_during: Decimal,
+                 for_hours: float) -> Decimal:
+    """What the calm hour predicted, less what actually came in.
+
+    Both terms are money the payment provider reported; the only arithmetic is
+    scaling the first to the length of the second, because a baseline hour and
+    a ten-minute incident are not comparable until they are.
+
+    Never negative. A shop that took more while it was broken than its calm
+    hour predicted lost nothing measurable - a busier afternoon, or a
+    promotion that began with the outage - and a negative loss is not a
+    smaller loss, it is a category error. Zero is the honest floor, and it is
+    a measurement rather than an absence.
 
     Deliberately not rounded to a currency's smallest unit. Rounding would
-    imply the figure is accurate to that unit, and an estimate resting on a
-    judgment about which paths carry revenue is not accurate to the cent.
-    Presentation is the reader's, and the reader is a page.
+    imply the figure is accurate to that unit, and a figure resting on a
+    baseline hour standing in for the incident's own is not accurate to the
+    cent. Presentation is the reader's, and the reader is a page.
     """
-    return Decimal(rate_per_hour * duration_hours * delta * impact_weight)
+    predicted = taken_before / Decimal(str(over_hours)) * Decimal(str(for_hours))
+
+    return max(predicted - taken_during, Decimal(0))
 
 
 def _mean(values: list[float]) -> float:

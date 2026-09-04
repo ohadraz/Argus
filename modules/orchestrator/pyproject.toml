@@ -9,6 +9,8 @@ dependencies = [
     "argus-agent_codefix",
     "argus-agent_communicator",
     "argus-agent_postmortem",
+    "argus-revenue_source",
+    "argus-exchange_rate_source",
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres>=2.0",
     "psycopg[binary]>=3.1",
@@ -22,6 +24,8 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-revenue_source = { workspace = true }
+argus-exchange_rate_source = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-agent_investigator = { workspace = true }
 argus-agent_mitigation = { workspace = true }

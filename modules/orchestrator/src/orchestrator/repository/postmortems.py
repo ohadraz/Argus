@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 
 import psycopg
+from agent_postmortem import PostmortemDocument
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
@@ -18,7 +19,8 @@ class Postmortem(BaseModel):
     # What the incident cost, in three units. Only the first is an estimate;
     # the other two are measured, and none of them is convertible into the
     # others - a rate to do that belongs to the reader, not to this row.
-    customer_loss_estimate_usd: Decimal | None
+    customer_loss_estimate: Decimal | None
+    estimate_currency: str | None
     engineer_minutes: int | None
     tokens_spent: int | None
     assumptions: list[str] | None
@@ -28,23 +30,33 @@ class Postmortem(BaseModel):
 
 
 def record(
-    conn: psycopg.Connection, incident_id: str, content: dict[str, object]
+    conn: psycopg.Connection, incident_id: str, document: PostmortemDocument
 ) -> None:
+    """Writes the document the agent produced.
+
+    Takes the document rather than a mapping of its fields: a dict makes every
+    column a string looked up at runtime, so a field added to the document and
+    forgotten here fails as a `KeyError` in production instead of as a type
+    error on the way in - and a field misspelled in a caller's dict fails
+    nowhere at all.
+    """
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO postmortem "
-            "(incident_id, root_cause, customer_loss_estimate_usd, engineer_minutes, "
-            "tokens_spent, assumptions, executive_summary, checklist_complete) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "(incident_id, root_cause, customer_loss_estimate, estimate_currency, "
+            "engineer_minutes, tokens_spent, assumptions, executive_summary, "
+            "checklist_complete) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 incident_id,
-                content["root_cause"],
-                content["customer_loss_estimate_usd"],
-                content["engineer_minutes"],
-                content["tokens_spent"],
-                Jsonb(content["assumptions"]),
-                content["executive_summary"],
-                content["checklist_complete"],
+                document.root_cause,
+                document.customer_loss_estimate,
+                document.estimate_currency,
+                document.engineer_minutes,
+                document.tokens_spent,
+                Jsonb(document.assumptions),
+                document.executive_summary,
+                document.checklist_complete,
             ),
         )
     conn.commit()
@@ -53,7 +65,8 @@ def record(
 def get_by_incident(conn: psycopg.Connection, incident_id: str) -> Postmortem | None:
     with conn.cursor(row_factory=class_row(Postmortem)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, root_cause, customer_loss_estimate_usd, "
+            "SELECT id, incident_id, root_cause, customer_loss_estimate, "
+            "estimate_currency, "
             "engineer_minutes, tokens_spent, assumptions, "
             "executive_summary, checklist_complete, created_at "
             "  FROM postmortem "

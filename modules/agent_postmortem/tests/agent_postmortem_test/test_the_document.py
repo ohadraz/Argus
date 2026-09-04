@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from agent_postmortem import (
-    IMPACT_WEIGHT_ASSUMPTION_LABEL,
     IncidentEvidence,
     PostmortemDocument,
     write_postmortem,
 )
-from agent_postmortem.sources import Engagement, EngagementAnswer, Metrics, Revenue
+from agent_postmortem.sources import (
+    Engagement,
+    EngagementAnswer,
+    Metrics,
+    Rates,
+    RateTable,
+    Revenue,
+)
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.tool_definition import ToolDefinition
@@ -21,10 +28,10 @@ from argus_testkit import Assertion, Scenario, all_of
 """What the finished document carries, beside its figures.
 
 The numbers have their own file. This is about everything a reader needs in
-order to know what the numbers are worth: which of them rest on a judgment,
-whose judgment it was and why, how many people the incident took - and, when
-the model answered in a shape Argus cannot read, that the document says so
-rather than quietly reading as a complete one.
+order to know what the numbers are worth: what the model says it assumed, how
+many people the incident took - and, when the model answered in a shape Argus
+cannot read, that the document says so rather than quietly reading as a
+complete one.
 """
 
 INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
@@ -35,31 +42,10 @@ DONT_CARE_TOKENS_SPENT = 1_000
 DONT_CARE_HOURLY_REVENUE = 4_800
 DONT_CARE_REVENUE_WINDOW = timedelta(hours=1)
 DONT_CARE_ENGAGED_MINUTES = 25
-DONT_CARE_IMPACT_WEIGHT = 0.5
 
+SOME_CURRENCY = "usd"
 
-@pytest.mark.unit
-def test_the_document_says_why_the_weight_was_what_it_was() -> None:
-    # The label alone says a judgment was made; the reason is what lets a
-    # reader disagree with it. An estimate whose one assumption is disclosed
-    # without its grounds is disclosed in name only.
-    some_reason = "checkout is where the money is taken, and it was failing"
-
-    Scenario() \
-        .given(
-            an_evidence_bundle := _an_evidence_bundle()
-        ) \
-        .when(
-            lambda: _a_postmortem_written_with(
-                an_evidence_bundle,
-                llm=_a_model_answering(impact_weight_reason=some_reason))
-        ) \
-        .then(
-            all_of(
-                _discloses_an_assumption_naming(IMPACT_WEIGHT_ASSUMPTION_LABEL),
-                _discloses_an_assumption_naming(some_reason)
-            )
-        )
+DONT_CARE_RATE_DATE = date(2026, 9, 2)
 
 
 @pytest.mark.unit
@@ -159,6 +145,7 @@ def _a_postmortem_written_with(evidence: IncidentEvidence,
     return write_postmortem(
         evidence,
         revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+        rates=_rates_in(SOME_CURRENCY),
         engagement=_an_engagement_source_reporting(minutes=DONT_CARE_ENGAGED_MINUTES,
                                                    responders=responders),
         metrics=_metrics_showing_a_rise(),
@@ -181,8 +168,10 @@ def _an_evidence_bundle() -> IncidentEvidence:
 
 
 def _a_revenue_source_reporting(amount: float) -> Revenue:
-    def revenue_between(window_start: datetime, window_end: datetime) -> Decimal | None:
-        return Decimal(amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)
+    def revenue_between(window_start: datetime,
+                        window_end: datetime) -> Mapping[str, Decimal] | None:
+        return {SOME_CURRENCY: Decimal(
+            amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)}
 
     return revenue_between
 
@@ -214,8 +203,7 @@ def _a_bucket(at: datetime, error_rate: float) -> MetricBucket:
     )
 
 
-def _a_model_answering(impact_weight_reason: str = "dont care",
-                       assumptions: list[str] | None = None) -> LLMClient:
+def _a_model_answering(assumptions: list[str] | None = None) -> LLMClient:
     class OneAnswer:
         def converse(self,
                      transcript: Transcript,
@@ -229,8 +217,6 @@ def _a_model_answering(impact_weight_reason: str = "dont care",
                     arguments={
                         "root_cause": "dont care",
                         "executive_summary": "dont care",
-                        "impact_weight": DONT_CARE_IMPACT_WEIGHT,
-                        "impact_weight_reason": impact_weight_reason,
                         "assumptions": assumptions if assumptions is not None else []
                     }
                 )],
@@ -323,8 +309,6 @@ def _a_model_calling(tool_name: str) -> LLMClient:
                     arguments={
                         "root_cause": "a root cause from the wrong call",
                         "executive_summary": "a summary from the wrong call",
-                        "impact_weight": DONT_CARE_IMPACT_WEIGHT,
-                        "impact_weight_reason": "dont care",
                         "assumptions": []
                     }
                 )],
@@ -333,3 +317,16 @@ def _a_model_calling(tool_name: str) -> LLMClient:
             )
 
     return WrongTool()
+
+
+def _rates_in(base: str) -> Rates:
+    """A rate table in the currency this file's revenue are already in.
+
+    No rate for anything else: a test that never takes money abroad has no
+    conversion to make, and the table is here only to say which currency the
+    document reports in.
+    """
+    def rates() -> RateTable | None:
+        return RateTable(base=base, on=DONT_CARE_RATE_DATE, per_unit={})
+
+    return rates

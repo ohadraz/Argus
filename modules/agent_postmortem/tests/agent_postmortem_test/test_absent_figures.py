@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -11,7 +12,15 @@ from agent_postmortem import (
     PostmortemDocument,
     write_postmortem,
 )
-from agent_postmortem.sources import Engagement, EngagementAnswer, Metrics, Revenue
+from agent_postmortem.document import ONSET_UNKNOWN_ASSUMPTION
+from agent_postmortem.sources import (
+    Engagement,
+    EngagementAnswer,
+    Metrics,
+    Rates,
+    RateTable,
+    Revenue,
+)
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.tool_definition import ToolDefinition
@@ -34,14 +43,18 @@ which is what makes it worth a file.
 
 INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 INCIDENT_END = INCIDENT_START + timedelta(minutes=30)
+SOME_ONSET = INCIDENT_START - timedelta(minutes=10)
+
 
 DONT_CARE_INCIDENT_ID = "e2e2e2e2-0000-4000-8000-000000000002"
 DONT_CARE_TOKENS_SPENT = 1_000
 DONT_CARE_HOURLY_REVENUE = 4_800
-DONT_CARE_IMPACT_WEIGHT = 0.5
 DONT_CARE_ENGAGED_MINUTES = 25
 DONT_CARE_RESPONDERS = 2
 DONT_CARE_REVENUE_WINDOW = timedelta(hours=1)
+DONT_CARE_RATE_DATE = date(2026, 9, 2)
+
+SOME_CURRENCY = "usd"
 
 
 @pytest.mark.unit
@@ -56,11 +69,12 @@ def test_a_revenue_source_that_cannot_be_read_estimates_nothing_rather_than_zero
             lambda: write_postmortem(
                 an_evidence_bundle,
                 revenue=_a_revenue_source_that_cannot_answer(),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=DONT_CARE_ENGAGED_MINUTES,
                     responders=DONT_CARE_RESPONDERS),
                 metrics=_metrics_showing_a_rise(),
-                llm=_a_model_answering(DONT_CARE_IMPACT_WEIGHT)
+                llm=_a_model_answering()
             )
         ) \
         .then(
@@ -72,10 +86,12 @@ def test_a_revenue_source_that_cannot_be_read_estimates_nothing_rather_than_zero
 
 
 @pytest.mark.unit
-def test_metrics_that_cannot_be_read_estimate_nothing_rather_than_zero() -> None:
-    # The other term that can go missing. Without a rise in errors there is
-    # nothing to scale the revenue rate by, and an incident whose metrics were
-    # unreadable is not an incident that cost nothing.
+def test_metrics_that_cannot_be_read_leave_the_estimate_standing() -> None:
+    # The rise in errors is told to the model and nothing else: what the
+    # incident cost is a subtraction between two sums the payment provider
+    # reported. So metrics nobody could read cost the document a sentence of
+    # narrative and not its figure - which is the point of measuring the loss
+    # rather than modelling it.
     Scenario() \
         .given(
             an_evidence_bundle := _an_evidence_bundle()
@@ -84,15 +100,16 @@ def test_metrics_that_cannot_be_read_estimate_nothing_rather_than_zero() -> None
             lambda: write_postmortem(
                 an_evidence_bundle,
                 revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=DONT_CARE_ENGAGED_MINUTES,
                     responders=DONT_CARE_RESPONDERS),
                 metrics=_metrics_that_answer_with_nothing(),
-                llm=_a_model_answering(DONT_CARE_IMPACT_WEIGHT)
+                llm=_a_model_answering()
             )
         ) \
         .then(
-            _estimates_nothing()
+            _estimates_something()
         )
 
 
@@ -109,9 +126,10 @@ def test_an_engagement_source_that_cannot_be_read_reports_no_engineer_minutes() 
             lambda: write_postmortem(
                 an_evidence_bundle,
                 revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_that_cannot_answer(),
                 metrics=_metrics_showing_a_rise(),
-                llm=_a_model_answering(DONT_CARE_IMPACT_WEIGHT)
+                llm=_a_model_answering()
             )
         ) \
         .then(
@@ -137,10 +155,11 @@ def test_an_incident_nobody_responded_to_reports_no_minutes_and_says_nothing_was
             lambda: write_postmortem(
                 an_evidence_bundle,
                 revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(minutes=nobody,
                                                            responders=nobody),
                 metrics=_metrics_showing_a_rise(),
-                llm=_a_model_answering(DONT_CARE_IMPACT_WEIGHT)
+                llm=_a_model_answering()
             )
         ) \
         .then(
@@ -151,11 +170,43 @@ def test_an_incident_nobody_responded_to_reports_no_minutes_and_says_nothing_was
         )
 
 
-def _an_evidence_bundle() -> IncidentEvidence:
+@pytest.mark.unit
+def test_an_incident_with_no_onset_estimates_nothing_rather_than_dating_from_the_alert() -> None:
+    # No onset means no minute departed from baseline (spec §9): there is no
+    # measured incident to attribute a loss to. Dating one from the alert
+    # would invent a window nobody measured, and the alert is late by however
+    # long the rule took to trip - so the figure would be both fabricated and
+    # short. Absent with its reason is the only honest answer.
+    Scenario() \
+        .given(
+            an_evidence_bundle := _an_evidence_bundle(onset_at=None)
+        ) \
+        .when(
+            lambda: write_postmortem(
+                an_evidence_bundle,
+                revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
+                rates=_rates_in(SOME_CURRENCY),
+                engagement=_an_engagement_source_reporting(
+                    minutes=DONT_CARE_ENGAGED_MINUTES,
+                    responders=DONT_CARE_RESPONDERS),
+                metrics=_metrics_showing_a_rise(),
+                llm=_a_model_answering()
+            )
+        ) \
+        .then(
+            all_of(
+                _estimates_nothing(),
+                _discloses_the_assumption(ONSET_UNKNOWN_ASSUMPTION)
+            )
+        )
+
+
+def _an_evidence_bundle(onset_at: datetime | None = SOME_ONSET) -> IncidentEvidence:
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
         started_at=INCIDENT_START,
         ended_at=INCIDENT_END,
+        onset_at=onset_at,
         alert_summary="dont care",
         timeline=["dont care"],
         candidates=["dont care"],
@@ -166,8 +217,10 @@ def _an_evidence_bundle() -> IncidentEvidence:
 
 
 def _a_revenue_source_reporting(amount: float) -> Revenue:
-    def revenue_between(window_start: datetime, window_end: datetime) -> Decimal | None:
-        return Decimal(amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)
+    def revenue_between(window_start: datetime,
+                        window_end: datetime) -> Mapping[str, Decimal] | None:
+        return {SOME_CURRENCY: Decimal(
+            amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)}
 
     return revenue_between
 
@@ -179,7 +232,8 @@ def _a_revenue_source_that_cannot_answer() -> Revenue:
     outcome of writing a postmortem, not an error in writing one, and an
     incident does not go unrecorded because a payment API was down.
     """
-    def revenue_between(dont_care_start: datetime, dont_care_end: datetime) -> Decimal | None:
+    def revenue_between(dont_care_start: datetime,
+                        dont_care_end: datetime) -> Mapping[str, Decimal] | None:
         return None
 
     return revenue_between
@@ -226,7 +280,7 @@ def _a_bucket(at: datetime, error_rate: float) -> MetricBucket:
     )
 
 
-def _a_model_answering(impact_weight: float) -> LLMClient:
+def _a_model_answering() -> LLMClient:
     class OneAnswer:
         def converse(self,
                      transcript: Transcript,
@@ -240,8 +294,6 @@ def _a_model_answering(impact_weight: float) -> LLMClient:
                     arguments={
                         "root_cause": "dont care",
                         "executive_summary": "dont care",
-                        "impact_weight": impact_weight,
-                        "impact_weight_reason": "dont care",
                         "assumptions": []
                     }
                 )],
@@ -254,10 +306,10 @@ def _a_model_answering(impact_weight: float) -> LLMClient:
 
 def _estimates_nothing() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
-        if document.customer_loss_estimate_usd is not None:
+        if document.customer_loss_estimate is not None:
             raise AssertionError(
                 f"expected no estimate where a term of it could not be read, "
-                f"got [{document.customer_loss_estimate_usd}]")
+                f"got [{document.customer_loss_estimate}]")
         return True
 
     return assertion
@@ -303,3 +355,30 @@ def _discloses_no_assumption_about(unexpected: str) -> Assertion[PostmortemDocum
         return True
 
     return assertion
+
+
+def _rates_in(base: str) -> Rates:
+    """A rate table in the currency this file's revenue are already in.
+
+    No rate for anything else: a test that never takes money abroad has no
+    conversion to make, and the table is here only to say which currency the
+    document reports in.
+    """
+    def rates() -> RateTable | None:
+        return RateTable(base=base, on=DONT_CARE_RATE_DATE, per_unit={})
+
+    return rates
+
+
+def _estimates_something() -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if document.customer_loss_estimate is None:
+            raise AssertionError(
+                "expected an estimate: both windows were readable, and no figure "
+                "rests on the metrics")
+
+        return True
+
+    return assertion
+
+

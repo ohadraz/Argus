@@ -343,7 +343,20 @@ _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 # bucket and the scrape that publishes it - and no less. A walk of several
 # attempts pays this wait once per attempt, so the third minute is pure
 # wall-clock in the one suite that already costs the most to run.
-_E2E_SETTINGS = {"MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "120"}
+_E2E_SETTINGS = {
+    "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "120",
+    # What the shop took, read from the Target Service's own Stripe-shaped
+    # endpoint instead of from Stripe - the arrangement `e2e_replay` has with
+    # the Anthropic double, one address below the vendor's SDK, so the SDK's
+    # request building, paging and object model all still run.
+    #
+    # The key is a fixture value and the endpoint accepts any: what matters is
+    # that it is *set*, because an empty credential makes the source report it
+    # could not answer, and the estimate would then be absent by configuration
+    # rather than by measurement.
+    "STRIPE_API_KEY": "sk_test_argus_demo",
+    "STRIPE_BASE_URL": "http://localhost:8080/stripe"
+}
 
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     "anthropic_double",

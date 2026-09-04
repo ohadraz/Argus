@@ -150,13 +150,40 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- All nullable: a postmortem written before anyone recorded how long they
     -- spent is still a postmortem, and a zero would claim nobody spent
     -- anything.
-    customer_loss_estimate_usd NUMERIC,
+    customer_loss_estimate NUMERIC,
+    -- The currency that figure is in, stored beside it rather than read from
+    -- configuration. The reporting currency is a setting, and a page that
+    -- looked it up when it rendered would relabel every figure ever written
+    -- the day somebody changed it.
+    estimate_currency TEXT,
     engineer_minutes INTEGER,
     tokens_spent INTEGER,
     assumptions JSONB,
     executive_summary TEXT,
     checklist_complete BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per currency per day, against one base. The rates a document was
+-- converted at have to survive the document: a reader checking the arithmetic
+-- next month cannot re-fetch them, because the provider publishes today's and
+-- an estimate quietly re-derived at today's rate would be a different figure
+-- every time anybody looked.
+--
+-- Not an incident's table. Rates belong to a day and are shared by every
+-- postmortem written about it, so this is keyed by what identifies a rate -
+-- the base it is quoted against, the currency it prices, and the day the
+-- provider published it - and by nothing about who happened to ask first.
+--
+-- NUMERIC, like the money it converts: a rate held as a float is a rate that
+-- rounds differently depending on which figure it is multiplied into.
+CREATE TABLE IF NOT EXISTS exchange_rate (
+    base TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    published_on DATE NOT NULL,
+    per_unit NUMERIC NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (base, currency, published_on)
 );
 """
 

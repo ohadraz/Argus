@@ -153,7 +153,7 @@ Owns all Slack writes (creates the incident channel, posts structured status upd
 
 Triggered once on transition into `resolved` or `escalated`. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, what it cost - one estimate with its assumptions and two measurements (§21.3) - and an executive summary.
 
-LLM-backed rather than agentic: it retrieves nothing and drives no tool loop, because everything it writes about has already happened and is already recorded. Every figure it publishes is computed from that record. The model writes prose and supplies exactly one number - `impact_weight`, how much of the affected path carried revenue - which the document publishes as a stated assumption rather than as a measurement.
+LLM-backed rather than agentic: it retrieves nothing and drives no tool loop, because everything it writes about has already happened and is already recorded. Every figure it publishes is computed from that record, and the model supplies none of them - it writes prose. What a figure rests on, the document states beside it: the windows compared, the exchange rate applied and its date, a currency left out of a total.
 
 It answers by calling `submit_postmortem`, never in prose, so a document is a structured answer or no answer at all. The submission is checked before it is accepted, and a currency amount in the executive summary that is not Argus's own figure is a fault of exactly the kind a missing field is: a number the reader would act on that nothing computed. A rejected submission is refused through that call's own tool result, so the model repairs the document it wrote instead of writing a second one from nothing; a model that made no call has nothing to attach a refusal to and is asked again. Two attempts, never three - it must terminate even on partial success, and hands off what it has with the missing fields flagged.
 
@@ -337,7 +337,8 @@ erDiagram
         uuid id PK
         uuid incident_id FK
         text root_cause
-        numeric customer_loss_estimate_usd
+        numeric customer_loss_estimate
+        text estimate_currency
         int engineer_minutes
         int tokens_spent
         jsonb assumptions
@@ -743,18 +744,23 @@ A library of scripted chaos scenarios injected into the Target Environment (§15
 
 ### 21.3 Cost/impact estimation methodology
 
-Kept transparent and simple rather than falsely precise:
+The loss is measured rather than modelled:
 ```
-error_rate_delta   = mean(error_rate during the incident) - mean(error_rate in the hour before it)
-customer_loss_estimate_usd ≈ revenue_per_hour × incident_duration_hours × error_rate_delta × impact_weight
+customer_loss_estimate = revenue the calm hour predicted - revenue that came in
 ```
-The estimate is built from a revenue *rate* rather than from a count of affected users, because a count is not obtainable: a payment provider can say what was taken in a window and cannot say by how many people, since a guest checkout is attached to no customer at all. Reaching the same quantity from the measurable side also drops an assumption - a revenue rate already reflects how many visitors buy, where a user count multiplied by an average pretends every affected visitor would have.
+Both terms are money the payment provider reported over a window - the hour before the incident's onset, scaled to the incident's own length, against the incident itself. Revenue is what a provider can answer for: it can say what was taken and cannot say by how many people, since a guest checkout is attached to no customer at all. The one thing it cannot report is the sale that never happened, and that is exactly the difference between the two windows.
 
-Three of the four terms are measured: the rate from what the payment provider took over a window before the incident, the duration from the incident's own start and end, and the delta against the service's own calm rate rather than the raw error rate - a service that always fails two requests in a hundred did not start doing so because of this incident. The fourth, `impact_weight`, is a judgment about how much of the affected path carried revenue at all, and it is the model's.
+The incident is dated from its onset rather than from the alert that announced it. The two differ by however long the alert took to fire, and counting those minutes as calm trade builds the baseline out of minutes the service was already failing in. A window with no onset has nothing departing from baseline and so no measured incident to attribute a loss to; the estimate is absent, with that stated.
+
+The figure never falls below zero. A shop that took more while it was broken than its calm hour predicted lost nothing measurable - a busier afternoon, a promotion that began with the outage - and a negative loss is not a smaller loss but a category error.
+
+A shop paid in several currencies has several figures and no total until a rate is applied, so the estimate is stated in one reporting currency and the document discloses the rate and its date beside the figure. A currency the rate table cannot price is named as excluded rather than counted at par, which would publish a figure that looks measured and is not.
+
+The rise in the error rate is measured too - against the service's own calm rate rather than the raw one, since a service that always fails two requests in a hundred did not start doing so because of this incident. It tells the model what happened; no figure rests on it.
 
 Label these clearly as **estimates with stated assumptions** in the postmortem - grade postmortems on whether assumptions are disclosed, not on numeric "accuracy" (there's no ground-truth dollar figure). A term that cannot be measured leaves the estimate absent with the reason stated, rather than defaulting to zero and reporting an incident that cost nothing.
 
-What the response itself cost is reported rather than estimated, as two measured figures: `engineer_minutes` and `tokens_spent`. Neither is converted to a currency. A loaded hourly rate belongs to the organisation reading the postmortem and a token price belongs to the vendor, so a dollar total would age badly - and putting one beside `customer_loss_estimate_usd` would make a measured number look like an estimate and the estimate look measured.
+What the response itself cost is reported rather than estimated, as two measured figures: `engineer_minutes` and `tokens_spent`. Neither is converted to a currency. A loaded hourly rate belongs to the organisation reading the postmortem and a token price belongs to the vendor, so a dollar total would age badly - and putting one beside `customer_loss_estimate` would make a measured number look like an estimate and the estimate look measured.
 
 So a postmortem carries three quantities in three units, not one figure: what the incident cost the business, what it cost the people who responded, and what it cost Argus. They are stored as three columns rather than one document because the eval tier aggregates them - tokens across a benchmark run, minutes across a quarter - and because merging them would require exactly the two rates this section declines to invent.
 

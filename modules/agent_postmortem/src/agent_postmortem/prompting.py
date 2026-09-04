@@ -1,10 +1,10 @@
 """What the model is asked, and the one shape its answer may take.
 
 The model is handed the incident and the figures Argus already computed, and
-asked for the parts only prose can carry - what went wrong, in what words, for
-which audience - plus exactly one number: how much of the affected path
-carried revenue. That number is a judgment nothing measures, and the answer
-carries its reasoning so the document can disclose both.
+asked only for the parts prose can carry - what went wrong, in what words, for
+which audience. Not one number: every figure in the document is measured, and
+a model asked for one term of an arithmetic it cannot check would be supplying
+a guess that arrives looking like the rest.
 
 The answer arrives as a tool call rather than as prose. A document parsed back
 out of paragraphs is a document that can be parsed wrongly, and the failure is
@@ -29,24 +29,20 @@ from agent_postmortem.evidence import IncidentEvidence
 SUBMIT_TOOL_NAME: Final = "submit_postmortem"
 ROOT_CAUSE_FIELD: Final = "root_cause"
 EXECUTIVE_SUMMARY_FIELD: Final = "executive_summary"
-IMPACT_WEIGHT_FIELD: Final = "impact_weight"
-IMPACT_WEIGHT_REASON_FIELD: Final = "impact_weight_reason"
 ASSUMPTIONS_FIELD: Final = "assumptions"
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
-    IMPACT_WEIGHT_FIELD,
-    IMPACT_WEIGHT_REASON_FIELD
+    EXECUTIVE_SUMMARY_FIELD
 ]
 
 SUBMIT_POSTMORTEM = ToolDefinition(
     name=SUBMIT_TOOL_NAME,
     description=(
         "Submit the postmortem for this incident. Every field is required. "
-        "Do not restate the figures you were given as if you had computed "
-        "them, and do not offer a figure of your own for what the incident "
-        "cost - the only number asked of you is the impact weight."
+        "No number is asked of you: what the incident cost was measured from "
+        "what the shop actually took, so do not restate the figures you were "
+        "given as if you had computed them, and do not offer one of your own."
     ),
     properties={
         ROOT_CAUSE_FIELD: {
@@ -62,23 +58,6 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "The same incident for a reader who does not work on the "
                 "service: what broke, for how long, who it affected, and what "
                 "was done. No component names unless they are unavoidable."
-            )
-        },
-        IMPACT_WEIGHT_FIELD: {
-            "type": "number",
-            "description": (
-                "Between 0 and 1: how much of the path that failed carried "
-                "revenue. An account page nobody buys from is 0; a checkout "
-                "is 1; a slow product listing is somewhere between, because "
-                "some of those visitors would have bought and most would have "
-                "come back."
-            )
-        },
-        IMPACT_WEIGHT_REASON_FIELD: {
-            "type": "string",
-            "description": (
-                "Why that weight, naming the evidence it rests on. This is "
-                "published beside the estimate as a stated assumption."
             )
         },
         ASSUMPTIONS_FIELD: {

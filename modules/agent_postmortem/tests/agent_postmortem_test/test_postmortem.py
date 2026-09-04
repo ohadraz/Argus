@@ -1,16 +1,25 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from agent_postmortem import (
-    IMPACT_WEIGHT_ASSUMPTION_LABEL,
+    EXCHANGE_RATE_ASSUMPTION_LABEL,
+    EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
     IncidentEvidence,
     PostmortemDocument,
     write_postmortem,
 )
-from agent_postmortem.sources import Engagement, EngagementAnswer, Metrics, Revenue
+from agent_postmortem.sources import (
+    Engagement,
+    EngagementAnswer,
+    Metrics,
+    Rates,
+    RateTable,
+    Revenue,
+)
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.tool_definition import ToolDefinition
@@ -38,53 +47,66 @@ and the one number it does supply - how much of the affected path carried
 revenue - would then arrive as a sentence.
 """
 
-INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
-INCIDENT_END = INCIDENT_START + timedelta(minutes=30)
+# Five minutes before Argus was told, which is the ordinary case: an alert fires
+# on a rule that needs a few minutes of bad traffic to trip.
+SOME_ONSET = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
+SOME_INCIDENT_START = SOME_ONSET + timedelta(minutes=10)
+SOME_INCIDENT_END = SOME_ONSET + timedelta(minutes=30)
 
 DONT_CARE_INCIDENT_ID = "e1e1e1e1-0000-4000-8000-000000000001"
+
+SOME_CURRENCY = "usd"
+SOME_OTHER_CURRENCY = "eur"
+SOME_UNPRICED_CURRENCY = "kuki"
+
+DONT_CARE_RATE_DATE = date(2026, 9, 2)
+DONT_CARE_BASELINE_ERROR_RATE = 0.02
+DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT = 0.30
 
 
 @pytest.mark.unit
 def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None:
     some_root_cause = "the checkout fallback was disabled by a flag toggle at 12:04"
     some_summary = "Checkout failed for half an hour after a flag change; reverted."
-    some_incident_start = INCIDENT_START
-    some_incident_end = INCIDENT_END
     some_tokens_spent = 48_120
-    some_hourly_revenue = 4800
-    one_hour = timedelta(hours=1)
-    some_baseline_error_rate = 0.02
-    some_error_rate_during_the_incident = 0.30
-    some_impact_weight = 0.5
+    some_calm_hourly_revenue = 1_200
+    some_revenue_during_the_incident = Decimal("100.00")
+    some_incident_duration_in_hours = _duration_in_hours(SOME_ONSET, SOME_INCIDENT_END)
     some_engaged_minutes = 25
     some_responders = 2
+    some_revenue_that_should_have_come_in_unless_the_incident = (
+        Decimal(some_calm_hourly_revenue) * Decimal(str(some_incident_duration_in_hours))
+    )
     expected_total_engaged_minutes = some_engaged_minutes * some_responders
     expected_loss_estimate = (
-        some_hourly_revenue * 
-            _duration_in_hours(some_incident_start, some_incident_end) * 
-            (some_error_rate_during_the_incident - some_baseline_error_rate) * 
-            some_impact_weight
+        some_revenue_that_should_have_come_in_unless_the_incident - 
+        some_revenue_during_the_incident
     )
 
     Scenario() \
         .given(
-            an_evidence_bundle := _an_evidence_bundle(started_at=some_incident_start, 
-                                                      ended_at=some_incident_end, 
-                                                      tokens_spent=some_tokens_spent)
+            an_evidence_bundle := _an_evidence_bundle(
+                started_at=SOME_INCIDENT_START, 
+                ended_at=SOME_INCIDENT_END,
+                onset_at=SOME_ONSET,
+                tokens_spent=some_tokens_spent)
         ) \
         .when(
             lambda: write_postmortem(
                 an_evidence_bundle,
-                revenue=_a_revenue_source_reporting(some_hourly_revenue, per=one_hour),
+                revenue=_a_shop_whose_revenue_was(
+                    per_hour={SOME_CURRENCY: some_calm_hourly_revenue},
+                    until=SOME_ONSET,
+                    and_then={SOME_CURRENCY: some_revenue_during_the_incident}),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=some_engaged_minutes, responders=some_responders),
                 metrics=_metrics_showing_error_rates(
-                    baseline=some_baseline_error_rate,
-                    during=some_error_rate_during_the_incident),
+                    baseline=DONT_CARE_BASELINE_ERROR_RATE, 
+                    during=DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT),
                 llm=_a_model_answering(
                     root_cause=some_root_cause,
-                    executive_summary=some_summary,
-                    impact_weight=some_impact_weight
+                    executive_summary=some_summary
                 )
             )
         ) \
@@ -95,12 +117,9 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
                 _estimates_a_loss_of(Decimal(expected_loss_estimate)),
                 _reports_engineer_minutes(expected_total_engaged_minutes),
                 _reports_tokens_spent(some_tokens_spent),
-                _discloses_an_assumption_naming(IMPACT_WEIGHT_ASSUMPTION_LABEL),
                 _is_marked_complete()
             )
         )
-
-
 
 
 @pytest.mark.unit
@@ -111,12 +130,11 @@ def test_the_metrics_window_reaches_the_end_of_the_incident() -> None:
     # most of what the duration covers. A postmortem reusing that window would
     # report an incident that never got better.
     dont_care_hourly_revenue = 1_000
-    dont_care_revenue_window = 1
+    some_revenue_during_the_incident = Decimal("100.00")
     dont_care_responders = 1
     dont_care_engaged_minutes = 1
     dont_care_cause = "kuki"
     dont_care_summary = "buki"
-    dont_care_impact_weight = 0.3
     windows_asked_for: Kept[tuple[datetime, datetime]] = Kept()
 
     Scenario() \
@@ -126,15 +144,17 @@ def test_the_metrics_window_reaches_the_end_of_the_incident() -> None:
         .when(
             lambda: write_postmortem(
                 an_evidence_bundle,
-                revenue=_a_revenue_source_reporting(dont_care_hourly_revenue,
-                                                    per=timedelta(hours=dont_care_revenue_window)),
+                revenue=_a_shop_whose_revenue_was(
+                    per_hour={SOME_CURRENCY: dont_care_hourly_revenue},
+                    until=SOME_ONSET,
+                    and_then={SOME_CURRENCY: some_revenue_during_the_incident}),
+                rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=dont_care_engaged_minutes, responders=dont_care_responders),
                 metrics=_metrics_recording_the_window_into(windows_asked_for),
                 llm=_a_model_answering(
                     root_cause=dont_care_cause,
-                    executive_summary=dont_care_summary,
-                    impact_weight=dont_care_impact_weight
+                    executive_summary=dont_care_summary
                 )
             )
         ) \
@@ -143,33 +163,196 @@ def test_the_metrics_window_reaches_the_end_of_the_incident() -> None:
         )
 
 
-def _an_evidence_bundle(started_at: datetime = INCIDENT_START, 
-                        ended_at: datetime = INCIDENT_END, 
-                        tokens_spent: int = 0) -> IncidentEvidence:
-    return IncidentEvidence(
-        incident_id=DONT_CARE_INCIDENT_ID,
-        started_at=started_at,
-        ended_at=ended_at,
-        alert_summary="checkout error rate above threshold",
-        timeline=["investigating at 12:01", "mitigating at 12:12", "resolved at 12:30"],
-        candidates=["flag toggle on checkout-fallback - confirmed"],
-        actions=["disabled checkout-fallback restored - confirmed"],
-        log_lines=["12:04 ERROR checkout: fallback unavailable"],
-        tokens_spent=tokens_spent
+@pytest.mark.unit
+def test_revenue_in_another_currency_is_converted_at_a_rate_the_document_states() -> None:
+    # The shop sells abroad, so the baseline hour is partly money that is not
+    # in the currency the estimate is reported in. Converting it is the only
+    # way the figure means anything - and the rate is a fact about a day rather
+    # than a measurement of this incident, so it is published as an assumption
+    # carrying the date it was published on. A figure converted at a rate
+    # nobody can see is a figure nobody can check.
+    dont_care_root_cause = "kuki"
+    dont_care_summary = "buki"
+    some_calm_hourly_revenue_in_foreign_currency = 800
+    some_revenue_in_foreign_currency_during_the_incident = Decimal("200.00")
+    some_rate = Decimal("0.80")
+    some_rate_date = date(2026, 9, 2)
+    dont_care_engaged_minutes = 1
+    dont_care_responders = 1
+    some_incident_duration_in_hours = _duration_in_hours(SOME_ONSET, SOME_INCIDENT_END)
+    some_revenue_that_should_have_come_in_unless_the_incident = (
+        Decimal(some_calm_hourly_revenue_in_foreign_currency) / some_rate
+        * Decimal(str(some_incident_duration_in_hours))
     )
 
+    expected_loss_estimate = (
+        some_revenue_that_should_have_come_in_unless_the_incident
+        - some_revenue_in_foreign_currency_during_the_incident / some_rate
+    )
 
-def _a_revenue_source_reporting(amount: float, per: timedelta) -> Revenue:
-    """A service earning `amount` in every window of length `per`.
+    Scenario() \
+        .given(
+            an_evidence_bundle := _an_evidence_bundle(started_at=SOME_INCIDENT_START, 
+                                                      ended_at=SOME_INCIDENT_END,
+                                                      onset_at=SOME_ONSET)
+        ) \
+        .when(
+            lambda: write_postmortem(
+                an_evidence_bundle,
+                revenue=_a_shop_whose_revenue_was(
+                    per_hour={
+                        SOME_OTHER_CURRENCY: some_calm_hourly_revenue_in_foreign_currency
+                        },
+                    until=SOME_ONSET,
+                    and_then={
+                        SOME_OTHER_CURRENCY: some_revenue_in_foreign_currency_during_the_incident
+                        }
+                    ),
+                rates=_rates_published(on=some_rate_date,
+                                       per_unit={SOME_OTHER_CURRENCY: some_rate},
+                                       base=SOME_CURRENCY),
+                engagement=_an_engagement_source_reporting(
+                    minutes=dont_care_engaged_minutes,
+                    responders=dont_care_responders),
+                metrics=_metrics_showing_error_rates(
+                    baseline=DONT_CARE_BASELINE_ERROR_RATE,
+                    during=DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT),
+                llm=_a_model_answering(
+                    root_cause=dont_care_root_cause,
+                    executive_summary=dont_care_summary
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                _estimates_a_loss_of(Decimal(expected_loss_estimate)),
+                _discloses_an_assumption_naming(EXCHANGE_RATE_ASSUMPTION_LABEL),
+                _discloses_an_assumption_naming(str(some_rate)),
+                _discloses_an_assumption_naming(some_rate_date.isoformat())
+            )
+        )
 
-    Answering from the window it is asked for, rather than returning a fixed
-    number, is what lets the agent choose a baseline window this test never
-    has to name.
-    """
-    def revenue_between(window_start: datetime, window_end: datetime) -> Decimal | None:
-        return  Decimal(amount * (window_end - window_start) / per)
 
-    return revenue_between
+@pytest.mark.unit
+def test_revenue_in_a_currency_with_no_rate_is_left_out_and_said_so() -> None:
+    # The rate provider publishes thirty-odd currencies and a shop may take
+    # one it does not cover. Losing the whole estimate over the part that
+    # cannot be converted would throw away the part that can - and silently
+    # dropping it would publish a figure that looks like all the money and is
+    # not. So the figure covers what could be converted, and the document says
+    # what it does not cover.
+    dont_care_root_cause = "kuki"
+    dont_care_summary = "buki"
+    some_calm_hourly_revenue_in_local_currency = 1_000
+    some_revenue_during_the_incident_in_local_currency = Decimal("100.00")
+    dont_care_hourly_revenue_that_cannot_be_priced = 400
+    dont_care_revenue_during_the_incident_that_cannot_be_priced = Decimal("50.00")
+    dont_care_engaged_minutes = 1
+    dont_care_responders = 1
+
+    expected_loss_estimate = (
+        Decimal(some_calm_hourly_revenue_in_local_currency) 
+        * Decimal(str(_duration_in_hours(SOME_ONSET, SOME_INCIDENT_END)))
+        - some_revenue_during_the_incident_in_local_currency
+    )
+
+    Scenario() \
+        .given(
+            an_evidence_bundle := _an_evidence_bundle(started_at=SOME_INCIDENT_START,
+                                                      ended_at=SOME_INCIDENT_END,
+                                                      onset_at=SOME_ONSET)
+        ) \
+        .when(
+            lambda: write_postmortem(
+                an_evidence_bundle,
+                revenue=_a_shop_whose_revenue_was(
+                    per_hour={
+                        SOME_CURRENCY: some_calm_hourly_revenue_in_local_currency,
+                        SOME_UNPRICED_CURRENCY: dont_care_hourly_revenue_that_cannot_be_priced},
+                    until=SOME_ONSET,
+                    and_then={
+                        SOME_CURRENCY: some_revenue_during_the_incident_in_local_currency,
+                        SOME_UNPRICED_CURRENCY: 
+                            dont_care_revenue_during_the_incident_that_cannot_be_priced}),
+                rates=_rates_published(on=DONT_CARE_RATE_DATE,
+                                       per_unit={},
+                                       base=SOME_CURRENCY),
+                engagement=_an_engagement_source_reporting(
+                    minutes=dont_care_engaged_minutes,
+                    responders=dont_care_responders),
+                metrics=_metrics_showing_error_rates(
+                    baseline=DONT_CARE_BASELINE_ERROR_RATE,
+                    during=DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT),
+                llm=_a_model_answering(
+                    root_cause=dont_care_root_cause,
+                    executive_summary=dont_care_summary
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                _estimates_a_loss_of(Decimal(expected_loss_estimate)),
+                _discloses_an_assumption_naming(EXCLUDED_CURRENCY_ASSUMPTION_LABEL),
+                _discloses_an_assumption_naming(SOME_UNPRICED_CURRENCY)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_document_names_the_currency_its_estimate_is_in() -> None:
+    # A bare number is not an amount of money. The reporting currency is
+    # configured, so a figure published without it is one a reader has to
+    # guess at - and a guess that is right today is wrong the day the setting
+    # changes. It travels with the document rather than being read back from
+    # configuration, because what was reported cannot be allowed to change
+    # afterwards.
+    dont_care_root_cause = "kuki"
+    dont_care_summary = "buki"
+    dont_care_hourly_revenue = 1_200
+    dont_care_revenue_during_the_incident = Decimal("100.00")
+    dont_care_engaged_minutes = 1
+    dont_care_responders = 1
+    dont_care_metrics_baseline = 0.02
+    dont_care_metrics_during = 0.30
+
+    Scenario() \
+        .given(
+            an_evidence_bundle := _an_evidence_bundle(
+                started_at=SOME_INCIDENT_START,
+                ended_at=SOME_INCIDENT_END,
+                onset_at=SOME_ONSET)
+        ) \
+        .when(
+            lambda: write_postmortem(
+                an_evidence_bundle,
+                revenue=_a_shop_whose_revenue_was(
+                    per_hour={SOME_CURRENCY: dont_care_hourly_revenue},
+                    until=SOME_ONSET,
+                    and_then={SOME_CURRENCY: dont_care_revenue_during_the_incident}),
+                rates=_rates_in(SOME_CURRENCY),
+                engagement=_an_engagement_source_reporting(
+                    minutes=dont_care_engaged_minutes, responders=dont_care_responders),
+                metrics=_metrics_showing_error_rates(
+                    baseline=dont_care_metrics_baseline, during=dont_care_metrics_during),
+                llm=_a_model_answering(root_cause=dont_care_root_cause,
+                                       executive_summary=dont_care_summary)
+            )
+        ) \
+        .then(
+            _states_the_estimate_is_in(SOME_CURRENCY)
+        )
+
+
+def _states_the_estimate_is_in(expected: str) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if document.estimate_currency != expected:
+            raise AssertionError(
+                f"expected the estimate to be reported in [{expected}], got "
+                f"[{document.estimate_currency}]")
+
+        return True
+
+    return assertion
 
 
 def _an_engagement_source_reporting(minutes: int, responders: int) -> Engagement:
@@ -187,9 +370,9 @@ def _metrics_showing_error_rates(baseline: float, during: float) -> Metrics:
     """
     def metrics_between(window_start: datetime, window_end: datetime) -> list[MetricBucket]:
         return [
-            _a_bucket(at=INCIDENT_START - timedelta(minutes=1), error_rate=baseline),
-            _a_bucket(at=INCIDENT_START + timedelta(minutes=5), error_rate=during),
-            _a_bucket(at=INCIDENT_END - timedelta(minutes=1), error_rate=during)
+            _a_bucket(at=SOME_INCIDENT_START - timedelta(minutes=1), error_rate=baseline),
+            _a_bucket(at=SOME_INCIDENT_START + timedelta(minutes=5), error_rate=during),
+            _a_bucket(at=SOME_INCIDENT_END - timedelta(minutes=1), error_rate=during)
         ]
 
     return metrics_between
@@ -206,8 +389,7 @@ def _a_bucket(at: datetime, error_rate: float) -> MetricBucket:
 
 
 def _a_model_answering(root_cause: str,
-                       executive_summary: str,
-                       impact_weight: float) -> LLMClient:
+                       executive_summary: str) -> LLMClient:
     """A model that answers by calling the tool it was offered.
 
     It asserts nothing about the prompt - that is another test's subject - but
@@ -229,8 +411,6 @@ def _a_model_answering(root_cause: str,
                     arguments={
                         "root_cause": root_cause,
                         "executive_summary": executive_summary,
-                        "impact_weight": impact_weight,
-                        "impact_weight_reason": "checkout is half of what the service sells",
                         "assumptions": []
                     }
                 )],
@@ -264,10 +444,10 @@ def _reports_executive_summary(expected: str) -> Assertion[PostmortemDocument]:
 
 def _estimates_a_loss_of(expected: Decimal) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
-        if document.customer_loss_estimate_usd != expected:
+        if document.customer_loss_estimate != expected:
             raise AssertionError(
                 f"expected an estimate of [{expected}], "
-                f"got [{document.customer_loss_estimate_usd}]")
+                f"got [{document.customer_loss_estimate}]")
         return True
 
     return assertion
@@ -348,3 +528,75 @@ def _asked_for_a_window_spanning(
         return True
 
     return assertion
+
+
+def _rates_published(on: date, per_unit: Mapping[str, Decimal], base: str) -> Rates:
+    """A rate table as the source would hand one over.
+
+    The base is the currency the document reports in: under this design the
+    table is where that is decided, so a test that wants a figure in dollars
+    says so here and nowhere else.
+    """
+    def rates() -> RateTable | None:
+        return RateTable(base=base, on=on, per_unit=per_unit)
+
+    return rates
+
+
+def _rates_in(base: str) -> Rates:
+    """A rate table in the currency this file's revenue are already in.
+
+    No rate for anything else: a test that never takes money abroad has no
+    conversion to make, and the table is here only to say which currency the
+    document reports in.
+    """
+    def rates() -> RateTable | None:
+        return RateTable(base=base, on=DONT_CARE_RATE_DATE, per_unit={})
+
+    return rates
+
+
+def _an_evidence_bundle(started_at: datetime = SOME_INCIDENT_START,
+                        ended_at: datetime = SOME_INCIDENT_END,
+                        onset_at: datetime | None = None,
+                        tokens_spent: int = 0) -> IncidentEvidence:
+    return IncidentEvidence(
+        incident_id=DONT_CARE_INCIDENT_ID,
+        started_at=started_at,
+        ended_at=ended_at,
+        onset_at=onset_at,
+        alert_summary="checkout error rate above threshold",
+        timeline=["investigating at 12:01", "mitigating at 12:12", "resolved at 12:30"],
+        candidates=["flag toggle on checkout-fallback - confirmed"],
+        actions=["disabled checkout-fallback restored - confirmed"],
+        log_lines=["12:04 ERROR checkout: fallback unavailable"],
+        tokens_spent=tokens_spent
+    )
+
+
+def _a_shop_whose_revenue_was(per_hour: Mapping[str, float],
+                              until: datetime,
+                              and_then: Mapping[str, Decimal]) -> Revenue:
+    """A shop with two different afternoons.
+
+    Before the onset it takes a steady rate, so any window asked for answers
+    in proportion to its length - which is what lets the agent choose a
+    baseline window this test never has to name. From the onset onwards it
+    takes one fixed sum, because that window is the incident and the incident
+    happened once.
+
+    Two behaviours in one double because the port is asked twice and the
+    windows are what tell the calls apart, which is itself half of what these
+    tests fix.
+    """
+    def revenue_between(window_start: datetime,
+                        window_end: datetime) -> Mapping[str, Decimal] | None:
+        if window_start >= until:
+            return dict(and_then)
+
+        return {
+            currency: Decimal(rate * (window_end - window_start) / timedelta(hours=1))
+            for currency, rate in per_hour.items()
+        }
+
+    return revenue_between

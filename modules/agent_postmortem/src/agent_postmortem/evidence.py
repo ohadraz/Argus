@@ -31,6 +31,15 @@ class IncidentEvidence(BaseModel):
     incident_id: str
     started_at: datetime
     ended_at: datetime
+    # When the service actually began to fail, as the Investigator measured it
+    # from the metrics - not when Argus was told. The two differ by however
+    # long the alert took to fire, and those minutes are the worst ones to get
+    # wrong: counted as calm, they inflate the baseline the loss is measured
+    # against; left out of the incident, the damage they did is invisible.
+    #
+    # `None` where nothing measured one, in which case the alert's own time is
+    # the best available answer and the document is written from that.
+    onset_at: datetime | None = None
     alert_summary: str
     timeline: list[str]
     candidates: list[str]

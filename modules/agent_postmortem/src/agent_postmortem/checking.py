@@ -48,8 +48,9 @@ def _invented_figures(answer: dict[str, Any], estimate: Decimal | None) -> list[
     """Amounts in the summary that are not the one Argus arrived at.
 
     With no estimate every amount is invented by definition: there is nothing
-    for it to agree with. That is the ordinary case rather than the strange
-    one until a revenue source exists.
+    for it to agree with. That happens whenever the payment provider or the
+    rate source could not be read, and a summary is not licensed to fill the
+    gap with a number of its own.
     """
     summary = answer.get(EXECUTIVE_SUMMARY_FIELD)
     if not isinstance(summary, str):

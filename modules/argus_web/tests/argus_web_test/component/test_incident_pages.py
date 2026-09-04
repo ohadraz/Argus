@@ -4,6 +4,7 @@ import re
 
 import psycopg
 import pytest
+from agent_postmortem.document import PostmortemDocument
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
@@ -231,15 +232,17 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
         postmortems.record(
             conn,
             incident_id,
-            {
-                "root_cause": "a-flag was enabled",
-                "customer_loss_estimate_usd": None,
-                "engineer_minutes": None,
-                "tokens_spent": None,
-                "assumptions": ["dont care"],
-                "executive_summary": "dont care",
-                "checklist_complete": True,
-            },
+            PostmortemDocument(
+                root_cause="a-flag was enabled",
+                executive_summary="dont care",
+                customer_loss_estimate=None,
+                estimate_currency="usd",
+                engineer_minutes=None,
+                responders=None,
+                tokens_spent=None,
+                assumptions=["dont care"],
+                checklist_complete=True
+            )
         )
 
     assert "a-flag was enabled" in _get(f"/incidents/{incident_id}/postmortem")

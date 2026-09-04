@@ -87,6 +87,32 @@ class Settings(BaseSettings):
     # `messages.parse` and the real schema transform still run.
     anthropic_base_url: str = Field(default="")
 
+    # The credential the payment provider is read with. Empty by default, and
+    # empty means the source reports that it could not answer: a postmortem
+    # resting on money nobody can vouch for is worse than one saying the figure
+    # is missing, and a default credential would be one nobody chose.
+    stripe_api_key: str = Field(default="")
+
+    # Where the Stripe SDK sends its requests. Empty means the real API.
+    # Pointing this at the shop's own Stripe-shaped endpoint is the only thing
+    # that selects it: the seam sits below the SDK, so the vendor's request
+    # building, paging and object model all still run.
+    stripe_base_url: str = Field(default="")
+
+    # Where the day's exchange rates are read from. Frankfurter publishes the
+    # European Central Bank's reference rates, needs no account and no key, and
+    # answers a whole table in one request - so unlike every other provider
+    # here it has a working default rather than an empty one, and a deployment
+    # that configures nothing still converts.
+    exchange_rate_base_url: str = Field(default="https://api.frankfurter.dev")
+
+    # The currency a postmortem states its loss estimate in, and the base every
+    # rate is quoted against. A shop paid in several currencies has no total
+    # until one of them is chosen, and choosing is a business decision rather
+    # than an arithmetic one - so it is configured, and the document discloses
+    # what it converted at to get there.
+    reporting_currency: str = Field(default="usd")
+
     # What bounds one investigation once the model, rather than a schedule,
     # decides what to read. Three of them, because they fail differently and
     # none implies the others: a model reading three-hour windows is cheap in

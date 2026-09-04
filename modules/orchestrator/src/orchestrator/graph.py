@@ -208,7 +208,7 @@ def _record_action(
 
 def _record_postmortem(incident_id: str, document: PostmortemDocument) -> None:
     with connect() as conn:
-        postmortems.record(conn, incident_id, document.model_dump(mode="json"))
+        postmortems.record(conn, incident_id, document)
 
 
 class Narration(BaseModel):
