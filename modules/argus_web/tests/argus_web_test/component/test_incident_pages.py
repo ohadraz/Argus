@@ -279,6 +279,45 @@ def test_the_view_offers_no_way_to_change_anything() -> None:
     assert writing_routes == [], f"Expected no writing route, got {writing_routes}."
 
 
+@pytest.mark.component
+def test_the_postmortem_page_says_how_many_responded_and_what_they_were() -> None:
+    # Minutes alone read as one person's night. The count is what makes them
+    # person-minutes on the page as well as in the row, and the titles are the
+    # part a reader can act on - a senior engineer and an SRE spending two
+    # hours is a different sentence from "120".
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_minutes = 88
+    some_responders = 2
+    some_title = "Principal Kuki Buki"
+    some_other_title = "Senior Shuki Tuki"
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(
+            conn,
+            incident_id,
+            PostmortemDocument(
+                root_cause="dont care",
+                executive_summary="dont care",
+                customer_loss_estimate=None,
+                estimate_currency="usd",
+                engineer_minutes=some_minutes,
+                responders=some_responders,
+                responder_titles=[some_title, some_other_title],
+                tokens_spent=None,
+                assumptions=["dont care"],
+                checklist_complete=True
+            )
+        )
+
+    page = _get(f"/incidents/{incident_id}/postmortem")
+
+    assert str(some_minutes) in page
+    assert str(some_responders) in page
+    assert some_title in page
+    assert some_other_title in page
+
+
 def _get(path: str) -> str:
     with TestClient(app) as client:
         response = client.get(path)

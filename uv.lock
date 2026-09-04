@@ -18,6 +18,7 @@ members = [
     "argus-argus-testkit",
     "argus-argus-web",
     "argus-exchange-rate-source",
+    "argus-oncall-source",
     "argus-orchestrator",
     "argus-read-mcp-client",
     "argus-read-mcp-server",
@@ -265,6 +266,29 @@ requires-dist = [
 dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
+name = "argus-oncall-source"
+version = "0.1.0"
+source = { editable = "modules/oncall_source" }
+dependencies = [
+    { name = "argus-argus-core" },
+    { name = "pagerduty" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "pagerduty", specifier = ">=7.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+
+[[package]]
 name = "argus-orchestrator"
 version = "0.1.0"
 source = { editable = "modules/orchestrator" }
@@ -276,6 +300,7 @@ dependencies = [
     { name = "argus-agent-postmortem" },
     { name = "argus-argus-core" },
     { name = "argus-exchange-rate-source" },
+    { name = "argus-oncall-source" },
     { name = "argus-revenue-source" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
@@ -297,6 +322,7 @@ requires-dist = [
     { name = "argus-agent-postmortem", editable = "modules/agent_postmortem" },
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-exchange-rate-source", editable = "modules/exchange_rate_source" },
+    { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-revenue-source", editable = "modules/revenue_source" },
     { name = "langgraph", specifier = ">=0.2" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0" },
@@ -1543,6 +1569,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz", hash = "sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79", size = 313412, upload-time = "2026-08-04T18:15:28.737Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl", hash = "sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c", size = 129956, upload-time = "2026-08-04T18:15:27.159Z" },
+]
+
+[[package]]
+name = "pagerduty"
+version = "7.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx2" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/a9/2350041088e69a144bb5248b02f17dc5ad61f5ee341c09546fb8b1c52200/pagerduty-7.0.0.tar.gz", hash = "sha256:e4d644d15033a4ed3fbc77622daafce19fdeb635caaf2279e840d9b0eb51387e", size = 45110, upload-time = "2026-07-15T20:52:17.889Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/c7/86d43b83fe529f68f6ccb48543c84baad872a51101b0c862f0eda5d55c5a/pagerduty-7.0.0-py3-none-any.whl", hash = "sha256:d751528399ec5ec4bdf7e6f6c14ce157e08ba1d1c911bbc416698f1c353d15e8", size = 55817, upload-time = "2026-07-15T20:52:16.663Z" },
 ]
 
 [[package]]

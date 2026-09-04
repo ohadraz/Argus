@@ -1,0 +1,29 @@
+[project]
+name = "argus-oncall_source"
+version = "0.1.0"
+requires-python = ">=3.14"
+
+dependencies = [
+    "argus-argus_core",
+    "pagerduty>=7.0",
+]
+
+
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
+]
+
+
+[tool.uv.sources]
+argus-argus_core = { workspace = true }
+argus-argus_testkit = { workspace = true }
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oncall_source"]

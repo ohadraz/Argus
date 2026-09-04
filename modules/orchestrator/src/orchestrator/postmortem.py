@@ -38,10 +38,10 @@ def write_postmortem_for(incident_id: str,
                          recorder: Recorder = records_nothing) -> PostmortemDocument:
     """The real postmortem for one incident: gather, then write.
 
-    The two sources nothing answers yet are wired to say so rather than left
-    out. An unwired port that returned zero would put "this incident cost
-    nothing" in front of a reader as though it had been measured, and the
-    document is built to tell those apart.
+    Every port is answered by a real source. Each of them says so when it
+    cannot answer, rather than reporting a zero: "this incident cost nothing"
+    in front of a reader looks measured, and the document is built to tell the
+    two apart.
     """
     with connect() as conn:
         evidence = gather_evidence(conn, incident_id)
@@ -51,7 +51,7 @@ def write_postmortem_for(incident_id: str,
         evidence,
         revenue=_the_shops_takings,
         rates=lambda: rates,
-        engagement=_no_engagement_source,
+        engagement=_who_responded,
         metrics=_metrics_between,
         llm=_a_recording_client(Replay(incident_id, recorder))
     )
@@ -77,10 +77,32 @@ def _the_shops_takings(started_at: datetime,
     return takings.amounts if takings is not None else None
 
 
-def _no_engagement_source(dont_care_incident_id: str) -> EngagementAnswer | None:
-    """No source of responder timings exists yet - a PagerDuty-shaped one is
-    the change after next."""
-    return None
+def _who_responded(incident_id: str) -> EngagementAnswer | None:
+    """What human attention the incident took, read from the on-call provider.
+
+    Imported inside for the same reason the takings are: choosing this pulls in
+    a vendor's SDK, and a unit test of the gathering above should not have to
+    have one installed.
+
+    A provider that cannot be read - or a deployment holding no credential -
+    answers `None` rather than zero. An incident nobody acknowledged answers
+    zero, which is a different thing and is the source's to say.
+
+    The minutes are person-minutes, already summed across the people who
+    responded, and the titles say what those people were rather than who. Both
+    cross as the source answered them; nothing here reinterprets either.
+    """
+    from oncall_source import engagement_with
+    from oncall_source.pagerduty_adapter import reported_incident
+
+    engaged = engagement_with(incident_id, reported=reported_incident)
+
+    if engaged is None:
+        return None
+
+    return EngagementAnswer(minutes=engaged.minutes,
+                            responders=engaged.responders,
+                            titles=engaged.titles)
 
 
 def _metrics_between(window_start: datetime, window_end: datetime) -> list[MetricBucket]:

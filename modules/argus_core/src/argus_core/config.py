@@ -99,6 +99,26 @@ class Settings(BaseSettings):
     # building, paging and object model all still run.
     stripe_base_url: str = Field(default="")
 
+    # The credential the on-call provider is read with. Empty by default, for
+    # the reason the payment credential is: a response time nobody can vouch
+    # for is worse than one the document says it could not obtain, and a
+    # default credential would be one nobody chose.
+    pagerduty_api_key: str = Field(default="")
+
+    # Where the PagerDuty SDK sends its requests. Empty means the real API.
+    # Pointing this at the Target Service's PagerDuty-shaped endpoints is the
+    # only thing that selects them: the seam sits below the SDK, so the
+    # vendor's request building and error vocabulary still run.
+    pagerduty_base_url: str = Field(default="")
+
+    # Whether the on-call provider's certificate is checked. True everywhere
+    # that matters: PagerDuty's own certificate is real, and so is the one a
+    # platform issues a deployed stand-in. False only against the demo running
+    # on this machine, whose TLS listener mints itself a certificate nobody has
+    # any reason to trust - and which exists at all because the vendor's SDK
+    # refuses a base URL that is not `https://`.
+    pagerduty_verify_tls: bool = Field(default=True)
+
     # Where the day's exchange rates are read from. Frankfurter publishes the
     # European Central Bank's reference rates, needs no account and no key, and
     # answers a whole table in one request - so unlike every other provider

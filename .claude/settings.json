@@ -3,7 +3,8 @@
     "allow": [
       "Read(.claude/HANDOVER.md)",
       "Edit(.claude/HANDOVER.md)",
-      "Write(.claude/HANDOVER.md)"
+      "Write(.claude/HANDOVER.md)",
+      "WebSearch"
     ],
     "deny": [
       "Edit(tests/**)",

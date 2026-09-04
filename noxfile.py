@@ -338,13 +338,21 @@ _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 # they disagreed, the suite would either give up before Argus did or wait long
 # after it had.
 #
-# Two minutes rather than the configured three: recovery is judged on the first
-# whole minute after an action, so the window has to outlast that minute's
-# bucket and the scrape that publishes it - and no less. A walk of several
-# attempts pays this wait once per attempt, so the third minute is pure
-# wall-clock in the one suite that already costs the most to run.
+# Four minutes, where the configured default is three. Recovery is judged on
+# the first whole minute after an action, so the window has to outlast that
+# minute's bucket and the scrape that publishes it. Two minutes covers that on
+# an idle machine and does not on a loaded one - a build running beside the
+# stack, or a CI runner - and the failure it produces is the worst kind: Argus
+# reports a mitigation that worked as refuted, walks another round, and asks
+# the double for an answer nobody recorded. The suite then fails pointing at
+# the recording.
+#
+# A walk pays this wait once per attempt, so the extra time lands only on the
+# cases that genuinely wait it out - a refuted action, an escalation with
+# nothing left to try. Wall-clock is the cheaper of the two things to spend
+# here; the other is trust in what a red run means.
 _E2E_SETTINGS = {
-    "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "120",
+    "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "240",
     # What the shop took, read from the Target Service's own Stripe-shaped
     # endpoint instead of from Stripe - the arrangement `e2e_replay` has with
     # the Anthropic double, one address below the vendor's SDK, so the SDK's
@@ -355,7 +363,17 @@ _E2E_SETTINGS = {
     # could not answer, and the estimate would then be absent by configuration
     # rather than by measurement.
     "STRIPE_API_KEY": "sk_test_argus_demo",
-    "STRIPE_BASE_URL": "http://localhost:8080/stripe"
+    "STRIPE_BASE_URL": "http://localhost:8080/stripe",
+    # Who responded, read from the Target Service's own PagerDuty-shaped
+    # endpoints on the same terms: a fixture token that only has to be set, and
+    # one address below the vendor's SDK.
+    "PAGERDUTY_API_KEY": "pd_test_argus_demo",
+    # HTTPS, and unverified, because the SDK will not accept anything else: it
+    # refuses a plain-HTTP base URL outright. The Target Service answers TLS on
+    # a second port of the same process for exactly this, with a certificate it
+    # mints at startup - so the certificate is worth nothing and is not checked.
+    "PAGERDUTY_BASE_URL": "https://localhost:8443/pagerduty",
+    "PAGERDUTY_VERIFY_TLS": "false"
 }
 
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (

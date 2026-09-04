@@ -179,6 +179,8 @@ class PostmortemView(BaseModel):
     customer_loss_estimate: Decimal | None
     estimate_currency: str | None
     engineer_minutes: int | None
+    responders: int | None
+    responder_titles: list[str] | None
     tokens_spent: int | None
     assumptions: list[str] | None
     executive_summary: str | None
@@ -451,6 +453,8 @@ def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
         customer_loss_estimate=postmortem.customer_loss_estimate,
         estimate_currency=postmortem.estimate_currency,
         engineer_minutes=postmortem.engineer_minutes,
+        responders=postmortem.responders,
+        responder_titles=postmortem.responder_titles,
         tokens_spent=postmortem.tokens_spent,
         assumptions=postmortem.assumptions,
         executive_summary=postmortem.executive_summary,

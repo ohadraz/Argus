@@ -156,7 +156,16 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- looked it up when it rendered would relabel every figure ever written
     -- the day somebody changed it.
     estimate_currency TEXT,
+    -- Person-minutes, and the people they were spread across. Both, because
+    -- one number cannot say the difference between a night one engineer lost
+    -- and an hour four of them lost together - and because the eval tier
+    -- aggregates responders as readily as it aggregates minutes.
     engineer_minutes INTEGER,
+    responders INTEGER,
+    -- What those responders were called by their profession, never who they
+    -- were. A list rather than a column apiece: it is read whole, by a page
+    -- that prints it, and nothing aggregates across titles.
+    responder_titles JSONB,
     tokens_spent INTEGER,
     assumptions JSONB,
     executive_summary TEXT,

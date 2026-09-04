@@ -66,6 +66,16 @@ class EngagementAnswer(BaseModel):
     exec summary says "three engineers, two hours"; a single total says
     neither.
 
+    `minutes` is person-minutes - each responder's own engagement, added
+    together - so a source answering it has already accounted for how many
+    people were on it, and nothing above may multiply by the count again.
+
+    The titles say what those people were, and never who. A document reporting
+    that a senior engineer and an SRE spent the night is one a reader can act
+    on; the same document with names is about people, and it gets emailed.
+    Fewer titles than responders means one could not be read, which is a gap in
+    the description rather than in the measurement.
+
     A type of its own rather than a member of the port below: a port that is a
     plain callable can be satisfied by any function, and a function carries no
     nested class - so hanging the answer off the port would mean no test double
@@ -74,6 +84,7 @@ class EngagementAnswer(BaseModel):
 
     minutes: int
     responders: int
+    titles: list[str] = []
 
 
 # Who responded to one incident and for how long, or `None` if nobody could

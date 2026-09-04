@@ -22,6 +22,8 @@ class Postmortem(BaseModel):
     customer_loss_estimate: Decimal | None
     estimate_currency: str | None
     engineer_minutes: int | None
+    responders: int | None
+    responder_titles: list[str] | None
     tokens_spent: int | None
     assumptions: list[str] | None
     executive_summary: str | None
@@ -44,15 +46,17 @@ def record(
         cursor.execute(
             "INSERT INTO postmortem "
             "(incident_id, root_cause, customer_loss_estimate, estimate_currency, "
-            "engineer_minutes, tokens_spent, assumptions, executive_summary, "
-            "checklist_complete) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "engineer_minutes, responders, responder_titles, tokens_spent, "
+            "assumptions, executive_summary, checklist_complete) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 incident_id,
                 document.root_cause,
                 document.customer_loss_estimate,
                 document.estimate_currency,
                 document.engineer_minutes,
+                document.responders,
+                Jsonb(document.responder_titles),
                 document.tokens_spent,
                 Jsonb(document.assumptions),
                 document.executive_summary,
@@ -67,7 +71,8 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> Postmortem | 
         cursor.execute(
             "SELECT id, incident_id, root_cause, customer_loss_estimate, "
             "estimate_currency, "
-            "engineer_minutes, tokens_spent, assumptions, "
+            "engineer_minutes, responders, responder_titles, tokens_spent, "
+            "assumptions, "
             "executive_summary, checklist_complete, created_at "
             "  FROM postmortem "
             " WHERE incident_id = %s",

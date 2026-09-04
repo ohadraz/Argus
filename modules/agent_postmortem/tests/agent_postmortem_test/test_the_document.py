@@ -139,18 +139,59 @@ def test_an_answer_calling_some_other_tool_is_written_down_as_incomplete() -> No
         )
 
 
+@pytest.mark.unit
+def test_the_document_reports_who_responded_by_title_and_never_by_name() -> None:
+    # The titles are the half of the answer a reader can act on: "a senior
+    # engineer and an SRE, two hours" is a sentence about an incident, where
+    # two hours alone is a sentence about a clock. Names would make it a
+    # document about people - and this one gets emailed.
+    some_title = "Senior Software Engineer"
+    some_other_title = "Site Reliability Engineer"
+
+    Scenario() \
+        .given(
+            evidence := _an_evidence_bundle()
+        ) \
+        .when(
+            lambda: _a_postmortem_written_with(
+                evidence,
+                llm=_a_model_answering(),
+                responders=2,
+                titles=[some_title, some_other_title])
+        ) \
+        .then(
+            all_of(
+                _reports_responders(2),
+                _reports_the_titles(some_title, some_other_title)
+            )
+        )
+
+
 def _a_postmortem_written_with(evidence: IncidentEvidence,
                                llm: LLMClient,
-                               responders: int = 1) -> PostmortemDocument:
+                               responders: int = 1,
+                               titles: list[str] | None = None) -> PostmortemDocument:
     return write_postmortem(
         evidence,
         revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
         rates=_rates_in(SOME_CURRENCY),
         engagement=_an_engagement_source_reporting(minutes=DONT_CARE_ENGAGED_MINUTES,
-                                                   responders=responders),
+                                                   responders=responders,
+                                                   titles=titles or []),
         metrics=_metrics_showing_a_rise(),
         llm=llm
     )
+
+
+def _an_engagement_source_reporting(minutes: int,
+                                    responders: int,
+                                    titles: list[str] | None = None) -> Engagement:
+    def engagement_for(dont_care_incident_id: str) -> EngagementAnswer | None:
+        return EngagementAnswer(minutes=minutes,
+                                responders=responders,
+                                titles=titles or [])
+
+    return engagement_for
 
 
 def _an_evidence_bundle() -> IncidentEvidence:
@@ -174,13 +215,6 @@ def _a_revenue_source_reporting(amount: float) -> Revenue:
             amount * (window_end - window_start) / DONT_CARE_REVENUE_WINDOW)}
 
     return revenue_between
-
-
-def _an_engagement_source_reporting(minutes: int, responders: int) -> Engagement:
-    def engagement_for(dont_care_incident_id: str) -> EngagementAnswer | None:
-        return EngagementAnswer(minutes=minutes, responders=responders)
-
-    return engagement_for
 
 
 def _metrics_showing_a_rise() -> Metrics:
@@ -330,3 +364,20 @@ def _rates_in(base: str) -> Rates:
         return RateTable(base=base, on=DONT_CARE_RATE_DATE, per_unit={})
 
     return rates
+
+
+def _reports_the_titles(*expected: str) -> Assertion[PostmortemDocument]:
+    """Exactly these, and nothing that could identify a person.
+
+    Sorted rather than ordered: who was on it is the fact, and the order two
+    people acknowledged in is not something a document should imply.
+    """
+    def assertion(document: PostmortemDocument) -> bool:
+        if sorted(document.responder_titles) != sorted(expected):
+            raise AssertionError(
+                f"expected the titles {sorted(expected)}, got "
+                f"{sorted(document.responder_titles)}")
+
+        return True
+
+    return assertion

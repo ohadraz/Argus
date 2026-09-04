@@ -9,6 +9,7 @@ dependencies = [
     "argus-agent_codefix",
     "argus-agent_communicator",
     "argus-agent_postmortem",
+    "argus-oncall_source",
     "argus-revenue_source",
     "argus-exchange_rate_source",
     "langgraph>=0.2",
@@ -24,6 +25,7 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-oncall_source = { workspace = true }
 argus-revenue_source = { workspace = true }
 argus-exchange_rate_source = { workspace = true }
 argus-argus_testkit = { workspace = true }

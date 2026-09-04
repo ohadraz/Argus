@@ -119,8 +119,12 @@ def write_postmortem(evidence: IncidentEvidence,
         customer_loss_estimate=estimate,
         estimate_currency=table.base if table is not None and estimate is not None
                           else None,
-        engineer_minutes=engaged.minutes * engaged.responders if engaged else None,
+        # Not multiplied by the count: the source answers person-minutes, so
+        # each responder's own engagement is already in the figure, and
+        # scaling it again would charge every minute to everybody.
+        engineer_minutes=engaged.minutes if engaged else None,
         responders=engaged.responders if engaged else None,
+        responder_titles=engaged.titles if engaged else [],
         tokens_spent=evidence.tokens_spent,
         assumptions=_assumptions(answer, baseline_revenue, engaged, before, table,
                                  left_out, evidence.onset_at),

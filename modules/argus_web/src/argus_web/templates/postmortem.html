@@ -42,7 +42,14 @@
       not estimated
     {% endif %}</li>
   <li><span class="name">engineer minutes</span>
-    {{ postmortem.engineer_minutes if postmortem.engineer_minutes is not none else 'not recorded' }}</li>
+    {{ postmortem.engineer_minutes if postmortem.engineer_minutes is not none else 'not recorded' }}
+    {%- if postmortem.responders %}
+      <span class="responders">across {{ postmortem.responders }}
+        responder{{ '' if postmortem.responders == 1 else 's' }}</span>
+    {%- endif %}
+    {%- if postmortem.responder_titles %}
+      <span class="titles">({{ postmortem.responder_titles|join(', ') }})</span>
+    {%- endif %}</li>
   <li><span class="name">tokens spent</span>
     {{ postmortem.tokens_spent if postmortem.tokens_spent is not none else 'not recorded' }}</li>
 </ul>

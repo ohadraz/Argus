@@ -63,6 +63,10 @@ class PostmortemDocument(BaseModel):
     estimate_currency: str | None
     engineer_minutes: int | None
     responders: int | None
+    # What those responders were, never who. Empty where the source could say
+    # how many people responded and not what any of them was called - a
+    # description missing, rather than a measurement.
+    responder_titles: list[str] = []
     tokens_spent: int | None
     assumptions: list[str]
     checklist_complete: bool

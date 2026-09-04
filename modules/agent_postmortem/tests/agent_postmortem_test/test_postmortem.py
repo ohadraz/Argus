@@ -66,18 +66,20 @@ DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT = 0.30
 
 @pytest.mark.unit
 def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None:
+    # Person-minutes, as the source answers them: two people, and their own
+    # spans already added together. A document that multiplied by the count
+    # again would charge every minute to everybody.
+    some_engaged_person_minutes = 25
+    some_responders = 2
     some_root_cause = "the checkout fallback was disabled by a flag toggle at 12:04"
     some_summary = "Checkout failed for half an hour after a flag change; reverted."
     some_tokens_spent = 48_120
     some_calm_hourly_revenue = 1_200
     some_revenue_during_the_incident = Decimal("100.00")
     some_incident_duration_in_hours = _duration_in_hours(SOME_ONSET, SOME_INCIDENT_END)
-    some_engaged_minutes = 25
-    some_responders = 2
     some_revenue_that_should_have_come_in_unless_the_incident = (
         Decimal(some_calm_hourly_revenue) * Decimal(str(some_incident_duration_in_hours))
     )
-    expected_total_engaged_minutes = some_engaged_minutes * some_responders
     expected_loss_estimate = (
         some_revenue_that_should_have_come_in_unless_the_incident - 
         some_revenue_during_the_incident
@@ -100,7 +102,7 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
                     and_then={SOME_CURRENCY: some_revenue_during_the_incident}),
                 rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
-                    minutes=some_engaged_minutes, responders=some_responders),
+                    minutes=some_engaged_person_minutes, responders=some_responders),
                 metrics=_metrics_showing_error_rates(
                     baseline=DONT_CARE_BASELINE_ERROR_RATE, 
                     during=DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT),
@@ -115,7 +117,8 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
                 _reports_root_cause(some_root_cause),
                 _reports_executive_summary(some_summary),
                 _estimates_a_loss_of(Decimal(expected_loss_estimate)),
-                _reports_engineer_minutes(expected_total_engaged_minutes),
+                _reports_engineer_minutes(minutes=some_engaged_person_minutes, 
+                                          responders=some_responders),
                 _reports_tokens_spent(some_tokens_spent),
                 _is_marked_complete()
             )
@@ -453,12 +456,25 @@ def _estimates_a_loss_of(expected: Decimal) -> Assertion[PostmortemDocument]:
     return assertion
 
 
-def _reports_engineer_minutes(expected: int) -> Assertion[PostmortemDocument]:
+def _reports_engineer_minutes(minutes: int,
+                              responders: int) -> Assertion[PostmortemDocument]:
+    """The person-minutes, and how many people they were spread across.
+
+    Both together, because either alone would pass on a document that
+    multiplied them: 25 minutes across 2 responders and 50 across 1 differ in
+    what they say about the night, and only checking the pair tells them apart.
+    """
     def assertion(document: PostmortemDocument) -> bool:
-        if document.engineer_minutes != expected:
+        if document.engineer_minutes != minutes:
             raise AssertionError(
-                f"expected [{expected}] engineer minutes, "
+                f"expected [{minutes}] engineer minutes, "
                 f"got [{document.engineer_minutes}]")
+
+        if document.responders != responders:
+            raise AssertionError(
+                f"expected [{minutes}] engineer minutes across [{responders}] "
+                f"responder(s), got [{document.responders}] responder(s)")
+
         return True
 
     return assertion
