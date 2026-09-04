@@ -68,5 +68,5 @@ fail, and only then writing the code under it.
 - [x] 6.4 Re-read this change's delta specs against what was built before
       archiving - the last change's deltas described a design the tests had
       already moved past.
-- [ ] 6.5 One-line commit, approved before it is made. The Target Service's
+- [x] 6.5 One-line commit, approved before it is made. The Target Service's
       change is its own commit in its own repo.

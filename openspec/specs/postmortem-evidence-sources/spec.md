@@ -34,14 +34,21 @@ it to a path.
   vocabulary crossing the port
 
 ### Requirement: Responder timings are read as when people engaged
-The system SHALL obtain, for one incident, when a person first acknowledged it,
-when they were done, and how many people responded - without naming any
-incident-management provider above the port.
+The system SHALL obtain, for one incident, how many person-minutes the response
+took, how many people responded, and the job title each of them held - without
+naming any incident-management provider above the port, and without identifying
+any responder by name or address. The minutes SHALL already account for how
+many people responded, so that nothing above the port multiplies by the count.
 
 #### Scenario: Engagement is answered for an incident
 - **WHEN** responder timings are requested for an incident
-- **THEN** the answer carries when a person first engaged, when engagement
-  ended, and how many people responded
+- **THEN** the answer carries the person-minutes spent, how many responded, and
+  the titles they held
+
+#### Scenario: No responder is named above the port
+- **WHEN** the postmortem reads responder timings
+- **THEN** the answer identifies nobody: it carries titles, a count and a
+  duration, and no name, address or provider identifier
 
 ### Requirement: A source that cannot answer says so, and is never read as an absence
 The system SHALL distinguish a source that could not be reached from a source

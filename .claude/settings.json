@@ -4,6 +4,7 @@
       "Read(.claude/HANDOVER.md)",
       "Edit(.claude/HANDOVER.md)",
       "Write(.claude/HANDOVER.md)",
+      "Edit(openspec/specs/**)",
       "WebSearch"
     ],
     "deny": [
