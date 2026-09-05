@@ -304,6 +304,14 @@
      after the incident ends never says it ended. */
   @keyframes breathing { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
+  /* Acknowledged is red and breathing like investigating - something is wrong
+     and nobody has answered it yet - but dimmed, because what is happening is
+     that the incident is waiting for a worker rather than being worked. A
+     screen showing it exactly like investigating would say attention is on the
+     incident before any is. */
+  .status.acknowledged  { color: var(--bad); border-color: var(--bad);
+                          opacity: .7;
+                          animation: breathing 1.6s ease-in-out infinite; }
   .status.investigating { color: var(--bad); border-color: var(--bad);
                           animation: breathing 1.6s ease-in-out infinite; }
   .status.mitigating, .status.fixing {
@@ -319,6 +327,7 @@
      text reads as something you could press. The header keeps the badge, where
      it is the state of the incident rather than a mention of one. */
   .moved-to { font-weight: 600; letter-spacing: .04em; }
+  .moved-to.acknowledged { color: var(--bad); }
   .moved-to.investigating { color: var(--bad); }
   .moved-to.mitigating, .moved-to.fixing { color: var(--amber); }
   .moved-to.resolved { color: var(--good); }

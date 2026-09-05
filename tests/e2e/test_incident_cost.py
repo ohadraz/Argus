@@ -9,6 +9,7 @@ import psycopg
 import pytest
 from agent_postmortem.document import EXCHANGE_RATE_ASSUMPTION_LABEL
 from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit.assertions import eventually
 from orchestrator.repository import postmortems
 
 from tests.e2e.framework.argus import (
@@ -16,6 +17,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE,
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
+    WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
     incident_id_from,
     the_model_answers_from,
@@ -62,14 +64,15 @@ def test_an_incident_over_a_trading_window_costs_a_measured_amount() -> None:
             argus_is_triggered_with_alert(some_alert)
         ) \
         .then(
-            # No `eventually`: the webhook answers only once the graph has run
-            # to the end, so the postmortem row is already written and final by
-            # the time this reads it. Retrying it would be waiting on a value
-            # that cannot change - eight and a half minutes of it, as the first
-            # run of this test spent proving.
-            all_of(
-                _the_postmortem_estimates_a_loss(),
-                _the_conversion_was_disclosed()
+            # `eventually`, because the webhook answers as soon as the incident
+            # exists and a worker walks it afterwards: the postmortem is
+            # written minutes after the response this asserts against.
+            eventually(
+                all_of(
+                    _the_postmortem_estimates_a_loss(),
+                    _the_conversion_was_disclosed()
+                ),
+                timeout=WALK_TIMEOUT_SECONDS
             )
         )
 

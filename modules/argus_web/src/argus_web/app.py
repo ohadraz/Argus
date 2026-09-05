@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from orchestrator.entrypoint import create_incident_and_run
+from orchestrator.intake import start_incident
 
 from argus_web import reads
 from argus_web.grafana import parse_grafana_alert
@@ -75,9 +75,14 @@ templates.env.filters["clock"] = _on_the_clock
 def receive_alert(payload: dict[str, Any]) -> dict[str, str]:
     """`argus_web`'s only incident-domain entrypoint (spec §7.9): validates
     and normalizes the payload into an `Alert` domain object, then calls the
-    Orchestrator's entrypoint in-process - never the raw payload."""
+    Orchestrator's entrypoint in-process - never the raw payload.
+
+    Answers as soon as the incident exists, with its id. The walk belongs to a
+    worker: an investigation run here would hold this connection open for its
+    whole length, and a caller that gave up would leave it running with nobody
+    to answer."""
     alert = parse_grafana_alert(payload)
-    incident_id = create_incident_and_run(alert)
+    incident_id = start_incident(alert)
     return {"incident_id": incident_id}
 
 

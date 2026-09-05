@@ -10,6 +10,7 @@ import psycopg
 import pytest
 from argus_core.timestamps import parse_iso
 from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit.assertions import eventually
 from orchestrator.repository import postmortems
 
 from tests.e2e.framework.argus import (
@@ -17,6 +18,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE,
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
+    WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
     incident_id_from,
     the_model_answers_from,
@@ -69,13 +71,16 @@ def test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent() -> 
             argus_is_triggered_with_alert(some_alert)
         ) \
         .then(
-            # No `eventually`: the webhook answers only once the graph has run
-            # to the end, so the postmortem row is already written and final by
-            # the time this reads it.
-            all_of(
-                _the_provider_paged_the_people_this_test_assumes(),
-                _the_postmortem_reports_the_minutes_they_spent(),
-                _the_responders_were_counted()
+            # `eventually`, because the webhook now answers as soon as the
+            # incident exists and a worker walks it afterwards: the postmortem
+            # is written minutes after the response this asserts against.
+            eventually(
+                all_of(
+                    _the_provider_paged_the_people_this_test_assumes(),
+                    _the_postmortem_reports_the_minutes_they_spent(),
+                    _the_responders_were_counted()
+                ),
+                timeout=WALK_TIMEOUT_SECONDS
             )
         )
 

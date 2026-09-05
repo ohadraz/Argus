@@ -124,7 +124,7 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened() -> None:
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _timeline_begins_with(IncidentStatus.INVESTIGATING)
+                _timeline_begins_with(IncidentStatus.ACKNOWLEDGED)
             )
 
 

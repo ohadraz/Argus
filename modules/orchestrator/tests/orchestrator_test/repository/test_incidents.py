@@ -21,18 +21,19 @@ def test_create_writes_incident_and_initial_timeline_event() -> None:
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
 
     with psycopg.connect(DATABASE_URL) as conn:
-        the_incident_is_investigating = partial(_the_incident_is_investigating, conn)
-        exactly_one_timeline_event_was_recorded = partial(
-            _exactly_one_timeline_event_was_recorded, conn
-        )
+        the_incident_is = partial(_the_incident_is, conn)
+        the_timeline_shows = partial(_the_timeline_shows, conn)
+        the_last_timeline_event_was = partial(_the_last_timeline_event_was, conn)
+
 
         Scenario() \
             .when(
                 incident_id := incidents.create(conn, some_alert)
             ) \
             .then(all_of(
-                the_incident_is_investigating(incident_id),
-                exactly_one_timeline_event_was_recorded(incident_id),
+                the_incident_is(incident_id, "acknowledged"),
+                the_timeline_shows(incident_id, "acknowledged"),
+                the_last_timeline_event_was(incident_id, "orchestrator"),
             ))
 
 
@@ -41,13 +42,13 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
     some_service = "buki-service"
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
+    some_confidence = 0.9
 
     with psycopg.connect(DATABASE_URL) as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
-        the_incident_is_mitigating = partial(_the_incident_is_mitigating, conn)
-        timeline_shows_investigating_then_mitigating = partial(
-            _timeline_shows_investigating_then_mitigating, conn
-        )
+        the_incident_is = partial(_the_incident_is, conn)
+        the_timeline_shows = partial(_the_timeline_shows, conn)
+        the_last_timeline_event_was = partial(_the_last_timeline_event_was, conn)
 
         Scenario() \
             .given(
@@ -61,12 +62,14 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
                     actor=Actor.INVESTIGATOR,
                     action="hypothesis formed",
                     result="some hypothesis",
-                    confidence=0.9,
+                    confidence=some_confidence,
                 )
             ) \
             .then(all_of(
-                the_incident_is_mitigating(incident_id),
-                timeline_shows_investigating_then_mitigating(incident_id),
+                the_incident_is(incident_id, "mitigating"),
+                the_timeline_shows(incident_id, "acknowledged", "mitigating"),
+                the_last_timeline_event_was(
+                    incident_id, "investigator", confidence=some_confidence),
             ))
 
 
@@ -222,78 +225,6 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
     return incidents.create(conn, alert)
 
 
-def _timeline_shows_investigating_then_mitigating(conn: psycopg.Connection, 
-                                                  incident_id: str) -> Assertion[Any]:
-    def assertion(_result: Any) -> bool:
-        events = timeline.get_timeline_events(conn, incident_id)
-        actual_statuses = [event.to_status for event in events]
-
-        if actual_statuses != ["investigating", "mitigating"]:
-            raise AssertionError(
-                f"Expected status sequence ['investigating', 'mitigating'], got {actual_statuses}."
-            )
-        if events[-1].actor != "investigator":
-            raise AssertionError(f"Expected actor ['investigator'], got [{events[-1].actor!r}].")
-
-        if events[-1].confidence != 0.9:
-            raise AssertionError(f"Expected confidence [0.9], got [{events[-1].confidence!r}].")
-
-        return True
-
-    return assertion
-
-
-def _the_incident_is_investigating(conn: psycopg.Connection, incident_id: str) -> Assertion[Any]:
-    def assertion(_result: Any) -> bool:
-        incident = incidents.get(conn, incident_id)
-
-        if incident is None:
-            raise AssertionError(f"No incident found with id [{incident_id}].")
-
-        if incident.status != "investigating":
-            raise AssertionError(f"Expected status ['investigating'], got [{incident.status!r}].")
-
-        return True
-
-    return assertion
-
-
-def _the_incident_is_mitigating(conn: psycopg.Connection, incident_id: str) -> Assertion[Any]:
-    def assertion(_result: Any) -> bool:
-        incident = incidents.get(conn, incident_id)
-
-        if incident is None:
-            raise AssertionError(f"No incident found with id [{incident_id}].")
-
-        if incident.status != "mitigating":
-            raise AssertionError(f"Expected status ['mitigating'], got [{incident.status!r}].")
-
-        return True
-
-    return assertion
-
-
-def _exactly_one_timeline_event_was_recorded(conn: psycopg.Connection, 
-                                             incident_id: str) -> Assertion[Any]:
-    def assertion(_result: Any) -> bool:
-        events = timeline.get_timeline_events(conn, incident_id)
-
-        if len(events) != 1:
-            raise AssertionError(f"Expected exactly 1 timeline event, got {len(events)}.")
-
-        if events[0].to_status != "investigating":
-            raise AssertionError(
-                f"Expected to_status ['investigating'], got [{events[0].to_status!r}]."
-            )
-
-        if events[0].actor != "orchestrator":
-            raise AssertionError(f"Expected actor ['orchestrator'], got [{events[0].actor!r}].")
-
-        return True
-
-    return assertion
-
-
 @pytest.mark.integration
 def test_get_returns_none_for_unknown_incident() -> None:
     with psycopg.connect(DATABASE_URL) as conn:
@@ -332,13 +263,80 @@ def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> No
 
     assert incident is not None and incident.status == "mitigating"
     assert [event.to_status for event in events] == [
-        "investigating",
+        "acknowledged",
         "mitigating",
         "mitigating",
     ]
     assert events[-1].action == "action rejected at the tier gate"
     assert events[-1].actor == "mitigation"
 
+
+def _the_timeline_shows(conn: psycopg.Connection,
+                        incident_id: str,
+                        *statuses: str) -> Assertion[Any]:
+    """The whole sequence a timeline recorded, in order.
+
+    The whole of it rather than a slice: a timeline is read as the account of
+    where an incident has been, and an assertion checking only its last entry
+    would pass just as happily on an account that skipped a status entirely.
+    """
+    def assertion(_result: Any) -> bool:
+        recorded = [event.to_status
+                    for event in timeline.get_timeline_events(conn, incident_id)]
+
+        if recorded != list(statuses):
+            raise AssertionError(
+                f"Expected the timeline to record {list(statuses)}, got {recorded}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_is(conn: psycopg.Connection,
+                     incident_id: str,
+                     status: str) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None:
+            raise AssertionError(f"No incident found with id [{incident_id}].")
+
+        if incident.status != status:
+            raise AssertionError(
+                f"Expected status [{status!r}], got [{incident.status!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_last_timeline_event_was(conn: psycopg.Connection,
+                                 incident_id: str,
+                                 actor: str,
+                                 confidence: float | None = None) -> Assertion[Any]:
+    """Who moved the incident, and how sure they were.
+
+    Separate from the sequence below because it answers a different question:
+    that one says where the incident went, this says who took it there. A test
+    asking only one of the two calls only one of these.
+    """
+    def assertion(_result: Any) -> bool:
+        last = timeline.get_timeline_events(conn, incident_id)[-1]
+
+        if last.actor != actor:
+            raise AssertionError(f"Expected actor [{actor!r}], got [{last.actor!r}].")
+
+        if confidence is not None and last.confidence != confidence:
+            raise AssertionError(
+                f"Expected confidence [{confidence}], got [{last.confidence!r}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_incident_records_an_end(conn: psycopg.Connection, incident_id: str) -> Assertion[Any]:

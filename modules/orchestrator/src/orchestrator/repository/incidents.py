@@ -29,11 +29,16 @@ class Incident(BaseModel):
 def create(conn: psycopg.Connection, alert: Alert) -> str:
     """Creates the Incident row and its initial TimelineEvent in the same
     transaction (spec §7.1's single-writer rule, §11.1; spec §10's
-    `[*] --> investigating` edge counts as a transition)."""
+    `[*] --> acknowledged` edge counts as a transition).
+
+    `acknowledged`, not `investigating`: this runs where the alert is received,
+    and the walk it queues belongs to a worker that has not taken it yet.
+    Writing `investigating` here would date an investigation from the moment
+    Argus heard about the incident rather than from the moment one began."""
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO incident (alert_payload, status) VALUES (%s, %s) RETURNING id",
-            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.INVESTIGATING),
+            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.ACKNOWLEDGED),
         )
         row = cursor.fetchone()
         assert row is not None
@@ -41,7 +46,7 @@ def create(conn: psycopg.Connection, alert: Alert) -> str:
         cursor.execute(
             "INSERT INTO timeline_event (incident_id, to_status, actor, action) "
             "VALUES (%s, %s, %s, %s)",
-            (incident_id, IncidentStatus.INVESTIGATING, Actor.ORCHESTRATOR, "incident created"),
+            (incident_id, IncidentStatus.ACKNOWLEDGED, Actor.ORCHESTRATOR, "incident created"),
         )
     conn.commit()
     return incident_id

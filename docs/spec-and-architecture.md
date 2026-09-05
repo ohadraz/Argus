@@ -124,10 +124,13 @@ flowchart LR
 
 A **LangGraph `StateGraph`** whose nodes are the sub-agents below; typed state (`IncidentState`, Pydantic) mirrors the Postgres schema (§11.1). Edges are conditional functions implementing the incident FSM (§10) - the graph defines legal transitions, the LLM picks among them. LangGraph's Postgres checkpointing gives incident-level durability for free: on restart it resumes from the last checkpoint.
 
-No HTTP surface of its own; `argus_web` (§7.9) calls its entrypoint in-process after validating the webhook.
+No HTTP surface of its own. `argus_web` (§7.9) calls its intake in-process after validating the webhook, and that call creates the incident and queues its walk; the graph itself is invoked by a **worker process**, which takes queued runs one at a time. An investigation therefore outlives the request that announced it - it survives the caller hanging up, and it survives `argus_web` restarting - which is what makes the checkpointing above worth having: a run whose worker stopped is claimed by the next one and continues from the state already recorded, rather than beginning again.
+
+A run is claimed with a lease. One worker walks a given incident, a second finds nothing to take, and a run whose holder stopped renewing becomes claimable again. A walk that fails is recorded against its run with the reason, so an incident nobody is working on is distinguishable from one still being investigated.
 
 Responsibilities:
-- Create the `Incident` row and invoke the graph, called by `argus_web`.
+- Create the `Incident` row and queue its run, called by `argus_web`.
+- Walk a claimed run's graph, in the worker, and record how the run ended.
 - Run the tier-gate node (§13) before any mutating tool call reaches an MCP server.
 - Own the escalation decision (the round budget, and whether the investigation named anything left to try).
 - Trigger the memory lookup that seeds an investigation (§9).
@@ -188,11 +191,11 @@ A minimal admin UI, its own module, for editing `INTEGRATION_CONFIG` (§11.3): S
 The single HTTP-facing surface for Argus. No other module listens on a network port or parses HTTP; everything past its boundary is a plain function call.
 
 Exposes three endpoint groups:
-- **Alert webhook** - receives an alert POST, validates it, normalizes it into Argus's own `Alert` domain object, then calls the Orchestrator's entrypoint in-process with that object - never the raw payload (§25).
+- **Alert webhook** - receives an alert POST, validates it, normalizes it into Argus's own `Alert` domain object, then calls the Orchestrator's intake in-process with that object - never the raw payload (§25). It answers as soon as the incident exists, with the incident's id: the investigation is queued for a worker (§7.1) rather than run here, so a caller is never held open for the length of one, and `argus_web` cannot reach the graph at all.
 - **Incident view** - the pages of §7.7: the live page and the fragment it polls, the incident history, one incident's walk, and the postmortems, read through the repositories that own the incident tables (§11.1). Those pages are the only reader there is, so no JSON API sits beneath them.
 - **Configuration API** - serves the Backoffice: CRUD over `INTEGRATION_CONFIG` (§11.3).
 
-`argus_web` holds no incident-domain logic - only request validation and response shaping. It calls the Orchestrator as an in-process dependency and reads/writes Postgres using schemas defined in `argus_core` (§20.2).
+`argus_web` holds no incident-domain logic - only request validation and response shaping. It calls the Orchestrator's intake as an in-process dependency and reads/writes Postgres using schemas defined in `argus_core` (§20.2).
 
 Normalizing the incoming alert is a boundary/controller responsibility, not domain logic: `argus_web` is the only place a vendor-specific payload shape may appear, and it never crosses into the Orchestrator or beyond. This is deliberately not the ports-and-adapters pattern (§12) - alert sources are inbound and open-ended, not a small set Argus chooses - see §25 for the intended mechanism.
 
@@ -249,7 +252,8 @@ The price of the model driving retrieval is that non-determinism moves into the 
 
 ```mermaid
 stateDiagram-v2
-    [*] --> investigating: webhook received
+    [*] --> acknowledged: webhook received
+    acknowledged --> investigating: a worker takes the run
     investigating --> mitigating: a named cause worth trying
     investigating --> escalated: budget spent, or nothing left to try
     mitigating --> resolved: mitigation confirmed
@@ -264,6 +268,8 @@ stateDiagram-v2
 ```
 
 What admits the walk is a *named* cause, not a confident one: a reversible mitigation taken alone, confirmed against the service and put back when it does not help costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
+
+`acknowledged` is where an incident sits between being accepted and being picked up: Argus has the alert and has committed to handling it, and the walk is queued for a worker (§7.1). It is a status rather than an event because it is the incident's own state and can last - a worker that is down leaves incidents there, and a screen reporting them as `investigating` would claim attention nobody is paying. The interval between it and `investigating` is how long the incident waited for a worker, which is the one duration the timeline could not otherwise report.
 
 `mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. Only `escalated` and `resolved` are terminal.
 
@@ -285,6 +291,7 @@ erDiagram
     INCIDENT ||--o{ INCIDENT_EVENT : records
     INCIDENT ||--o| POSTMORTEM : produces
     INCIDENT ||--o{ REPLAY_LOG : logs
+    INCIDENT ||--o{ INCIDENT_RUN : is_walked_by
 
     INCIDENT {
         uuid id PK
@@ -315,6 +322,15 @@ erDiagram
         enum outcome
         timestamp taken_at
         text approved_by
+    }
+    INCIDENT_RUN {
+        uuid id PK
+        uuid incident_id FK
+        enum state
+        text claimed_by
+        timestamp leased_until
+        text failure_reason
+        timestamp created_at
     }
     TIMELINE_EVENT {
         uuid id PK
@@ -362,6 +378,10 @@ erDiagram
 Separate tables rather than one JSON blob per incident, because the eval metrics (§21) - wasted actions per incident, escalation precision/recall, root-cause accuracy - are counts, joins, and group-bys over structured fields (`tested`, `result`, `confidence`, `tier`). A relational schema already has that structure; free text or a blob would mean re-deriving it at query time.
 
 Neither `HYPOTHESIS` nor `ACTION` has row history - both are mutated in place (`HYPOTHESIS.tested`/`.result`/`.confidence` as the ReAct loop refines, §9 step F; `ACTION.outcome` once a mitigation is confirmed/refuted, §7.3), written in the same transaction as a paired `TIMELINE_EVENT` row (single-writer rule, §7.1). Without that pairing, the walk the incident view renders (§7.7) and the incident narrative the Postmortem agent consumes (§7.6) would collapse to only their last value.
+
+An `ACTION` row is written *before* its action is taken, and one incident has at most one action per candidate - a unique constraint on `(incident_id, hypothesis_id)`. The insert is therefore the claim on the right to act: a walk resumed inside the mitigation node (§7.1) is refused it by the database rather than by a check it could race with, and answers with the outcome the earlier attempt recorded. Where that attempt recorded none - it stopped between acting and saying what happened - the flag provider's own event log is asked whether the change landed, since it is the only record of what a process that no longer exists managed to do; the incident escalates if it did, or if the provider cannot say.
+
+`INCIDENT_RUN` is the queue between the two processes: `argus_web` writes a row when it accepts an alert, and a worker claims it to walk the graph (§7.1). It is beside `INCIDENT` rather than inside it because an incident's status says what Argus knows about the failure while a run's state says whether anything is currently thinking about it - folding the two together would make "nobody is walking this" and "this is resolved" the same column. `claimed_by` and `leased_until` are what distinguish a worker still walking a run from one that stopped: a lock cannot, since a dead worker's lock dies with its connection.
 
 `INCIDENT_EVENT` is the account of the work rather than a record of its conclusions (§4 principle 8): one append-only row per thing that happened, in the order it was published, carrying the whole payload it is about - every bucket a metrics read returned, every log line, every recorded flag change. The payload is stored rather than a reference to fetch again, because the log store moves on and a page that re-fetched would show something Argus never saw. `kind` names the event and `payload` is that event's own shape, so a new kind costs a model rather than a migration; `seq` orders two events that share a timestamp. Rows are appended by the single subscriber that listens to the publishers (§4 principle 8) and are never updated, which is what leaves the single-writer rule intact - the four domain tables keep the Orchestrator as their one writer, and this table has one of its own.
 
@@ -674,7 +694,7 @@ The Target Environment deploys independently of Argus, reflecting that in a real
 
 A `uv` workspace covers `modules/*` (§20.2): the Orchestrator, Web Application, each sub-agent package, each MCP server, the Backoffice, and `argus_core` are each their own installable Python package with its own `pyproject.toml`, independently versioned. A root workspace `pyproject.toml` (`[tool.uv.workspace]`, members = `modules/*`) ties these together for local dev (`uv sync` installs everything editable) without forcing a shared version or deploy lifecycle; `uv`'s lockfile covers the whole workspace.
 
-Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each `agent_*` package, and each MCP *client* package have no deployment image; they're installed as dependencies into the Web Application, the only place they run (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
+Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each `agent_*` package, and each MCP *client* package have no deployment image; they're installed as dependencies into the two processes that run them - the Web Application, which reaches only the Orchestrator's intake, and the worker, which walks the graph and so is the only process the agents run inside (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
 
 The benchmark harness sits outside the workspace entirely: its own `pyproject.toml`, not deployed as a service (§19) - a script/CLI run against an already-deployed Argus stack (§21.4), consuming `argus_core` schemas as a regular dependency.
 

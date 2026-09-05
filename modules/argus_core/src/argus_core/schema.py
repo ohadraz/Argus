@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- One row per action, written before the action is taken rather than after:
+-- the insert is what claims the right to take it. The unique constraint below
+-- is therefore the guard against a resumed walk acting twice - a second insert
+-- for the same candidate fails, and the failure is how the walk that lost
+-- learns the action is already somebody's.
 CREATE TABLE IF NOT EXISTS action (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
@@ -65,6 +70,14 @@ CREATE TABLE IF NOT EXISTS action (
     taken_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     approved_by TEXT
 );
+
+-- What makes one action one action. A partial index rather than a table
+-- constraint, because `hypothesis_id` is nullable and two actions belonging to
+-- no candidate are two actions - where two claiming the same candidate are one
+-- attempt written twice.
+CREATE UNIQUE INDEX IF NOT EXISTS action_once_per_candidate_idx
+    ON action (incident_id, hypothesis_id)
+    WHERE hypothesis_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS timeline_event (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -194,6 +207,39 @@ CREATE TABLE IF NOT EXISTS exchange_rate (
     fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (base, currency, published_on)
 );
+
+-- One walk of the graph, waiting to be taken or being taken. The alert
+-- endpoint writes the row and answers; a worker claims it and invokes the
+-- graph. The row is what makes an investigation outlive the request that
+-- asked for it - and what lets a worker that died be told from one that is
+-- still working.
+--
+-- Beside the incident rather than inside it: an incident's status says what
+-- Argus knows about the failure, and a run's state says whether anything is
+-- currently thinking about it. Folding the second into the first would make
+-- "nobody is walking this" and "this is resolved" the same column.
+CREATE TABLE IF NOT EXISTS incident_run (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    incident_id UUID NOT NULL REFERENCES incident(id),
+    -- queued, running, done or failed. Text like every other state in this
+    -- schema: the vocabulary lives in the code that reads it, and a check
+    -- constraint here would be a second place to change it.
+    state TEXT NOT NULL,
+    -- Who holds it and until when. Both null while queued. The lease is what
+    -- separates a worker still walking a run from one that stopped mid-walk:
+    -- a lock cannot say that, because a dead worker's lock dies with its
+    -- connection and leaves the row looking held by nobody.
+    claimed_by TEXT,
+    leased_until TIMESTAMPTZ,
+    -- Why a run stopped, where it stopped badly. An incident whose run failed
+    -- is visibly unfinished; the same incident with the reason only in a log
+    -- is indistinguishable from one still being worked.
+    failure_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- What a worker asks for, every interval, forever: the runs it could take.
+CREATE INDEX IF NOT EXISTS incident_run_state_idx ON incident_run (state);
 """
 
 

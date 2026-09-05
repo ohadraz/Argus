@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from argus_core.attribution import changes_not_made_by
+from argus_core.attribution import change_by_actor_to, changes_not_made_by
 from argus_core.models.flag_change import FlagChange
 
 """Telling Argus's own flag changes from everybody else's.
@@ -80,6 +80,45 @@ def test_the_remaining_changes_keep_their_order() -> None:
     )
 
     assert kept == [an_older_change, a_newer_change]
+
+
+@pytest.mark.unit
+def test_argus_own_change_to_the_flag_is_found() -> None:
+    # The question a resumed walk asks: did the change I was making land? Asked
+    # of the provider's log, which is the only place that knows.
+    argus_own_change = a_flag_change(flag=SOME_FLAG, actor=AN_ACTOR)
+
+    assert change_by_actor_to(SOME_FLAG, AN_ACTOR, [argus_own_change]) is True
+
+
+@pytest.mark.unit
+def test_a_change_to_another_flag_is_not_this_one() -> None:
+    argus_change_elsewhere = a_flag_change(flag="another-flag", actor=AN_ACTOR)
+
+    assert change_by_actor_to(SOME_FLAG, AN_ACTOR, [argus_change_elsewhere]) is False
+
+
+@pytest.mark.unit
+def test_somebody_elses_change_to_the_flag_is_not_argus_own() -> None:
+    # A human turning the same flag off is not evidence that Argus's action
+    # landed - and acting on it as though it were would leave the incident
+    # crediting itself with somebody else's fix.
+    somebody_elses_change = a_flag_change(flag=SOME_FLAG, actor=A_HUMAN)
+
+    assert change_by_actor_to(SOME_FLAG, AN_ACTOR, [somebody_elses_change]) is False
+
+
+@pytest.mark.unit
+def test_an_unattributable_deployment_cannot_answer_at_all() -> None:
+    # Argus and its operators sharing one credential means the provider cannot
+    # say who acted. `None`, not `False`: "I could not have been told" is not
+    # "it did not happen", and the caller does different things with each.
+    dont_care_change = a_flag_change(flag=SOME_FLAG, actor=None)
+
+    assert change_by_actor_to(SOME_FLAG, "", [dont_care_change]) is None
+
+
+SOME_FLAG = "monthly-spend-feature"
 
 
 def a_flag_change(flag: str = "some-flag", actor: str | None = None) -> FlagChange:

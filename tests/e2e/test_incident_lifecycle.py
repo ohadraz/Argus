@@ -9,6 +9,7 @@ from argus_testkit import Scenario, all_of, eventually
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
     THE_SERVICE_NAME,
+    WALK_TIMEOUT_SECONDS,
     argus_created_a_postmortem_for_the_incident,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
@@ -46,11 +47,13 @@ def test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem() -> Non
                 all_of(
                     argus_registered_an_incident_for_the_alert(some_alert),
                     argus_went_through_statuses(
+                        IncidentStatus.ACKNOWLEDGED,
                         IncidentStatus.INVESTIGATING,
                         IncidentStatus.ESCALATED,
                     ),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                     argus_created_a_postmortem_for_the_incident(),
-                )
+                ),
+                timeout=WALK_TIMEOUT_SECONDS
             )
         ))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
@@ -38,6 +39,9 @@ by `status_after`, and tested there. A node asserting a status here would be
 asserting a decision it no longer makes.
 """
 
+DONT_CARE_FLAG = "dont-care-flag"
+DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
+
 
 @pytest.fixture
 def investigate() -> MagicMock:
@@ -60,6 +64,11 @@ def record_action() -> MagicMock:
 
 
 @pytest.fixture
+def complete_action() -> MagicMock:
+    return cast(MagicMock, create_autospec(graph.CompleteAction, instance=True))
+
+
+@pytest.fixture
 def fetch_flag_changes() -> MagicMock:
     return cast(MagicMock, create_autospec(fetch_recent_flag_changes))
 
@@ -67,6 +76,21 @@ def fetch_flag_changes() -> MagicMock:
 @pytest.fixture
 def take() -> MagicMock:
     return cast(MagicMock, create_autospec(take_action))
+
+
+@pytest.fixture
+def already_taken() -> MagicMock:
+    return cast(MagicMock, create_autospec(graph.ActionAlreadyTaken, instance=True))
+
+
+@pytest.fixture
+def claimed_at() -> MagicMock:
+    return cast(MagicMock, create_autospec(graph.ActionClaimedAt, instance=True))
+
+
+@pytest.fixture
+def change_landed() -> MagicMock:
+    return cast(MagicMock, create_autospec(graph.ChangeLanded, instance=True))
 
 
 @pytest.mark.unit
@@ -295,7 +319,10 @@ def test_a_candidate_the_gate_refused_is_recorded_as_never_having_been_tried(
 
 @pytest.mark.unit
 def test_a_confirmed_action_reports_the_verdict_it_measured(
-    take: MagicMock, record_action: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -305,6 +332,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
     result = mitigation_node(an_action_taking_incident,
                              take=take,
                              record_action=record_action,
+                             complete_action=complete_action,
                              record_outcome=record_outcome)
 
     assert result["action_outcome"] == "confirmed"
@@ -312,7 +340,10 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
 
 @pytest.mark.unit
 def test_a_refuted_action_reports_the_verdict_it_measured(
-    take: MagicMock, record_action: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -322,6 +353,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
     result = mitigation_node(an_action_taking_incident,
                              take=take,
                              record_action=record_action,
+                             complete_action=complete_action,
                              record_outcome=record_outcome)
 
     assert result["action_outcome"] == "refuted"
@@ -329,7 +361,10 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
 
 @pytest.mark.unit
 def test_the_node_that_takes_the_action_decides_no_status(
-    take: MagicMock, record_action: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     # The verdict is what this node measured; where the incident stands as a
     # result is a conclusion drawn from it elsewhere. Drawing it here is how the
@@ -342,6 +377,7 @@ def test_the_node_that_takes_the_action_decides_no_status(
     result = mitigation_node(an_action_taking_incident,
                              take=take,
                              record_action=record_action,
+                             complete_action=complete_action,
                              record_outcome=record_outcome)
 
     assert "status" not in result
@@ -349,7 +385,10 @@ def test_the_node_that_takes_the_action_decides_no_status(
 
 @pytest.mark.unit
 def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
-    take: MagicMock, record_action: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -359,6 +398,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
     result = mitigation_node(an_action_taking_incident,
                              take=take,
                              record_action=record_action,
+                             complete_action=complete_action,
                              record_outcome=record_outcome)
 
     assert result["action_outcome"] == "escalated"
@@ -366,7 +406,10 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
 
 @pytest.mark.unit
 def test_the_action_row_records_the_undo_descriptor_the_write_returned(
-    take: MagicMock, record_action: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     # The descriptor the write tier returned, not the one proposed: it is the
     # record of what actually changed, and it is what a human reading the
@@ -384,15 +427,19 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
 
     mitigation_node(an_action_taking_incident,
                     take=take,
+                    complete_action=complete_action,
                     record_action=record_action,
                     record_outcome=record_outcome)
 
-    assert record_action.call_args.kwargs["undo_descriptor"] == some_undo_descriptor
+    assert complete_action.call_args.kwargs["undo_descriptor"] == some_undo_descriptor
 
 
 @pytest.mark.unit
 def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
-    take: MagicMock, record_action: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    record_outcome: MagicMock
 ) -> None:
     # An action was taken and the service was measured afterwards, so this
     # candidate was genuinely tested - and the verdict is the answer it was
@@ -406,6 +453,7 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
 
     mitigation_node(an_action_taking_incident,
                     take=take,
+                    complete_action=complete_action,
                     record_action=record_action,
                     record_outcome=record_outcome)
 
@@ -414,8 +462,168 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
     assert record_outcome.call_args.kwargs["result"] == "refuted"
 
 
-DONT_CARE_FLAG = "dont-care-flag"
-DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
+@pytest.mark.unit
+def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
+    take: MagicMock, record_action: MagicMock, complete_action: MagicMock,
+    already_taken: MagicMock, record_outcome: MagicMock
+) -> None:
+    # A worker died inside this node and another took the run up. The claim is
+    # already in the database, so this walk is refused it - and refusing it is
+    # the whole guard: acting again would set a flag that is already set and,
+    # worse, write a second attempt into an incident that made one.
+    the_outcome_the_first_attempt_recorded = "confirmed"
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor()
+    )
+    record_action.return_value = False
+    already_taken.return_value = the_outcome_the_first_attempt_recorded
+
+    result = mitigation_node(an_action_taking_incident,
+                             take=take,
+                             record_action=record_action,
+                             complete_action=complete_action,
+                             already_taken=already_taken,
+                             record_outcome=record_outcome)
+
+    assert take.called is False
+    assert complete_action.called is False
+    assert result["action_outcome"] == the_outcome_the_first_attempt_recorded
+
+
+@pytest.mark.unit
+def test_a_walk_that_claimed_the_action_takes_it(
+    take: MagicMock, record_action: MagicMock, complete_action: MagicMock,
+    already_taken: MagicMock, record_outcome: MagicMock
+) -> None:
+    # The other half, so the guard cannot pass by never acting at all: a walk
+    # that got the claim is the one attempt, and it does the work.
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor()
+    )
+    record_action.return_value = True
+    take.return_value = _an_outcome(Verdict.CONFIRMED)
+
+    mitigation_node(an_action_taking_incident,
+                    take=take,
+                    record_action=record_action,
+                    complete_action=complete_action,
+                    already_taken=already_taken,
+                    record_outcome=record_outcome)
+
+    assert take.called is True
+    assert already_taken.called is False
+
+
+@pytest.mark.unit
+def test_a_claim_with_no_outcome_whose_change_landed_escalates(
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    already_taken: MagicMock, 
+    claimed_at: MagicMock, 
+    change_landed: MagicMock,
+    record_outcome: MagicMock
+) -> None:
+    # The worst state to find: the flag was changed and nobody measured what
+    # happened next. Argus cannot invent that measurement, and acting again
+    # would not produce it either - so it says so and stops.
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor(),
+        about=a_determined_hypothesis(a_random_id()).model_copy(
+            update={"subject": "monthly-spend-feature"}
+        ),
+    )
+    record_action.return_value = False
+    already_taken.return_value = None
+    claimed_at.return_value = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
+    change_landed.return_value = True
+
+    result = mitigation_node(an_action_taking_incident,
+                             take=take,
+                             record_action=record_action,
+                             complete_action=complete_action,
+                             already_taken=already_taken,
+                             claimed_at=claimed_at,
+                             change_landed=change_landed,
+                             record_outcome=record_outcome)
+
+    assert take.called is False
+    assert result["status"] == IncidentStatus.ESCALATED
+
+
+@pytest.mark.unit
+def test_a_claim_whose_change_never_landed_is_acted_on(
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    already_taken: MagicMock, 
+    claimed_at: MagicMock, 
+    change_landed: MagicMock,
+    record_outcome: MagicMock
+) -> None:
+    # The claim was written and the worker died before it reached the provider.
+    # Nothing happened, so there is nothing to be careful about: this walk takes
+    # the action the claim was for.
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor(),
+        about=a_determined_hypothesis(a_random_id()).model_copy(
+            update={"subject": "monthly-spend-feature"}
+        ),
+    )
+    record_action.return_value = False
+    already_taken.return_value = None
+    claimed_at.return_value = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
+    change_landed.return_value = False
+    take.return_value = _an_outcome(Verdict.CONFIRMED)
+
+    result = mitigation_node(an_action_taking_incident,
+                             take=take,
+                             record_action=record_action,
+                             complete_action=complete_action,
+                             already_taken=already_taken,
+                             claimed_at=claimed_at,
+                             change_landed=change_landed,
+                             record_outcome=record_outcome)
+
+    assert take.called is True
+    assert result["action_outcome"] == "confirmed"
+
+
+@pytest.mark.unit
+def test_a_claim_the_provider_cannot_answer_for_escalates(
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    already_taken: MagicMock, 
+    claimed_at: MagicMock, 
+    change_landed: MagicMock,
+    record_outcome: MagicMock
+) -> None:
+    # Unreachable, or a deployment where Argus and its operators share a
+    # credential. Either way nobody can say whether the change was made, and
+    # acting on a guess is the one thing that is worse than stopping.
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor(),
+        about=a_determined_hypothesis(a_random_id()).model_copy(
+            update={"subject": "monthly-spend-feature"}
+        ),
+    )
+    record_action.return_value = False
+    already_taken.return_value = None
+    claimed_at.return_value = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
+    change_landed.return_value = None
+
+    result = mitigation_node(an_action_taking_incident,
+                             take=take,
+                             record_action=record_action,
+                             complete_action=complete_action,
+                             already_taken=already_taken,
+                             claimed_at=claimed_at,
+                             change_landed=change_landed,
+                             record_outcome=record_outcome)
+
+    assert take.called is False
+    assert result["status"] == IncidentStatus.ESCALATED
 
 
 def _an_investigating_incident() -> IncidentState:

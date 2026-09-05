@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Final
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The longest single wait inside a walk: Mitigation standing by for the service
+# to answer an action. Named here because two settings are stated in terms of
+# it - the wait itself, and the lease that has to outlast it.
+_VERIFICATION_TIMEOUT_SECONDS: Final = 180.0
+
+# How many of those waits a claim survives before another worker may take the
+# run back. More than one, because a walk can verify more than one action; small
+# enough that a worker killed mid-walk does not leave its incident sitting for
+# an hour.
+_LEASES_PER_LONGEST_WAIT: Final = 4
 
 
 class Settings(BaseSettings):
@@ -77,7 +89,27 @@ class Settings(BaseSettings):
     # action was taken and did not visibly help in the time allowed, which is
     # what refuted means. Long enough to cover at least one whole metric minute
     # plus the lag before the service's behaviour changes.
-    mitigation_verification_timeout_seconds: float = Field(default=180.0, gt=0.0)
+    mitigation_verification_timeout_seconds: float = Field(
+        default=_VERIFICATION_TIMEOUT_SECONDS, gt=0.0
+    )
+
+    # How long a worker waits before asking the queue again, having found it
+    # empty. The wait a real alert pays before anything starts on it, so it is
+    # short - and it is only paid when there is nothing to do, since a worker
+    # that found work looks again immediately.
+    run_poll_interval_seconds: float = Field(default=2.0, gt=0.0)
+
+    # How long a claim holds a run before another worker may take it back. A
+    # worker renews this while it walks, so it bounds how long a *stopped*
+    # worker's run sits unwalked - not how long a run may take.
+    #
+    # Comfortably longer than the longest single wait inside a walk, which is
+    # Mitigation's verification: a lease that expired while a worker sat
+    # waiting for a service to recover would hand the same incident to a second
+    # worker at exactly the moment the first was about to answer.
+    run_lease_seconds: float = Field(
+        default=_VERIFICATION_TIMEOUT_SECONDS * _LEASES_PER_LONGEST_WAIT, gt=0.0
+    )
 
     anthropic_api_key: str = Field(default="")
 

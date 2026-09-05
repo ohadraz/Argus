@@ -272,7 +272,8 @@ def _an_action_is_taken(candidate: Any,
     return mitigation_node(
         state,
         take=lambda dont_care_action, **dont_care_keywords: outcome,
-        record_action=lambda *dont_care_args, **dont_care_keywords: None,
+        record_action=lambda incident_id, hypothesis_id, action_type: True,
+        complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
         **keywords,
     )

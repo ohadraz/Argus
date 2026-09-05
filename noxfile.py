@@ -243,12 +243,20 @@ def _start_service(
     copy of the session's own environment rather than replacing it: a child
     started with only the overrides would lose `PATH`, `SYSTEMROOT` and the
     database URL, and would fail in ways that look nothing like the cause.
+
+    Every service writes UTF-8 whatever the machine's codepage is. Argus
+    narrates an incident in the model's own words, and a model writes arrows,
+    dashes and quotation marks that a Windows ANSI codepage has no encoding
+    for - on a Hebrew-locale machine that is `cp1255`, and the `print` inside
+    the Communicator then raises `UnicodeEncodeError` in the middle of a node
+    and takes the whole walk down. The narration is not the place to negotiate
+    with the console: the console is set to accept what Argus says.
     """
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     return subprocess.Popen(
         [_venv_python_binary(), *module_args],
         creationflags=creationflags,
-        env={**os.environ, **env} if env else None,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8", **(env or {})},
     )
 
 
@@ -285,6 +293,13 @@ def _refuse_a_stack_that_is_already_up() -> None:
     which is exactly when nobody is left to remember it happened.
     """
     for name, _, ready_url in _LOCAL_SERVICES:
+        # A service holding no port cannot be found this way. The worker is the
+        # one of those, and a leaked one is far less dangerous than a leaked
+        # server: it competes for runs through the same claim any second worker
+        # does, rather than answering as though it were this run's.
+        if ready_url is None:
+            continue
+
         port = urllib.parse.urlparse(ready_url).port
         with socket.socket() as probe:
             probe.settimeout(1.0)
@@ -385,7 +400,7 @@ _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     f"{_ANTHROPIC_DOUBLE_BASE_URL}/health",
 )
 
-_LOCAL_SERVICES: list[tuple[str, list[str], str]] = [
+_LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
     ("read_mcp", ["-m", "read_mcp_server.server"], "http://localhost:8090/mcp"),
     # Its own process, not a second module inside `read_mcp`: the tier split
     # (spec §12.1, §13) is what makes "read-only" a property of a running
@@ -401,6 +416,23 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str]] = [
         "argus_web",
         ["-m", "uvicorn", "argus_web.app:app", "--host", "0.0.0.0", "--port", "8000"],
         "http://localhost:8000/openapi.json",
+    ),
+    (
+        # What actually walks an incident. `argus_web` only writes the run down
+        # and answers the alert, so a stack without this accepts every alert and
+        # investigates none - and the suite's first assertion about a status
+        # would be the thing that reported it.
+        #
+        # Started last, so that the queue it reads is served by processes that
+        # are already up: a run claimed before the MCP servers answer fails for
+        # a reason that has nothing to do with the incident.
+        #
+        # No readiness URL: it listens on nothing. What it is ready for is
+        # visible only in the queue, and a run appearing there is the suite's
+        # own first step rather than something to wait for here.
+        "worker",
+        ["-m", "orchestrator.worker"],
+        None,
     ),
 ]
 
@@ -456,7 +488,10 @@ def _run_against_the_stack(
         )
         for name, module_args, ready_url in _LOCAL_SERVICES:
             started.append(_start_service(module_args, env=service_env.get(name)))
-            _wait_for_http(name, ready_url)
+            # A service that listens on nothing is waited for by nothing: the
+            # worker's readiness shows up in the queue it drains, not on a port.
+            if ready_url is not None:
+                _wait_for_http(name, ready_url)
         # Anything after `--` goes to pytest, so a single failing case can be
         # re-run against the stack (`-- -k fallback`) instead of the whole
         # suite. Bringing the stack up is the slow part of a green run and the
@@ -516,15 +551,18 @@ def e2e_replay(session: nox.Session) -> None:
     by `nox -s eval`, against thresholds derived from fifty samples per case -
     never from one replayed answer here.
 
-    Selecting the double is one setting (`anthropic_base_url`), passed to
-    `argus_web` alone. Nothing in the production path knows this session
-    exists: a pipeline that behaves differently when observed is not the
-    pipeline.
+    Selecting the double is one setting (`anthropic_base_url`), passed to the
+    **worker** alone - the process that walks the graph, and so the only one
+    that talks to a model at all. `argus_web` receives alerts and makes no
+    model call, so aiming it at the double aims nothing: the walk would reach
+    the real API, spend real tokens, and still report itself as a replayed run.
+    Nothing in the production path knows this session exists: a pipeline that
+    behaves differently when observed is not the pipeline.
     """
     _run_against_the_stack(
         session,
         ["tests/e2e"],
-        service_env={"argus_web": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
     )
 
 
@@ -551,14 +589,14 @@ def record(session: nox.Session) -> None:
     rest on, and a recording captured by hand is one whose request nobody can
     prove matched what the adapter sends.
 
-    `argus_web` is pointed at the double exactly as in `e2e_replay` - which is
+    The worker is pointed at the double exactly as in `e2e_replay` - which is
     what puts the double in the path at all - and the double forwards the call
     upstream because it was told to record rather than seeded.
     """
     _run_against_the_stack(
         session,
         test_paths=[],
-        service_env={"argus_web": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
         # `-m`, not the path: the script reuses the e2e suite's own world-reset
         # rather than keeping a second copy of it, and only the module form puts
         # the repo root on the path for `tests.` to resolve.
