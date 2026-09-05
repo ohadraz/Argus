@@ -63,8 +63,9 @@ jobs:
 
   # The whole pipeline, on every push, for nothing.
   #
-  # Free and keyless for the same reason `integration` is: `argus_web` is
-  # started pointed at the Anthropic double, so every model answer is replayed
+  # Free and keyless for the same reason `integration` is: the worker - the one
+  # process that talks to a model - is started pointed at the Anthropic double,
+  # so every model answer is replayed
   # from a recording committed to this repo. No secret is passed to this job,
   # and none is needed - if it ever starts failing for want of a key, something
   # has begun reaching the real API and that is the bug.

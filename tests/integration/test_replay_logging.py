@@ -8,6 +8,7 @@ import pytest
 from agent_investigator import investigate
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
+from argus_core.config import get_settings
 from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
@@ -35,7 +36,7 @@ answers from memory, because what is being checked is that a call was written
 down rather than what the model made of it.
 """
 
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
+DATABASE_URL = get_settings().database_url
 
 SOME_ONSET = "2026-08-29T22:15:00Z"
 

@@ -5,6 +5,7 @@ import re
 import psycopg
 import pytest
 from agent_postmortem.document import PostmortemDocument
+from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
@@ -14,8 +15,6 @@ from argus_web.app import app
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 """Argus's own screen, through the browser's door.
 
@@ -34,7 +33,7 @@ def test_the_history_lists_incidents_newest_first() -> None:
     an_older_alert = Alert(service="older-service", alert_name="HighErrorRate")
     a_newer_alert = Alert(service="newer-service", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         older = incidents.create(conn, an_older_alert)
         newer = incidents.create(conn, a_newer_alert)
 
@@ -50,7 +49,7 @@ def test_the_history_links_to_each_incident() -> None:
     # A list of incidents nobody can open is a list of ids.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     assert f'href="/incidents/{incident_id}"' in _get("/history")
@@ -70,7 +69,7 @@ def test_the_polled_history_fragment_carries_the_incidents() -> None:
     # refresh itself into an empty one every two seconds.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     assert incident_id in _attribute("incident", _get("/history/list"))
@@ -83,7 +82,7 @@ def test_a_time_is_shown_in_the_zone_it_is_written_in() -> None:
     # like the two disagree about when the incident happened.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     assert "UTC" in _get("/history")
@@ -96,7 +95,7 @@ def test_an_incident_page_shows_every_candidate_in_rank_order() -> None:
     # guess. Rank order, because that is the order the walk tried them in.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
         _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
@@ -112,7 +111,7 @@ def test_an_incident_page_distinguishes_a_candidate_the_walk_never_reached() -> 
     # that ran out of options and one that stopped because it was right.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         tried = _a_candidate_recorded_for(conn, incident_id, subject="tried", rank=1)
         _a_candidate_recorded_for(conn, incident_id, subject="never reached", rank=2)
@@ -129,7 +128,7 @@ def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> No
     # which is the reader investigating the incident again.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         _a_candidate_recorded_for(
             conn,
@@ -151,7 +150,7 @@ def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
     # believing the flag is still flipped.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         refuted = _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
         confirmed = _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
@@ -170,7 +169,7 @@ def test_a_running_incident_keeps_asking_for_more() -> None:
     # this screen without anybody pressing refresh.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     assert "hx-trigger" in _get(f"/incidents/{incident_id}")
@@ -182,7 +181,7 @@ def test_a_finished_incident_stops_asking() -> None:
     # be polling tomorrow.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         incidents.transition(
             conn,
@@ -201,7 +200,7 @@ def test_the_polled_fragment_carries_the_walk_on_its_own() -> None:
     # the first second would never show one.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         _a_candidate_recorded_for(conn, incident_id, subject="a-flag", rank=1)
 
@@ -227,7 +226,7 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
     # incident page beside it polls every two seconds.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         postmortems.record(
             conn,
@@ -254,7 +253,7 @@ def test_an_incident_with_no_postmortem_says_so_rather_than_failing() -> None:
     # ordinary case trains a reader to ignore errors.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     with TestClient(app) as client:
@@ -291,7 +290,7 @@ def test_the_postmortem_page_says_how_many_responded_and_what_they_were() -> Non
     some_title = "Principal Kuki Buki"
     some_other_title = "Senior Shuki Tuki"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         postmortems.record(
             conn,

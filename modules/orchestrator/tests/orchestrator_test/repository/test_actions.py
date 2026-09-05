@@ -5,13 +5,12 @@ from typing import Any
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.repository import actions, hypotheses, incidents
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 
 @pytest.mark.integration
@@ -28,7 +27,7 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
         "was_enabled": True,
     }
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_says = partial(_the_action_row_says, conn)
@@ -67,7 +66,7 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
     some_service = "buki-service"
     some_alert = Alert(service=some_service, alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_carries = partial(_the_action_row_carries, conn)
@@ -104,7 +103,7 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
     # is that knowledge surviving.
     some_alert = Alert(service="kukibuki-service", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_names = partial(_the_action_row_names, conn)
@@ -141,7 +140,7 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     the_contested_flag = "monthly-spend-feature"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         each_action_names_its_own_candidate = partial(

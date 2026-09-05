@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import psycopg
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
+from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core.config import get_settings
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.replay import CallType
@@ -26,8 +27,7 @@ Argus created for it.
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
-ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
+DATABASE_URL = get_settings().database_url
 
 WEBHOOK_PATH = "/webhooks/alerts"
 

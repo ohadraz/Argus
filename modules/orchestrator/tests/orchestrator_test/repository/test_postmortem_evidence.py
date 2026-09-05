@@ -5,6 +5,7 @@ from datetime import datetime
 import psycopg
 import pytest
 from agent_postmortem import IncidentEvidence
+from argus_core.db import connect
 from argus_core.events import LogsRetrieved, OnsetDetected
 from argus_core.ids import new_id
 from argus_core.models.actor import Actor
@@ -33,15 +34,13 @@ decided then, and a postmortem re-deciding it from conclusions would be
 writing a different incident.
 """
 
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
-
 
 @pytest.mark.integration
 def test_the_evidence_spans_the_incident_from_its_start_to_its_end() -> None:
     # The window every figure in the document is measured over. Taken from the
     # incident's own row rather than from the last thing logged, so it does not
     # move when something is written late.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)
@@ -63,7 +62,7 @@ def test_the_evidence_carries_the_candidates_the_investigation_ranked() -> None:
     some_cause_type = CauseType.FEATURE_FLAG_TOGGLE
     dont_care_confidence = 0.8
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn),
@@ -91,7 +90,7 @@ def test_the_evidence_carries_the_log_lines_the_incident_read() -> None:
     some_window_end = "2026-09-02T12:30:00Z"
     some_log_line = "12:04 ERROR checkout: fallback unavailable"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn),
@@ -115,7 +114,7 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened() -> None:
     # The narration the document is written from. Out of order it is a
     # different incident: a mitigation before the investigation that proposed
     # it explains nothing.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)
@@ -133,7 +132,7 @@ def test_an_incident_that_has_not_ended_cannot_be_summarised() -> None:
     # A postmortem is written once, when the incident is over. Asked for one
     # earlier, this refuses rather than inventing an end - a duration measured
     # to "now" would be a different number every time it was asked for.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(
@@ -151,7 +150,7 @@ def test_an_incident_that_has_not_ended_cannot_be_summarised() -> None:
 def test_an_incident_that_does_not_exist_cannot_be_summarised() -> None:
     # Distinct from an incident still running: there is nothing to summarise
     # rather than nothing yet. Both refuse, and neither invents a document.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .when(
                 attempting(lambda: gather_evidence(conn, new_id()))
@@ -174,7 +173,7 @@ def test_the_evidence_carries_the_onset_the_investigation_measured() -> None:
     # same incident differently from the page that showed it.
     some_onset = "2026-09-02T11:50"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)
@@ -195,7 +194,7 @@ def test_an_incident_whose_onset_was_never_found_carries_none() -> None:
     # anchor on (spec §9), so the investigation exits without publishing one.
     # The gathering must report that rather than substituting the alert's own
     # time, because the document refuses to cost an incident it cannot date.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)

@@ -6,14 +6,13 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from langgraph.graph.state import CompiledStateGraph
 from orchestrator import entrypoint, worker
 from orchestrator.repository import incidents, runs, timeline
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 
@@ -31,7 +30,7 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs() -> None:
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
 
         Scenario() \
@@ -64,7 +63,7 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident() -> None:
     def walk_recording_what_it_was_given(incident_id: str) -> None:
         walked.append(incident_id)
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -96,7 +95,7 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread() -> None:
     dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
 
         Scenario() \

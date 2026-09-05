@@ -6,11 +6,10 @@ from typing import Any
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.repository import incidents, runs
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 # Long enough that nothing in this test expires on its own: what is being
 # measured here is who gets the run, not what happens when a holder goes quiet.
@@ -33,8 +32,8 @@ def test_a_queued_run_is_claimed_by_one_worker_and_not_by_a_second() -> None:
     another_worker = "worker-that-came-second"
 
     with (
-        psycopg.connect(DATABASE_URL) as conn,
-        psycopg.connect(DATABASE_URL) as another_conn,
+        connect() as conn,
+        connect() as another_conn,
     ):
         an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
 
@@ -63,7 +62,7 @@ def test_a_run_whose_lease_ran_out_is_taken_up_again() -> None:
     the_worker_that_stopped = "worker-that-was-killed-mid-walk"
     the_worker_that_came_after = "worker-that-started-next"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
 
         Scenario() \
@@ -91,7 +90,7 @@ def test_a_run_still_being_walked_is_not_taken_from_its_worker() -> None:
     the_worker_still_walking_it = "worker-that-is-still-working"
     dont_care_worker = "worker-looking-for-something-to-do"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
 
         Scenario() \

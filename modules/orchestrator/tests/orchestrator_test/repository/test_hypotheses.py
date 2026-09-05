@@ -6,13 +6,12 @@ from typing import Any
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.repository import hypotheses, incidents
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 
 @pytest.mark.integration
@@ -25,7 +24,7 @@ def test_a_recorded_hypothesis_comes_back_with_the_evidence_it_was_formed_from()
         "2026-08-20T11:06:00Z ERROR target-service: request failed",
     ]
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         some_hypothesis = _a_determined_hypothesis(incident_id, some_evidence)
@@ -45,7 +44,7 @@ def test_an_undetermined_hypothesis_comes_back_naming_no_cause() -> None:
     # Both nullable columns are null together. If either came back as a
     # default - 0.0, an empty string - the model's own validator would reject
     # the row on the way out, which is the failure this guards.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         an_unexplained_hypothesis = _an_undetermined_hypothesis(incident_id)
@@ -72,7 +71,7 @@ def test_a_hypothesis_comes_back_naming_the_subject_it_blamed() -> None:
     # reasoning intact and the conclusion gone.
     some_flag = "monthly-spend-feature"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         some_hypothesis = _a_determined_hypothesis(
@@ -98,7 +97,7 @@ def test_a_hypothesis_comes_back_at_the_rank_it_was_recorded_at() -> None:
     # like returning them.
     a_third_choice = 3
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         some_hypothesis = _a_determined_hypothesis(
@@ -123,7 +122,7 @@ def test_a_candidate_the_walk_reached_comes_back_carrying_what_happened_to_it() 
     # were tried is a list a human cannot read the incident from.
     some_result = "refuted"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         a_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
@@ -154,7 +153,7 @@ def test_a_candidate_that_was_never_tried_comes_back_saying_why() -> None:
     # one that was tested and failed.
     some_reason = "no reversible action was proposed for this cause"
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         an_untried_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
@@ -183,7 +182,7 @@ def test_a_candidate_that_was_never_tried_comes_back_saying_why() -> None:
 def test_the_latest_hypothesis_for_an_incident_is_the_one_returned() -> None:
     # An incident can be investigated more than once; "latest" is what the
     # orchestrator reads back, so the order has to be the write order.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         the_first_hypothesis = _a_determined_hypothesis(incident_id, ["an early guess"])
@@ -214,7 +213,7 @@ def test_the_best_candidate_of_a_verdict_is_the_one_returned() -> None:
     # nothing, by an investigation that determined something and acted on it.
     dont_care_evidence = ["2026-08-20T11:06:00Z ERROR target-service: request failed"]
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         the_best_candidate = _a_determined_hypothesis(incident_id, dont_care_evidence)
@@ -236,7 +235,7 @@ def test_the_best_candidate_of_a_verdict_is_the_one_returned() -> None:
 
 @pytest.mark.integration
 def test_an_incident_with_no_hypothesis_has_none_to_return() -> None:
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = _an_incident_created_for(conn, _an_alert())
 
         assert hypotheses.get_latest_by_incident(conn, incident_id) is None

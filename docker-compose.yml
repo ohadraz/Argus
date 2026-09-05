@@ -30,7 +30,13 @@ services:
       POSTGRES_PASSWORD: argus
       POSTGRES_DB: argus
     ports:
-      - "5432:5432"
+      # The host port is a variable so a second database can exist beside the
+      # first. `integration` brings its own up under its own compose project,
+      # and two projects publishing one port leave the second dead on the bind
+      # - or, worse, leave a suite talking to the other run's database and
+      # truncating its tables between tests. Inside the container it is always
+      # 5432; only where it surfaces moves.
+      - "${ARGUS_POSTGRES_PORT:-5432}:5432"
     healthcheck:
       # Over TCP, not the default Unix socket. On a fresh volume the image runs
       # a temporary server for `initdb` that listens on the socket alone, so a

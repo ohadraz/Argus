@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.events import (
     AgentInvoked,
     IncidentEvent,
@@ -13,8 +14,6 @@ from argus_core.events import (
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from orchestrator.repository import events, incidents
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 """The account of an incident, written down and read back.
 
@@ -32,7 +31,7 @@ def test_a_recorded_event_comes_back_as_the_kind_it_was_published_as() -> None:
     # publisher already did.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         events.record(conn, OnsetDetected(incident_id=incident_id,
                                           onset="2026-08-30T10:03:00Z"))
@@ -49,7 +48,7 @@ def test_events_come_back_in_the_order_they_were_published() -> None:
     # investigation - one that read the logs before deciding where to look.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         for event in _an_investigation_in_three_steps(incident_id):
             events.record(conn, event)
@@ -69,7 +68,7 @@ def test_a_payload_comes_back_whole() -> None:
         "2026-08-30T10:03:00Z WARN io-shop: retrying",
     ]
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         events.record(conn, LogsRetrieved(
             incident_id=incident_id,
@@ -90,7 +89,7 @@ def test_an_incident_that_published_nothing_reads_as_empty() -> None:
     # story, which is not an error and not a missing incident.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
         assert events.get_by_incident(conn, incident_id) == []
@@ -102,7 +101,7 @@ def test_only_one_incident_s_events_come_back() -> None:
     # them would read as one investigation contradicting itself.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         another_incident_id = incidents.create(conn, some_alert)
         events.record(conn, AgentInvoked(incident_id=incident_id,
@@ -122,7 +121,7 @@ def test_recording_an_event_writes_nothing_else() -> None:
     # writer it already had.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         before = _row_counts(conn)
 

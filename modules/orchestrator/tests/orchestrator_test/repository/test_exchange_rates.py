@@ -7,6 +7,7 @@ from typing import Any
 import psycopg
 import pytest
 from agent_postmortem.sources import RateTable
+from argus_core.db import connect
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.collecting import Kept
 from exchange_rate_source import PublishedRates, RatesUnavailable
@@ -26,7 +27,6 @@ document cannot state, so every path that answers here answers with a day
 attached, and the one path that cannot answers nothing at all.
 """
 
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 SOME_BASE_CURRENCY = "usd"
 SOME_OTHER_CURRENCY = "eur"
@@ -40,7 +40,7 @@ def test_the_first_rates_of_the_day_are_fetched_and_answered() -> None:
     some_day = date.today()
     some_rate = Decimal("0.85")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 asked := Kept[str]()
@@ -73,7 +73,7 @@ def test_a_second_reading_the_same_day_asks_nobody() -> None:
     some_day = date.today()
     dont_care_rate = Decimal("0.85")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         provider = _a_provider_publishing(on=some_day,
                                           per_unit={SOME_OTHER_CURRENCY: dont_care_rate},
                                           recording_into=(asked := Kept[str]()))
@@ -103,7 +103,7 @@ def test_an_unreachable_provider_falls_back_to_the_rates_already_held() -> None:
     some_earlier_day = date.today() - timedelta(days=1)
     some_rate_that_day = Decimal("0.83")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .given(
                 _rates_already_held(conn,
@@ -129,7 +129,7 @@ def test_an_unreachable_provider_with_nothing_held_answers_no_rates() -> None:
     # publishes no estimate and says why, which is the honest end of this
     # channel - a conversion at a guessed rate would be a figure that looks
     # measured and is not.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .when(
                 lambda: todays_rates(conn,

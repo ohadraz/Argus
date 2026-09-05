@@ -91,7 +91,13 @@ def test_module(session: nox.Session, module: str) -> None:
     only its own declared dependencies (via `uv run --package`). `component` is in the
     filter rather than left to `test_all`: a marker a session does not select is a
     marker whose tests quietly never run.
+
+    Runs against a database of this module's own, so it can run beside
+    `e2e_replay` - or beside another module's suite - rather than stop the
+    database either of them is using. The conftests that bring postgres up
+    inherit this environment; none of them is handed one.
     """
+    os.environ.update(_a_database_for(module))
     session.run(
         "uv", "run", "--package", f"argus-{module}",
         "python", "-m", "pytest", f"modules/{module}/tests",
@@ -110,7 +116,12 @@ def test_all(session: nox.Session) -> None:
     failing module - fast local feedback. --ci mode runs every module regardless
     of earlier failures, then fails the session with a summary if any failed -
     full-picture visibility, intended for CI.
+
+    On a database of its own, for the reason `test_module` has one - and not
+    the same one, since running both at once is the case that would otherwise
+    have each stopping the other's.
     """
+    os.environ.update(_TEST_ALL_STACK)
     ci_mode = "--ci" in session.posargs or "--aggregate" in session.posargs
     failed_modules: list[str] = []
 
@@ -173,11 +184,20 @@ def integration(session: nox.Session) -> None:
     this runs on every push without a key and without spending a token. `e2e`
     still runs these too - it brings up the whole stack anyway - but nothing
     about them needs it to.
+
+    Its database and its double are its own (`_INTEGRATION_STACK`), so this can
+    run beside an `e2e` or `e2e_replay` session rather than behind it. Set on
+    this process's environment rather than passed to each call, because the
+    `conftest` that starts postgres is the one thing here that cannot be handed
+    an environment of its own - it inherits this one.
     """
-    name, module_args, ready_url = _ANTHROPIC_DOUBLE
-    double_process = _start_service(module_args)
+    os.environ.update(_INTEGRATION_STACK)
+    name, _, _ = _ANTHROPIC_DOUBLE
+    double_process = _start_service(
+        ["-m", "uvicorn", "anthropic_double.server:app",
+         "--port", _INTEGRATION_ANTHROPIC_DOUBLE_PORT])
     try:
-        _wait_for_http(name, ready_url)
+        _wait_for_http(name, f"{_INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL}/health")
         session.run(
             "uv", "run", "python", "-m", "pytest", "tests/integration", "-v",
             external=True,
@@ -190,7 +210,7 @@ def integration(session: nox.Session) -> None:
             # The key is a placeholder the double never reads; the SDK simply
             # refuses to construct a client without one.
             env={
-                "ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL,
+                "ANTHROPIC_BASE_URL": _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL,
                 "ANTHROPIC_API_KEY": "the-double-never-reads-this"
             }
         )
@@ -345,6 +365,74 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # than imported: this file is read by nox before anything is necessarily
 # installed, and a noxfile that fails to import takes every session with it.
 _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
+
+# Where the sessions that can run beside an e2e stack put the things that would
+# otherwise collide with it. Every collision is a port or a database: a second
+# double dies on the bind, and a second suite emptying tables between tests
+# would truncate the other run's incident mid-walk.
+#
+# Not 5433, which reads as "the second postgres" and is already the flag
+# provider's database in the e2e stack. Far enough from both that nothing else
+# here claims them.
+_INTEGRATION_POSTGRES_PORT = "5544"
+_TEST_ALL_POSTGRES_PORT = "5545"
+# Where one module's own database goes, counted from the module's place in
+# `MODULES`. Derived rather than listed, because a module is discovered rather
+# than declared and a table of ports would be one more place to remember to add
+# it to. Adding a module shifts the numbers after it, which costs nothing: no
+# port here outlives the session that publishes it.
+_MODULE_SUITE_PORT_BASE = 5546
+_INTEGRATION_ANTHROPIC_DOUBLE_PORT = "8093"
+_INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_ANTHROPIC_DOUBLE_PORT}"
+
+
+def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
+    """The environment that puts one session's postgres beside the others'.
+
+    A compose project as well as a port, because a project is what owns a
+    container: `docker compose up postgres` under the default name adopts - or
+    restarts, or stops - whichever database is already running under it rather
+    than starting a second one. That is how a module suite finishing its run
+    stops the database an `e2e_replay` is halfway through using.
+
+    Both halves of the port, said once. Compose reads `ARGUS_POSTGRES_PORT` for
+    the host side of its mapping and `argus_core.config` reads `DATABASE_PORT`
+    for where to connect, and a session where those two disagree comes up
+    healthy and connects to nothing.
+    """
+    return {
+        "COMPOSE_PROJECT_NAME": project,
+        "ARGUS_POSTGRES_PORT": port,
+        "DATABASE_PORT": port
+    }
+
+
+_INTEGRATION_STACK = _a_database_of_its_own(
+    "argus-integration", _INTEGRATION_POSTGRES_PORT
+) | {"ANTHROPIC_DOUBLE_PORT": _INTEGRATION_ANTHROPIC_DOUBLE_PORT}
+
+# The module suites bring up a database of their own - three of them do, from
+# their own conftests, which is what a `component` test needing real postgres
+# looks like. No double: every module suite that reaches a model reaches a stub
+# it constructs itself.
+_TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_PORT)
+
+
+def _a_database_for(module: str) -> dict[str, str]:
+    """One module's own database, so two module suites can run at once.
+
+    A module rather than the session, because `test_module` is parametrized:
+    two of them in flight are two processes each bringing postgres up and each
+    stopping it afterwards, and the one that finishes first stops the other's.
+
+    A module nobody discovered has no place to count from, which would silently
+    become somebody else's port. Nothing can ask for one - the parametrization
+    comes from `MODULES` - so this says so rather than defending against it.
+    """
+    return _a_database_of_its_own(
+        f"argus-module-{module}",
+        str(_MODULE_SUITE_PORT_BASE + MODULES.index(module))
+    )
 
 # Settings every process in an e2e run shares - the services started here and
 # the pytest process asserting on them. One place, because the two derive

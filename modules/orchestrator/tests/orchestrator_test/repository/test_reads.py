@@ -5,13 +5,12 @@ from typing import Any
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.repository import actions, hypotheses, incidents
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 """The read paths an incident view needs, which the graph never had a use for.
 
@@ -30,7 +29,7 @@ def test_every_candidate_of_an_incident_comes_back_in_rank_order() -> None:
     # looks, through that lens, like an incident with one candidate.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_candidates_read_back_are = partial(_the_candidates_read_back_are, conn)
@@ -58,7 +57,7 @@ def test_an_untried_candidate_comes_back_as_untried() -> None:
     # reached" is the difference between a walk and a lucky guess.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_candidate_ranked = partial(_the_candidate_ranked, conn)
@@ -85,7 +84,7 @@ def test_an_incident_with_no_candidates_reads_as_empty_rather_than_missing() -> 
     # with nothing to show, which is not the same as an unknown incident.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
 
         incident_id = an_incident_created_for(some_alert)
@@ -99,7 +98,7 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
     # back in any other order they describe a different incident.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_actions_read_back_are = partial(_the_actions_read_back_are, conn)
@@ -135,7 +134,7 @@ def test_an_action_comes_back_naming_the_candidate_it_was_taken_for() -> None:
     # candidate happen to share.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
 
@@ -165,7 +164,7 @@ def test_incidents_come_back_newest_first() -> None:
     an_older_alert = Alert(service="older-service", alert_name="HighErrorRate")
     a_newer_alert = Alert(service="newer-service", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
 
         older = an_incident_created_for(an_older_alert)

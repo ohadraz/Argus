@@ -5,13 +5,12 @@ from typing import Any
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import worker
 from orchestrator.repository import incidents, runs
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 
@@ -28,7 +27,7 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker() -> None:
     def walk_recording_what_it_was_given(incident_id: str) -> None:
         walked.append(incident_id)
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -64,7 +63,7 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking() -> None:
             f"[{incident_id}]."
         )
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         Scenario() \
             .when(
                 worker.take_one_run(
@@ -93,7 +92,7 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason() -> None
     def walk_that_fails(dont_care_incident_id: str) -> None:
         raise RuntimeError(what_went_wrong)
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 

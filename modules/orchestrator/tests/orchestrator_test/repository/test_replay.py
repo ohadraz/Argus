@@ -6,6 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.replay import CallType, ReplayEntry
 from argus_testkit import Assertion, Scenario, all_of
@@ -28,7 +29,6 @@ and two calls read back in the wrong order are a conversation that no longer
 makes sense.
 """
 
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 SOME_MODEL = "claude-opus-5"
 
@@ -51,7 +51,7 @@ def test_a_recorded_call_comes_back_with_both_payloads_whole() -> None:
         "cache_write_tokens": 0
     }
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = _an_incident_created_for(conn, _an_alert())
         an_entry = _an_entry_for(incident_id, request=some_request, response=some_response)
         the_recorded_calls_are = partial(_the_recorded_calls_are, conn, incident_id)
@@ -71,7 +71,7 @@ def test_the_calls_of_an_incident_come_back_in_the_order_they_were_made() -> Non
     # takes several turns inside one second, and a conversation read back in
     # whichever order two identical timestamps happened to sort is not a
     # conversation.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = _an_incident_created_for(conn, _an_alert())
         the_first_call = _an_entry_for(incident_id, request={"turn": 1})
         the_second_call = _an_entry_for(incident_id, request={"turn": 2})
@@ -95,7 +95,7 @@ def test_calls_made_for_another_incident_are_not_this_incidents() -> None:
     # A benchmark run drives many incidents through one database, and a metric
     # computed over a run that mixed two of them is wrong in a way no assertion
     # downstream would catch.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = _an_incident_created_for(conn, _an_alert())
         another_incident_id = _an_incident_created_for(conn, _an_alert())
         this_incidents_call = _an_entry_for(incident_id)
@@ -121,7 +121,7 @@ def test_an_incident_that_made_no_calls_reads_as_empty_rather_than_missing() -> 
     # An incident escalated on retrieval alone never reaches a model, and that
     # is a real path. Nothing recorded is a fact about the run, not a lookup
     # that failed.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = _an_incident_created_for(conn, _an_alert())
 
         assert replay.get_by_incident(conn, incident_id) == []
@@ -138,7 +138,7 @@ def test_what_an_incident_spent_is_every_count_its_model_calls_reported() -> Non
     some_cache_read_tokens = 9_479
     some_cache_write_tokens = 1_204
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
         replay.record(conn, _a_model_call(incident_id,
                                           input_tokens=some_input_tokens,
@@ -162,7 +162,7 @@ def test_what_an_incident_spent_counts_nothing_for_the_tools_it_called() -> None
     dont_care_response: dict[str, object] = {"lines": []}
     dont_care_latency_ms = 12
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
         replay.record(conn, ReplayEntry(
             incident_id=incident_id,
@@ -180,7 +180,7 @@ def test_what_an_incident_spent_counts_nothing_for_the_tools_it_called() -> None
 def test_an_incident_that_called_no_model_spent_nothing_rather_than_nothing_known() -> None:
     # A real path: escalating on retrieval alone never reaches a model. Zero
     # is the measurement, and the postmortem is entitled to print it.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
 
         assert replay.get_tokens_spent(conn, incident_id) == 0

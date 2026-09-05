@@ -29,7 +29,7 @@ Always via `uv run ...` (uses the workspace `.venv`, no manual activation needed
 - `uv run python -m nox -s "test_module(module='<name>')"` - one module's unit and integration tests, isolated deps
 - `uv run python -m nox -s test_all` - every module's full test suite
 - `uv run python -m nox -s contract` - MCP tool-schema contract tests
-- `uv run python -m nox -s e2e_replay` - the same stack and the same e2e tests, but `argus_web` points at the Anthropic double, so every model answer is replayed from a committed recording. Free, keyless, and what CI runs on every push. Proves the pipeline works; proves nothing about whether the model was right
+- `uv run python -m nox -s e2e_replay` - the same stack and the same e2e tests, but the worker points at the Anthropic double, so every model answer is replayed from a committed recording. Free, keyless, and what CI runs on every push. Proves the pipeline works; proves nothing about whether the model was right
 - `uv run python -m nox -s e2e` - brings up docker-compose stack, runs e2e and integration tests, tears down. Reaches the **real** API and spends tokens - the manual pre-merge run
 
 **Use `python -m nox`, not the bare `nox` shim** - Windows Smart App Control blocks the unsigned `.exe` stubs in `.venv/Scripts/`, and the block returns after every `uv sync`. When any tool here fails with *"An Application Control policy has blocked this file"* - failing to spawn, or failing to import - see the `smart-app-control-blocks` skill for which of the two fixes applies.

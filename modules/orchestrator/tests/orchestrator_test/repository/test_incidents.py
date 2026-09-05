@@ -5,13 +5,12 @@ from typing import Any
 
 import psycopg
 import pytest
+from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.repository import incidents, timeline
-
-DATABASE_URL = "postgresql://argus:argus@localhost:5432/argus"
 
 
 @pytest.mark.integration
@@ -20,7 +19,7 @@ def test_create_writes_incident_and_initial_timeline_event() -> None:
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         the_incident_is = partial(_the_incident_is, conn)
         the_timeline_shows = partial(_the_timeline_shows, conn)
         the_last_timeline_event_was = partial(_the_last_timeline_event_was, conn)
@@ -44,7 +43,7 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
     some_confidence = 0.9
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
         the_timeline_shows = partial(_the_timeline_shows, conn)
@@ -77,7 +76,7 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
 def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
     # Not simply the newest. An incident that resolved after this one opened has
     # nothing left to watch; the one still running is what a reader came for.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         still_running = incidents.create(conn, Alert(service="running", alert_name="HighErrorRate"))
         already_finished = incidents.create(
             conn, Alert(service="finished", alert_name="HighErrorRate")
@@ -99,7 +98,7 @@ def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
 def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
     # A resolved incident vanishing the moment it resolves would take it off the
     # screen exactly when everyone is looking at it.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
         incidents.transition(
@@ -119,7 +118,7 @@ def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
 def test_get_current_is_none_when_there_has_never_been_an_incident() -> None:
     # The state Argus is in most of the time, and the one the front page has to
     # say out loud rather than render as an empty frame.
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         _no_incidents_at_all(conn)
 
         assert incidents.get_current(conn) is None
@@ -133,7 +132,7 @@ def test_an_incident_that_resolved_records_when_it_ended() -> None:
     # anything is logged late.
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
@@ -162,7 +161,7 @@ def test_an_incident_that_escalated_records_when_it_ended() -> None:
     # be missing the figure for exactly the incidents that ran longest.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
@@ -191,7 +190,7 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
     # it would report a duration for something still running.
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_no_end = partial(_the_incident_records_no_end, conn)
 
@@ -227,7 +226,7 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
 
 @pytest.mark.integration
 def test_get_returns_none_for_unknown_incident() -> None:
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         assert incidents.get(conn, "00000000-0000-0000-0000-000000000000") is None
 
 
@@ -240,7 +239,7 @@ def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> No
     # a status it had not left.
     some_alert = Alert(service="gate-service", alert_name="HighErrorRate")
 
-    with psycopg.connect(DATABASE_URL) as conn:
+    with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
         incidents.transition(
             conn,

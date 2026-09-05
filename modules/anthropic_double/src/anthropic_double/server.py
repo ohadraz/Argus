@@ -33,7 +33,7 @@ UPSTREAM_BASE_URL = os.environ.get("ANTHROPIC_DOUBLE_UPSTREAM", "https://api.ant
 # part of Argus, and Argus's own config should not grow a field describing a
 # test fixture. Callers that need to point at it - the harness that starts it,
 # the tests that seed it - import these.
-DEFAULT_PORT = 8091
+DEFAULT_PORT = int(os.environ.get("ANTHROPIC_DOUBLE_PORT", "8091"))
 DEFAULT_BASE_URL = f"http://localhost:{DEFAULT_PORT}"
 
 # The `error.type` Anthropic returns for each status the double can be asked to
