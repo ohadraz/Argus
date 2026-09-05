@@ -125,13 +125,18 @@ jobs:
         run: uv run python -m nox -s e2e_replay
         env:
           # The credential that reads flag history and toggles a flag. Not a
-          # secret: it is the token the Target Environment's compose seeds into
-          # its own Unleash (`INIT_ADMIN_API_TOKENS`), so it is a fixture value.
+          # secret: it is a token the Target Environment's compose seeds into
+          # its own Unleash, so it is a fixture value.
           # `Settings.unleash_admin_token` has no default on purpose, so a real
           # deployment cannot ship a working write token by accident - which
           # means every job running the stack has to name it. Without it the
           # history read 401s and every mitigation escalates.
-          UNLEASH_ADMIN_TOKEN: "*:*.argus-demo-admin-token"
+          #
+          # Argus's own token, belonging to the user `Argus` - not the shop's
+          # admin token, which the e2e framework uses to stand in for a human.
+          # With one token for both, the provider attributes every change to the
+          # same author and Argus cannot tell its own change from a person's.
+          UNLEASH_ADMIN_TOKEN: "*:*.argus-agent-token"
 
   detect-changes:
     runs-on: ubuntu-latest
