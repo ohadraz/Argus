@@ -53,8 +53,8 @@ exception - its tests are written after the code, by Claude, directly.
 
 ## 6. Closing out
 
-- [ ] 6.1 `lint`, `typecheck`, `test_all`, `integration`, `e2e_replay`.
+- [x] 6.1 `lint`, `typecheck`, `test_all`, `integration`, `e2e_replay`.
 - [x] 6.2 Spec §7.6 updated for the figure the document now carries, per the
       `spec-doc-style` skill.
-- [ ] 6.3 One-line commit in each repo, approved before it is made, and the
+- [x] 6.3 One-line commit in each repo, approved before it is made, and the
       archive as a second commit in Argus.
