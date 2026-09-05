@@ -43,12 +43,20 @@ def find_onset(buckets: Sequence[MetricBucket]) -> str | None:
     that lasts (`anomaly_persistence_minutes`), and a run still going when the
     window ends counts however short it is - an incident that began a minute
     ago has not failed to persist, it has yet to be given the chance.
+
+    The *latest* such run rather than the first, for the same reason the onset
+    is a run at all. The window is hours wide, and a service that departs
+    briefly and comes back has had an incident that is over: dating the current
+    one from it would put the onset before minutes the service was measurably
+    healthy in, and every window derived from that onset - the logs read, the
+    changes considered, the money counted - would cover mostly calm time. The
+    state the service is in now began the last time it entered it.
     """
     departures = _departures(buckets)
     required = get_settings().anomaly_persistence_minutes
 
-    for index, departed in enumerate(departures):
-        if not departed:
+    for index in reversed(range(len(departures))):
+        if not departures[index] or (index > 0 and departures[index - 1]):
             continue
 
         length = _run_length_from(departures, index)

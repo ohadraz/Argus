@@ -196,6 +196,28 @@ def test_recovery_is_not_claimed_before_a_minute_has_been_measured() -> None:
     assert has_recovered_since(some_window, a_minute_after_the_window_ends) is False
 
 
+@pytest.mark.unit
+def test_find_onset_ignores_an_earlier_departure_the_service_recovered_from() -> None:
+    # The window is six hours wide and a quiet minute still wobbles, so a brief
+    # departure hours before the alert is ordinary rather than the incident.
+    # Anchoring on the first one dates the incident from a minute the service
+    # was fine by, and every window derived from that onset - the logs, the
+    # changes, the money - then covers mostly healthy time.
+    some_steady_rate = 0.01
+    dont_care_earlier_rate = some_steady_rate * 30
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [dont_care_earlier_rate] * 2
+        + [some_steady_rate] * CALM_MINUTES
+        + [some_degradation_rate] * 3
+    )
+
+    first_bucket_of_the_departure_still_going = some_window[2 * CALM_MINUTES + 2]
+
+    assert find_onset(some_window) == first_bucket_of_the_departure_still_going.bucket_id
+
+
 def _the_minute_after(bucket_id: str) -> str:
     return to_iso_minute(parse_iso(bucket_id) + timedelta(minutes=1))
 
