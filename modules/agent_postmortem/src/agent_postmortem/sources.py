@@ -58,6 +58,48 @@ type Rates = Callable[[], RateTable | None]
 type Metrics = Callable[[datetime, datetime], list[MetricBucket]]
 
 
+class EngagedResponder(BaseModel):
+    """One person's own share of the response: their minutes, and what they
+    were called.
+
+    The unit anything pricing this response has to work in. A band belongs to a
+    job title, so a total that has already added a senior engineer's hour to a
+    junior's cannot be priced at all - and the pair has to stay together,
+    because minutes are only worth what the person holding them was.
+
+    `job_title` is absent where the source held none. Reporting the responder
+    anyway is what lets a consumer decline to price the incident rather than
+    quietly price it short.
+    """
+
+    minutes: int
+    job_title: str | None
+
+
+class PayBand(BaseModel):
+    """What one job title's time is worth a year, as an HR source states it.
+
+    Three figures rather than one: a band is a range, and a midpoint published
+    alone claims a precision the source does not have. The currency travels
+    with them because a figure without one is not a figure.
+
+    Argus's own type rather than a vendor's: the postmortem states what it
+    needs, and whichever HR system answers is mapped into this by its own
+    adapter - the same arrangement `RateTable` has with the rate provider.
+    """
+
+    minimum: Decimal
+    midpoint: Decimal
+    maximum: Decimal
+    currency: str
+
+
+# What every job title an HR source prices is worth, or `None` if nobody could
+# say. The whole table at once, because a source publishes it that way and an
+# incident prices several titles from one read.
+type PayBands = Callable[[], Mapping[str, PayBand] | None]
+
+
 class EngagementAnswer(BaseModel):
     """How much human attention an incident took.
 
@@ -85,6 +127,10 @@ class EngagementAnswer(BaseModel):
     minutes: int
     responders: int
     titles: list[str] = []
+    # The same response, held per person rather than summed. Alongside the
+    # total rather than instead of it: a reader wants the total, and anything
+    # pricing the response cannot use it.
+    engaged: list[EngagedResponder] = []
 
 
 # Who responded to one incident and for how long, or `None` if nobody could

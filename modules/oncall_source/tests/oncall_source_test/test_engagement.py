@@ -12,6 +12,7 @@ from oncall_source import (
     ReportedIncident,
     engagement_with,
 )
+from oncall_source.engagement import EngagedResponder
 
 """What human attention an incident took, as the on-call provider reports it.
 
@@ -240,6 +241,102 @@ def test_a_responder_with_no_title_on_their_acknowledgement_is_still_a_responder
                 _the_responders_were(2)
             )
         )
+
+
+@pytest.mark.unit
+def test_each_responders_minutes_are_reported_against_the_title_they_held() -> None:
+    # The total cannot be priced. A band belongs to a job title, and the sum
+    # adds a senior engineer's hour to a junior's - so anything pricing this
+    # response needs the minutes held per person, with what that person was.
+    # The total stays, because a reader wants it and deriving it twice is how
+    # two documents come to disagree.
+    some_began_at = datetime(2026, 9, 4, 2, 0, tzinfo=UTC)
+    some_length = timedelta(hours=1)
+    some_took_it_after = timedelta(minutes=12)
+    some_other_took_it_after = timedelta(minutes=20)
+    some_title = "Senior Kuki"
+    some_other_title = "Junior Buki"
+
+    Scenario() \
+        .given(
+            reported := _an_incident(
+                began_at=some_began_at,
+                ended_at=some_began_at + some_length,
+                acknowledged_at={
+                    SOME_RESPONDER: some_began_at + some_took_it_after,
+                    SOME_OTHER_RESPONDER: some_began_at + some_other_took_it_after
+                },
+                held={
+                    SOME_RESPONDER: some_title,
+                    SOME_OTHER_RESPONDER: some_other_title
+                })
+        ) \
+        .when(
+            lambda: engagement_with(SOME_INCIDENT,
+                                    reported=_a_provider_reporting(reported))
+        ) \
+        .then(all_of(
+            _the_responders_engaged_were(
+                EngagedResponder(
+                    minutes=(some_length - some_took_it_after) // A_MINUTE,
+                    job_title=some_title),
+                EngagedResponder(
+                    minutes=(some_length - some_other_took_it_after) // A_MINUTE,
+                    job_title=some_other_title)
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_responder_with_no_title_is_reported_with_their_minutes_and_no_title() -> None:
+    # The gap has to survive into the per-person shape, or pricing sees a
+    # responder it can match against nothing and reports a cost that quietly
+    # excludes them. Absent here, so it is absent there.
+    some_began_at = datetime(2026, 9, 4, 2, 0, tzinfo=UTC)
+    some_length = timedelta(hours=1)
+    some_took_it_after = timedelta(minutes=10)
+
+    Scenario() \
+        .given(
+            reported := _an_incident(
+                began_at=some_began_at,
+                ended_at=some_began_at + some_length,
+                acknowledged_at={
+                    SOME_RESPONDER: some_began_at + some_took_it_after
+                },
+                held={SOME_RESPONDER: None})
+        ) \
+        .when(
+            lambda: engagement_with(SOME_INCIDENT,
+                                    reported=_a_provider_reporting(reported))
+        ) \
+        .then(all_of(
+            _the_responders_engaged_were(
+                EngagedResponder(
+                    minutes=(some_length - some_took_it_after) // A_MINUTE,
+                    job_title=None)
+            )
+        ))
+
+
+def _the_responders_engaged_were(*expected: EngagedResponder) -> Assertion[Any]:
+    def assertion(engagement: Any) -> bool:
+        if engagement is None:
+            raise AssertionError(
+                "Expected an engagement, but the source could not be read.")
+
+        if sorted(engagement.engaged, key=_by_minutes) != sorted(expected, key=_by_minutes):
+            raise AssertionError(
+                f"Expected the responders engaged to be {list(expected)}, got "
+                f"{engagement.engaged}.")
+
+        return True
+
+    return assertion
+
+
+def _by_minutes(engaged: EngagedResponder) -> int:
+    return engaged.minutes
 
 
 def _an_incident(began_at: datetime,

@@ -50,6 +50,17 @@
     {%- if postmortem.responder_titles %}
       <span class="titles">({{ postmortem.responder_titles|join(', ') }})</span>
     {%- endif %}</li>
+  {# Beside the minutes rather than under a heading of its own: it is those
+     minutes priced, and a reader comparing it with the customer loss should
+     see what it was computed from on the way past. #}
+  <li><span class="name">response cost (estimated)</span>
+    {% if postmortem.responder_cost_estimate is not none %}
+      {{ postmortem.responder_cost_estimate }} {{ (postmortem.responder_cost_currency or '')|upper }}
+      <span class="cost-range">(a band of {{ postmortem.responder_cost_minimum }}
+        to {{ postmortem.responder_cost_maximum }})</span>
+    {% else %}
+      not estimated
+    {% endif %}</li>
   <li><span class="name">tokens spent</span>
     {{ postmortem.tokens_spent if postmortem.tokens_spent is not none else 'not recorded' }}</li>
 </ul>

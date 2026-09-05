@@ -22,6 +22,7 @@ members = [
     "argus-orchestrator",
     "argus-read-mcp-client",
     "argus-read-mcp-server",
+    "argus-responder-rate-source",
     "argus-revenue-source",
     "argus-workspace",
     "argus-write-mcp-client",
@@ -301,6 +302,7 @@ dependencies = [
     { name = "argus-argus-core" },
     { name = "argus-exchange-rate-source" },
     { name = "argus-oncall-source" },
+    { name = "argus-responder-rate-source" },
     { name = "argus-revenue-source" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
@@ -323,6 +325,7 @@ requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-exchange-rate-source", editable = "modules/exchange_rate_source" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
+    { name = "argus-responder-rate-source", editable = "modules/responder_rate_source" },
     { name = "argus-revenue-source", editable = "modules/revenue_source" },
     { name = "langgraph", specifier = ">=0.2" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0" },
@@ -376,6 +379,29 @@ requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "httpx" },
     { name = "mcp", specifier = ">=1.29.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+
+[[package]]
+name = "argus-responder-rate-source"
+version = "0.1.0"
+source = { editable = "modules/responder_rate_source" }
+dependencies = [
+    { name = "argus-argus-core" },
+    { name = "httpx" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "httpx", specifier = ">=0.27" },
 ]
 
 [package.metadata.requires-dev]

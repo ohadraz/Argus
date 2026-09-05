@@ -40,6 +40,25 @@ ONSET_UNKNOWN_ASSUMPTION = (
 ENGAGEMENT_UNAVAILABLE_ASSUMPTION = (
     "no engineer minutes: no source could say when a person engaged"
 )
+PAY_BANDS_UNAVAILABLE_ASSUMPTION = (
+    "no responder cost: the pay band source could not be read"
+)
+
+# How the divisor behind the response cost announces itself. An annual band
+# becomes a per-minute rate only by being divided by a working year, and that
+# year is a convention somebody configured rather than anything measured - so a
+# reader reproducing the figure needs it stated beside the figure.
+WORKING_YEAR_ASSUMPTION_LABEL = "working year"
+
+# How each band the figure rests on announces itself, one line per title. The
+# published figure is a midpoint, which is a range collapsed to a point: naming
+# the range is what stops the point being read as a measurement.
+PAY_BAND_ASSUMPTION_LABEL = "pay band"
+
+# How a title nothing could price announces itself. The cost is absent rather
+# than short, and the absence is only honest while the document can say which
+# title caused it.
+UNPRICED_TITLE_ASSUMPTION_LABEL = "unpriced title"
 
 
 class PostmortemDocument(BaseModel):
@@ -67,6 +86,19 @@ class PostmortemDocument(BaseModel):
     # how many people responded and not what any of them was called - a
     # description missing, rather than a measurement.
     responder_titles: list[str] = []
+    # What those minutes were worth, at the midpoint of each responder's band.
+    # Absent - never zero, and never a partial sum - where any one of them
+    # could not be priced, since a cost missing a responder is wrong in the
+    # flattering direction rather than merely small.
+    responder_cost_estimate: Decimal | None = None
+    # The same minutes at the bottom and top of the same bands, published
+    # beside the figure so a midpoint is not read as measured to the dollar.
+    responder_cost_minimum: Decimal | None = None
+    responder_cost_maximum: Decimal | None = None
+    # What the bands were quoted in, carried for the same reason
+    # `estimate_currency` is: a figure relabelled from settings would rewrite
+    # documents already published.
+    responder_cost_currency: str | None = None
     tokens_spent: int | None
     assumptions: list[str]
     checklist_complete: bool

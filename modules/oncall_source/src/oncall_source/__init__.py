@@ -13,6 +13,7 @@ proves the fake.
 
 from oncall_source.engagement import (
     Acknowledgement,
+    EngagedResponder,
     Engagement,
     OnCallUnavailable,
     ReportedIncident,
@@ -22,6 +23,7 @@ from oncall_source.engagement import (
 
 __all__ = [
     "Acknowledgement",
+    "EngagedResponder",
     "Engagement",
     "OnCallUnavailable",
     "ReportedIncident",

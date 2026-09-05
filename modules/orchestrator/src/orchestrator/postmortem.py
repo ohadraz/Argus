@@ -20,7 +20,7 @@ from decimal import Decimal
 
 import psycopg
 from agent_postmortem import IncidentEvidence, PostmortemDocument, write_postmortem
-from agent_postmortem.sources import EngagementAnswer
+from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
 from argus_core.config import get_settings
 from argus_core.db import connect
 from argus_core.events import LogsRetrieved, OnsetDetected
@@ -52,6 +52,8 @@ def write_postmortem_for(incident_id: str,
         revenue=_the_shops_takings,
         rates=lambda: rates,
         engagement=_who_responded,
+        bands=_what_a_title_is_worth,
+        working_hours_a_year=get_settings().working_hours_a_year,
         metrics=_metrics_between,
         llm=_a_recording_client(Replay(incident_id, recorder))
     )
@@ -102,7 +104,36 @@ def _who_responded(incident_id: str) -> EngagementAnswer | None:
 
     return EngagementAnswer(minutes=engaged.minutes,
                             responders=engaged.responders,
-                            titles=engaged.titles)
+                            titles=engaged.titles,
+                            engaged=[EngagedResponder(minutes=responder.minutes,
+                                                      job_title=responder.job_title)
+                                     for responder in engaged.engaged])
+
+
+def _what_a_title_is_worth() -> Mapping[str, PayBand] | None:
+    """What each job title the HR source prices is worth a year.
+
+    Bands rather than anybody's pay: a band belongs to a level that titles are
+    assigned to, so the response is priced without any person's compensation
+    being read, and this deployment's credential never needs to be able to.
+
+    Imported inside for the same reason the takings are, and answers `None`
+    where the source could not be read - including a deployment holding no HR
+    credential at all. A postmortem is written either way; it simply publishes
+    no cost and says why.
+    """
+    from responder_rate_source import PayBandsUnavailable, pay_bands
+
+    try:
+        read = pay_bands()
+    except PayBandsUnavailable:
+        return None
+
+    return {title: PayBand(minimum=band.minimum,
+                           midpoint=band.midpoint,
+                           maximum=band.maximum,
+                           currency=band.currency)
+            for title, band in read.items()}
 
 
 def _metrics_between(window_start: datetime, window_end: datetime) -> list[MetricBucket]:

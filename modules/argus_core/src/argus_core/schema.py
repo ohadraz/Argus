@@ -179,6 +179,20 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- were. A list rather than a column apiece: it is read whole, by a page
     -- that prints it, and nothing aggregates across titles.
     responder_titles JSONB,
+    -- What those minutes were worth, priced at the pay band of each
+    -- responder's title. Three columns rather than one, because a band is a
+    -- range: the midpoint is the figure, and the two beside it are the same
+    -- minutes at the bottom and top of the same bands. Stored rather than
+    -- re-derived, for the same reason the loss estimate is - bands are
+    -- republished, and a figure recomputed next year would describe a
+    -- different incident.
+    responder_cost_estimate NUMERIC,
+    responder_cost_minimum NUMERIC,
+    responder_cost_maximum NUMERIC,
+    -- Its own currency rather than `estimate_currency`: the bands come from a
+    -- different source than the takings, and nothing here converts one figure
+    -- into the other.
+    responder_cost_currency TEXT,
     tokens_spent INTEGER,
     assumptions JSONB,
     executive_summary TEXT,

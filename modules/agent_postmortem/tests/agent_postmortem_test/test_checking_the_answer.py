@@ -12,6 +12,8 @@ from agent_postmortem.sources import (
     Engagement,
     EngagementAnswer,
     Metrics,
+    PayBand,
+    PayBands,
     Rates,
     RateTable,
     Revenue,
@@ -43,6 +45,7 @@ INCIDENT_END = INCIDENT_START + timedelta(minutes=30)
 
 DONT_CARE_INCIDENT_ID = "e5e5e5e5-0000-4000-8000-000000000005"
 DONT_CARE_TOKENS_SPENT = 1_000
+DONT_CARE_WORKING_YEAR = 2080.0
 DONT_CARE_ENGAGED_MINUTES = 25
 DONT_CARE_RESPONDERS = 2
 
@@ -199,6 +202,8 @@ def test_a_summary_naming_any_figure_at_all_is_challenged_when_nothing_was_compu
                 revenue=_a_revenue_source_that_cannot_answer(),
                 rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_a_rise(),
                 llm=_a_model_answering(
                     _an_answer(executive_summary=f"the outage cost {some_figure}"),
@@ -283,6 +288,8 @@ def _a_postmortem_written_with(
                                           and_then=and_then),
         rates=_rates_in(SOME_CURRENCY),
         engagement=_an_engagement_source_reporting(),
+        bands=_a_band_source_pricing_nobody(),
+        working_hours_a_year=DONT_CARE_WORKING_YEAR,
         metrics=_metrics_showing_a_rise(),
         llm=llm
     )
@@ -645,3 +652,16 @@ def _the_loss_from(rate: float,
     """
     return (Decimal(rate) * Decimal(str((and_the_end_at - between) / per))
             - less_revenue_of)
+
+
+def _a_band_source_pricing_nobody() -> PayBands:
+    """An empty band table, for a file whose responders are never priced.
+
+    Empty rather than unreadable: nothing here engages a responder holding a
+    title, so there is nothing to price and no absence to apologise for - and
+    the document says nothing about pay in either direction.
+    """
+    def pay_bands() -> Mapping[str, PayBand] | None:
+        return {}
+
+    return pay_bands

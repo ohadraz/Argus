@@ -16,6 +16,8 @@ from agent_postmortem.sources import (
     Engagement,
     EngagementAnswer,
     Metrics,
+    PayBand,
+    PayBands,
     Rates,
     RateTable,
     Revenue,
@@ -59,6 +61,7 @@ SOME_CURRENCY = "usd"
 SOME_OTHER_CURRENCY = "eur"
 SOME_UNPRICED_CURRENCY = "kuki"
 
+DONT_CARE_WORKING_YEAR = 2080.0
 DONT_CARE_RATE_DATE = date(2026, 9, 2)
 DONT_CARE_BASELINE_ERROR_RATE = 0.02
 DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT = 0.30
@@ -103,6 +106,8 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
                 rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=some_engaged_person_minutes, responders=some_responders),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_error_rates(
                     baseline=DONT_CARE_BASELINE_ERROR_RATE, 
                     during=DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT),
@@ -154,6 +159,8 @@ def test_the_metrics_window_reaches_the_end_of_the_incident() -> None:
                 rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=dont_care_engaged_minutes, responders=dont_care_responders),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_recording_the_window_into(windows_asked_for),
                 llm=_a_model_answering(
                     root_cause=dont_care_cause,
@@ -217,6 +224,8 @@ def test_revenue_in_another_currency_is_converted_at_a_rate_the_document_states(
                 engagement=_an_engagement_source_reporting(
                     minutes=dont_care_engaged_minutes,
                     responders=dont_care_responders),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_error_rates(
                     baseline=DONT_CARE_BASELINE_ERROR_RATE,
                     during=DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT),
@@ -283,6 +292,8 @@ def test_revenue_in_a_currency_with_no_rate_is_left_out_and_said_so() -> None:
                 engagement=_an_engagement_source_reporting(
                     minutes=dont_care_engaged_minutes,
                     responders=dont_care_responders),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_error_rates(
                     baseline=DONT_CARE_BASELINE_ERROR_RATE,
                     during=DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT),
@@ -335,6 +346,8 @@ def test_the_document_names_the_currency_its_estimate_is_in() -> None:
                 rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(
                     minutes=dont_care_engaged_minutes, responders=dont_care_responders),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_error_rates(
                     baseline=dont_care_metrics_baseline, during=dont_care_metrics_during),
                 llm=_a_model_answering(root_cause=dont_care_root_cause,
@@ -616,3 +629,16 @@ def _a_shop_whose_revenue_was(per_hour: Mapping[str, float],
         }
 
     return revenue_between
+
+
+def _a_band_source_pricing_nobody() -> PayBands:
+    """An empty band table, for a file whose responders are never priced.
+
+    Empty rather than unreadable: nothing here engages a responder holding a
+    title, so there is nothing to price and no absence to apologise for - and
+    the document says nothing about pay in either direction.
+    """
+    def pay_bands() -> Mapping[str, PayBand] | None:
+        return {}
+
+    return pay_bands

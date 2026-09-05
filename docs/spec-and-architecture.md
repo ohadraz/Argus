@@ -154,9 +154,9 @@ Owns all Slack writes (creates the incident channel, posts structured status upd
 
 ### 7.6 Postmortem agent
 
-Triggered once on transition into `resolved` or `escalated`. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, what it cost - one estimate with its assumptions and two measurements (§21.3) - and an executive summary.
+Triggered once on transition into `resolved` or `escalated`. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, what it cost - two estimates with their assumptions and two measurements (§21.3) - and an executive summary.
 
-LLM-backed rather than agentic: it retrieves nothing and drives no tool loop, because everything it writes about has already happened and is already recorded. Every figure it publishes is computed from that record, and the model supplies none of them - it writes prose. What a figure rests on, the document states beside it: the windows compared, the exchange rate applied and its date, a currency left out of a total.
+LLM-backed rather than agentic: it retrieves nothing and drives no tool loop, because everything it writes about has already happened and is already recorded. Every figure it publishes is computed from that record, and the model supplies none of them - it writes prose. What a figure rests on, the document states beside it: the windows compared, the exchange rate applied and its date, a currency left out of a total, the working year an annual pay band was divided by, and the band each responder's title was priced at.
 
 It answers by calling `submit_postmortem`, never in prose, so a document is a structured answer or no answer at all. The submission is checked before it is accepted, and a currency amount in the executive summary that is not Argus's own figure is a fault of exactly the kind a missing field is: a number the reader would act on that nothing computed. A rejected submission is refused through that call's own tool result, so the model repairs the document it wrote instead of writing a second one from nothing; a model that made no call has nothing to attach a refusal to and is asked again. Two attempts, never three - it must terminate even on partial success, and hands off what it has with the missing fields flagged.
 
@@ -358,6 +358,10 @@ erDiagram
         int engineer_minutes
         int responders
         jsonb responder_titles
+        numeric responder_cost_estimate
+        numeric responder_cost_minimum
+        numeric responder_cost_maximum
+        text responder_cost_currency
         int tokens_spent
         jsonb assumptions
         text executive_summary
@@ -784,7 +788,9 @@ Label these clearly as **estimates with stated assumptions** in the postmortem -
 
 What the response itself cost is reported rather than estimated, as two measured figures: `engineer_minutes` and `tokens_spent`. `engineer_minutes` is person-minutes, read from the on-call provider: each responder's own acknowledgement of the incident to the end of it, added together. Two mistakes are ruled out by measuring it that way. The minutes before anyone acknowledged belong to nobody, so dating the response from the incident's own start charges to a person the time the incident spent waiting for one; and two people on an incident spend two people's time, so a single wall-clock span reports half of what the response cost. The number of responders is stored beside the figure, because the same total says something different shared between four people and spent by one, and the titles they held are stored with it - what they were, never who they were, since a postmortem naming individuals is a document about people and this one gets emailed.
 
-Neither figure is converted to a currency. A loaded hourly rate belongs to the organisation reading the postmortem and a token price belongs to the vendor, so a dollar total would age badly - and putting one beside `customer_loss_estimate` would make a measured number look like an estimate and the estimate look measured.
+The minutes are priced and the tokens are not, because only one of the two rates can be read from a source that publishes it. A responder's time meets the pay band of the title they hold, so `responder_cost_estimate` is those same minutes at the midpoint of each responder's band, with what they come to at the bottom and top of those bands beside it - a band is a range, and a midpoint published alone claims a precision the source does not have. Bands rather than salaries: a band belongs to a compensation level that job titles are assigned to, so the response is priced without any person's pay being read, and Argus's HR credential never needs to be able to read one. The annual band becomes a per-minute rate through a configured working year, stated on the document, because a figure resting on a divisor is only reproducible with the divisor. A title no band covers leaves the whole figure absent and is named, on the same rule the loss estimate follows: a cost covering two responders out of three is not a smaller cost but a wrong one, and wrong in the direction that flatters the response. The minutes are reported either way.
+
+A token price is the vendor's and changes without notice, so tokens stay a count. A hardcoded table of prices would go stale silently, and a figure nobody can check is worse than a count anybody can.
 
 So a postmortem carries three quantities in three units, not one figure: what the incident cost the business, what it cost the people who responded, and what it cost Argus. They are stored as three columns rather than one document because the eval tier aggregates them - tokens across a benchmark run, minutes across a quarter - and because merging them would require exactly the two rates this section declines to invent.
 

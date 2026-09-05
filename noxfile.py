@@ -391,7 +391,14 @@ _E2E_SETTINGS = {
     # a second port of the same process for exactly this, with a certificate it
     # mints at startup - so the certificate is worth nothing and is not checked.
     "PAGERDUTY_BASE_URL": "https://localhost:8443/pagerduty",
-    "PAGERDUTY_VERIFY_TLS": "false"
+    "PAGERDUTY_VERIFY_TLS": "false",
+    # What those responders' titles are worth, read from the Target Service's
+    # own HR-shaped endpoint on the same terms again. A fixture token that only
+    # has to be set: an empty credential makes the source report that it could
+    # not answer, and the response cost would then be absent by configuration
+    # rather than because a title had no band.
+    "HR_API_KEY": "hr_test_argus_demo",
+    "HR_BASE_URL": "http://localhost:8080/bamboohr"
 }
 
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (

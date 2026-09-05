@@ -14,6 +14,8 @@ from agent_postmortem.sources import (
     Engagement,
     EngagementAnswer,
     Metrics,
+    PayBand,
+    PayBands,
     Rates,
     RateTable,
     Revenue,
@@ -42,6 +44,7 @@ DONT_CARE_TOKENS_SPENT = 1_000
 DONT_CARE_HOURLY_REVENUE = 4_800
 DONT_CARE_REVENUE_WINDOW = timedelta(hours=1)
 DONT_CARE_ENGAGED_MINUTES = 25
+DONT_CARE_WORKING_YEAR = 2080.0
 
 SOME_CURRENCY = "usd"
 
@@ -178,6 +181,8 @@ def _a_postmortem_written_with(evidence: IncidentEvidence,
         engagement=_an_engagement_source_reporting(minutes=DONT_CARE_ENGAGED_MINUTES,
                                                    responders=responders,
                                                    titles=titles or []),
+        bands=_a_band_source_pricing_nobody(),
+        working_hours_a_year=DONT_CARE_WORKING_YEAR,
         metrics=_metrics_showing_a_rise(),
         llm=llm
     )
@@ -381,3 +386,16 @@ def _reports_the_titles(*expected: str) -> Assertion[PostmortemDocument]:
         return True
 
     return assertion
+
+
+def _a_band_source_pricing_nobody() -> PayBands:
+    """An empty band table, for a file whose responders are never priced.
+
+    Empty rather than unreadable: nothing here engages a responder holding a
+    title, so there is nothing to price and no absence to apologise for - and
+    the document says nothing about pay in either direction.
+    """
+    def pay_bands() -> Mapping[str, PayBand] | None:
+        return {}
+
+    return pay_bands

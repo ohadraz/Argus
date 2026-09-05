@@ -29,7 +29,11 @@ from agent_postmortem.document import (
     EXCHANGE_RATE_ASSUMPTION_LABEL,
     EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
     ONSET_UNKNOWN_ASSUMPTION,
+    PAY_BAND_ASSUMPTION_LABEL,
+    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     REVENUE_UNAVAILABLE_ASSUMPTION,
+    UNPRICED_TITLE_ASSUMPTION_LABEL,
+    WORKING_YEAR_ASSUMPTION_LABEL,
     PostmortemDocument,
 )
 from agent_postmortem.estimate import (
@@ -50,10 +54,13 @@ from agent_postmortem.prompting import (
     opening_ask_again,
     rejecting,
 )
+from agent_postmortem.responder_cost import ResponderCost, responder_cost, unpriced_titles
 from agent_postmortem.sources import (
     Engagement,
     EngagementAnswer,
     Metrics,
+    PayBand,
+    PayBands,
     Rates,
     RateTable,
     Revenue,
@@ -64,7 +71,11 @@ __all__ = [
     "EXCHANGE_RATE_ASSUMPTION_LABEL",
     "EXCLUDED_CURRENCY_ASSUMPTION_LABEL",
     "ONSET_UNKNOWN_ASSUMPTION",
+    "PAY_BANDS_UNAVAILABLE_ASSUMPTION",
+    "PAY_BAND_ASSUMPTION_LABEL",
     "REVENUE_UNAVAILABLE_ASSUMPTION",
+    "UNPRICED_TITLE_ASSUMPTION_LABEL",
+    "WORKING_YEAR_ASSUMPTION_LABEL",
     "IncidentEvidence",
     "PostmortemDocument",
     "write_postmortem",
@@ -78,6 +89,8 @@ def write_postmortem(evidence: IncidentEvidence,
                      revenue: Revenue,
                      rates: Rates,
                      engagement: Engagement,
+                     bands: PayBands,
+                     working_hours_a_year: float,
                      metrics: Metrics,
                      llm: LLMClient) -> PostmortemDocument:
     """The whole document: measure, ask once, then write down both.
@@ -112,6 +125,8 @@ def write_postmortem(evidence: IncidentEvidence,
 
     answer, faults = _answer_worth_writing(llm, evidence, duration, delta, estimate)
     engaged = engagement(evidence.incident_id)
+    published_bands = bands()
+    cost = _the_response_cost(engaged, published_bands, working_hours_a_year)
 
     return PostmortemDocument(
         root_cause=_text(answer, ROOT_CAUSE_FIELD),
@@ -125,9 +140,14 @@ def write_postmortem(evidence: IncidentEvidence,
         engineer_minutes=engaged.minutes if engaged else None,
         responders=engaged.responders if engaged else None,
         responder_titles=engaged.titles if engaged else [],
+        responder_cost_estimate=cost.midpoint if cost is not None else None,
+        responder_cost_minimum=cost.minimum if cost is not None else None,
+        responder_cost_maximum=cost.maximum if cost is not None else None,
+        responder_cost_currency=cost.currency if cost is not None else None,
         tokens_spent=evidence.tokens_spent,
         assumptions=_assumptions(answer, baseline_revenue, engaged, before, table,
-                                 left_out, evidence.onset_at),
+                                 left_out, evidence.onset_at, published_bands, cost,
+                                 working_hours_a_year),
         checklist_complete=not faults
     )
 
@@ -242,13 +262,33 @@ def _loss(baseline_revenue: Decimal | None,
                         revenue_during, duration)
 
 
+def _the_response_cost(engaged: EngagementAnswer | None,
+                       bands: Mapping[str, PayBand] | None,
+                       working_hours_a_year: float) -> ResponderCost | None:
+    """What the people on the incident cost, or nothing where either half is
+    missing.
+
+    Both halves have to be there: minutes nobody could measure and bands nobody
+    could read are different failures with the same consequence, and each is
+    disclosed separately below. The pricing itself declines any response it
+    cannot price in full, so nothing here inspects the responders.
+    """
+    if engaged is None or bands is None:
+        return None
+
+    return responder_cost(engaged.engaged, bands, working_hours_a_year)
+
+
 def _assumptions(answer: dict[str, Any],
                  baseline_revenue: Decimal | None,
                  engaged: EngagementAnswer | None,
                  taken: Mapping[str, Decimal] | None,
                  table: RateTable | None,
                  left_out: list[str],
-                 onset_at: datetime | None) -> list[str]:
+                 onset_at: datetime | None,
+                 bands: Mapping[str, PayBand] | None,
+                 cost: ResponderCost | None,
+                 working_hours_a_year: float) -> list[str]:
     """What the document admits to having assumed rather than measured.
 
     The conversions come first - they are the only step between the money the
@@ -268,14 +308,67 @@ def _assumptions(answer: dict[str, Any],
         for currency in left_out
     )
 
+    assumptions.extend(_the_pricing_behind(engaged, bands, cost, working_hours_a_year))
+
     assumptions.extend(str(stated) for stated in answer.get(ASSUMPTIONS_FIELD, []))
 
     if baseline_revenue is None:
         assumptions.append(REVENUE_UNAVAILABLE_ASSUMPTION)
     if engaged is None:
         assumptions.append(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
+    if engaged is not None and bands is None:
+        assumptions.append(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
 
     return assumptions
+
+
+def _the_pricing_behind(engaged: EngagementAnswer | None,
+                        bands: Mapping[str, PayBand] | None,
+                        cost: ResponderCost | None,
+                        working_hours_a_year: float) -> list[str]:
+    """How the response cost was arrived at, or why there is none.
+
+    A published figure discloses both things that are not measurements: the
+    working year the annual bands were divided by, and the band each title was
+    priced at - a midpoint being a range collapsed to a point.
+
+    A figure that could not be published names the titles that stopped it, so
+    the gap reads as a band nobody configured rather than as a fault in Argus.
+    A source that could not be read at all is a different sentence, said by the
+    caller, since there are no titles to blame for it.
+    """
+    if bands is None or engaged is None:
+        return []
+
+    if cost is None:
+        return [
+            f"{UNPRICED_TITLE_ASSUMPTION_LABEL}: no responder cost, because no "
+            f"pay band covers [{title}]"
+            for title in unpriced_titles(engaged.engaged, bands)
+        ]
+
+    return [
+        f"{WORKING_YEAR_ASSUMPTION_LABEL}: annual pay bands divided by "
+        f"{working_hours_a_year:g} hours",
+        *(f"{PAY_BAND_ASSUMPTION_LABEL}: {title} priced at the midpoint of "
+          f"{bands[title].minimum} to {bands[title].maximum} "
+          f"{bands[title].currency} a year"
+          for title in _the_titles_priced(engaged))
+    ]
+
+
+def _the_titles_priced(engaged: EngagementAnswer) -> list[str]:
+    """What the responders held, each named once, in the order they responded.
+
+    Once, because two people holding one title are priced at one band and the
+    document would otherwise recite it twice; in order, because a reader
+    matching the lines against the timeline reads them the same way round.
+    """
+    return list(dict.fromkeys(
+        responder.job_title
+        for responder in engaged.engaged
+        if responder.job_title is not None
+    ))
 
 
 def _rates_applied(taken: Mapping[str, Decimal] | None,

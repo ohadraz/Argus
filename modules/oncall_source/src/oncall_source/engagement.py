@@ -85,6 +85,25 @@ class ReportedIncident(BaseModel):
     acknowledgements: list[Acknowledgement]
 
 
+class EngagedResponder(BaseModel):
+    """One person's own share of the response: their minutes, and what they
+    were called.
+
+    The unit anything pricing this response has to work in. A band belongs to a
+    job title, so a total that has already added a senior engineer's hour to a
+    junior's cannot be priced at all - and the pair has to stay together,
+    because the minutes are only worth what the person holding them was.
+
+    `job_title` is absent where the provider held none. A responder whose title
+    nobody can read still spent the time, and reporting them with no title is
+    what lets a consumer decline to price the incident rather than quietly
+    price it short.
+    """
+
+    minutes: int
+    job_title: str | None
+
+
 class Engagement(BaseModel):
     """What the response took: person-minutes, how many people, and what they
     were.
@@ -103,6 +122,11 @@ class Engagement(BaseModel):
     minutes: int
     responders: int
     titles: list[str] = []
+    # The same response, held per person rather than summed. Carried alongside
+    # the total rather than instead of it: a reader wants the total, a consumer
+    # pricing the response cannot use it, and deriving the total in two places
+    # is how two documents come to disagree about one incident.
+    engaged: list[EngagedResponder] = []
 
 
 # One incident, as the provider reports it.
@@ -125,13 +149,21 @@ def engagement_with(incident_id: str,
 
     took_it = _first_acknowledgement_of_each(incident.acknowledgements)
 
+    engaged = [
+        EngagedResponder(
+            minutes=(incident.ended_at - acknowledgement.at) // A_MINUTE,
+            job_title=acknowledgement.job_title
+        )
+        for acknowledgement in took_it.values()
+    ]
+
     return Engagement(
-        minutes=sum((incident.ended_at - acknowledgement.at) // A_MINUTE
-                    for acknowledgement in took_it.values()),
-        responders=len(took_it),
-        titles=[acknowledgement.job_title
-                for acknowledgement in took_it.values()
-                if acknowledgement.job_title is not None]
+        minutes=sum(responder.minutes for responder in engaged),
+        responders=len(engaged),
+        titles=[responder.job_title
+                for responder in engaged
+                if responder.job_title is not None],
+        engaged=engaged
     )
 
 

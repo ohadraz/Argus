@@ -181,6 +181,10 @@ class PostmortemView(BaseModel):
     engineer_minutes: int | None
     responders: int | None
     responder_titles: list[str] | None
+    responder_cost_estimate: Decimal | None
+    responder_cost_minimum: Decimal | None
+    responder_cost_maximum: Decimal | None
+    responder_cost_currency: str | None
     tokens_spent: int | None
     assumptions: list[str] | None
     executive_summary: str | None
@@ -455,6 +459,10 @@ def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
         engineer_minutes=postmortem.engineer_minutes,
         responders=postmortem.responders,
         responder_titles=postmortem.responder_titles,
+        responder_cost_estimate=postmortem.responder_cost_estimate,
+        responder_cost_minimum=postmortem.responder_cost_minimum,
+        responder_cost_maximum=postmortem.responder_cost_maximum,
+        responder_cost_currency=postmortem.responder_cost_currency,
         tokens_spent=postmortem.tokens_spent,
         assumptions=postmortem.assumptions,
         executive_summary=postmortem.executive_summary,

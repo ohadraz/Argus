@@ -24,6 +24,10 @@ class Postmortem(BaseModel):
     engineer_minutes: int | None
     responders: int | None
     responder_titles: list[str] | None
+    responder_cost_estimate: Decimal | None
+    responder_cost_minimum: Decimal | None
+    responder_cost_maximum: Decimal | None
+    responder_cost_currency: str | None
     tokens_spent: int | None
     assumptions: list[str] | None
     executive_summary: str | None
@@ -46,9 +50,11 @@ def record(
         cursor.execute(
             "INSERT INTO postmortem "
             "(incident_id, root_cause, customer_loss_estimate, estimate_currency, "
-            "engineer_minutes, responders, responder_titles, tokens_spent, "
+            "engineer_minutes, responders, responder_titles, "
+            "responder_cost_estimate, responder_cost_minimum, "
+            "responder_cost_maximum, responder_cost_currency, tokens_spent, "
             "assumptions, executive_summary, checklist_complete) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 incident_id,
                 document.root_cause,
@@ -57,6 +63,10 @@ def record(
                 document.engineer_minutes,
                 document.responders,
                 Jsonb(document.responder_titles),
+                document.responder_cost_estimate,
+                document.responder_cost_minimum,
+                document.responder_cost_maximum,
+                document.responder_cost_currency,
                 document.tokens_spent,
                 Jsonb(document.assumptions),
                 document.executive_summary,
@@ -71,7 +81,9 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> Postmortem | 
         cursor.execute(
             "SELECT id, incident_id, root_cause, customer_loss_estimate, "
             "estimate_currency, "
-            "engineer_minutes, responders, responder_titles, tokens_spent, "
+            "engineer_minutes, responders, responder_titles, "
+            "responder_cost_estimate, responder_cost_minimum, "
+            "responder_cost_maximum, responder_cost_currency, tokens_spent, "
             "assumptions, "
             "executive_summary, checklist_complete, created_at "
             "  FROM postmortem "

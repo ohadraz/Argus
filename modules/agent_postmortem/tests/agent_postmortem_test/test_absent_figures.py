@@ -17,6 +17,8 @@ from agent_postmortem.sources import (
     Engagement,
     EngagementAnswer,
     Metrics,
+    PayBand,
+    PayBands,
     Rates,
     RateTable,
     Revenue,
@@ -51,6 +53,7 @@ DONT_CARE_TOKENS_SPENT = 1_000
 DONT_CARE_HOURLY_REVENUE = 4_800
 DONT_CARE_ENGAGED_MINUTES = 25
 DONT_CARE_RESPONDERS = 2
+DONT_CARE_WORKING_YEAR = 2080.0
 DONT_CARE_REVENUE_WINDOW = timedelta(hours=1)
 DONT_CARE_RATE_DATE = date(2026, 9, 2)
 
@@ -73,6 +76,8 @@ def test_a_revenue_source_that_cannot_be_read_estimates_nothing_rather_than_zero
                 engagement=_an_engagement_source_reporting(
                     minutes=DONT_CARE_ENGAGED_MINUTES,
                     responders=DONT_CARE_RESPONDERS),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_a_rise(),
                 llm=_a_model_answering()
             )
@@ -104,6 +109,8 @@ def test_metrics_that_cannot_be_read_leave_the_estimate_standing() -> None:
                 engagement=_an_engagement_source_reporting(
                     minutes=DONT_CARE_ENGAGED_MINUTES,
                     responders=DONT_CARE_RESPONDERS),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_that_answer_with_nothing(),
                 llm=_a_model_answering()
             )
@@ -128,6 +135,8 @@ def test_an_engagement_source_that_cannot_be_read_reports_no_engineer_minutes() 
                 revenue=_a_revenue_source_reporting(DONT_CARE_HOURLY_REVENUE),
                 rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_that_cannot_answer(),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_a_rise(),
                 llm=_a_model_answering()
             )
@@ -158,6 +167,8 @@ def test_an_incident_nobody_responded_to_reports_no_minutes_and_says_nothing_was
                 rates=_rates_in(SOME_CURRENCY),
                 engagement=_an_engagement_source_reporting(minutes=nobody,
                                                            responders=nobody),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_a_rise(),
                 llm=_a_model_answering()
             )
@@ -189,6 +200,8 @@ def test_an_incident_with_no_onset_estimates_nothing_rather_than_dating_from_the
                 engagement=_an_engagement_source_reporting(
                     minutes=DONT_CARE_ENGAGED_MINUTES,
                     responders=DONT_CARE_RESPONDERS),
+                bands=_a_band_source_pricing_nobody(),
+                working_hours_a_year=DONT_CARE_WORKING_YEAR,
                 metrics=_metrics_showing_a_rise(),
                 llm=_a_model_answering()
             )
@@ -382,3 +395,14 @@ def _estimates_something() -> Assertion[PostmortemDocument]:
     return assertion
 
 
+def _a_band_source_pricing_nobody() -> PayBands:
+    """An empty band table, for a file whose responders are never priced.
+
+    Empty rather than unreadable: nothing here engages a responder holding a
+    title, so there is nothing to price and no absence to apologise for - and
+    the document says nothing about pay in either direction.
+    """
+    def pay_bands() -> Mapping[str, PayBand] | None:
+        return {}
+
+    return pay_bands

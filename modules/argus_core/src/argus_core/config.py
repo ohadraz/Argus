@@ -151,6 +151,33 @@ class Settings(BaseSettings):
     # refuses a base URL that is not `https://`.
     pagerduty_verify_tls: bool = Field(default=True)
 
+    # The credential the HR system's pay bands are read with. Empty by default,
+    # for the reason the on-call credential is: a cost nobody can vouch for is
+    # worse than one the document says it could not obtain.
+    #
+    # It only ever needs to read pay grades and bands. Compensation per person
+    # is not read by anything here, so a deployment issuing this credential
+    # should not grant it - what a *level* pays is all Argus asks.
+    hr_api_key: str = Field(default="")
+
+    # Where the pay bands are read from. The Target Environment's HR-shaped
+    # endpoint by default, because that is what a demo has; a real deployment
+    # points this at its own account.
+    hr_base_url: str = Field(default="http://localhost:8080/bamboohr")
+
+    # How long that read may take. Short: the bands are wanted while a
+    # postmortem is being written, and a document that waits a minute for a
+    # figure it can legitimately report as absent is worse than one without it.
+    hr_timeout_seconds: float = Field(default=10.0, gt=0.0)
+
+    # How many hours of work a year a salary is quoted against, which is what
+    # turns an annual band into what a minute of it costs. 2080 is the standard
+    # full-time year - 40 hours a week, 52 weeks - and it is configuration
+    # because it is a fact about an organisation's working norms rather than
+    # about this code. Whatever it is set to is stated on the document, since a
+    # figure derived from a divisor is only reproducible with the divisor.
+    working_hours_a_year: float = Field(default=2080.0, gt=0.0)
+
     # Where the day's exchange rates are read from. Frankfurter publishes the
     # European Central Bank's reference rates, needs no account and no key, and
     # answers a whole table in one request - so unlike every other provider
