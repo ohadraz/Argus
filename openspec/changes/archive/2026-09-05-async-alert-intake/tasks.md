@@ -75,7 +75,7 @@ fail, and only then writing the code under it.
       the `spec-doc-style` skill.
 - [x] 6.4 Re-read this change's delta specs against what was built before
       archiving.
-- [ ] 6.5 One-line commit, approved before it is made.
+- [x] 6.5 One-line commit, approved before it is made.
 
 ## 7. Acknowledged, before anyone is on it
 
