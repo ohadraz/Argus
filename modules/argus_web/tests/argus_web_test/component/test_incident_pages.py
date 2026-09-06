@@ -12,7 +12,6 @@ from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
 from argus_web.app import app
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
@@ -263,19 +262,38 @@ def test_an_incident_with_no_postmortem_says_so_rather_than_failing() -> None:
 
 
 @pytest.mark.component
-def test_the_view_offers_no_way_to_change_anything() -> None:
-    # Looking at what Argus did must not be able to alter it. The alert webhook
-    # is the one route that writes, and it is not part of the view.
-    read_only = {"GET", "HEAD", "OPTIONS"}
-    writing_routes = [
-        (route.path, sorted((route.methods or set()) - read_only))
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        and not route.path.startswith("/webhooks/")
-        and (route.methods or set()) - read_only
-    ]
+def test_a_running_incident_can_be_withdrawn_from_its_page() -> None:
+    # The first button anybody wants during an incident, and the only thing on
+    # this screen that acts rather than reports.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    assert writing_routes == [], f"Expected no writing route, got {writing_routes}."
+    with connect() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    page = _get(f"/incidents/{incident_id}")
+
+    assert f'/incidents/{incident_id}/withdraw' in page
+    assert _attribute("withdraw", page) == [incident_id]
+
+
+@pytest.mark.component
+def test_a_finished_incident_offers_no_way_to_withdraw_it() -> None:
+    # Nothing to stop. Offering it would invite somebody to take back a
+    # mitigation that is holding the service up, and the answer would be a 409
+    # they had no reason to expect.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        incidents.transition(
+            conn,
+            incident_id,
+            IncidentStatus.RESOLVED,
+            actor=Actor.MITIGATION,
+            action="dont care",
+        )
+
+    assert _attribute("withdraw", _get(f"/incidents/{incident_id}")) == []
 
 
 @pytest.mark.component

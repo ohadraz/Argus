@@ -278,6 +278,16 @@
                                    #000 58%, transparent 100%);
                mask-image: radial-gradient(ellipse 48% 48% at 50% 46%,
                            #000 58%, transparent 100%); }
+  /* The mark and the name are one link, and have to keep looking like a
+     masthead rather than like a link: the page's own title in the page's own
+     colour, laid out exactly as the two elements were before they were wrapped.
+     The affordance is the pointer and a small lift on hover, which is as much
+     as a masthead should ask for. */
+  header .home { display: flex; align-items: center; gap: 22px;
+                 color: inherit; text-decoration: none;
+                 transition: opacity .18s ease; }
+  header .home:hover { opacity: .82; }
+
   h1 { font-size: clamp(22px, 2.1vmin + 14px, 40px); margin: 0;
        letter-spacing: .16em; font-weight: 500; text-transform: uppercase; }
   h1 small { display: block; font-size: .45em; letter-spacing: .28em;
@@ -321,6 +331,37 @@
   /* Escalated is over too - it stops moving for the same reason resolved
      does - and stays red because it ended by giving up. */
   .status.escalated { color: var(--bad);   border-color: var(--bad); }
+  /* Withdrawn is the one ending that is nobody's verdict on the failure: a
+     human took the incident back, and whether the service is well is a
+     question this status does not answer. So it is neither red nor green but
+     grey, and still like the other two endings - the incident is over, and
+     the screen has to stop saying otherwise. */
+  .status.withdrawn { color: #9aa0a6; border-color: var(--line); }
+
+  /* The one control on the page. It reads as a control rather than a status -
+     square rather than a pill, and it takes the pointer - because everything
+     else in this line is something to read and this is something to press.
+
+     Pushed to the far end of the header line, which is the line that stays on
+     screen: an incident's tables scroll for pages, and a button to stop what is
+     happening is no use at the top of a page nobody is looking at any more.
+
+     Quiet, not hidden. Stopping Argus is a real thing to want and the button
+     has to be findable at a glance from across a room - it is understated
+     against the alert beside it, and legible on its own. It carries a stop
+     mark as well as the word, because the mark is what reads at that distance
+     and the word is what removes any doubt about which kind of stop it is. */
+  .withdraw-slot { margin-left: auto; }
+  .withdraw { padding: 4px 14px 4px 11px; border-radius: 3px;
+              font: inherit; font-size: .72em; letter-spacing: .12em;
+              text-transform: uppercase; cursor: pointer;
+              color: #e8e8ea; background: rgba(255,255,255,.07);
+              border: 1px solid transparent;
+              display: inline-flex; align-items: center; gap: 7px; }
+  .withdraw::before { content: "\25A0"; font-size: .8em; color: var(--bad); }
+  .withdraw:hover, .withdraw:focus-visible {
+              background: var(--bad); color: #fff; }
+  .withdraw:hover::before, .withdraw:focus-visible::before { color: #fff; }
 
   /* A status named inside a sentence is a word, not a control: it takes the
      colour and the capitals and none of the pill, because a badge in running
@@ -332,6 +373,7 @@
   .moved-to.mitigating, .moved-to.fixing { color: var(--amber); }
   .moved-to.resolved { color: var(--good); }
   .moved-to.escalated { color: var(--bad); }
+  .moved-to.withdrawn { color: #9aa0a6; }
 
   /* The verdict is the sentence the whole mitigation was for. Red or green and
      in capitals, so it is findable on a screen being read from across a room
@@ -360,9 +402,13 @@
      scrolled away, the tables below are numbers belonging to nothing. The
      offset is measured (see `fitTheMasthead`), because the masthead is a
      different height once it shrinks. */
+  /* A flex row rather than a run of inline words, so the one control on the
+     line can sit at the far end of it however wide the screen is. The gap
+     replaces the whitespace the words were separated by. */
   .alert { position: sticky; top: var(--masthead, 4.6em); z-index: 8;
            background: var(--ground); margin: 0; padding: 10px 0;
-           border-bottom: 1px solid var(--line); }
+           border-bottom: 1px solid var(--line);
+           display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
   nav { margin-left: auto; display: flex; gap: 22px; font-size: .8em;
         letter-spacing: .12em; text-transform: uppercase; }
@@ -495,12 +541,17 @@
   {# The same Argus the README opens on - the hundred-eyed herdsman set to
      watch. The favicon is a mark for a sixteen-pixel tab; this is the figure
      itself, and the two are not interchangeable. #}
-  <img src="/assets/argus.png" alt="Argus, the hundred-eyed herdsman">
-  <h1>Argus<small>{% block strapline %}what it saw, and what it did{% endblock %}</small></h1>
+  {# The mark and the name are one link home, which is where somebody who has
+     followed an incident three pages deep expects them to go - and where the
+     one thing worth watching is. #}
+  <a class="home" href="/">
+    <img src="/assets/argus.png" alt="Argus, the hundred-eyed herdsman">
+    <h1>Argus<small>{% block strapline %}what it saw, and what it did{% endblock %}</small></h1>
+  </a>
   {# Every screen reachable from every other one, so nobody has to know a URL
      to get from the incident in front of them to the one before it. #}
   <nav>
-    <a href="/">now</a>
+    <a href="/">live</a>
     <a href="/history">history</a>
   </nav>
 </header>

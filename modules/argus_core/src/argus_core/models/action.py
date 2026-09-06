@@ -15,11 +15,19 @@ class Verdict(StrEnum):
     `ESCALATED` is not a third opinion on the hypothesis - it means no verdict
     was reached at all, because nothing could be done or because the
     environment was left in a state Argus cannot account for.
+
+    `WITHDRAWN` is the other way no verdict is reached: the action was taken and
+    then abandoned, because somebody took the incident back while the service
+    was still being watched. It is not `REFUTED` - nothing was measured, and
+    recording evidence against a hypothesis nobody finished testing is the one
+    thing a stopped experiment must not leave behind. The change it made is
+    still out there, which is why the outcome carries its undo descriptor.
     """
 
     CONFIRMED = "confirmed"
     REFUTED = "refuted"
     ESCALATED = "escalated"
+    WITHDRAWN = "withdrawn"
 
 
 class Action(BaseModel):

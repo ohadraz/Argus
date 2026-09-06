@@ -41,6 +41,9 @@
           data-elapsed="{{ incident.elapsed_seconds }}">
       {{ "%d:%02d"|format(incident.elapsed_seconds // 60, incident.elapsed_seconds % 60) }}
     </span>
+    {# No out-of-band swap here: this whole section is what the front page's
+       poll replaces, so the button comes and goes with it. #}
+    {% include "withdraw.html" %}
   </p>
 
   {# What fired, in a table of its own: the alert's own words are the one thing

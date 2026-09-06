@@ -95,6 +95,53 @@ def transition(
     conn.commit()
 
 
+def withdraw(conn: psycopg.Connection, incident_id: str, actor: Actor) -> bool:
+    """Takes an incident back from Argus, and says whether it took effect.
+
+    The one status written from outside the walk. Every other status an
+    incident reaches is derived from work the walk did and written by the walk
+    itself; this one records something the walk cannot observe - that somebody
+    has the failure in hand - so it is written here and the walk finds out by
+    reading it back.
+
+    The refusal is the point of the `WHERE`. An incident that resolved was
+    resolved by a mitigation still holding the service up, and withdrawing it
+    would put the failure back; an incident already withdrawn has had its
+    actions undone once, and undoing them again would fight whoever has changed
+    them since. Both are refused by the same clause, and refused in the same
+    statement that would have made the change - a read followed by a write
+    would let two callers both find the incident live and both withdraw it.
+
+    The answer is what tells them apart, and callers act on it: the endpoint
+    reports it, and the walk's unwind runs only for the withdrawal that took
+    effect, so a second press is not a second undo.
+
+    The timeline row is written only where the status moved, for the reason
+    `record_note` exists at all - a row claiming the incident entered
+    `withdrawn` when it was already there is a claim about the incident that is
+    not true.
+    """
+    still_going = [status for status in IncidentStatus if not status.is_terminal()]
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE incident SET status = %s, ended_at = now() "
+            " WHERE id = %s AND status = ANY(%s)",
+            (IncidentStatus.WITHDRAWN, incident_id, still_going),
+        )
+        withdrawn = cursor.rowcount == 1
+
+        if withdrawn:
+            cursor.execute(
+                "INSERT INTO timeline_event (incident_id, to_status, actor, action) "
+                "VALUES (%s, %s, %s, %s)",
+                (incident_id, IncidentStatus.WITHDRAWN, actor, "incident withdrawn"),
+            )
+    conn.commit()
+
+    return withdrawn
+
+
 def record_note(
     conn: psycopg.Connection,
     incident_id: str,

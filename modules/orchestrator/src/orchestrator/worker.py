@@ -13,6 +13,8 @@ from argus_core.db import connect
 
 from orchestrator.entrypoint import run_incident
 from orchestrator.repository import runs
+from orchestrator.unwinding import unwind_incident
+from orchestrator.withdrawal import IsStillWanted, is_still_wanted
 
 """The process that walks incidents.
 
@@ -32,11 +34,18 @@ logger = logging.getLogger(__name__)
 # a graph, a model or an MCP server behind it.
 type Walk = Callable[[str], None]
 
+# How an incident that ended without finishing is put back. Injected for the
+# same reason `Walk` is: what this module does with a run is assertable without
+# a flag provider behind it.
+type Unwind = Callable[[str], None]
+
 
 def take_one_run(conn: psycopg.Connection,
                  claimed_by: str,
                  lease: timedelta,
-                 walk: Walk = run_incident) -> bool:
+                 walk: Walk = run_incident,
+                 unwind: Unwind = unwind_incident,
+                 still_wanted: IsStillWanted = is_still_wanted) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
 
     Answers `False` for an empty queue rather than blocking on it, so the
@@ -46,6 +55,19 @@ def take_one_run(conn: psycopg.Connection,
     A walk that raises settles the run as failed and does not re-raise: one
     incident Argus could not finish must not stop it working on the next, and
     the failure is recorded where the incident can be read beside it.
+
+    The same question is asked either side of the walk, and three cases fall
+    out of the two. An incident withdrawn before anybody claimed it is never
+    walked - `run_incident`'s first act is to mark it `investigating`, which
+    would take an incident a human had ended and put it back on the board. One
+    withdrawn partway through is walked, stops at its next node boundary, and is
+    unwound on the way out. One nobody stopped is walked and leaves the world as
+    the walk left it.
+
+    Unwinding here rather than inside the walk because it is not part of
+    investigating anything: it is what the process does with an incident that
+    ended without finishing, and it has to happen for a run that was never
+    walked at all.
     """
     claimed = runs.claim(conn, claimed_by, lease)
 
@@ -53,7 +75,11 @@ def take_one_run(conn: psycopg.Connection,
         return False
 
     try:
-        walk(claimed.incident_id)
+        if still_wanted(claimed.incident_id):
+            walk(claimed.incident_id)
+
+        if not still_wanted(claimed.incident_id):
+            unwind(claimed.incident_id)
     except Exception as failure:
         logger.exception("run %s for incident %s failed",
                          claimed.id, claimed.incident_id)

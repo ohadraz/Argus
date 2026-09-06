@@ -39,3 +39,10 @@ def test_a_fixing_incident_is_still_going() -> None:
     # sits while Code-Fix looks for a permanent fix, so an incident in it is
     # one Argus is still working on.
     assert IncidentStatus.FIXING.is_terminal() is False
+
+
+@pytest.mark.unit
+def test_a_withdrawn_incident_has_nowhere_left_to_go() -> None:
+    # A human took the incident back. Argus stops, and unlike `fixing` there is
+    # nothing of Argus's still working on it.
+    assert IncidentStatus.WITHDRAWN.is_terminal() is True

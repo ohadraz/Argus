@@ -435,6 +435,61 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
 
 
 @pytest.mark.unit
+def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock
+) -> None:
+    # Withdrawn is not a verdict about the hypothesis. The action was taken and
+    # then abandoned, so nothing was measured - and marking the candidate tested
+    # would leave the incident claiming an explanation was ruled out by an
+    # experiment that never finished.
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor(),
+        about=a_determined_hypothesis(a_random_id()),
+    )
+    take.return_value = _an_outcome(Verdict.WITHDRAWN)
+
+    mitigation_node(an_action_taking_incident,
+                    take=take,
+                    complete_action=complete_action,
+                    record_action=record_action,
+                    record_outcome=record_outcome)
+
+    record_outcome.assert_not_called()
+
+
+@pytest.mark.unit
+def test_an_abandoned_action_still_records_what_would_put_it_back(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock
+) -> None:
+    # The candidate learns nothing, but the action row must: the flag is still
+    # changed, and the undo descriptor is the only record of what would restore
+    # it. Without it the withdrawal has nothing to unwind.
+    some_undo_descriptor = {"tool": "set_feature_flag", "was_enabled": True}
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor(),
+        about=a_determined_hypothesis(a_random_id()),
+    )
+    take.return_value = _an_outcome(
+        Verdict.WITHDRAWN, undo_descriptor=some_undo_descriptor
+    )
+
+    mitigation_node(an_action_taking_incident,
+                    take=take,
+                    complete_action=complete_action,
+                    record_action=record_action,
+                    record_outcome=record_outcome)
+
+    assert complete_action.call_args.kwargs["outcome"] == "withdrawn"
+    assert complete_action.call_args.kwargs["undo_descriptor"] == some_undo_descriptor
+
+
+@pytest.mark.unit
 def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
     take: MagicMock, 
     record_action: MagicMock, 

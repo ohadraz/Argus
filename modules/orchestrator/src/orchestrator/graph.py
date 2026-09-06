@@ -12,6 +12,7 @@ from agent_investigator import Findings
 from agent_investigator import investigate as _investigate
 from agent_mitigation import Action, Outcome, Verdict, propose_action, take_action
 from agent_mitigation.tools import (
+    StillWanted,
     argus_changed_flag_since,
     fetch_recent_flag_changes,
     utc_now,
@@ -52,6 +53,7 @@ from pydantic import BaseModel
 from orchestrator.postmortem import write_postmortem_for
 from orchestrator.publishing import record_call, record_event
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
+from orchestrator.withdrawal import IsStillWanted, is_still_wanted
 
 
 class Investigate(Protocol):
@@ -94,14 +96,17 @@ class FetchFlagChanges(Protocol):
 
 class TakeAction(Protocol):
     # The action is positional, so any callable naming it whatever it likes is
-    # one. The incident and the publisher are keyword-only and defaulted: they
-    # are what the action narrates itself against, and a caller with neither
-    # takes the same action and tells nobody about it.
+    # one. The rest are keyword-only and defaulted: the incident and the
+    # publisher are what the action narrates itself against, and `still_wanted`
+    # is how the wait for the service to answer hears that somebody stopped the
+    # walk. A caller with none of the three takes the same action, tells nobody,
+    # and is stopped by nothing.
     def __call__(
         self,
         action: Action,
         /,
         *,
+        still_wanted: StillWanted = ...,
         incident_id: str | None = None,
         publisher: Publisher = nobody,
     ) -> Outcome: ...
@@ -327,6 +332,7 @@ def with_status(
     transition_incident: TransitionIncident = _transition_incident,
     record_note: RecordNote = _record_note,
     publisher: Publisher = nobody,
+    still_wanted: IsStillWanted = is_still_wanted,
 ) -> Callable[..., dict[str, Any]]:
     """Wraps a node so that the status it implies is derived, written and
     published in one place (spec §7.1, §10).
@@ -352,8 +358,25 @@ def with_status(
     `narration` is popped rather than passed on. Left in the updates it would
     become a field of `IncidentState`, checkpointed with the incident forever,
     describing whichever node happened to run last.
+
+    It is also where a walk finds out it is no longer wanted, for the same
+    reason it is where a status is written: every node passes through here, so
+    one question asked once stops all of them. Asked before the node rather
+    than after - a node that has already toggled a flag cannot be stopped by
+    anything done with its return value.
+
+    The answer is reported into the state rather than swallowed. A node that
+    quietly did nothing leaves every field as it was, and the routers decide
+    from those fields - so the same route would be chosen again, and again,
+    until LangGraph's recursion limit ended the run as failed. `withdrawn` in
+    the state is what `stopping_when_withdrawn` reads to route out of the walk.
+    No transition is written for it: the row already says `withdrawn`, and
+    whoever withdrew it recorded that.
     """
     def run(state: IncidentState) -> dict[str, Any]:
+        if not still_wanted(state.incident_id):
+            return {"status": IncidentStatus.WITHDRAWN}
+
         updates = dict(node(state))
         narration = updates.pop("narration", None)
         next_status = status_after(state.model_copy(update=updates), max_rounds)
@@ -610,6 +633,35 @@ def _what_the_investigation_did(hypothesis: Hypothesis) -> str:
     return "hypothesis formed" if hypothesis.cause_type is not None else "insufficient evidence"
 
 
+WITHDRAWN_ROUTE = "withdrawn"
+
+
+def stopping_when_withdrawn(
+    route: Callable[[IncidentState], str]
+) -> Callable[[IncidentState], str]:
+    """Wraps a router so a withdrawn incident leaves the graph instead of
+    going round it again.
+
+    Applied at registration to every router, for the reason `with_status` is
+    applied to every node: five routers cannot each be trusted to remember, and
+    the one that forgot would be the loop. A withdrawn incident has nowhere to
+    go by definition, so this is the one routing decision that is the same
+    wherever in the walk it is asked.
+
+    The key is `withdrawn` rather than `END` itself, because LangGraph resolves
+    what a router returns through the mapping given to `add_conditional_edges` -
+    so every one of those mappings carries the entry, and the destination stays
+    stated where the rest of the graph's shape is.
+    """
+    def routed(state: IncidentState) -> str:
+        if state.status == IncidentStatus.WITHDRAWN:
+            return WITHDRAWN_ROUTE
+
+        return route(state)
+
+    return routed
+
+
 def route_after_investigation(state: IncidentState) -> str:
     return "mitigating" if state.status == IncidentStatus.MITIGATING else "escalated"
 
@@ -623,6 +675,7 @@ def mitigation_node(
     claimed_at: ActionClaimedAt = _action_claimed_at,
     change_landed: ChangeLanded = argus_changed_flag_since,
     record_outcome: RecordOutcome = _record_outcome,
+    still_wanted: IsStillWanted = is_still_wanted,
     publisher: Publisher = nobody,
 ) -> dict[str, Any]:
     """Performs the action the gate admitted, and records what came of it
@@ -680,8 +733,16 @@ def mitigation_node(
 
     # The incident and the publisher travel with the action, so the wait for
     # the service to answer - the longest silence in an incident - is narrated
-    # from inside Mitigation, where the looking actually happens.
-    result = take(state.proposed_action, incident_id=state.incident_id, publisher=publisher)
+    # from inside Mitigation, where the looking actually happens. So does the
+    # question of whether anybody still wants it: that wait is the one stretch
+    # long enough for somebody to give up on it, and the only place in the walk
+    # where a withdrawal is noticed anywhere but a node boundary.
+    result = take(
+        state.proposed_action,
+        still_wanted=partial(still_wanted, state.incident_id),
+        incident_id=state.incident_id,
+        publisher=publisher,
+    )
     outcome = str(result.verdict)
 
     publish(
@@ -709,7 +770,13 @@ def mitigation_node(
     # it belongs on the candidate's own row and not only on the timeline - a
     # list of explanations with no sign of which one the walk was on is a list
     # nobody can read the incident from.
-    if state.hypothesis is not None:
+    #
+    # Unless the attempt was abandoned, in which case nothing was measured and
+    # the candidate learns nothing. Marking it tested would leave the incident
+    # claiming an explanation was ruled out by an experiment that never
+    # finished. The action row above still carries the change and its undo,
+    # because the flag really was set and something has to put it back.
+    if state.hypothesis is not None and result.verdict is not Verdict.WITHDRAWN:
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
 
     return {
@@ -1158,10 +1225,18 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[In
     graph.add_node("postmortem", deciding_status(postmortem_node, Actor.POSTMORTEM))
 
     graph.add_edge(START, "investigator")
+    # Every router is wrapped so a withdrawn incident leaves the graph from
+    # wherever it happens to be, and every mapping carries the destination for
+    # that - the walk is over, and the nodes that write an ending are for
+    # endings Argus reached.
     graph.add_conditional_edges(
         "investigator",
-        route_after_investigation,
-        {"mitigating": "mitigation_proposal", "escalated": "communicator"},
+        stopping_when_withdrawn(route_after_investigation),
+        {
+            "mitigating": "mitigation_proposal",
+            "escalated": "communicator",
+            WITHDRAWN_ROUTE: END,
+        },
     )
     # The gate stands between the proposal and the call that performs it
     # (spec §13) - not at the start of the graph, where it would guard nothing
@@ -1169,16 +1244,21 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[In
     graph.add_edge("mitigation_proposal", "tier_gate")
     graph.add_conditional_edges(
         "tier_gate",
-        route_after_gate,
-        {"mitigating": "mitigation", "next_candidate": "next_candidate"},
+        stopping_when_withdrawn(route_after_gate),
+        {
+            "mitigating": "mitigation",
+            "next_candidate": "next_candidate",
+            WITHDRAWN_ROUTE: END,
+        },
     )
     graph.add_conditional_edges(
         "mitigation",
-        route_after_mitigation,
+        stopping_when_withdrawn(route_after_mitigation),
         {
             "resolved": "postmortem",
             "next_candidate": "next_candidate",
             "escalated": "communicator",
+            WITHDRAWN_ROUTE: END,
         },
     )
     # The loop. An attempt that settled nothing goes back to the proposal node
@@ -1187,17 +1267,22 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[In
     # out of moves" actually means.
     graph.add_conditional_edges(
         "next_candidate",
-        route_after_next_candidate,
+        stopping_when_withdrawn(route_after_next_candidate),
         {
             "mitigating": "mitigation_proposal",
             "investigating": "investigator",
             "fixing": "codefix",
+            WITHDRAWN_ROUTE: END,
         },
     )
     graph.add_conditional_edges(
         "codefix",
-        route_after_codefix,
-        {"resolved": "postmortem", "escalated": "communicator"},
+        stopping_when_withdrawn(route_after_codefix),
+        {
+            "resolved": "postmortem",
+            "escalated": "communicator",
+            WITHDRAWN_ROUTE: END,
+        },
     )
     graph.add_edge("communicator", "postmortem")
     graph.add_edge("postmortem", END)

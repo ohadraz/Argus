@@ -9,6 +9,8 @@ from orchestrator.graph import (
     route_after_gate,
     route_after_investigation,
     route_after_mitigation,
+    route_after_next_candidate,
+    stopping_when_withdrawn,
 )
 
 
@@ -59,6 +61,40 @@ def test_route_after_mitigation_escalates_otherwise() -> None:
 def test_route_after_codefix_resolves_only_when_resolved() -> None:
     assert route_after_codefix(_a_state("resolved")) == "resolved"
     assert route_after_codefix(_a_state("fixing")) == "escalated"
+
+
+@pytest.mark.unit
+def test_a_withdrawn_incident_is_routed_out_of_the_walk() -> None:
+    # The routers decide from the state, and a node that did nothing changed
+    # none - so a withdrawn incident would be sent round the same loop forever,
+    # until LangGraph's recursion limit recorded the run as failed. The way out
+    # is the one thing about a withdrawn incident that is true at every point in
+    # the graph: there is nowhere left to go.
+    routed = stopping_when_withdrawn(route_after_mitigation)
+
+    assert routed(_a_state("withdrawn")) == "withdrawn"
+
+
+@pytest.mark.unit
+def test_a_live_incident_is_routed_by_the_router_it_wraps() -> None:
+    routed = stopping_when_withdrawn(route_after_mitigation)
+
+    assert routed(_a_state("resolved")) == "resolved"
+
+
+@pytest.mark.unit
+def test_every_router_stops_a_withdrawn_incident_the_same_way() -> None:
+    # Wrapped at registration rather than checked inside each router, for the
+    # reason every node is wrapped: five of them cannot each be trusted to
+    # remember, and the one that forgot would be the loop.
+    for route in (
+        route_after_investigation,
+        route_after_gate,
+        route_after_mitigation,
+        route_after_next_candidate,
+        route_after_codefix,
+    ):
+        assert stopping_when_withdrawn(route)(_a_state("withdrawn")) == "withdrawn"
 
 
 def _an_action() -> Action:

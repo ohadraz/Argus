@@ -8,12 +8,14 @@ from typing import Any
 
 import psycopg
 from argus_core.db import connect
+from argus_core.models.incident_status import IncidentStatus
 from argus_core.schema import create_schema
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from orchestrator.intake import start_incident
+from orchestrator.withdrawal import withdraw_incident
 
 from argus_web import reads
 from argus_web.grafana import parse_grafana_alert
@@ -84,6 +86,35 @@ def receive_alert(payload: dict[str, Any]) -> dict[str, str]:
     alert = parse_grafana_alert(payload)
     incident_id = start_incident(alert)
     return {"incident_id": incident_id}
+
+
+@app.post("/incidents/{incident_id}/withdraw")
+def withdraw(incident_id: str) -> dict[str, str]:
+    """Takes an incident back from Argus, at somebody's say-so.
+
+    The one thing this application exposes that changes an incident, and it is
+    one because it is the human's own act rather than Argus's: it stops the
+    response and puts back what the response changed. Everything else here
+    renders what was recorded.
+
+    It decides nothing all the same. The incident is named and the Orchestrator
+    answers; whether a withdrawal is permitted is a fact about the incident, and
+    the incident does not live in this process.
+
+    A refusal is a `409` rather than a quiet success. An incident that has
+    already ended cannot be stopped, and answering as though it had been would
+    have somebody believe they had taken back a mitigation that is still
+    holding the service up.
+    """
+    with connect() as conn:
+        _an_incident_or_404(conn, incident_id)
+
+    if not withdraw_incident(incident_id):
+        raise HTTPException(
+            status_code=409, detail=f"incident {incident_id} has already ended"
+        )
+
+    return {"incident_id": incident_id, "status": IncidentStatus.WITHDRAWN}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -162,13 +193,21 @@ def incident_walk(request: Request, incident_id: str) -> HTMLResponse:
     Served on its own so a poll swaps exactly what can move. The fragment
     carries its own instruction to poll again, so an incident that has since
     finished answers without one and the polling stops - see `walk.html`.
+
+    `polled` tells the fragment it is the whole of the reply rather than part
+    of a page. The withdraw button lives in the sticky header and is refreshed
+    from here out of band, and an out-of-band swap only means anything in
+    content htmx is swapping in - rendered into the full page it would put a
+    second button on screen.
     """
     with connect() as conn:
         incident = _an_incident_or_404(conn, incident_id)
         story = reads.read_story(conn, incident_id)
 
     return templates.TemplateResponse(
-        request, "walk.html", {"incident": incident, "story": story}
+        request,
+        "walk.html",
+        {"incident": incident, "story": story, "polled": True},
     )
 
 

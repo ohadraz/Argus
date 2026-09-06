@@ -265,13 +265,26 @@ stateDiagram-v2
     fixing --> escalated: no code-level fix found after N iterations
     resolved --> [*]: postmortem generated
     escalated --> [*]: postmortem generated (partial) + human paged
+    acknowledged --> withdrawn: a human takes the incident back
+    investigating --> withdrawn: a human takes the incident back
+    mitigating --> withdrawn: a human takes the incident back
+    fixing --> withdrawn: a human takes the incident back
+    withdrawn --> [*]: every change Argus made put back
 ```
 
 What admits the walk is a *named* cause, not a confident one: a reversible mitigation taken alone, confirmed against the service and put back when it does not help costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
 
 `acknowledged` is where an incident sits between being accepted and being picked up: Argus has the alert and has committed to handling it, and the walk is queued for a worker (§7.1). It is a status rather than an event because it is the incident's own state and can last - a worker that is down leaves incidents there, and a screen reporting them as `investigating` would claim attention nobody is paying. The interval between it and `investigating` is how long the incident waited for a worker, which is the one duration the timeline could not otherwise report.
 
-`mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. Only `escalated` and `resolved` are terminal.
+`mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. `escalated`, `resolved` and `withdrawn` are terminal.
+
+`withdrawn` is the one status Argus does not decide. It is reachable from every phase the walk passes through, because the moment somebody wants the incident back is not one Argus gets to choose, and it is the only transition written with `Actor.HUMAN` - the single row about something Argus did not do. `status_after` never returns it for that reason: it is set from outside the walk, and the walk finds out by reading the incident back rather than by being told.
+
+Marking and stopping are separate, and the separation is what keeps one writer on an incident (§7.1). The endpoint that accepts the withdrawal only writes the status; the walk asks before each node whether the incident is still wanted, stops where it is not, and puts back what it changed itself. Asked *before* a node rather than after, since a node that has already toggled a flag cannot be stopped by anything done with its return value - and asked again inside Mitigation's wait for a service to recover, which is the one place a walk sits still long enough for the question to matter.
+
+Putting the changes back is compare-and-swap, never a blind restore: a flag is returned to the state Argus found it in only where it still holds what Argus wrote. One that holds anything else was changed by somebody after Argus changed it, and is theirs; the incident records that it was left as found. The same rule makes the unwind idempotent - a change already put back reads as somebody else's - and it means the world a withdrawal hands over is the one Argus was given, not a half-mitigated state nobody chose.
+
+Withdrawal is not a verdict. No postmortem is written for it: there was a response, it was stopped part-way, and a document summarising what Argus concluded would be summarising a conclusion that was never reached.
 
 Every transition is written as a paired `TimelineEvent` row, per the Orchestrator's single-writer rule (§7.1, §11.1). A status is written only when the incident enters it: the timeline is read as the account of where the incident has been, so a status set and overwritten by the next node is never recorded at all.
 

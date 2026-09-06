@@ -9,6 +9,7 @@
   {% if incident.alert.severity %}<span class="severity">{{ incident.alert.severity }}</span>{% endif %}
   <a class="incident-id" title="{{ incident.id }}">#{{ incident.id[:8] }}</a>
   <span class="when">opened {{ incident.created_at | utc }}</span>
+  {% include "withdraw.html" %}
 </p>
 {% if incident.alert.summary %}<p class="sub">{{ incident.alert.summary }}</p>{% endif %}
 

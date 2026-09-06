@@ -7,7 +7,13 @@ from unittest.mock import create_autospec
 
 import pytest
 from agent_mitigation import Action, Outcome, Verdict, mitigate, propose_action, take_action
-from agent_mitigation.tools import fetch_recent_flag_changes, fetch_recent_metrics, set_flag
+from agent_mitigation.tools import (
+    EnabledFlags,
+    StillWanted,
+    fetch_recent_flag_changes,
+    fetch_recent_metrics,
+    set_flag,
+)
 from argus_core.models.cause import CauseType
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
@@ -240,9 +246,72 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
+        enabled_flags=a_provider_where(DONT_CARE_FLAG, is_enabled=False)
     )
 
     assert outcome.verdict is Verdict.REFUTED
+
+
+@pytest.mark.unit
+def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
+    # Withdrawn is not refuted. The action was taken and then abandoned, so
+    # nothing was measured about it - and calling that "refuted" would record
+    # evidence against a hypothesis that was never tested.
+    tier = a_write_tier()
+
+    outcome = take_action(
+        an_action_setting(DONT_CARE_FLAG, enabled=False),
+        set_state=tier.set_state,
+        fetch_metrics=metrics_reading(a_still_failing_window()),
+        now=a_clock_frozen_at(ACTION_TIME),
+        sleep=dont_care_sleep,
+        still_wanted=nobody_wants_it_any_more(),
+    )
+
+    assert outcome.verdict is Verdict.WITHDRAWN
+
+
+@pytest.mark.unit
+def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() -> None:
+    # The window is minutes long and this loop wakes every ten seconds anyway,
+    # so the check costs nothing and the wait ends within one interval of the
+    # withdrawal instead of at the end of a window nobody is waiting for.
+    tier = a_write_tier()
+    metrics = create_autospec(fetch_recent_metrics)
+    metrics.side_effect = [a_still_failing_window(), a_still_failing_window()]
+
+    take_action(
+        an_action_setting(DONT_CARE_FLAG, enabled=False),
+        set_state=tier.set_state,
+        fetch_metrics=metrics,
+        now=a_clock_frozen_at(ACTION_TIME),
+        sleep=dont_care_sleep,
+        still_wanted=nobody_wants_it_any_more(),
+    )
+
+    assert metrics.call_count == 1
+
+
+@pytest.mark.unit
+def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
+    # Not undone here. Putting it back is the withdrawal's own job, done once
+    # for every action the incident took and only where the flag still holds
+    # what Argus wrote - a second undo in this function would be a second
+    # opinion about that.
+    some_flag = "monthly-spend-feature"
+    tier = a_write_tier_that_changed(some_flag, was_enabled=False)
+
+    outcome = take_action(
+        an_action_setting(some_flag, enabled=True),
+        set_state=tier.set_state,
+        fetch_metrics=metrics_reading(a_still_failing_window()),
+        now=a_clock_frozen_at(ACTION_TIME),
+        sleep=dont_care_sleep,
+        still_wanted=nobody_wants_it_any_more(),
+    )
+
+    tier.set_state.assert_called_once_with(some_flag, True)
+    assert outcome.undo_descriptor == an_undo_descriptor_for(some_flag, was_enabled=False)
 
 
 @pytest.mark.unit
@@ -280,6 +349,7 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
+        enabled_flags=a_provider_where(some_flag, is_enabled=True)
     )
 
     assert tier.set_state.call_args.args == (some_flag, False)
@@ -319,11 +389,73 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
+        enabled_flags=a_provider_where(some_flag, is_enabled=False)
     )
 
     assert outcome.verdict is Verdict.ESCALATED
     assert some_flag in outcome.detail
     assert some_undo_failure in outcome.detail
+
+
+@pytest.mark.unit
+def test_a_flag_changed_from_outside_is_left_as_found() -> None:
+    # Somebody changed the flag after Argus did. Putting it back would replace
+    # a deliberate human change with a state nobody chose - and would do it
+    # while claiming to be tidying up after itself.
+    some_flag = "monthly-spend-feature"
+    tier = a_write_tier_that_changed(some_flag, was_enabled=False)
+
+    take_action(
+        an_action_setting(some_flag, enabled=True),
+        set_state=tier.set_state,
+        fetch_metrics=metrics_reading(a_still_failing_window()),
+        now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+        sleep=dont_care_sleep,
+        enabled_flags=a_provider_where(some_flag, is_enabled=False),
+    )
+
+    tier.set_state.assert_called_once_with(some_flag, True)
+
+
+@pytest.mark.unit
+def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
+    # The verdict is still refuted - the service did not recover - but what was
+    # left behind is different, and only the detail can say so.
+    some_flag = "monthly-spend-feature"
+    tier = a_write_tier_that_changed(some_flag, was_enabled=False)
+
+    outcome = take_action(
+        an_action_setting(some_flag, enabled=True),
+        set_state=tier.set_state,
+        fetch_metrics=metrics_reading(a_still_failing_window()),
+        now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+        sleep=dont_care_sleep,
+        enabled_flags=a_provider_where(some_flag, is_enabled=False),
+    )
+
+    assert outcome.verdict is Verdict.REFUTED
+    assert some_flag in outcome.detail
+    assert "changed" in outcome.detail
+
+
+@pytest.mark.unit
+def test_a_flag_whose_state_cannot_be_read_is_not_written() -> None:
+    # Not established is not the same as unchanged. Writing on a reading that
+    # never came back is the blind restore this check exists to prevent.
+    some_flag = "monthly-spend-feature"
+    tier = a_write_tier_that_changed(some_flag, was_enabled=False)
+
+    outcome = take_action(
+        an_action_setting(some_flag, enabled=True),
+        set_state=tier.set_state,
+        fetch_metrics=metrics_reading(a_still_failing_window()),
+        now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+        sleep=dont_care_sleep,
+        enabled_flags=a_provider_that_cannot_be_read(),
+    )
+
+    tier.set_state.assert_called_once_with(some_flag, True)
+    assert outcome.verdict is Verdict.ESCALATED
 
 
 @pytest.mark.unit
@@ -523,3 +655,26 @@ def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
         )
         for offset, error_rate in enumerate(error_rates)
     ]
+
+
+def nobody_wants_it_any_more() -> StillWanted:
+    """A walk somebody stopped while it was waiting."""
+    def still_wanted() -> bool:
+        return False
+
+    return still_wanted
+
+
+def a_provider_where(flag: str, is_enabled: bool) -> EnabledFlags:
+    """What the flag provider currently reports for one flag."""
+    def enabled_flags() -> list[str]:
+        return [flag] if is_enabled else []
+
+    return enabled_flags
+
+
+def a_provider_that_cannot_be_read() -> EnabledFlags:
+    def enabled_flags() -> list[str]:
+        raise RuntimeError("the provider could not be reached")
+
+    return enabled_flags

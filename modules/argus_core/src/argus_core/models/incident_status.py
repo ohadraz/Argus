@@ -24,6 +24,12 @@ class IncidentStatus(StrEnum):
     RESOLVED = "resolved"
     FIXING = "fixing"
     ESCALATED = "escalated"
+    # A human took the incident back: they had it in hand, and Argus was told to
+    # stop. Its own status rather than a kind of escalation, because escalation
+    # is Argus running out of moves and handing over, and this is a handover
+    # nobody asked Argus for - the difference a reader of an incident's outcome
+    # most needs, and the one a shared status would erase.
+    WITHDRAWN = "withdrawn"
 
     def is_terminal(self) -> bool:
         """Whether the incident has anywhere left to go (spec §10).
@@ -42,8 +48,17 @@ class IncidentStatus(StrEnum):
         started rather than nothing is left. An incident sitting there is one a
         worker has yet to pick up, which is the state a page polling it most
         needs to keep polling through.
+
+        `withdrawn` is terminal for a reason neither of the other two share:
+        nothing is left because a human ended it, not because the walk did. It
+        is also the one status the walk itself reads back, since it is the only
+        way an incident can end that the walk's own state cannot tell it about.
         """
-        return self in (IncidentStatus.RESOLVED, IncidentStatus.ESCALATED)
+        return self in (
+            IncidentStatus.RESOLVED,
+            IncidentStatus.ESCALATED,
+            IncidentStatus.WITHDRAWN
+        )
 
 
 def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:

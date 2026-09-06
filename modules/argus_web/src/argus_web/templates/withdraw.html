@@ -1,0 +1,24 @@
+{# The one control Argus's screen offers, on both pages that can show a running
+   incident.
+
+   In the header line rather than beside the timeline, because that line is
+   sticky: an incident's tables scroll for pages, and a button to stop what is
+   happening is no use at the top of a page nobody is looking at any more.
+
+   Rendered into a slot that always exists, so the incident page's poll can
+   swap it out of band and the button goes away by itself the moment the
+   incident ends - a button offering to stop something already stopped would be
+   answered with a 409 nobody expected. The front page needs none of that: its
+   whole section is what the poll replaces.
+
+   It confirms first. Withdrawing ends an incident and puts back what Argus
+   changed, and neither is something to do by brushing a key. #}
+<span id="withdraw-slot" class="withdraw-slot"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if not incident.status.is_terminal() %}
+  <button class="withdraw"
+          data-withdraw="{{ incident.id }}"
+          hx-post="/incidents/{{ incident.id }}/withdraw"
+          hx-confirm="Stop Argus working on this incident, and put back what it changed?"
+          hx-swap="none">withdraw</button>
+  {% endif %}
+</span>

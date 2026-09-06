@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
-from typing import Any
 
 import psycopg
 import pytest
 from argus_core.db import connect
+from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
@@ -111,10 +112,116 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason() -> None
             ))
 
 
+@pytest.mark.integration
+def test_a_run_whose_incident_was_withdrawn_is_never_walked() -> None:
+    # Withdrawn before anybody took it. Walking it would start an investigation
+    # into an incident a human already has in hand - and `run_incident`'s first
+    # act is to mark it `investigating`, which would take a finished incident
+    # and put it back on the board.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    dont_care_actor = Actor.HUMAN
+    walked: list[str] = []
+
+    def walk_recording_what_it_was_given(incident_id: str) -> None:
+        walked.append(incident_id)
+
+    with connect() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incidents.withdraw(conn, incident_id, dont_care_actor)
+            ) \
+            .when(
+                worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_recording_what_it_was_given,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                )
+            ) \
+            .then(all_of(
+                _the_worker_reports_it_took_work(),
+                _nothing_was_walked(walked),
+                _the_run_is_done(conn, incident_id),
+            ))
+
+
+@pytest.mark.integration
+def test_a_withdrawn_incident_has_its_changes_put_back() -> None:
+    # The other half of stopping. A walk halted mid-flight has left production
+    # in a state it chose for a reason that no longer applies, and the run is
+    # not finished until that is put back.
+    dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    dont_care_actor = Actor.HUMAN
+    unwound: list[str] = []
+
+    with connect() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incidents.withdraw(conn, incident_id, dont_care_actor)
+            ) \
+            .when(
+                worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_must_not_be_called(),
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                )
+            ) \
+            .then(
+                _the_incident_unwound_was(unwound, incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards() -> None:
+    # The ordinary case, and the reason the question is asked twice: the walk
+    # was live when it was claimed and stopped somewhere in the middle, so
+    # nothing before it started could have known.
+    dont_care_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    dont_care_actor = Actor.HUMAN
+    unwound: list[str] = []
+
+    with connect() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        def walk_that_is_withdrawn_partway(withdrawn_id: str) -> None:
+            incidents.withdraw(conn, withdrawn_id, dont_care_actor)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_is_withdrawn_partway,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                )
+            ) \
+            .then(all_of(
+                _the_incident_unwound_was(unwound, incident_id),
+                _the_run_is_done(conn, incident_id),
+            ))
+
+
 def _the_run_is_failed(conn: psycopg.Connection,
                        incident_id: str,
-                       reason: str) -> Assertion[Any]:
-    def assertion(_took_work: Any) -> bool:
+                       reason: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
         run = runs.get_run_for_incident(conn, incident_id)
 
         if run is None:
@@ -138,8 +245,8 @@ def _the_run_is_failed(conn: psycopg.Connection,
 
 
 def _the_incident_was_not_called_resolved(conn: psycopg.Connection,
-                                          incident_id: str) -> Assertion[Any]:
-    def assertion(_took_work: Any) -> bool:
+                                          incident_id: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
         incident = incidents.get(conn, incident_id)
 
         if incident is None:
@@ -156,8 +263,8 @@ def _the_incident_was_not_called_resolved(conn: psycopg.Connection,
     return assertion
 
 
-def _the_worker_reports_it_took_work() -> Assertion[Any]:
-    def assertion(took_work: Any) -> bool:
+def _the_worker_reports_it_took_work() -> Assertion[bool]:
+    def assertion(took_work: bool) -> bool:
         if took_work is not True:
             raise AssertionError(
                 f"Expected the worker to report it took a run, got [{took_work!r}]."
@@ -168,8 +275,8 @@ def _the_worker_reports_it_took_work() -> Assertion[Any]:
     return assertion
 
 
-def _the_worker_reports_it_found_nothing() -> Assertion[Any]:
-    def assertion(took_work: Any) -> bool:
+def _the_worker_reports_it_found_nothing() -> Assertion[bool]:
+    def assertion(took_work: bool) -> bool:
         if took_work is not False:
             raise AssertionError(
                 f"Expected the worker to report an empty queue, got [{took_work!r}]."
@@ -180,8 +287,8 @@ def _the_worker_reports_it_found_nothing() -> Assertion[Any]:
     return assertion
 
 
-def _the_incident_walked_was(walked: list[str], incident_id: str) -> Assertion[Any]:
-    def assertion(_took_work: Any) -> bool:
+def _the_incident_walked_was(walked: list[str], incident_id: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
         if walked != [incident_id]:
             raise AssertionError(
                 f"Expected the worker to walk incident [{incident_id}] exactly "
@@ -193,8 +300,8 @@ def _the_incident_walked_was(walked: list[str], incident_id: str) -> Assertion[A
     return assertion
 
 
-def _the_run_is_done(conn: psycopg.Connection, incident_id: str) -> Assertion[Any]:
-    def assertion(_took_work: Any) -> bool:
+def _the_run_is_done(conn: psycopg.Connection, incident_id: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
         run = runs.get_run_for_incident(conn, incident_id)
 
         if run is None:
@@ -210,6 +317,48 @@ def _the_run_is_done(conn: psycopg.Connection, incident_id: str) -> Assertion[An
             raise AssertionError(
                 f"Expected a settled run to be held by nobody, got "
                 f"[{run.claimed_by}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_walk_that_must_not_be_called() -> Callable[[str], None]:
+    def walk(incident_id: str) -> None:
+        raise AssertionError(
+            f"Expected a withdrawn incident not to be walked, got [{incident_id}]."
+        )
+
+    return walk
+
+
+def _an_unwind_recording_what_it_was_given(unwound: list[str]) -> Callable[[str], None]:
+    def unwind(incident_id: str) -> None:
+        unwound.append(incident_id)
+
+    return unwind
+
+
+def _nothing_was_walked(walked: list[str]) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        if walked:
+            raise AssertionError(
+                f"Expected a withdrawn incident not to be walked, got {walked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_unwound_was(unwound: list[str],
+                              incident_id: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        if unwound != [incident_id]:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to be unwound exactly once, "
+                f"got {unwound}."
             )
 
         return True

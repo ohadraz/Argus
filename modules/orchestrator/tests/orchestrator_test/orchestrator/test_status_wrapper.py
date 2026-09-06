@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, cast
 from unittest.mock import MagicMock, create_autospec
 
@@ -13,6 +14,7 @@ from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from orchestrator import graph
 from orchestrator.graph import Narration, with_status
+from orchestrator.withdrawal import IsStillWanted
 
 """The one place a status is persisted, and the one place it is published.
 
@@ -21,11 +23,20 @@ stands and writes it down. Keeping that in a wrapper rather than in each node is
 what makes "a status is written only when the incident enters it" a property of
 the graph instead of a rule five nodes have to remember - and the rule was
 already being forgotten.
+
+It is also where the walk finds out it is no longer wanted. Every node the graph
+runs passes through here first, so one question asked in one place stops all of
+them - and asked before the node rather than after, because a node that has
+already toggled a flag cannot be stopped by anything this wrapper does with its
+return value.
 """
 
 SOME_MAX_ROUNDS = 3
 _AN_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 _SOME_INCIDENT_ID = "buki-123"
+
+_DONT_CARE_NARRATION = Narration(action="dont care")
+
 
 
 @pytest.fixture
@@ -181,13 +192,64 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
     assert updates["candidate_index"] == 0
 
 
+@pytest.mark.unit
+def test_a_withdrawn_incident_stops_the_node_before_it_runs(
+    transition_incident: MagicMock, record_note: MagicMock
+) -> None:
+    # Before, not after. A node that has already toggled a flag cannot be
+    # stopped by anything done with its return value, so the question is asked
+    # while there is still an answer worth having.
+    published: list[IncidentEvent] = []
+    ran: list[str] = []
+    a_node_that_would_have_acted = _a_node_that_records_being_run(ran)
+
+    updates = _run(
+        a_node_that_would_have_acted,
+        _an_incident_mitigating(),
+        still_wanted=_the_incident_was_withdrawn(),
+        transition_incident=transition_incident,
+        record_note=record_note,
+        publisher=published.append,
+    )
+
+    assert ran == []
+    assert updates == {"status": IncidentStatus.WITHDRAWN}
+    transition_incident.assert_not_called()
+    record_note.assert_not_called()
+    assert published == []
+
+
+@pytest.mark.unit
+def test_an_incident_nobody_has_is_not_walked_either(
+    transition_incident: MagicMock, record_note: MagicMock
+) -> None:
+    # An incident whose row is gone cannot want anything. Reading that as "still
+    # wanted" is how a walk goes on writing rows for an incident that no longer
+    # exists - which is exactly the state a suite leaves behind when it empties
+    # the database between cases.
+    ran: list[str] = []
+    a_node_that_would_have_acted = _a_node_that_records_being_run(ran)
+
+    _run(
+        a_node_that_would_have_acted,
+        _an_incident_mitigating(),
+        still_wanted=_there_is_no_such_incident(),
+        transition_incident=transition_incident,
+        record_note=record_note,
+    )
+
+    assert ran == []
+    transition_incident.assert_not_called()
+
+
 def _run(
-    node: Any,
+    node: Callable[[IncidentState], dict[str, Any]],
     state: IncidentState,
     transition_incident: MagicMock,
     record_note: MagicMock,
     actor: Actor = Actor.ORCHESTRATOR,
     publisher: Publisher = nobody,
+    still_wanted: IsStillWanted | None = None,
 ) -> dict[str, Any]:
     wrapped = with_status(
         node,
@@ -196,12 +258,41 @@ def _run(
         transition_incident=transition_incident,
         record_note=record_note,
         publisher=publisher,
+        still_wanted=still_wanted or _the_incident_is_still_wanted(),
     )
 
     return wrapped(state)
 
 
-_DONT_CARE_NARRATION = Narration(action="dont care")
+def _the_incident_is_still_wanted() -> IsStillWanted:
+    """Nobody has withdrawn it - which is every case but the two that say so.
+
+    Injected rather than left to default, because the real one reads the
+    incident back out of the database and a unit test has none.
+    """
+    def still_wanted(_incident_id: str) -> bool:
+        return True
+
+    return still_wanted
+
+
+def _the_incident_was_withdrawn() -> IsStillWanted:
+    def still_wanted(_incident_id: str) -> bool:
+        return False
+
+    return still_wanted
+
+
+def _there_is_no_such_incident() -> IsStillWanted:
+    """The same answer, for the different reason that there is no row at all.
+
+    Two helpers rather than one, because the cases are two: a walk that was
+    stopped, and a walk whose incident was taken out from under it.
+    """
+    def still_wanted(_incident_id: str) -> bool:
+        return False
+
+    return still_wanted
 
 
 def _a_node_returning(
@@ -211,6 +302,16 @@ def _a_node_returning(
     does with a return value rather than on any node's private reasoning."""
     def node(_state: IncidentState) -> dict[str, Any]:
         return {**updates, "narration": narration}
+
+    return node
+
+
+def _a_node_that_records_being_run(ran: list[str]) -> Callable[[IncidentState], dict[str, Any]]:
+    """A node that says it was reached, for the cases where it must not be."""
+    def node(state: IncidentState) -> dict[str, Any]:
+        ran.append(state.incident_id)
+
+        return {"proposed_action": None, "narration": _DONT_CARE_NARRATION}
 
     return node
 
