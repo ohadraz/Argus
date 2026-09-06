@@ -197,6 +197,90 @@ def test_recovery_is_not_claimed_before_a_minute_has_been_measured() -> None:
 
 
 @pytest.mark.unit
+def test_a_single_noisy_minute_after_the_action_is_not_a_relapse() -> None:
+    # The same rule `find_onset` already applies, asked of the other end: a lone
+    # departed minute is sampling noise that had already recovered by the next
+    # one. Without it here, a service that came back is called broken by one
+    # jittery minute - and since the window only grows, that minute never leaves
+    # it, so no amount of waiting clears the verdict and a correct mitigation is
+    # refuted.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_jittery_p95 = int(CALM_P95_MS * 1.4)
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_degradation_rate, some_degradation_rate]
+        + [some_steady_rate] * 4,
+        [CALM_P95_MS] * (CALM_MINUTES + 2)
+        + [CALM_P95_MS, some_jittery_p95, CALM_P95_MS, CALM_P95_MS]
+    )
+
+    the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
+
+    assert has_recovered_since(some_window, the_minute_after_the_action) is True
+
+
+@pytest.mark.unit
+def test_a_departure_that_holds_after_the_action_is_still_a_relapse() -> None:
+    # The other side of the same rule, and what stops it being a licence to
+    # ignore evidence: a service that departs and stays departed has not
+    # recovered, however briefly it looked as though it had.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_degradation_rate, some_degradation_rate]
+        + [some_steady_rate, some_degradation_rate, some_degradation_rate]
+    )
+
+    the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
+
+    assert has_recovered_since(some_window, the_minute_after_the_action) is False
+
+
+@pytest.mark.unit
+def test_a_minute_that_has_fallen_back_from_the_incident_is_recovery() -> None:
+    # The case that refutes correct mitigations in the real stack: a service
+    # that failed a third of its requests and now fails two in a hundred has
+    # recovered by any reading. Judging it against the baseline's own noise
+    # instead - which is where an onset is judged from - demands a return to
+    # indistinguishable-from-quiet, and a service still shedding the last of an
+    # incident never gets there inside the time it is given.
+    some_steady_rate = 0.005
+    some_incident_rate = some_steady_rate * 64
+    a_rate_most_of_the_way_back = some_steady_rate * 4
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_incident_rate, some_incident_rate]
+        + [a_rate_most_of_the_way_back]
+    )
+
+    the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
+
+    assert has_recovered_since(some_window, the_minute_after_the_action) is True
+
+
+@pytest.mark.unit
+def test_a_minute_still_near_the_incidents_own_level_is_not_recovery() -> None:
+    # The other side of it, and what stops the rule being "anything below the
+    # peak". A service that has come down by half is still having the incident,
+    # and calling that recovered would confirm a mitigation on the strength of
+    # an outage easing.
+    some_steady_rate = 0.005
+    some_incident_rate = some_steady_rate * 64
+    a_rate_barely_off_the_incident = some_incident_rate / 2
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_incident_rate, some_incident_rate]
+        + [a_rate_barely_off_the_incident]
+    )
+
+    the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
+
+    assert has_recovered_since(some_window, the_minute_after_the_action) is False
+
+
+@pytest.mark.unit
 def test_find_onset_ignores_an_earlier_departure_the_service_recovered_from() -> None:
     # The window is six hours wide and a quiet minute still wobbles, so a brief
     # departure hours before the alert is ordinary rather than the incident.

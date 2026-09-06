@@ -255,6 +255,18 @@ class Settings(BaseSettings):
     # little against noise and starts missing brief real incidents.
     anomaly_persistence_minutes: int = Field(default=2, ge=1)
 
+    # How far a minute has to have fallen back, as a fraction of the rise the
+    # incident made, before Mitigation calls it recovery. Starting an incident
+    # and ending one are asked of the same numbers and are not the same
+    # question: the onset is the first minute to leave the quiet stretch, and a
+    # service that has come down from a third of its requests failing to two in
+    # a hundred has visibly recovered while still sitting above that stretch's
+    # own noise. Judged there, a correct mitigation is refuted and put back.
+    #
+    # Below 1 by construction - at 1 this is the departure threshold again, and
+    # the failure it exists to prevent returns.
+    recovery_fraction_of_the_rise: float = Field(default=0.8, gt=0.0, lt=1.0)
+
     # Where deploy history is read from. The demo Target Service stands in for
     # a real Argo CD server, so the default points at it - but the adapter
     # makes the request a real Argo CD answers, and pointing these at one is

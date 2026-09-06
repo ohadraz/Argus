@@ -83,36 +83,109 @@ def earliest_bucket_is_anomalous(buckets: Sequence[MetricBucket]) -> bool:
 
 
 def has_recovered_since(buckets: Sequence[MetricBucket], moment: str) -> bool:
-    """Whether every minute from `moment` onwards sits at the window's baseline
+    """Whether the incident has subsided over the minutes from `moment` onwards
     (spec §7.3).
 
-    The same departure rule `find_onset` uses, asked of the end of the window
-    rather than its start: not "when did this begin" but "is it still going".
-    Mitigation asks it of the minutes after an action, so that a confirmed
-    verdict rests on the same judgement of a healthy minute that the
-    Investigator made of an unhealthy one - two agents disagreeing about that
-    would be two incidents.
+    Not the departure rule `find_onset` uses, and deliberately not. Starting an
+    incident and ending one are different questions asked of the same numbers:
+    an onset is the first minute that leaves the quiet stretch, and recovery is
+    the incident's own level falling away. Judging recovery on the onset's
+    threshold demands a return to indistinguishable-from-quiet, which a service
+    still shedding the last of an outage does not reach inside any time it is
+    given - and the mitigation that fixed it is then refuted and put back.
 
-    The baseline comes from the whole window, incident minutes included,
-    because that is what the later minutes have to be judged against. A window
-    of only post-action minutes has no departure to contrast with, and would
-    read any steady rate as healthy however elevated it was.
+    So a minute has recovered once it has fallen most of the way from the
+    incident's own level back towards the baseline. Both ends come from the
+    window: the baseline from its quiet half, the incident from the minutes
+    that departed. A window with no departure in it has no incident to have
+    recovered from, and every minute in it counts as recovered - which is the
+    right answer for the only caller, since Mitigation asks this of a window it
+    reached by way of an onset.
+
+    A lone departed minute is not a relapse, for the same reason `find_onset`
+    refuses to call one an onset: an incident is a state the service stays in,
+    and a single minute that departs has, by the next one, already come back.
+    Reading one as evidence against recovery would be worse here than there,
+    because the window Mitigation reads only grows - a minute that never leaves
+    it denies the verdict for as long as anyone waits, and a longer timeout
+    buys nothing.
 
     No minute at or after `moment` is **not** recovery. Absence of evidence
     would otherwise confirm a mitigation the instant it was taken, before the
     service had any chance to answer.
     """
-    departures = _departures(buckets)
+    still_the_incident = _minutes_still_at_the_incidents_level(buckets)
     since_moment = [
-        departed
-        for bucket, departed in zip(buckets, departures, strict=True)
+        elevated
+        for bucket, elevated in zip(buckets, still_the_incident, strict=True)
         if bucket.bucket_id >= moment
     ]
 
     if not since_moment:
         return False
 
-    return not any(since_moment)
+    return not _departs_for_long_enough_to_be_the_incident(since_moment)
+
+
+def _minutes_still_at_the_incidents_level(
+    buckets: Sequence[MetricBucket]
+) -> list[bool]:
+    """Whether each minute is still up at the incident's level, rather than
+    merely above the quiet stretch.
+
+    A fraction of the rise rather than a figure, for the reason the departure
+    rule is in units of the baseline's own spread: a service that fails a third
+    of its requests and one that doubles its latency have recovered by the same
+    proportion and by wildly different amounts.
+    """
+    error_rates = [bucket.error_rate for bucket in buckets]
+    latencies = [float(bucket.p95_ms) for bucket in buckets]
+    error_rate_ceiling = _subsided_threshold(error_rates)
+    latency_ceiling = _subsided_threshold(latencies)
+
+    return [
+        bucket.error_rate > error_rate_ceiling or bucket.p95_ms > latency_ceiling
+        for bucket in buckets
+    ]
+
+
+def _subsided_threshold(values: Sequence[float]) -> float:
+    """What a minute has to have fallen below to count as no longer the
+    incident.
+
+    Above the departure threshold by construction: a minute that never departed
+    has certainly subsided, so the floor here is the bar `find_onset` uses. On
+    a window with no incident in it the two are the same, and nothing is
+    reported as still elevated.
+    """
+    departed = _departure_threshold(values)
+    at_its_worst = max(values, default=departed)
+    subsided = get_settings().recovery_fraction_of_the_rise
+
+    return max(departed, at_its_worst - subsided * (at_its_worst - departed))
+
+
+def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool]) -> bool:
+    """Whether any run of departed minutes is long enough to be a state rather
+    than noise.
+
+    The same threshold `find_onset` anchors on, so the two agents agree about
+    what "still broken" means: a run that reaches
+    `anomaly_persistence_minutes`, or one still going when the window ends -
+    which has not failed to persist, it has yet to be given the chance.
+    """
+    required = get_settings().anomaly_persistence_minutes
+
+    for index, departed in enumerate(departures):
+        if not departed or (index > 0 and departures[index - 1]):
+            continue
+
+        length = _run_length_from(departures, index)
+
+        if length >= required or index + length == len(departures):
+            return True
+
+    return False
 
 
 def _departures(buckets: Sequence[MetricBucket]) -> list[bool]:
