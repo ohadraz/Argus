@@ -8,7 +8,7 @@ from unittest.mock import create_autospec
 import pytest
 from agent_mitigation import Action, Outcome, Verdict, mitigate, propose_action, take_action
 from agent_mitigation.tools import (
-    EnabledFlags,
+    ChangedFromOutside,
     StillWanted,
     fetch_recent_flag_changes,
     fetch_recent_metrics,
@@ -18,7 +18,7 @@ from argus_core.models.cause import CauseType
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.metrics import MetricBucket
-from argus_core.timestamps import to_iso_minute
+from argus_core.timestamps import to_iso, to_iso_minute
 
 
 @pytest.mark.unit
@@ -246,7 +246,7 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
-        enabled_flags=a_provider_where(DONT_CARE_FLAG, is_enabled=False)
+        changed_from_outside=nobody_changed_it()
     )
 
     assert outcome.verdict is Verdict.REFUTED
@@ -349,7 +349,7 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
-        enabled_flags=a_provider_where(some_flag, is_enabled=True)
+        changed_from_outside=nobody_changed_it()
     )
 
     assert tier.set_state.call_args.args == (some_flag, False)
@@ -389,7 +389,7 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
-        enabled_flags=a_provider_where(some_flag, is_enabled=False)
+        changed_from_outside=nobody_changed_it()
     )
 
     assert outcome.verdict is Verdict.ESCALATED
@@ -411,7 +411,7 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
-        enabled_flags=a_provider_where(some_flag, is_enabled=False),
+        changed_from_outside=somebody_changed_it()
     )
 
     tier.set_state.assert_called_once_with(some_flag, True)
@@ -430,7 +430,7 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
-        enabled_flags=a_provider_where(some_flag, is_enabled=False),
+        changed_from_outside=somebody_changed_it()
     )
 
     assert outcome.verdict is Verdict.REFUTED
@@ -439,7 +439,7 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
 
 
 @pytest.mark.unit
-def test_a_flag_whose_state_cannot_be_read_is_not_written() -> None:
+def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
     # Not established is not the same as unchanged. Writing on a reading that
     # never came back is the blind restore this check exists to prevent.
     some_flag = "monthly-spend-feature"
@@ -451,7 +451,7 @@ def test_a_flag_whose_state_cannot_be_read_is_not_written() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
         sleep=dont_care_sleep,
-        enabled_flags=a_provider_that_cannot_be_read(),
+        changed_from_outside=nobody_can_say()
     )
 
     tier.set_state.assert_called_once_with(some_flag, True)
@@ -550,6 +550,7 @@ def an_undo_descriptor_for(flag: str, was_enabled: bool = True) -> dict[str, Any
         "flag": flag,
         "environment": "production",
         "was_enabled": was_enabled,
+        "written_at": to_iso(ACTION_TIME),
     }
 
 
@@ -665,16 +666,30 @@ def nobody_wants_it_any_more() -> StillWanted:
     return still_wanted
 
 
-def a_provider_where(flag: str, is_enabled: bool) -> EnabledFlags:
-    """What the flag provider currently reports for one flag."""
-    def enabled_flags() -> list[str]:
-        return [flag] if is_enabled else []
+def nobody_changed_it() -> ChangedFromOutside:
+    """The provider's record shows nothing after Argus's own write."""
+    def changed_from_outside(_flag: str, _since: datetime) -> bool | None:
+        return False
 
-    return enabled_flags
+    return changed_from_outside
 
 
-def a_provider_that_cannot_be_read() -> EnabledFlags:
-    def enabled_flags() -> list[str]:
-        raise RuntimeError("the provider could not be reached")
+def somebody_changed_it() -> ChangedFromOutside:
+    """Somebody other than Argus is recorded as having changed the flag since.
 
-    return enabled_flags
+    What the flag currently reads is deliberately not part of this: it may well
+    still read as what Argus wrote, because the provider evaluates from a cache
+    and the change that matters is the newest thing there is.
+    """
+    def changed_from_outside(_flag: str, _since: datetime) -> bool | None:
+        return True
+
+    return changed_from_outside
+
+
+def nobody_can_say() -> ChangedFromOutside:
+    """The provider could not be asked, so neither answer is available."""
+    def changed_from_outside(_flag: str, _since: datetime) -> bool | None:
+        return None
+
+    return changed_from_outside

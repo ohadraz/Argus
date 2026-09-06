@@ -68,11 +68,11 @@ def unwind_incident(incident_id: str,
     """Puts back every change the incident made, and says what became of each.
 
     Nothing is filtered by what the walk made of an action. A change the walk
-    already put back reads as one somebody else changed - because the flag no
-    longer holds what Argus wrote - so it is left alone by the same check that
-    protects a human's deliberate change. That is what makes this safe to run
-    over an incident that had already tidied up after itself, and safe to run
-    twice.
+    already put back is put back again, to the state it is already in: the only
+    thing the provider's record shows since Argus wrote is Argus's own restore,
+    which is nobody else's decision to protect. That is what makes this safe to
+    run over an incident that had already tidied up after itself, and safe to
+    run twice.
 
     An action carrying no undo descriptor changed nothing: the gate refused it,
     or it could not be performed at all. Asking the provider about a flag nobody

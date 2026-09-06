@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from email.utils import format_datetime
 from typing import Any
 from unittest.mock import create_autospec
 
 import httpx
 import pytest
 from argus_core.config import Settings
+from argus_core.timestamps import to_iso
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from write_mcp_server.flag_state import FlagNotSet, evaluated_flags, set_flag
+
+DONT_CARE_FLAG = "dont-care-flag"
 
 
 @pytest.mark.unit
@@ -195,7 +200,51 @@ def test_switching_a_flag_on_records_that_it_had_been_off() -> None:
     assert undo["was_enabled"] is False
 
 
-DONT_CARE_FLAG = "dont-care-flag"
+@pytest.mark.unit
+def test_the_undo_descriptor_records_when_the_provider_recorded_the_write() -> None:
+    # The one fact the descriptor was missing, and the reason it needs it: an
+    # undo asks the provider what changed *since* Argus wrote, and a time taken
+    # from Argus's own clock would be compared against timestamps from the
+    # provider's. The write's own response carries the provider's.
+    dont_care_provider_url = "http://kuki.com/"
+    some_moment_the_provider_recorded = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
+    some_moment_in_wire_format = to_iso(some_moment_the_provider_recorded)
+    provider = a_flag_provider_reporting([])
+    provider.post.return_value = httpx.Response(
+        status_code=200,
+        json={},
+        headers={"Date": format_datetime(some_moment_the_provider_recorded, usegmt=True)},
+        request=httpx.Request("POST", dont_care_provider_url),
+    )
+
+    undo = set_flag(
+        DONT_CARE_FLAG,
+        enabled=False,
+        settings=some_settings(),
+        post=provider.post,
+        evaluate=provider.evaluate,
+    )
+
+    assert undo["written_at"] == some_moment_in_wire_format
+
+
+@pytest.mark.unit
+def test_a_provider_that_dates_nothing_leaves_the_moment_absent() -> None:
+    # Absent rather than filled in from this process's clock. A descriptor that
+    # carried Argus's own time would be compared against the provider's log and
+    # would be wrong by whatever the two clocks disagree by - and an undo can
+    # say it could not establish the state, which is one of its three answers.
+    provider = a_flag_provider_reporting([])
+
+    undo = set_flag(
+        DONT_CARE_FLAG,
+        enabled=False,
+        settings=some_settings(),
+        post=provider.post,
+        evaluate=provider.evaluate,
+    )
+
+    assert "written_at" not in undo
 
 
 class _FlagProvider:

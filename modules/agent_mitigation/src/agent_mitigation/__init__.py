@@ -15,7 +15,7 @@ from argus_core.events import (
     publish,
 )
 from argus_core.models.hypothesis import Hypothesis
-from argus_core.timestamps import to_iso_minute
+from argus_core.timestamps import parse_iso, to_iso_minute
 
 from agent_mitigation.actions import (
     REVERT_FEATURE_FLAG,
@@ -27,8 +27,8 @@ from agent_mitigation.actions import (
     propose_action,
 )
 from agent_mitigation.tools import (
+    ChangedFromOutside,
     Clock,
-    EnabledFlags,
     FlagChangeFetcher,
     FlagSetter,
     MetricsFetcher,
@@ -37,13 +37,9 @@ from agent_mitigation.tools import (
     fetch_recent_flag_changes,
     fetch_recent_metrics,
     set_flag,
+    somebody_else_changed_flag_since,
     utc_now,
 )
-
-# Aliased so the parameter it defaults can carry the name a caller writes -
-# `enabled_flags=` reads as what is being supplied, and the tool keeps the name
-# it has everywhere else.
-from agent_mitigation.tools import enabled_flags as read_enabled_flags
 
 __all__ = [
     "REVERT_FEATURE_FLAG",
@@ -83,7 +79,8 @@ def take_action(action: Action,
                 now: Clock = utc_now,
                 sleep: Sleeper = time.sleep,
                 still_wanted: StillWanted = _nobody_stopped_this_walk,
-                enabled_flags: EnabledFlags = read_enabled_flags,
+                changed_from_outside: ChangedFromOutside =
+                    somebody_else_changed_flag_since,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
@@ -132,8 +129,8 @@ def take_action(action: Action,
 
     # Left where it is, carrying what would put it back. Undoing it here would
     # be a second opinion about a decision the withdrawal makes once, for every
-    # action the incident took and only where the flag still holds what Argus
-    # wrote.
+    # action the incident took and only where nobody else has been in there
+    # since Argus wrote.
     if settled is Verdict.WITHDRAWN:
         return Outcome(
             verdict=Verdict.WITHDRAWN,
@@ -144,7 +141,7 @@ def take_action(action: Action,
             undo_descriptor=undo_descriptor,
         )
 
-    return _undone(action, undo_descriptor, set_state, enabled_flags)
+    return _undone(action, undo_descriptor, set_state, changed_from_outside)
 
 
 def mitigate(hypothesis: Hypothesis,
@@ -243,7 +240,8 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
 
 def undo_change(undo_descriptor: dict[str, Any],
                 set_state: FlagSetter = set_flag,
-                enabled_flags: EnabledFlags = read_enabled_flags) -> UndoAttempt:
+                changed_from_outside: ChangedFromOutside =
+                    somebody_else_changed_flag_since) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,
@@ -267,25 +265,32 @@ def undo_change(undo_descriptor: dict[str, Any],
     """
     flag = str(undo_descriptor["flag"])
     was_enabled = bool(undo_descriptor["was_enabled"])
-    # What Argus wrote, which is the only thing the flag can still be holding
-    # for this change to be Argus's to undo. Derived rather than stored: the
-    # descriptor records the state that existed before, and a write that set it
-    # to anything but the opposite of that would not have been this change.
-    argus_set_it_to = not was_enabled
+    written_at = undo_descriptor.get("written_at")
 
-    try:
-        holds_what_argus_wrote = (flag in enabled_flags()) == argus_set_it_to
-    except Exception as error:
+    if not written_at:
         return UndoAttempt(
             flag=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"whether flag [{flag}] still holds what Argus set could not be "
-                f"established, so it was not written: {error}"
+                f"flag [{flag}] was not written: the change does not record when "
+                f"Argus made it, so whether anybody has changed it since cannot "
+                f"be asked"
             ),
         )
 
-    if not holds_what_argus_wrote:
+    changed = changed_from_outside(flag, parse_iso(str(written_at)))
+
+    if changed is None:
+        return UndoAttempt(
+            flag=flag,
+            outcome=Undone.NOT_ESTABLISHED,
+            detail=(
+                f"whether anybody changed flag [{flag}] since Argus set it could "
+                f"not be established, so it was not written"
+            ),
+        )
+
+    if changed:
         return UndoAttempt(
             flag=flag,
             outcome=Undone.LEFT_AS_FOUND,
@@ -317,7 +322,7 @@ def undo_change(undo_descriptor: dict[str, Any],
 def _undone(action: Action,
             undo_descriptor: dict[str, Any],
             set_state: FlagSetter,
-            read_flags: EnabledFlags) -> Outcome:
+            changed_from_outside: ChangedFromOutside) -> Outcome:
     """Puts a refuted action back, and says so as a verdict.
 
     A refuted action was taken on a hypothesis the evidence has not borne out,
@@ -332,7 +337,7 @@ def _undone(action: Action,
     """
     was_enabled = bool(undo_descriptor["was_enabled"])
     taken = f"set flag [{action.flag}] {_state_name(action.enabled)}"
-    attempt = undo_change(undo_descriptor, set_state, read_flags)
+    attempt = undo_change(undo_descriptor, set_state, changed_from_outside)
 
     if attempt.outcome is Undone.NOT_ESTABLISHED:
         return Outcome(

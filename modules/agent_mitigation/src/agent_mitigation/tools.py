@@ -9,7 +9,7 @@ from argus_core.config import get_settings
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import to_iso
-from read_mcp_client import get_enabled_flags, get_metrics_summary
+from read_mcp_client import get_metrics_summary
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
 
 FlagChangeFetcher = Callable[[], list[FlagChange]]
@@ -28,10 +28,11 @@ Sleeper = Callable[[float], None]
 # to be told would be an agent that could look it up - which is a database this
 # module has no business holding an opinion about.
 StillWanted = Callable[[], bool]
-# The flags evaluating true right now, by name. What an undo consults before it
-# writes: a flag holding something Argus did not set is one somebody else has
-# changed since, and putting it back would overwrite them.
-EnabledFlags = Callable[[], list[str]]
+# Whether somebody other than Argus changed a flag since a given moment, or
+# `None` where nobody can say. What an undo consults before it writes: a change
+# made after Argus's own is somebody's deliberate decision, and putting the flag
+# back would replace it with a state nobody chose.
+ChangedFromOutside = Callable[[str, datetime], bool | None]
 
 
 def fetch_recent_flag_changes() -> list[FlagChange]:
@@ -91,6 +92,41 @@ def argus_changed_flag_since(
     return change_by_actor_to(flag, get_settings().unleash_actor, changes)
 
 
+def somebody_else_changed_flag_since(
+    flag: str,
+    since: datetime,
+    fetch: FlagChangesSince = get_recent_flag_changes,
+) -> bool | None:
+    """Whether anybody but Argus changed `flag` after `since`.
+
+    What an undo consults before it writes, and the mirror of the question
+    above: not "did my change land" but "has anybody been in here since it
+    did". The provider's event log answers it, and nothing else can - current
+    state cannot, because a flag somebody switched and switched back reads
+    exactly like one nobody touched, and the provider serves current state from
+    a cache that lags the change that matters most.
+
+    `None` means nobody can say: the provider could not be reached. A caller
+    must not read it as "nobody has been in here" - the two are the difference
+    between putting a change back and overwriting a person.
+
+    A deployment that attributes nothing - operator and agent sharing one
+    credential - answers `True`, because `changes_not_made_by` filters nothing
+    there and Argus's own write is then indistinguishable from somebody else's.
+    That is the safe direction: a flag left as found can be put back by hand,
+    and a human's deliberate change overwritten cannot be recovered at all.
+    """
+    try:
+        changes = fetch(since=to_iso(since))
+    except Exception:
+        return None
+
+    return any(
+        change.flag == flag
+        for change in changes_not_made_by(get_settings().unleash_actor, changes)
+    )
+
+
 def fetch_recent_metrics() -> list[MetricBucket]:
     """The service's metric buckets, over the retention the read tier holds.
 
@@ -111,17 +147,6 @@ def set_flag(flag: str, enabled: bool) -> dict[str, Any]:
     refuted mitigation be put back in whichever direction it went.
     """
     return set_feature_flag(flag=flag, enabled=enabled)
-
-
-def enabled_flags() -> list[str]:
-    """The flags evaluating true right now, read through the read tier.
-
-    A read, so it comes from the read server rather than the write one - the
-    undo asks what the world currently holds, which is a retrieval, and the
-    write tier's own copy of this exists only so it can confirm its own writes
-    without depending on another process.
-    """
-    return get_enabled_flags()
 
 
 def utc_now() -> datetime:
