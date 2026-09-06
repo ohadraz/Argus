@@ -109,4 +109,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .test_durations
           git commit -m "Record how long each e2e case took"
+
+          # The measurement takes twenty minutes, and a push landing on the
+          # branch in the meantime leaves this commit's base behind the remote.
+          # Rebasing puts it on whatever `main` became - the file is written
+          # whole by the run, so there is nothing here to conflict with.
+          git pull --rebase
           git push
