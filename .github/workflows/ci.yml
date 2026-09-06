@@ -89,6 +89,20 @@ jobs:
   e2e-replay:
     runs-on: ubuntu-latest
 
+    # One share of the suite per runner, each bringing up a stack of its own.
+    # These are long walks run one after another, so the wall-clock cost is the
+    # slowest share rather than the whole suite - and on a public repo a runner
+    # is free. Shares are by test count until a `.test_durations` is recorded,
+    # which is enough while no single walk dominates.
+    #
+    # `fail-fast: false` because a share that breaks says nothing about the
+    # others, and cancelling them would hide a second, different failure behind
+    # the first.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+
     # Every step runs from the Argus checkout, not the workspace root - see the
     # two-repo layout below. Same arrangement as `paid-suites.yml`, which needs
     # the identical stack.
@@ -123,7 +137,9 @@ jobs:
         run: uv sync --all-packages
 
       - name: e2e (replayed answers, no API key)
-        run: uv run python -m nox -s e2e_replay
+        # Anything after `--` reaches pytest, which is how this share is
+        # selected without the session knowing it is one of several.
+        run: uv run python -m nox -s e2e_replay -- --splits 3 --group ${{ matrix.shard }}
         env:
           # The credential that reads flag history and toggles a flag. Not a
           # secret: it is a token the Target Environment's compose seeds into

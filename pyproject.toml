@@ -9,6 +9,10 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio",
     "pytest-cov",
+    # Splits a suite across runners: `--splits N --group i` selects one share of
+    # the tests. CI shards `e2e_replay` with it, because that suite is one long
+    # walk after another and a runner is cheaper than the wait.
+    "pytest-split",
     "ruff",
     "mypy",
     "nox",

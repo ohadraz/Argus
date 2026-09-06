@@ -60,3 +60,12 @@ dist/
 #==============================================================================
 # Allow the .pre-commit-config.yaml file
 !.pre-commit-config.yaml
+
+
+#==============================================================================
+# Test timings (Whitelist)
+#==============================================================================
+# Written by `pytest-split --store-durations`, and tracked on purpose: CI reads
+# it to decide which e2e case goes to which runner, so a measurement nobody
+# committed leaves the shares split by test count instead of by time.
+!.test_durations

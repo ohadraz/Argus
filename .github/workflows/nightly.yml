@@ -9,6 +9,10 @@ name: Nightly Sweep
 # until something runs the whole set. This runs the whole set, unfiltered and
 # continuing past failures, so one morning report names every module that
 # broke rather than just the first.
+#
+# It is also the only place the e2e suite runs whole. `ci.yml` shards it across
+# three runners for wall-clock, and a share knows only its own third - so the
+# figures that tell those shares how to divide can be measured nowhere else.
 
 on:
   schedule:
@@ -18,8 +22,27 @@ on:
 jobs:
   full-sweep:
     runs-on: ubuntu-latest
+
+    # The module suites bring up a database of their own, and the compose file
+    # that describes it `include`s the Target Environment's - so this job needs
+    # the same two-repo layout the e2e jobs do. Without it every test that
+    # wants postgres fails before it runs, on a missing path rather than on
+    # anything about this repo.
+    defaults:
+      run:
+        working-directory: Argus
+
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out Argus
+        uses: actions/checkout@v7
+        with:
+          path: Argus
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v7
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: Argus-Demo-Target-App
 
       - uses: astral-sh/setup-uv@v10.0.1
 
@@ -31,3 +54,59 @@ jobs:
 
       - name: Guard e2e test placement
         run: uv run python -m nox -s guard_e2e_boundary
+
+  record-e2e-durations:
+    runs-on: ubuntu-latest
+
+    # Writes `.test_durations` back to the branch, which is the whole point of
+    # measuring it: `ci.yml` reads that file to decide which cases go to which
+    # runner, and a measurement nobody committed would leave the shares split
+    # by test count - which puts the one long walk beside eleven short ones.
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        working-directory: Argus
+
+    steps:
+      - name: Check out Argus
+        uses: actions/checkout@v7
+        with:
+          path: Argus
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v7
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: Argus-Demo-Target-App
+
+      - uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      # Unsharded, because a share can only time the cases it was given. This
+      # is the run that sees all of them.
+      - name: e2e (replayed answers), timing every case
+        run: uv run python -m nox -s e2e_replay -- --store-durations
+        env:
+          # The same fixture credential every job running the stack has to
+          # name - see `ci.yml` for why it has no default.
+          UNLEASH_ADMIN_TOKEN: "*:*.argus-agent-token"
+
+      # Committed only where the figures actually moved. A commit a night that
+      # says nothing is a commit a night somebody has to read past.
+      - name: Commit the durations where they changed
+        run: |
+          if git diff --quiet -- .test_durations; then
+            echo "durations unchanged"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .test_durations
+          git commit -m "Record how long each e2e case took"
+          git push
