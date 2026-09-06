@@ -92,8 +92,16 @@ jobs:
     # One share of the suite per runner, each bringing up a stack of its own.
     # These are long walks run one after another, so the wall-clock cost is the
     # slowest share rather than the whole suite - and on a public repo a runner
-    # is free. Shares are by test count until a `.test_durations` is recorded,
-    # which is enough while no single walk dominates.
+    # is free.
+    #
+    # Two shares, not more, and the reason is one test: the refuted-mitigation
+    # case waits out two verification windows and takes thirteen of the suite's
+    # twenty minutes. It cannot be divided, so it is the floor however many
+    # runners there are - and a third share would only take from the eleven
+    # short cases beside it. Worse, it takes nothing: the shares are contiguous
+    # chunks of the ordered suite balanced by recorded duration, so the long
+    # case exhausts the first chunk's budget, the second takes everything after
+    # it, and a third collects no test at all and fails on an empty run.
     #
     # `fail-fast: false` because a share that breaks says nothing about the
     # others, and cancelling them would hide a second, different failure behind
@@ -101,7 +109,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2]
 
     # Every step runs from the Argus checkout, not the workspace root - see the
     # two-repo layout below. Same arrangement as `paid-suites.yml`, which needs
@@ -139,7 +147,7 @@ jobs:
       - name: e2e (replayed answers, no API key)
         # Anything after `--` reaches pytest, which is how this share is
         # selected without the session knowing it is one of several.
-        run: uv run python -m nox -s e2e_replay -- --splits 3 --group ${{ matrix.shard }}
+        run: uv run python -m nox -s e2e_replay -- --splits 2 --group ${{ matrix.shard }}
         env:
           # The credential that reads flag history and toggles a flag. Not a
           # secret: it is a token the Target Environment's compose seeds into
