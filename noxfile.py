@@ -1,3 +1,4 @@
+import contextlib
 import os
 import signal
 import socket
@@ -700,10 +701,42 @@ def _run_against_the_stack(
             *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
             *session.posargs, external=True,
         )
+    except Exception:
+        # What the containers said, and only when something went wrong. The
+        # local services write to this session's own output and are therefore
+        # already in the log; the Target Service and the flag provider write
+        # into Docker, where a torn-down stack takes them with it. A failure
+        # explained by what the shop was serving is otherwise reconstructed by
+        # simulation, which is how a fixture bug spent a day looking like an
+        # agent bug.
+        #
+        # Before the teardown below, because `down -v` is what destroys them.
+        _the_containers_said_this(session)
+        raise
     finally:
         for process in reversed(started):
             _stop_service(process)
         session.run("docker", "compose", "down", "-v", external=True)
+
+
+def _the_containers_said_this(session: nox.Session) -> None:
+    """Dumps the stack's own logs, and never fails the session by trying.
+
+    Every line each container has, rather than a tail: this prints only where
+    something already failed, and a cap is a guess about which minute explains
+    it. The Target Service alone logs a health probe every two seconds, so any
+    round number is a truncation that hides the cause and looks like the whole
+    story.
+
+    A teardown that raised while explaining a failure would replace the failure
+    with itself - so a `docker` that cannot answer here is passed over in
+    silence, having nothing to add.
+    """
+    with contextlib.suppress(Exception):
+        session.run(
+            "docker", "compose", "logs", "--no-color", "--tail", "all",
+            external=True, success_codes=[0, 1],
+        )
 
 
 @nox.session
