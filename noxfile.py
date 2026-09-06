@@ -140,6 +140,88 @@ def test_all(session: nox.Session) -> None:
         session.error(f"Failed modules: {', '.join(failed_modules)}")
 
 @nox.session
+def sweep(session: nox.Session) -> None:
+    """
+    Registers `sweep` as a nox session, i.e., runnable via
+    `uv run python -m nox -s sweep`.
+    Runs every free suite at once - `lint`, `typecheck`, `guard_e2e_boundary`,
+    `test_all`, `integration` and `e2e_replay` - each in its own process, and
+    stops the lot the moment one of them fails.
+
+    They can share a machine because none of them shares infrastructure: each
+    brings up a database under a compose project of its own, and the two that
+    want an Anthropic double bind different ports (`_INTEGRATION_STACK`,
+    `_MODULE_SUITE_STACK`). Sequentially this is the better part of half an
+    hour, almost all of it `e2e_replay` waiting on walks.
+
+    Stopping the rest on the first failure is the point rather than a
+    convenience. The answer to "is this branch good" is already known once one
+    suite says no, and eighteen further minutes of e2e output would bury the
+    thing that actually broke.
+    """
+    running = {name: _start_service(["-m", "nox", "-s", name]) for name in _SWEEP}
+
+    try:
+        broke = _the_first_to_fail(running)
+    finally:
+        stopped = _stop_the_rest(running)
+
+    if broke is not None:
+        session.error(
+            f"{broke} failed"
+            + (f"; {', '.join(stopped)} stopped without a verdict" if stopped else "")
+        )
+
+
+# What a sweep runs. Every suite that costs nothing and needs no key - the same
+# set CI runs on a push, which is what makes a green sweep mean something
+# before the push rather than after it.
+_SWEEP = ["lint", "typecheck", "guard_e2e_boundary", "test_all", "integration",
+          "e2e_replay"]
+
+# How often a sweep looks at its children. Long enough that watching is free,
+# short enough that a failure stops the others while they still have most of
+# their work ahead of them.
+_SECONDS_BETWEEN_SWEEP_LOOKS = 2.0
+
+
+def _the_first_to_fail(running: dict[str, subprocess.Popen[bytes]]) -> str | None:
+    """The name of the first suite to exit non-zero, or `None` if all passed.
+
+    Removes each suite from `running` as it finishes, so what is left when this
+    returns is exactly what still has to be stopped - and a suite that finished
+    on its own is never signalled, which would otherwise report a passing suite
+    as killed.
+    """
+    while running:
+        for name, process in list(running.items()):
+            if process.poll() is None:
+                continue
+
+            del running[name]
+
+            if process.returncode != 0:
+                return name
+
+        time.sleep(_SECONDS_BETWEEN_SWEEP_LOOKS)
+
+    return None
+
+
+def _stop_the_rest(running: dict[str, subprocess.Popen[bytes]]) -> list[str]:
+    """Stops whatever is still going, and says what it stopped.
+
+    Named rather than counted, because the distinction matters in the report: a
+    suite that was stopped has no verdict, and a log ending mid-run must not be
+    read as a second failure.
+    """
+    for process in running.values():
+        _stop_service(process)
+
+    return list(running)
+
+
+@nox.session
 def guard_e2e_boundary(session: nox.Session) -> None:
     """
     Registers `guard_e2e_boundary` as a nox session, i.e., runnable via
@@ -273,10 +355,26 @@ def _start_service(
     with the console: the console is set to accept what Argus says.
     """
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+
     return subprocess.Popen(
         [_venv_python_binary(), *module_args],
         creationflags=creationflags,
-        env={**os.environ, "PYTHONIOENCODING": "utf-8", **(env or {})},
+        # The POSIX half of the same idea, and the reason both are set here
+        # rather than at one call site: a child of its own gets signalled
+        # together with everything it spawned. A child that is itself a runner
+        # - a nox session driving pytest and docker - survives a signal aimed
+        # at it alone, and its grandchildren carry on holding the ports the
+        # next run needs.
+        start_new_session=sys.platform != "win32",
+        # Unbuffered for the same reason it is UTF-8: a child's stdout here is
+        # whatever the session inherited, and a redirected session is a file
+        # rather than a console - which Python block-buffers at 8KB. A suite
+        # that prints a few lines a minute then says nothing for twenty, and a
+        # run killed before it flushed says nothing at all.
+        env={**os.environ,
+             "PYTHONIOENCODING": "utf-8",
+             "PYTHONUNBUFFERED": "1",
+             **(env or {})},
     )
 
 
@@ -289,12 +387,19 @@ def _stop_service(process: subprocess.Popen[bytes], timeout: float = 10.0) -> No
     if sys.platform == "win32":
         process.send_signal(signal.CTRL_BREAK_EVENT)
     else:
-        process.terminate()
+        # The whole group, not the one process. `terminate()` would reach the
+        # child alone, and a child that spawned its own - pytest, docker - would
+        # leave them running with nothing left to stop them by.
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
 
     try:
         process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if sys.platform == "win32":
+            process.kill()
+        else:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+
         process.wait()
 
 
