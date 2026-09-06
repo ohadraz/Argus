@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import psycopg
 
-# Mirrors spec §11.1's ERD (INCIDENT/HYPOTHESIS/ACTION/TIMELINE_EVENT/POSTMORTEM).
-# `timeline_event.to_status` is an implementation addition beyond §11.1's sketch,
-# needed to record which status each transition landed on (spec §10, §25);
-# `created_at` plays the role of §11.1's conceptual `ts` field.
+# Mirrors spec §11.1's ERD: INCIDENT, HYPOTHESIS, ACTION, INCIDENT_RUN,
+# TIMELINE_EVENT, INCIDENT_EVENT, POSTMORTEM, REPLAY_LOG - and EXCHANGE_RATE,
+# which belongs to no incident and hangs off nothing there either.
+
 DDL = """
 CREATE TABLE IF NOT EXISTS incident (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS incident (
 
 -- `id` keeps its default for hand-written rows, but the application supplies
 -- one: identity belongs to the entity, not to the table (argus_core.ids).
--- `summary` is §11.1's `description`, renamed to match the domain model.
 CREATE TABLE IF NOT EXISTS hypothesis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
@@ -35,21 +34,20 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     result TEXT,
     confidence FLOAT,
     -- What the named cause is about - for a flag toggle, the flag itself.
-    -- Nullable: not every cause names something this system can identify, and
-    -- a hypothesis recorded before this column existed named nothing either.
+    -- Nullable: not every cause names something this system can identify.
     subject TEXT,
     -- Where this hypothesis came in its investigation's ordering, best first.
-    -- Defaulted rather than nullable: a row written before this column existed
-    -- was the only hypothesis its investigation had, which is rank 1.
+    -- Defaulted rather than nullable: every hypothesis has a rank, and a row
+    -- that does not say otherwise is first.
     rank INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- One row per action, written before the action is taken rather than after:
--- the insert is what claims the right to take it. The unique constraint below
--- is therefore the guard against a resumed walk acting twice - a second insert
--- for the same candidate fails, and the failure is how the walk that lost
--- learns the action is already somebody's.
+-- the insert is what claims the right to take it. The unique index below is
+-- therefore the guard against a resumed walk acting twice - a second insert
+-- for the same candidate writes nothing, and writing nothing is how the walk
+-- that lost learns the action is already somebody's.
 CREATE TABLE IF NOT EXISTS action (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
@@ -72,9 +70,11 @@ CREATE TABLE IF NOT EXISTS action (
 );
 
 -- What makes one action one action. A partial index rather than a table
--- constraint, because `hypothesis_id` is nullable and two actions belonging to
--- no candidate are two actions - where two claiming the same candidate are one
--- attempt written twice.
+-- constraint, because the insert that claims a candidate names the same
+-- predicate in its `ON CONFLICT ... WHERE hypothesis_id IS NOT NULL` arbiter,
+-- and that only infers a partial index. It says the same thing either way:
+-- two actions belonging to no candidate are two actions, where two claiming
+-- the same candidate are one attempt written twice.
 CREATE UNIQUE INDEX IF NOT EXISTS action_once_per_candidate_idx
     ON action (incident_id, hypothesis_id)
     WHERE hypothesis_id IS NOT NULL;
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS timeline_event (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- What Argus did, as it did it (spec §4 principle 6) - the account beside the
+-- What Argus did, as it did it (spec §4 principle 8) - the account beside the
 -- conclusions the other tables hold. Append-only: a line of the story is never
 -- amended, because an account that can be edited afterwards is not one.
 --
@@ -153,7 +153,8 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- Three figures rather than one blob, and three rather than two: what the
     -- incident cost the business, what it cost the humans, and what it cost
     -- Argus are different quantities in different units, measured by different
-    -- means. Only the first is an estimate.
+    -- means. The first two are estimates and carry their assumptions; the
+    -- minutes and the tokens are measurements (spec §21.3).
     --
     -- Columns because the eval tier aggregates them - tokens across a
     -- benchmark run, minutes across a quarter - and a JSON blob would mean
@@ -172,7 +173,8 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- Person-minutes, and the people they were spread across. Both, because
     -- one number cannot say the difference between a night one engineer lost
     -- and an hour four of them lost together - and because the eval tier
-    -- aggregates responders as readily as it aggregates minutes.
+    -- (spec §21) will aggregate responders as readily as it aggregates
+    -- minutes.
     engineer_minutes INTEGER,
     responders INTEGER,
     -- What those responders were called by their profession, never who they
@@ -245,9 +247,10 @@ CREATE TABLE IF NOT EXISTS incident_run (
     -- connection and leaves the row looking held by nobody.
     claimed_by TEXT,
     leased_until TIMESTAMPTZ,
-    -- Why a run stopped, where it stopped badly. An incident whose run failed
-    -- is visibly unfinished; the same incident with the reason only in a log
-    -- is indistinguishable from one still being worked.
+    -- Why a run stopped, where it stopped badly. Recorded against the run
+    -- rather than left in a log: an incident whose walk failed is then
+    -- distinguishable from one still being worked by asking the database,
+    -- which is the question every reader of a run actually asks.
     failure_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

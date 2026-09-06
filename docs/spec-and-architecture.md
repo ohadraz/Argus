@@ -314,6 +314,7 @@ erDiagram
         uuid id PK
         jsonb alert_payload
         timestamp created_at
+        timestamp ended_at
         enum status
         text slack_channel_id
         text pr_url
@@ -322,7 +323,10 @@ erDiagram
         uuid id PK
         uuid incident_id FK
         text cause_type
-        text description
+        text summary
+        text supporting_evidence
+        text subject
+        int rank
         bool tested
         enum result
         float confidence
@@ -331,6 +335,7 @@ erDiagram
     ACTION {
         uuid id PK
         uuid incident_id FK
+        uuid hypothesis_id FK
         text type
         text target
         bool reversible
@@ -352,11 +357,12 @@ erDiagram
     TIMELINE_EVENT {
         uuid id PK
         uuid incident_id FK
-        timestamp ts
+        enum to_status
         text actor
         text action
         text result
         float confidence
+        timestamp created_at
     }
     INCIDENT_EVENT {
         bigserial seq PK
@@ -383,9 +389,11 @@ erDiagram
         jsonb assumptions
         text executive_summary
         bool checklist_complete
+        timestamp created_at
     }
     REPLAY_LOG {
-        uuid id PK
+        bigserial seq PK
+        uuid id UK
         uuid incident_id FK
         enum call_type
         text target
@@ -393,6 +401,13 @@ erDiagram
         jsonb response
         int latency_ms
         timestamp at
+    }
+    EXCHANGE_RATE {
+        text base PK
+        text currency PK
+        date published_on PK
+        numeric per_unit
+        timestamp fetched_at
     }
 ```
 
@@ -405,6 +420,8 @@ An `ACTION` row is written *before* its action is taken, and one incident has at
 `INCIDENT_RUN` is the queue between the two processes: `argus_web` writes a row when it accepts an alert, and a worker claims it to walk the graph (§7.1). It is beside `INCIDENT` rather than inside it because an incident's status says what Argus knows about the failure while a run's state says whether anything is currently thinking about it - folding the two together would make "nobody is walking this" and "this is resolved" the same column. `claimed_by` and `leased_until` are what distinguish a worker still walking a run from one that stopped: a lock cannot, since a dead worker's lock dies with its connection.
 
 `INCIDENT_EVENT` is the account of the work rather than a record of its conclusions (§4 principle 8): one append-only row per thing that happened, in the order it was published, carrying the whole payload it is about - every bucket a metrics read returned, every log line, every recorded flag change. The payload is stored rather than a reference to fetch again, because the log store moves on and a page that re-fetched would show something Argus never saw. `kind` names the event and `payload` is that event's own shape, so a new kind costs a model rather than a migration; `seq` orders two events that share a timestamp. Rows are appended by the single subscriber that listens to the publishers (§4 principle 8) and are never updated, which is what leaves the single-writer rule intact - the four domain tables keep the Orchestrator as their one writer, and this table has one of its own.
+
+`EXCHANGE_RATE` belongs to no incident, and is the only table here that does not - which is why it hangs off nothing in the diagram. It is a cache of what a currency was worth on a day, read when an incident's loss is reported in a currency the takings were not measured in. Keyed by the day rather than the moment: a published rate is a fact about a date, so two incidents on the same day are priced identically however far apart they ran, and a rate already fetched is never fetched twice. `fetched_at` records when Argus asked, which is a different question from when the rate was published and the one to ask when a figure looks stale.
 
 `REPLAY_LOG` serves a different purpose again: it's Argus's own eval infrastructure (Design Principle 6, §4), not incident-domain state, written at a different granularity - one row per LLM completion or MCP call. It's written inside the Orchestrator's process, from whichever agent node makes the call, via a shared instrumented client in `argus_core` - never by the MCP servers themselves, keeping them as pure as §13's MCP-server-boundary guardrail requires.
 
