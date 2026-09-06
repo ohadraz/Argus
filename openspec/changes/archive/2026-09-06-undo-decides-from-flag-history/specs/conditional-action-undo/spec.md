@@ -47,6 +47,8 @@ incident, overwriting them is precisely the thing being withdrawn from.
 - **THEN** nothing is written, and the outcome records that the state could not
   be established
 
+## ADDED Requirements
+
 ### Requirement: The record is asked from the moment Argus wrote
 
 The undo SHALL ask the provider what changed from the moment Argus's own write
