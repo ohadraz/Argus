@@ -35,13 +35,13 @@ def test_a_revision_history_entry_becomes_a_deploy_event() -> None:
                 SOME_APPLICATION,
                 window_start=a_while_before(some_deploy_minute),
                 window_end=a_while_after(some_deploy_minute),
-                fetch=argocd,
+                fetch=argocd
             )
         ) \
         .then(all_of(
             _the_deploys_are(some_revision),
             _every_deploy_is_of_kind(ChangeKind.DEPLOY),
-            _the_first_deploy_took_effect_at(some_deploy_minute),
+            _the_first_deploy_took_effect_at(some_deploy_minute)
         ))
 
 
@@ -66,12 +66,12 @@ def test_a_deploy_event_carries_who_deployed_it_and_from_where() -> None:
                 SOME_APPLICATION,
                 window_start=a_while_before(some_deploy_minute),
                 window_end=a_while_after(some_deploy_minute),
-                fetch=argocd,
+                fetch=argocd
             )
         ) \
         .then(all_of(
             _the_first_deploy_was_made_by(some_username),
-            _the_first_deploy_came_from(some_repo_url),
+            _the_first_deploy_came_from(some_repo_url)
         ))
 
 
@@ -97,7 +97,7 @@ def test_an_entry_without_a_deploy_start_time_still_maps() -> None:
                 SOME_APPLICATION,
                 window_start=a_while_before(some_deploy_minute),
                 window_end=a_while_after(some_deploy_minute),
-                fetch=argocd,
+                fetch=argocd
             )
         ) \
         .then(
@@ -122,7 +122,7 @@ def test_deploys_outside_the_window_are_discarded() -> None:
                 an_application_with(
                     a_deploy_of("deployed-before-the-window", at=a_while_before(window_start)),
                     a_deploy_of(the_revision_deployed_inside_the_window, at=some_deploy_minute),
-                    a_deploy_of("deployed-after-the-window", at=a_while_after(window_end)),
+                    a_deploy_of("deployed-after-the-window", at=a_while_after(window_end))
                 )
             )
         ) \
@@ -131,7 +131,7 @@ def test_deploys_outside_the_window_are_discarded() -> None:
                 SOME_APPLICATION,
                 window_start=window_start,
                 window_end=window_end,
-                fetch=argocd,
+                fetch=argocd
             )
         ) \
         .then(
@@ -157,7 +157,7 @@ def test_an_application_that_never_deployed_yields_no_events() -> None:
                 SOME_APPLICATION,
                 window_start=a_while_before(some_deploy_minute),
                 window_end=a_while_after(some_deploy_minute),
-                fetch=argocd,
+                fetch=argocd
             )
         ) \
         .then(
@@ -180,7 +180,7 @@ def test_a_configured_token_is_sent_as_a_bearer_credential() -> None:
             lambda: fetch_argocd_application(
                 SOME_APPLICATION,
                 settings=Settings(argocd_auth_token=some_token),
-                get=get,
+                get=get
             )
         ) \
         .then(
@@ -205,7 +205,7 @@ def test_no_configured_token_means_no_authorization_header() -> None:
             lambda: fetch_argocd_application(
                 SOME_APPLICATION,
                 settings=Settings(argocd_auth_token=no_token),
-                get=get,
+                get=get
             )
         ) \
         .then(
@@ -231,7 +231,7 @@ def test_the_request_goes_to_the_configured_application_path() -> None:
                 settings=Settings(
                     argocd_base_url=some_base_url, argocd_application_path=a_real_argocd_path
                 ),
-                get=get,
+                get=get
             )
         ) \
         .then(
@@ -256,9 +256,9 @@ def test_a_path_without_a_placeholder_is_used_as_written() -> None:
                 SOME_APPLICATION,
                 settings=Settings(
                     argocd_base_url=some_base_url,
-                    argocd_application_path=a_path_naming_no_application,
+                    argocd_application_path=a_path_naming_no_application
                 ),
-                get=get,
+                get=get
             )
         ) \
         .then(
@@ -336,7 +336,7 @@ def a_deploy_of(
     at: str,
     username: str = "kuki",
     repo_url: str = "https://github.com/kuki/k8s-configs",
-    reporting_a_start_time: bool = True,
+    reporting_a_start_time: bool = True
 ) -> dict[str, Any]:
     """One `status.history` entry, in Argo CD's own wire shape."""
     entry: dict[str, Any] = {
@@ -346,9 +346,9 @@ def a_deploy_of(
         "source": {
             "repoURL": repo_url,
             "path": "apps/target-service/production",
-            "targetRevision": "main",
+            "targetRevision": "main"
         },
-        "initiatedBy": {"username": username},
+        "initiatedBy": {"username": username}
     }
 
     if reporting_a_start_time:
@@ -360,7 +360,7 @@ def a_deploy_of(
 def an_application_with(*history: dict[str, Any]) -> dict[str, Any]:
     return {
         "metadata": {"name": SOME_APPLICATION, "namespace": "argocd"},
-        "status": {"history": list(history)},
+        "status": {"history": list(history)}
     }
 
 
@@ -369,7 +369,7 @@ def an_application_deployed_at(
     revision: str = "9f4c1e7b2a3d5c8e",
     username: str = "kuki",
     repo_url: str = "https://github.com/kuki/k8s-configs",
-    reporting_a_start_time: bool = True,
+    reporting_a_start_time: bool = True
 ) -> dict[str, Any]:
     return an_application_with(
         a_deploy_of(
@@ -377,7 +377,7 @@ def an_application_deployed_at(
             at=moment,
             username=username,
             repo_url=repo_url,
-            reporting_a_start_time=reporting_a_start_time,
+            reporting_a_start_time=reporting_a_start_time
         )
     )
 
@@ -386,7 +386,7 @@ def an_application_that_never_deployed() -> dict[str, Any]:
     # No `history` key at all, which is what Argo CD actually sends.
     return {
         "metadata": {"name": SOME_APPLICATION, "namespace": "argocd"},
-        "status": {},
+        "status": {}
     }
 
 

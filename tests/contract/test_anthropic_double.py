@@ -24,7 +24,7 @@ from argus_core.llm.adapters.anthropic_adapter import (
 # they live behind their own marker and not in `test_all`.
 needs_the_real_api = pytest.mark.skipif(
     not get_settings().anthropic_api_key,
-    reason="no ANTHROPIC_API_KEY: the real half of the contract cannot be checked",
+    reason="no ANTHROPIC_API_KEY: the real half of the contract cannot be checked"
 )
 
 SOME_MODEL_THAT_DOES_NOT_EXIST = "claude-not-a-real-model"
@@ -46,11 +46,11 @@ TOOL_THE_MODEL_MUST_USE_TO_ANSWER: ToolParam  = {
         "type": "object",
         "properties": {
             "window_start": {"type": "string"},
-            "window_end": {"type": "string"},
+            "window_end": {"type": "string"}
         },
         "required": ["window_start", "window_end"],
-        "additionalProperties": False,
-    },
+        "additionalProperties": False
+    }
 }
 
 
@@ -99,7 +99,7 @@ def test_the_real_api_still_answers_a_tool_call_with_a_tool_use_turn() -> None:
         model=MODEL,
         max_tokens=MAX_TOKENS,
         tools=[TOOL_THE_MODEL_MUST_USE_TO_ANSWER],
-        messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}],
+        messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
     )
 
     assert answer.stop_reason == TOOL_USE_STOP_REASON
@@ -129,7 +129,7 @@ def test_the_real_api_accepts_every_tool_the_investigator_offers() -> None:
         model=MODEL,
         max_tokens=ENOUGH_TO_SAY_ANYTHING,
         tools=[cast(ToolParam, tool.to_wire()) for tool in investigator_tools()],
-        messages=[{"role": "user", "content": "hi"}],
+        messages=[{"role": "user", "content": "hi"}]
     )
 
     assert answer.stop_reason is not None
@@ -158,7 +158,7 @@ def test_the_real_api_still_serves_a_repeated_prefix_from_cache() -> None:
             max_tokens=ENOUGH_TO_SAY_ANYTHING,
             cache_control=EPHEMERAL_CACHE,
             tools=offered,
-            messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}],
+            messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
         )
 
     wrote = ask()
@@ -191,7 +191,7 @@ def test_a_stored_tool_use_recording_still_parses_as_a_tool_use_turn(
         model=MODEL,
         max_tokens=MAX_TOKENS,
         tools=[TOOL_THE_MODEL_MUST_USE_TO_ANSWER],
-        messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}],
+        messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
     )
 
     assert answer.stop_reason == TOOL_USE_STOP_REASON
@@ -203,7 +203,7 @@ def test_a_stored_tool_use_recording_still_parses_as_a_tool_use_turn(
 @pytest.mark.contract
 @needs_the_real_api
 def test_a_rejected_request_raises_the_same_error_class_from_both(
-    double: httpx.Client,
+    double: httpx.Client
 ) -> None:
     # Not the same *request* - the double never inspects one, so it cannot
     # reject a bad model on its own. What is compared is the rejection: given
@@ -213,11 +213,11 @@ def test_a_rejected_request_raises_the_same_error_class_from_both(
 
     error_from_the_real_api = _the_error_from(
         anthropic.Anthropic(api_key=get_settings().anthropic_api_key, max_retries=0),
-        model=SOME_MODEL_THAT_DOES_NOT_EXIST,
+        model=SOME_MODEL_THAT_DOES_NOT_EXIST
     )
     error_from_the_double = _the_error_from(
         anthropic.Anthropic(api_key="not-used", base_url=DEFAULT_BASE_URL, max_retries=0),
-        model=MODEL,
+        model=MODEL
     )
 
     assert type(error_from_the_double) is type(error_from_the_real_api)

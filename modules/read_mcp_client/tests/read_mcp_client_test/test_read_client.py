@@ -60,12 +60,12 @@ def test_both_retrieval_phases_drive_each_other_through_the_client(
                     a_metric_at(some_time_the_cause_happened),
                     a_metric_at(
                         some_time_the_error_appeared, error_rate=some_anomalous_error_rate
-                    ),
+                    )
                 ],
                 logs=[
                     a_cause_line_at(some_time_the_cause_happened),
-                    a_failure_line_at(some_time_the_error_appeared),
-                ],
+                    a_failure_line_at(some_time_the_error_appeared)
+                ]
             )
         ) \
         .when(
@@ -80,8 +80,8 @@ def test_both_retrieval_phases_drive_each_other_through_the_client(
             # anomalous minutes never could.
             _the_retrieved_lines_are([
                 a_cause_line_at(some_time_the_cause_happened),
-                a_failure_line_at(some_time_the_error_appeared),
-            ]),
+                a_failure_line_at(some_time_the_error_appeared)
+            ])
         ))
 @pytest.mark.integration
 def test_get_change_events_reaches_the_real_read_mcp_server(
@@ -104,7 +104,7 @@ def test_get_change_events_reaches_the_real_read_mcp_server(
             lambda: get_change_events(
                 "kukibuki-service",
                 window_start=an_iso_minute(some_deploy_time - timedelta(hours=1)),
-                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1)),
+                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1))
             )
         ) \
         .then(
@@ -130,9 +130,9 @@ def _an_argocd_deploy_at(moment: datetime, revision: str) -> dict[str, object]:
         "source": {
             "repoURL": "https://github.com/kuki/k8s-configs",
             "path": "apps/target-service/production",
-            "targetRevision": "main",
+            "targetRevision": "main"
         },
-        "initiatedBy": {"username": "kuki"},
+        "initiatedBy": {"username": "kuki"}
     }
 
 
@@ -174,7 +174,7 @@ def _drilling_down_from_metrics_to_logs(alert_time: str,
 
         return _DrillDown(
             onset=onset,
-            lines=get_log_lines(window_start=window_start, window_end=window_end),
+            lines=get_log_lines(window_start=window_start, window_end=window_end)
         )
 
     return step
@@ -191,7 +191,7 @@ def _a_window_anchored_on(onset: str) -> tuple[str, str]:
 
     return (
         an_iso_minute(onset_minute - timedelta(minutes=settings.log_initial_lookback_minutes)),
-        an_iso_minute(onset_minute + timedelta(minutes=settings.log_initial_lookahead_minutes)),
+        an_iso_minute(onset_minute + timedelta(minutes=settings.log_initial_lookahead_minutes))
     )
 
 

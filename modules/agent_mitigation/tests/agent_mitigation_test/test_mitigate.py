@@ -27,7 +27,7 @@ def test_a_flag_that_was_switched_on_is_proposed_to_be_switched_off() -> None:
 
     action = propose_action(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
-        flag_changes=[an_enabling_of(some_flag)],
+        flag_changes=[an_enabling_of(some_flag)]
     )
 
     assert action is not None
@@ -45,7 +45,7 @@ def test_a_flag_that_was_switched_off_is_proposed_to_be_switched_on() -> None:
 
     action = propose_action(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
-        flag_changes=[a_disabling_of(some_flag)],
+        flag_changes=[a_disabling_of(some_flag)]
     )
 
     assert action is not None
@@ -62,7 +62,7 @@ def test_undoing_a_switch_on_records_that_the_flag_had_been_on() -> None:
 
     action = propose_action(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
-        flag_changes=[an_enabling_of(some_flag)],
+        flag_changes=[an_enabling_of(some_flag)]
     )
 
     assert action is not None
@@ -74,7 +74,7 @@ def test_undoing_a_switch_on_records_that_the_flag_had_been_on() -> None:
 def test_undoing_a_switch_off_records_that_the_flag_had_been_off() -> None:
     action = propose_action(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
-        flag_changes=[a_disabling_of(DONT_CARE_FLAG)],
+        flag_changes=[a_disabling_of(DONT_CARE_FLAG)]
     )
 
     assert action is not None
@@ -91,8 +91,8 @@ def test_a_flag_toggled_more_than_once_is_put_back_to_its_state_before_the_lates
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
         flag_changes=[
             a_disabling_of(some_flag, at=EARLIER_IN_THE_WINDOW),
-            an_enabling_of(some_flag, at=LATER_IN_THE_WINDOW),
-        ],
+            an_enabling_of(some_flag, at=LATER_IN_THE_WINDOW)
+        ]
     )
 
     assert action is not None
@@ -106,7 +106,7 @@ def test_a_cause_with_no_reversible_action_proposes_nothing() -> None:
     # confident-looking action on a cause it cannot address.
     action = propose_action(
         a_hypothesis_blaming(CauseType.BAD_DEPLOYMENT),
-        flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
+        flag_changes=[an_enabling_of(DONT_CARE_FLAG)]
     )
 
     assert action is None
@@ -116,7 +116,7 @@ def test_a_cause_with_no_reversible_action_proposes_nothing() -> None:
 def test_a_hypothesis_that_identified_no_cause_proposes_nothing() -> None:
     action = propose_action(
         an_undetermined_hypothesis(),
-        flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
+        flag_changes=[an_enabling_of(DONT_CARE_FLAG)]
     )
 
     assert action is None
@@ -131,8 +131,8 @@ def test_more_than_one_changed_flag_proposes_nothing_rather_than_guessing() -> N
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
         flag_changes=[
             an_enabling_of("monthly-spend-feature"),
-            a_disabling_of("some-other-feature"),
-        ],
+            a_disabling_of("some-other-feature")
+        ]
     )
 
     assert action is None
@@ -150,8 +150,8 @@ def test_the_flag_the_hypothesis_names_is_the_one_proposed() -> None:
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE, subject=the_blamed_flag),
         flag_changes=[
             an_enabling_of("monthly-spend-feature"),
-            a_disabling_of(the_blamed_flag),
-        ],
+            a_disabling_of(the_blamed_flag)
+        ]
     )
 
     assert action is not None
@@ -167,7 +167,7 @@ def test_the_direction_comes_from_the_recorded_change_not_from_the_hypothesis() 
 
     action = propose_action(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE, subject=the_blamed_flag),
-        flag_changes=[a_disabling_of(the_blamed_flag)],
+        flag_changes=[a_disabling_of(the_blamed_flag)]
     )
 
     assert action is not None
@@ -186,7 +186,7 @@ def test_a_named_flag_the_provider_never_recorded_proposes_nothing() -> None:
         a_hypothesis_blaming(
             CauseType.FEATURE_FLAG_TOGGLE, subject=a_flag_nobody_recorded_changing
         ),
-        flag_changes=[an_enabling_of("monthly-spend-feature")],
+        flag_changes=[an_enabling_of("monthly-spend-feature")]
     )
 
     assert action is None
@@ -196,7 +196,7 @@ def test_a_named_flag_the_provider_never_recorded_proposes_nothing() -> None:
 def test_no_flag_change_proposes_nothing() -> None:
     action = propose_action(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
-        flag_changes=[],
+        flag_changes=[]
     )
 
     assert action is None
@@ -212,7 +212,7 @@ def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
         set_state=tier.set_state,
         fetch_metrics=metrics_reading(a_recovered_window()),
         now=a_clock_frozen_at(ACTION_TIME),
-        sleep=dont_care_sleep,
+        sleep=dont_care_sleep
     )
 
     assert tier.set_state.call_args.args == (some_flag, True)
@@ -227,7 +227,7 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
         set_state=tier.set_state,
         fetch_metrics=metrics_reading(a_recovered_window()),
         now=a_clock_frozen_at(ACTION_TIME),
-        sleep=dont_care_sleep,
+        sleep=dont_care_sleep
     )
 
     assert outcome.verdict is Verdict.CONFIRMED
@@ -265,7 +265,7 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
-        still_wanted=nobody_wants_it_any_more(),
+        still_wanted=nobody_wants_it_any_more()
     )
 
     assert outcome.verdict is Verdict.WITHDRAWN
@@ -286,7 +286,7 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
         fetch_metrics=metrics,
         now=a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
-        still_wanted=nobody_wants_it_any_more(),
+        still_wanted=nobody_wants_it_any_more()
     )
 
     assert metrics.call_count == 1
@@ -307,7 +307,7 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
         fetch_metrics=metrics_reading(a_still_failing_window()),
         now=a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
-        still_wanted=nobody_wants_it_any_more(),
+        still_wanted=nobody_wants_it_any_more()
     )
 
     tier.set_state.assert_called_once_with(some_flag, True)
@@ -328,7 +328,7 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
         set_state=tier.set_state,
         fetch_metrics=metrics,
         now=a_clock_frozen_at(ACTION_TIME),
-        sleep=dont_care_sleep,
+        sleep=dont_care_sleep
     )
 
     assert metrics.call_count == 2
@@ -364,7 +364,7 @@ def test_a_confirmed_action_is_left_in_place() -> None:
         set_state=tier.set_state,
         fetch_metrics=metrics_reading(a_recovered_window()),
         now=a_clock_frozen_at(ACTION_TIME),
-        sleep=dont_care_sleep,
+        sleep=dont_care_sleep
     )
 
     assert tier.set_state.call_count == 1
@@ -380,7 +380,7 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
     tier = a_write_tier()
     tier.set_state.side_effect = [
         an_undo_descriptor_for(some_flag),
-        RuntimeError(some_undo_failure),
+        RuntimeError(some_undo_failure)
     ]
 
     outcome = take_action(
@@ -470,7 +470,7 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
         set_state=tier.set_state,
         fetch_metrics=metrics_reading(a_recovered_window()),
         now=a_clock_frozen_at(ACTION_TIME),
-        sleep=dont_care_sleep,
+        sleep=dont_care_sleep
     )
 
     assert outcome.verdict is Verdict.ESCALATED
@@ -488,7 +488,7 @@ def test_mitigating_a_flag_toggle_takes_the_action_proposed_for_it() -> None:
     mitigate(
         a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
         fetch_flag_changes=changes,
-        take=take,
+        take=take
     )
 
     assert take.call_args.args[0].flag == some_flag
@@ -504,7 +504,7 @@ def test_mitigating_a_cause_with_no_action_escalates_without_touching_anything()
     outcome = mitigate(
         a_hypothesis_blaming(CauseType.BAD_DEPLOYMENT),
         fetch_flag_changes=changes,
-        take=take,
+        take=take
     )
 
     assert outcome.verdict is Verdict.ESCALATED
@@ -550,7 +550,7 @@ def an_undo_descriptor_for(flag: str, was_enabled: bool = True) -> dict[str, Any
         "flag": flag,
         "environment": "production",
         "was_enabled": was_enabled,
-        "written_at": to_iso(ACTION_TIME),
+        "written_at": to_iso(ACTION_TIME)
     }
 
 
@@ -561,7 +561,7 @@ def a_hypothesis_blaming(cause_type: CauseType, subject: str | None = None) -> H
         cause_type=cause_type,
         confidence=0.9,
         supporting_evidence=[],
-        subject=subject,
+        subject=subject
     )
 
 
@@ -571,7 +571,7 @@ def an_undetermined_hypothesis() -> Hypothesis:
         summary="no cause determined",
         cause_type=None,
         confidence=None,
-        supporting_evidence=[],
+        supporting_evidence=[]
     )
 
 
@@ -591,8 +591,8 @@ def an_action_setting(flag: str, enabled: bool) -> Action:
         undo_descriptor={
             "tool": "set_feature_flag",
             "flag": flag,
-            "was_enabled": not enabled,
-        },
+            "was_enabled": not enabled
+        }
     )
 
 
@@ -652,7 +652,7 @@ def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
             error_rate=error_rate,
             p50_ms=CALM_P50_MS,
             p95_ms=CALM_P95_MS,
-            request_volume=dont_care_volume,
+            request_volume=dont_care_volume
         )
         for offset, error_rate in enumerate(error_rates)
     ]

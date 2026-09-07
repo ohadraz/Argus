@@ -47,13 +47,13 @@ def test_the_narration_keeps_the_order_the_events_were_published_in() -> None:
     narration = build_narration([
         AlertAcknowledged(incident_id=dont_care_incident, alert=_an_alert()),
         OnsetDetected(incident_id=dont_care_incident, onset="2026-08-30T10:14Z"),
-        StatusChanged(incident_id=dont_care_incident, to_status=IncidentStatus.MITIGATING),
+        StatusChanged(incident_id=dont_care_incident, to_status=IncidentStatus.MITIGATING)
     ])
 
     assert [line.kind for line in narration] == [
         "alert-acknowledged",
         "onset-detected",
-        "status-changed",
+        "status-changed"
     ]
 
 
@@ -76,7 +76,7 @@ def test_a_retrieval_line_names_the_channel_and_the_window_it_asked_about() -> N
             incident_id=new_id(),
             channel=RetrievalChannel.LOGS,
             window_start="2026-08-30T10:10Z",
-            window_end="2026-08-30T10:20Z",
+            window_end="2026-08-30T10:20Z"
         )
     )
 
@@ -98,13 +98,13 @@ def test_a_metrics_retrieval_carries_its_buckets_with_the_elevated_ones_marked()
             incident_id=new_id(),
             window_start="2026-08-30T10:12Z",
             window_end="2026-08-30T10:14Z",
-            buckets=[a_quiet_minute, a_bad_minute],
+            buckets=[a_quiet_minute, a_bad_minute]
         )
     )
 
     assert [(bucket.bucket_id, bucket.elevated) for bucket in line.buckets] == [
         ("2026-08-30T10:12Z", False),
-        ("2026-08-30T10:14Z", True),
+        ("2026-08-30T10:14Z", True)
     ]
 
 
@@ -120,8 +120,8 @@ def test_a_log_retrieval_distinguishes_warnings_and_errors_from_the_rest() -> No
             lines=[
                 "2026-08-30T10:12Z INFO io-shop: account page rendered",
                 "2026-08-30T10:13Z WARN io-shop: account page error rate at 6%",
-                "2026-08-30T10:14Z ERROR io-shop: account page request failed - timeout",
-            ],
+                "2026-08-30T10:14Z ERROR io-shop: account page request failed - timeout"
+            ]
         )
     )
 
@@ -139,7 +139,7 @@ def test_a_log_line_that_announces_no_level_is_still_shown() -> None:
             incident_id=new_id(),
             window_start="2026-08-30T10:12Z",
             window_end="2026-08-30T10:14Z",
-            lines=[a_line_with_no_level],
+            lines=[a_line_with_no_level]
         )
     )
 
@@ -154,7 +154,7 @@ def test_a_changes_retrieval_carries_what_changed_on_the_service() -> None:
         kind=ChangeKind.DEPLOY,
         occurred_at="2026-08-30T10:13Z",
         reference="abc1234",
-        summary="checkout: swap the account page renderer",
+        summary="checkout: swap the account page renderer"
     )
 
     line = _one_line_for(
@@ -162,7 +162,7 @@ def test_a_changes_retrieval_carries_what_changed_on_the_service() -> None:
             incident_id=new_id(),
             window_start="2026-08-30T09:15Z",
             window_end="2026-08-30T10:15Z",
-            changes=[a_deploy],
+            changes=[a_deploy]
         )
     )
 
@@ -192,7 +192,7 @@ def test_the_candidates_formed_together_are_one_line() -> None:
     narration = build_narration([
         _a_hypothesis(summary="the flag", rank=1, incident_id=dont_care_incident),
         _a_hypothesis(summary="the deploy", rank=2, incident_id=dont_care_incident),
-        OnsetDetected(incident_id=dont_care_incident, onset="2026-08-30T10:14Z"),
+        OnsetDetected(incident_id=dont_care_incident, onset="2026-08-30T10:14Z")
     ])
 
     assert [line.kind for line in narration] == ["hypothesis-formed", "onset-detected"]
@@ -223,7 +223,7 @@ def test_a_flag_history_is_carried_as_the_changes_it_reported() -> None:
         flag="monthly-spend-feature",
         enabled=True,
         occurred_at="2026-08-30T10:05:00Z",
-        actor="a-human",
+        actor="a-human"
     )
 
     line = _one_line_for(
@@ -261,7 +261,7 @@ def test_a_finished_incident_stops_counting_at_the_moment_it_finished() -> None:
                 incident_id=an_incident.id, at=resolved_at, to_status=IncidentStatus.RESOLVED
             )
         ],
-        now=lambda: much_later,
+        now=lambda: much_later
     )
 
     assert live.elapsed_seconds == 120
@@ -276,7 +276,7 @@ def test_a_live_incident_is_shown_with_the_alert_it_opened_on() -> None:
     live = build_live_incident(
         _an_incident(IncidentStatus.INVESTIGATING, alert=some_alert),
         [],
-        now=lambda: _OPENED_AT,
+        now=lambda: _OPENED_AT
     )
 
     assert live.alert == some_alert
@@ -293,7 +293,7 @@ def test_a_flag_state_in_a_claim_is_said_the_way_the_rest_of_the_page_says_it() 
             "The ramp turned legacy-checkout-fallback off at 22:34, "
             "and monthly-spend-feature flipped from off to on."
         ),
-        rank=1,
+        rank=1
     ))
 
     assert line.candidates[0].summary == (
@@ -308,7 +308,7 @@ def test_a_word_that_is_merely_the_word_off_is_left_alone() -> None:
     # uppercased every "off" in a sentence would be shouting at English.
     line = _one_line_for(_a_hypothesis(
         summary="The account page went off the rails when the ramp completed.",
-        rank=1,
+        rank=1
     ))
 
     assert line.candidates[0].summary == (
@@ -368,7 +368,7 @@ def _a_hypothesis(summary: str,
         confidence=0.9,
         subject="dont-care-flag",
         rank=rank,
-        evidence=evidence or [],
+        evidence=evidence or []
     )
 
 
@@ -382,7 +382,7 @@ def _a_bucket(bucket_id: str, error_rate: float) -> MetricBucket:
         error_rate=error_rate,
         p50_ms=120,
         p95_ms=240,
-        request_volume=200,
+        request_volume=200
     )
 
 

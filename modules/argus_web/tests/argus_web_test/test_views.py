@@ -36,9 +36,9 @@ def test_an_attempt_is_shown_against_the_candidate_it_was_taken_for() -> None:
         candidates=[first, second],
         attempts=[
             _an_attempt(an_incident.id, first.id, outcome="refuted"),
-            _an_attempt(an_incident.id, second.id, outcome="confirmed"),
+            _an_attempt(an_incident.id, second.id, outcome="confirmed")
         ],
-        timeline=[],
+        timeline=[]
     )
 
     shown = [
@@ -79,9 +79,9 @@ def test_a_refuted_attempt_is_shown_as_having_been_put_back() -> None:
         candidates=[refuted, confirmed],
         attempts=[
             _an_attempt(an_incident.id, refuted.id, outcome="refuted"),
-            _an_attempt(an_incident.id, confirmed.id, outcome="confirmed"),
+            _an_attempt(an_incident.id, confirmed.id, outcome="confirmed")
         ],
-        timeline=[],
+        timeline=[]
     )
 
     assert detail.candidates[0].attempts[0].undone is True
@@ -99,7 +99,7 @@ def test_an_attempt_with_no_verdict_yet_is_shown_as_undecided_rather_than_undone
         an_incident,
         candidates=[in_flight],
         attempts=[_an_attempt(an_incident.id, in_flight.id, outcome=None)],
-        timeline=[],
+        timeline=[]
     )
 
     attempt = detail.candidates[0].attempts[0]
@@ -119,7 +119,7 @@ def test_an_attempt_naming_no_candidate_is_still_shown() -> None:
         an_incident,
         candidates=[a_candidate],
         attempts=[_an_attempt(an_incident.id, None, outcome="confirmed")],
-        timeline=[],
+        timeline=[]
     )
 
     assert detail.candidates[0].attempts == []
@@ -135,7 +135,7 @@ def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
         an_incident.id,
         subject="a-flag",
         rank=1,
-        evidence=["error rate rose at 10:14", "a-flag was enabled at 10:13"],
+        evidence=["error rate rose at 10:14", "a-flag was enabled at 10:13"]
     )
 
     detail = build_incident_detail(
@@ -144,7 +144,7 @@ def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
 
     assert detail.candidates[0].evidence == [
         "error rate rose at 10:14",
-        "a-flag was enabled at 10:13",
+        "a-flag was enabled at 10:13"
     ]
 
 
@@ -171,13 +171,13 @@ def test_an_incident_is_shown_with_the_transitions_it_went_through() -> None:
         attempts=[],
         timeline=[
             _a_transition(an_incident.id, IncidentStatus.INVESTIGATING, "incident created"),
-            _a_transition(an_incident.id, IncidentStatus.RESOLVED, "mitigation attempted"),
-        ],
+            _a_transition(an_incident.id, IncidentStatus.RESOLVED, "mitigation attempted")
+        ]
     )
 
     assert [entry.to_status for entry in detail.timeline] == [
         IncidentStatus.INVESTIGATING,
-        IncidentStatus.RESOLVED,
+        IncidentStatus.RESOLVED
     ]
 
 
@@ -216,7 +216,7 @@ def _a_candidate(incident_id: str,
         confidence=0.9,
         supporting_evidence=evidence or [],
         subject=subject,
-        rank=rank,
+        rank=rank
     )
 
 
@@ -234,7 +234,7 @@ def _an_attempt(incident_id: str,
         undo_descriptor={"flag": "dont-care", "was_enabled": True},
         outcome=outcome,
         taken_at=datetime(2026, 8, 30, 10, 16, tzinfo=UTC),
-        approved_by=None,
+        approved_by=None
     )
 
 
@@ -249,5 +249,5 @@ def _a_transition(incident_id: str,
         action=action,
         result=None,
         confidence=None,
-        created_at=datetime(2026, 8, 30, 10, 15, tzinfo=UTC) + timedelta(minutes=1),
+        created_at=datetime(2026, 8, 30, 10, 15, tzinfo=UTC) + timedelta(minutes=1)
     )

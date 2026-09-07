@@ -63,7 +63,7 @@ def test_a_node_that_moved_the_incident_transitions_it_once(
         _an_incident_being_investigated(),
         transition_incident=transition_incident,
         record_note=record_note,
-        publisher=published.append,
+        publisher=published.append
     )
 
     transition_incident.assert_called_once()
@@ -83,7 +83,7 @@ def test_a_node_that_moved_nothing_writes_no_transition_and_publishes_nothing(
     published: list[IncidentEvent] = []
     a_gate_refusing_an_action = _a_node_returning(
         {"proposed_action": None},
-        narration=Narration(action="action rejected at the tier gate"),
+        narration=Narration(action="action rejected at the tier gate")
     )
 
     _run(
@@ -91,7 +91,7 @@ def test_a_node_that_moved_nothing_writes_no_transition_and_publishes_nothing(
         _an_incident_mitigating(),
         transition_incident=transition_incident,
         record_note=record_note,
-        publisher=published.append,
+        publisher=published.append
     )
 
     transition_incident.assert_not_called()
@@ -109,15 +109,15 @@ def test_a_node_that_moved_nothing_still_says_what_it_did(
         {"proposed_action": None},
         narration=Narration(
             action="action rejected at the tier gate",
-            result="the proposed action carries no undo descriptor",
-        ),
+            result="the proposed action carries no undo descriptor"
+        )
     )
 
     _run(
         a_gate_refusing_an_action,
         _an_incident_mitigating(),
         transition_incident=transition_incident,
-        record_note=record_note,
+        record_note=record_note
     )
 
     record_note.assert_called_once()
@@ -143,7 +143,7 @@ def test_the_actor_on_a_row_is_the_agent_the_node_was_registered_as(
         _an_incident_being_investigated(),
         actor=Actor.INVESTIGATOR,
         transition_incident=transition_incident,
-        record_note=record_note,
+        record_note=record_note
     )
 
     assert transition_incident.call_args.kwargs["actor"] is Actor.INVESTIGATOR
@@ -164,7 +164,7 @@ def test_the_narration_never_reaches_the_graphs_state(
         a_narrating_node,
         _an_incident_mitigating(),
         transition_incident=transition_incident,
-        record_note=record_note,
+        record_note=record_note
     )
 
     assert "narration" not in updates
@@ -185,7 +185,7 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
         an_investigation_that_found_something,
         _an_incident_being_investigated(),
         transition_incident=transition_incident,
-        record_note=record_note,
+        record_note=record_note
     )
 
     assert updates["status"] is IncidentStatus.MITIGATING
@@ -209,7 +209,7 @@ def test_a_withdrawn_incident_stops_the_node_before_it_runs(
         still_wanted=_the_incident_was_withdrawn(),
         transition_incident=transition_incident,
         record_note=record_note,
-        publisher=published.append,
+        publisher=published.append
     )
 
     assert ran == []
@@ -235,7 +235,7 @@ def test_an_incident_nobody_has_is_not_walked_either(
         _an_incident_mitigating(),
         still_wanted=_there_is_no_such_incident(),
         transition_incident=transition_incident,
-        record_note=record_note,
+        record_note=record_note
     )
 
     assert ran == []
@@ -249,7 +249,7 @@ def _run(
     record_note: MagicMock,
     actor: Actor = Actor.ORCHESTRATOR,
     publisher: Publisher = nobody,
-    still_wanted: IsStillWanted | None = None,
+    still_wanted: IsStillWanted | None = None
 ) -> dict[str, Any]:
     wrapped = with_status(
         node,
@@ -258,7 +258,7 @@ def _run(
         transition_incident=transition_incident,
         record_note=record_note,
         publisher=publisher,
-        still_wanted=still_wanted or _the_incident_is_still_wanted(),
+        still_wanted=still_wanted or _the_incident_is_still_wanted()
     )
 
     return wrapped(state)
@@ -328,7 +328,7 @@ def _an_incident_mitigating() -> IncidentState:
         alert=_AN_ALERT,
         status=IncidentStatus.MITIGATING,
         candidates=[_a_candidate()],
-        candidate_index=0,
+        candidate_index=0
     )
 
 
@@ -339,5 +339,5 @@ def _a_candidate() -> Hypothesis:
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=0.8,
         supporting_evidence=[],
-        subject="monthly-spend-feature",
+        subject="monthly-spend-feature"
     )

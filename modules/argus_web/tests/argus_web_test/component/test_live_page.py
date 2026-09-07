@@ -97,7 +97,7 @@ def test_the_front_page_narrates_what_argus_did_in_the_order_it_did_it() -> None
     assert _attribute("line", _get("/")) == [
         "alert-acknowledged",
         "onset-detected",
-        "hypothesis-formed",
+        "hypothesis-formed"
     ]
 
 
@@ -116,9 +116,9 @@ def test_a_metrics_retrieval_is_shown_as_a_table_with_the_bad_minutes_marked() -
                 window_end="2026-08-30T10:14Z",
                 buckets=[
                     _a_bucket("2026-08-30T10:12Z", error_rate=0.01),
-                    _a_bucket("2026-08-30T10:14Z", error_rate=0.31),
-                ],
-            ),
+                    _a_bucket("2026-08-30T10:14Z", error_rate=0.31)
+                ]
+            )
         )
 
     page = _get("/")
@@ -143,9 +143,9 @@ def test_a_log_retrieval_is_shown_with_its_levels_distinguished() -> None:
                 lines=[
                     "2026-08-30T10:12Z INFO io-shop: account page rendered",
                     "2026-08-30T10:13Z WARN io-shop: account page error rate at 6%",
-                    "2026-08-30T10:14Z ERROR io-shop: account page request failed",
-                ],
-            ),
+                    "2026-08-30T10:14Z ERROR io-shop: account page request failed"
+                ]
+            )
         )
 
     assert _attribute("level", _get("/")) == ["info", "warn", "error"]
@@ -166,8 +166,8 @@ def test_the_evidence_shown_is_the_evidence_that_was_read() -> None:
                 incident_id=incident_id,
                 window_start="2026-08-30T10:12Z",
                 window_end="2026-08-30T10:14Z",
-                lines=[a_line_that_was_read],
-            ),
+                lines=[a_line_that_was_read]
+            )
         )
 
     assert a_line_that_was_read in _get("/")
@@ -248,7 +248,7 @@ def _finished(conn: psycopg.Connection, incident_id: str) -> None:
         incident_id,
         IncidentStatus.RESOLVED,
         actor=Actor.MITIGATION,
-        action="dont care",
+        action="dont care"
     )
 
 
@@ -266,7 +266,7 @@ def _a_bucket(bucket_id: str, error_rate: float) -> MetricBucket:
         error_rate=error_rate,
         p50_ms=120,
         p95_ms=240,
-        request_volume=200,
+        request_volume=200
     )
 
 
@@ -278,5 +278,5 @@ def _a_hypothesis_formed_for(incident_id: str) -> HypothesisFormed:
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         subject="dont-care-flag",
-        rank=1,
+        rank=1
     )

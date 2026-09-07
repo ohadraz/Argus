@@ -28,7 +28,7 @@ def test_setting_a_flag_off_addresses_its_environment() -> None:
         enabled=False,
         settings=some_settings(project=some_project, environment=some_environment),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert provider.post.call_args.args[0].endswith(
@@ -53,7 +53,7 @@ def test_setting_a_flag_on_addresses_its_environment() -> None:
         enabled=True,
         settings=some_settings(project=some_project, environment=some_environment),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert provider.post.call_args.args[0].endswith(
@@ -75,7 +75,7 @@ def test_setting_a_flag_uses_the_credential_that_can_change_state() -> None:
         enabled=False,
         settings=some_settings(admin_token=some_admin_token),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert provider.post.call_args.kwargs["headers"]["Authorization"] == some_admin_token
@@ -94,7 +94,7 @@ def test_setting_a_flag_off_returns_only_once_it_evaluates_off() -> None:
         enabled=False,
         settings=some_settings(),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert provider.evaluate.call_count == 3
@@ -110,7 +110,7 @@ def test_setting_a_flag_on_returns_only_once_it_evaluates_on() -> None:
         enabled=True,
         settings=some_settings(),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert provider.evaluate.call_count == 3
@@ -128,7 +128,7 @@ def test_a_flag_that_never_reaches_the_requested_state_is_not_reported_as_set() 
                     enabled=False,
                     settings=some_settings(),
                     post=provider.post,
-                    evaluate=provider.evaluate,
+                    evaluate=provider.evaluate
                 )
             )
         ) \
@@ -151,7 +151,7 @@ def test_an_unreachable_provider_is_not_reported_as_set() -> None:
                     enabled=False,
                     settings=some_settings(),
                     post=provider.post,
-                    evaluate=provider.evaluate,
+                    evaluate=provider.evaluate
                 )
             )
         ) \
@@ -174,7 +174,7 @@ def test_switching_a_flag_off_records_that_it_had_been_on() -> None:
         enabled=False,
         settings=some_settings(environment=some_environment),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert undo["flag"] == some_flag
@@ -194,7 +194,7 @@ def test_switching_a_flag_on_records_that_it_had_been_off() -> None:
         enabled=True,
         settings=some_settings(),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert undo["was_enabled"] is False
@@ -214,7 +214,7 @@ def test_the_undo_descriptor_records_when_the_provider_recorded_the_write() -> N
         status_code=200,
         json={},
         headers={"Date": format_datetime(some_moment_the_provider_recorded, usegmt=True)},
-        request=httpx.Request("POST", dont_care_provider_url),
+        request=httpx.Request("POST", dont_care_provider_url)
     )
 
     undo = set_flag(
@@ -222,7 +222,7 @@ def test_the_undo_descriptor_records_when_the_provider_recorded_the_write() -> N
         enabled=False,
         settings=some_settings(),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert undo["written_at"] == some_moment_in_wire_format
@@ -241,7 +241,7 @@ def test_a_provider_that_dates_nothing_leaves_the_moment_absent() -> None:
         enabled=False,
         settings=some_settings(),
         post=provider.post,
-        evaluate=provider.evaluate,
+        evaluate=provider.evaluate
     )
 
     assert "written_at" not in undo
@@ -258,7 +258,7 @@ def a_flag_provider() -> _FlagProvider:
     provider.post.return_value = httpx.Response(
         status_code=200,
         json={},
-        request=httpx.Request("POST", "http://flags.invalid/"),
+        request=httpx.Request("POST", "http://flags.invalid/")
     )
     return provider
 
@@ -276,5 +276,5 @@ def some_settings(project: str = "default",
         unleash_base_url="http://flags.invalid",
         unleash_project=project,
         unleash_environment=environment,
-        unleash_admin_token=admin_token,
+        unleash_admin_token=admin_token
     )

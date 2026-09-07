@@ -33,7 +33,7 @@ def test_a_confirmed_action_resolves_the_incident() -> None:
     # means the metrics were re-queried after the change and had recovered.
     assert status_after(
         _an_incident(candidates=[_a_candidate()], action_outcome="confirmed"),
-        SOME_MAX_ROUNDS,
+        SOME_MAX_ROUNDS
     ) is IncidentStatus.RESOLVED
 
 
@@ -45,9 +45,9 @@ def test_a_refuted_action_with_a_candidate_left_is_still_mitigating() -> None:
         _an_incident(
             candidates=[_a_candidate(), _a_candidate()],
             candidate_index=0,
-            action_outcome="refuted",
+            action_outcome="refuted"
         ),
-        SOME_MAX_ROUNDS,
+        SOME_MAX_ROUNDS
     ) is IncidentStatus.MITIGATING
 
 
@@ -58,7 +58,7 @@ def test_an_action_that_could_not_be_taken_escalates() -> None:
     # describe.
     assert status_after(
         _an_incident(candidates=[_a_candidate()], action_outcome="escalated"),
-        SOME_MAX_ROUNDS,
+        SOME_MAX_ROUNDS
     ) is IncidentStatus.ESCALATED
 
 
@@ -71,7 +71,7 @@ def test_an_investigation_that_found_nothing_worth_trying_escalates() -> None:
     a_round_that_found_nothing = _an_incident(
         candidates=[_a_candidate()],
         nothing_worth_trying=True,
-        rounds=1,
+        rounds=1
     )
 
     assert status_after(a_round_that_found_nothing, SOME_MAX_ROUNDS) is IncidentStatus.ESCALATED
@@ -85,7 +85,7 @@ def test_a_walk_out_of_candidates_with_rounds_left_investigates_again() -> None:
         candidates=[_a_candidate(), _a_candidate()],
         candidate_index=2,
         action_outcome="refuted",
-        rounds=1,
+        rounds=1
     )
 
     assert status_after(
@@ -99,7 +99,7 @@ def test_a_walk_out_of_candidates_and_rounds_looks_for_a_permanent_fix() -> None
         candidates=[_a_candidate()],
         candidate_index=1,
         action_outcome="refuted",
-        rounds=SOME_MAX_ROUNDS,
+        rounds=SOME_MAX_ROUNDS
     )
 
     assert status_after(a_walk_with_nothing_left, SOME_MAX_ROUNDS) is IncidentStatus.FIXING
@@ -109,7 +109,7 @@ def test_a_walk_out_of_candidates_and_rounds_looks_for_a_permanent_fix() -> None
 def test_a_code_fix_that_was_found_resolves_the_incident() -> None:
     assert status_after(
         _an_incident(candidate_index=1, rounds=SOME_MAX_ROUNDS, fix_found=True),
-        SOME_MAX_ROUNDS,
+        SOME_MAX_ROUNDS
     ) is IncidentStatus.RESOLVED
 
 
@@ -119,7 +119,7 @@ def test_a_code_fix_that_was_not_found_escalates() -> None:
     # is what makes this the only place `escalated` follows `fixing`.
     assert status_after(
         _an_incident(candidate_index=1, rounds=SOME_MAX_ROUNDS, fix_found=False),
-        SOME_MAX_ROUNDS,
+        SOME_MAX_ROUNDS
     ) is IncidentStatus.ESCALATED
 
 
@@ -132,7 +132,7 @@ def test_the_same_state_always_derives_the_same_status() -> None:
         candidates=[_a_candidate(), _a_candidate()],
         candidate_index=1,
         action_outcome="refuted",
-        rounds=2,
+        rounds=2
     )
 
     assert status_after(some_state, SOME_MAX_ROUNDS) is status_after(some_state, SOME_MAX_ROUNDS)
@@ -149,7 +149,7 @@ def _an_incident(**what_has_happened: Any) -> IncidentState:
         # and the node that set the previous one would be back in the business
         # this change takes it out of.
         status=IncidentStatus.INVESTIGATING,
-        **what_has_happened,
+        **what_has_happened
     )
 
 
@@ -160,5 +160,5 @@ def _a_candidate() -> Hypothesis:
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=0.8,
         supporting_evidence=[],
-        subject="monthly-spend-feature",
+        subject="monthly-spend-feature"
     )

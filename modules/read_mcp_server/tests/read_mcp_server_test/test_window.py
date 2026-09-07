@@ -29,7 +29,7 @@ def test_a_log_window_spans_the_configured_lookback_and_lookahead() -> None:
     assert result == ResolvedWindow(
         start=some_alert_time - timedelta(minutes=settings.log_initial_lookback_minutes),
         end=some_alert_time + timedelta(minutes=settings.log_initial_lookahead_minutes),
-        clamped=False,
+        clamped=False
     )
 
 
@@ -62,13 +62,13 @@ def test_an_explicit_log_window_exactly_on_the_ceiling_is_used_as_given() -> Non
 
     result = resolve_log_window(
         window_start=_an_iso_minute(some_window_start),
-        window_end=_an_iso_minute(window_end_exactly_on_the_ceiling),
+        window_end=_an_iso_minute(window_end_exactly_on_the_ceiling)
     )
 
     assert result == ResolvedWindow(
         start=some_window_start,
         end=window_end_exactly_on_the_ceiling,
-        clamped=False,
+        clamped=False
     )
 
 
@@ -81,13 +81,13 @@ def test_an_explicit_window_overrides_the_alert_time() -> None:
     result = resolve_log_window(
         alert_time=_an_iso_minute(some_alert_time),
         window_start=_an_iso_minute(some_unrelated_window_start),
-        window_end=_an_iso_minute(some_unrelated_window_end),
+        window_end=_an_iso_minute(some_unrelated_window_end)
     )
 
     assert result == ResolvedWindow(
         start=some_unrelated_window_start,
         end=some_unrelated_window_end,
-        clamped=False,
+        clamped=False
     )
 
 
@@ -100,7 +100,7 @@ def test_an_over_span_log_window_is_clamped_forward_from_its_start() -> None:
 
     result = resolve_log_window(
         window_start=_an_iso_minute(some_window_start),
-        window_end=_an_iso_minute(window_end_past_the_ceiling),
+        window_end=_an_iso_minute(window_end_past_the_ceiling)
     )
 
     # Anchored at the start: the earliest minutes are the ones that explain
@@ -108,7 +108,7 @@ def test_an_over_span_log_window_is_clamped_forward_from_its_start() -> None:
     assert result == ResolvedWindow(
         start=some_window_start,
         end=some_window_start + timedelta(minutes=settings.log_max_window_minutes),
-        clamped=True,
+        clamped=True
     )
 
 
@@ -121,7 +121,7 @@ def test_a_log_window_with_only_a_start_is_clamped_forward_from_it() -> None:
     assert result == ResolvedWindow(
         start=some_window_start,
         end=some_window_start + timedelta(minutes=settings.log_max_window_minutes),
-        clamped=True,
+        clamped=True
     )
 
 
@@ -134,7 +134,7 @@ def test_a_log_window_with_only_an_end_is_clamped_back_from_it() -> None:
     assert result == ResolvedWindow(
         start=some_window_end - timedelta(minutes=settings.log_max_window_minutes),
         end=some_window_end,
-        clamped=True,
+        clamped=True
     )
 
 
@@ -148,7 +148,7 @@ def test_a_metrics_window_spans_the_metrics_window_on_both_sides_of_the_alert() 
     assert result == ResolvedWindow(
         start=some_alert_time - metrics_window,
         end=some_alert_time + metrics_window,
-        clamped=False,
+        clamped=False
     )
 
 
@@ -161,7 +161,7 @@ def test_a_metrics_window_wider_than_the_log_ceiling_is_not_clamped() -> None:
 
     result = resolve_metrics_window(
         window_start=_an_iso_minute(some_window_start),
-        window_end=_an_iso_minute(window_end_past_only_the_log_ceiling),
+        window_end=_an_iso_minute(window_end_past_only_the_log_ceiling)
     )
 
     # Metrics have their own, wider ceiling - a span the log phase would refuse
@@ -169,7 +169,7 @@ def test_a_metrics_window_wider_than_the_log_ceiling_is_not_clamped() -> None:
     assert result == ResolvedWindow(
         start=some_window_start,
         end=window_end_past_only_the_log_ceiling,
-        clamped=False,
+        clamped=False
     )
 
 
@@ -182,13 +182,13 @@ def test_an_over_span_metrics_window_is_clamped_to_the_metrics_span() -> None:
 
     result = resolve_metrics_window(
         window_start=_an_iso_minute(some_window_start),
-        window_end=_an_iso_minute(window_end_past_the_metrics_span),
+        window_end=_an_iso_minute(window_end_past_the_metrics_span)
     )
 
     assert result == ResolvedWindow(
         start=some_window_start,
         end=some_window_start + timedelta(minutes=settings.metrics_window_minutes),
-        clamped=True,
+        clamped=True
     )
 
 

@@ -25,11 +25,7 @@ from orchestrator.graph import (
     route_after_next_candidate,
 )
 
-from ..framework.builders import (
-    a_determined_hypothesis,
-    a_random_id,
-    an_undetermined_hypothesis,
-)
+from ..framework.builders import a_determined_hypothesis, a_random_id, an_undetermined_hypothesis
 
 """Walking the candidates an investigation offered, one at a time.
 
@@ -93,7 +89,7 @@ def test_every_candidate_the_investigation_offered_is_recorded(
     investigator_node(
         _an_incident_being_investigated(incident_id),
         investigate=investigate,
-        record_hypothesis=record_hypothesis,
+        record_hypothesis=record_hypothesis
     )
 
     assert record_hypothesis.call_count == 2
@@ -111,7 +107,7 @@ def test_the_investigation_hands_the_walk_its_candidates(
     updates = investigator_node(
         _an_incident_being_investigated(incident_id),
         investigate=investigate,
-        record_hypothesis=record_hypothesis,
+        record_hypothesis=record_hypothesis
     )
 
     assert updates["candidates"] == [the_best_answer, a_runner_up]
@@ -142,7 +138,7 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
     investigator_node(
         a_second_round,
         investigate=investigate,
-        record_hypothesis=record_hypothesis,
+        record_hypothesis=record_hypothesis
     )
 
     assert investigate.call_args.kwargs["already_read"] == [a_window_already_read]
@@ -173,7 +169,7 @@ def test_what_was_tried_is_remembered_for_the_round_after(post_update: MagicMock
 
     updates = next_candidate_node(
         _a_walk_at(incident_id, [a_candidate], index=0, acted_on=SOME_FLAG),
-        post_update=post_update,
+        post_update=post_update
     )
 
     assert [attempt.subject for attempt in updates["attempts"]] == [SOME_FLAG]
@@ -184,7 +180,7 @@ def test_a_walk_with_a_candidate_left_carries_on(post_update: MagicMock) -> None
     incident_id = a_random_id()
     candidates = [
         a_determined_hypothesis(incident_id),
-        a_determined_hypothesis(incident_id),
+        a_determined_hypothesis(incident_id)
     ]
     a_walk = _a_walk_at(incident_id, candidates, index=0)
 
@@ -271,9 +267,9 @@ def test_a_candidate_blaming_a_flag_already_tried_is_skipped(
             incident_id,
             [the_refuted_candidate, the_same_flag_again, a_candidate_blaming_something_else],
             index=0,
-            acted_on=SOME_FLAG,
+            acted_on=SOME_FLAG
         ),
-        post_update=post_update,
+        post_update=post_update
     )
 
     assert updates["hypothesis"] == a_candidate_blaming_something_else
@@ -303,7 +299,7 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
     updates = investigator_node(
         a_round_after_that_flag_was_tried,
         investigate=investigate,
-        record_hypothesis=record_hypothesis,
+        record_hypothesis=record_hypothesis
     )
 
     assert updates["nothing_worth_trying"] is True
@@ -322,7 +318,7 @@ def test_a_candidate_naming_no_cause_is_never_tried(post_update: MagicMock) -> N
         incident_id,
         [the_refuted_candidate, a_candidate_naming_nothing],
         index=0,
-        rounds=get_settings().investigation_max_rounds,
+        rounds=get_settings().investigation_max_rounds
     )
 
     updates = next_candidate_node(a_walk, post_update=post_update)
@@ -341,7 +337,7 @@ def test_an_attempt_that_settled_nothing_is_posted_while_moves_remain(
     incident_id = a_random_id()
     candidates = [
         a_determined_hypothesis(incident_id),
-        a_determined_hypothesis(incident_id),
+        a_determined_hypothesis(incident_id)
     ]
 
     next_candidate_node(
@@ -358,12 +354,12 @@ def test_an_update_names_what_was_tried(post_update: MagicMock) -> None:
     incident_id = a_random_id()
     candidates = [
         a_determined_hypothesis(incident_id),
-        a_determined_hypothesis(incident_id),
+        a_determined_hypothesis(incident_id)
     ]
 
     next_candidate_node(
         _a_walk_at(incident_id, candidates, index=0, acted_on=SOME_FLAG),
-        post_update=post_update,
+        post_update=post_update
     )
 
     assert SOME_FLAG in post_update.call_args.args[1]
@@ -379,7 +375,7 @@ def test_another_round_is_posted_too(post_update: MagicMock) -> None:
 
     next_candidate_node(
         _a_walk_at(incident_id, [the_only_candidate], index=0, rounds=1),
-        post_update=post_update,
+        post_update=post_update
     )
 
     assert post_update.call_count == 1
@@ -397,9 +393,9 @@ def test_a_walk_out_of_moves_posts_no_update(post_update: MagicMock) -> None:
             incident_id,
             [the_only_candidate],
             index=0,
-            rounds=get_settings().investigation_max_rounds,
+            rounds=get_settings().investigation_max_rounds
         ),
-        post_update=post_update,
+        post_update=post_update
     )
 
     assert post_update.call_count == 0
@@ -414,7 +410,7 @@ def test_the_end_of_the_walk_raises_exactly_one_page(raise_page: MagicMock) -> N
     a_walk_with_nothing_left = _a_walk_at(
         incident_id,
         [a_determined_hypothesis(incident_id)],
-        index=0,
+        index=0
     ).model_copy(update={"status": IncidentStatus.ESCALATED})
 
     communicator_node(a_walk_with_nothing_left, raise_page=raise_page)
@@ -461,7 +457,7 @@ def _an_incident_being_investigated(incident_id: str) -> IncidentState:
     return IncidentState(
         incident_id=incident_id,
         alert=an_alert(),
-        status=IncidentStatus.INVESTIGATING,
+        status=IncidentStatus.INVESTIGATING
     )
 
 
@@ -470,7 +466,7 @@ def _a_walk_at(
     candidates: list[Hypothesis],
     index: int,
     acted_on: str = SOME_FLAG,
-    rounds: int = 1,
+    rounds: int = 1
 ) -> IncidentState:
     """An incident mid-walk: a candidate has just been tried and did not settle
     anything, and the state carries what it takes to decide what happens next.
@@ -496,9 +492,9 @@ def _a_walk_at(
             undo_descriptor={
                 "tool": "set_feature_flag",
                 "flag": acted_on,
-                "was_enabled": True,
-            },
-        ),
+                "was_enabled": True
+            }
+        )
     )
 
 
@@ -543,7 +539,7 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=some_confidence,
         supporting_evidence=["some log line"],
-        subject=flag,
+        subject=flag
     )
 
 

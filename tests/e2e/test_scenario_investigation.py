@@ -30,10 +30,7 @@ from tests.e2e.framework.flags import (
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
+from tests.framework.assertions import some_confidence_was_given, the_cause_was_identified_as
 
 """What Argus concludes about a seeded scenario, and what it then does, end to
 end.
@@ -91,7 +88,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
     Scenario() \
         .given(
             _a_feature_flag_was_toggled_on(),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE)
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -101,13 +98,13 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
                 all_of(
                     about_the_hypothesis(
                         the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
-                        some_confidence_was_given(),
+                        some_confidence_was_given()
                     ),
                     argus_ended_with_status(IncidentStatus.RESOLVED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
-                    the_service_returned_to_baseline(),
+                    the_service_returned_to_baseline()
                 ),
-                timeout=MITIGATION_TIMEOUT_SECONDS,
+                timeout=MITIGATION_TIMEOUT_SECONDS
             )
         )
 
@@ -139,7 +136,7 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
     Scenario() \
         .given(
             _a_bad_version_was_deployed(),
-            the_model_answers_from(RECORDED_BAD_DEPLOYMENT),
+            the_model_answers_from(RECORDED_BAD_DEPLOYMENT)
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -149,11 +146,11 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
                 all_of(
                     about_the_hypothesis(
                         the_cause_was_identified_as(CauseType.BAD_DEPLOYMENT),
-                        some_confidence_was_given(),
+                        some_confidence_was_given()
                     ),
-                    argus_ended_with_status(IncidentStatus.ESCALATED),
+                    argus_ended_with_status(IncidentStatus.ESCALATED)
                 ),
-                timeout=INVESTIGATION_TIMEOUT_SECONDS,
+                timeout=INVESTIGATION_TIMEOUT_SECONDS
             )
         )
 
@@ -186,7 +183,7 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
         .given(
             _a_feature_flag_was_toggled_on(),
             the_flag_provider_forgot_every_change,
-            the_model_answers_from(RECORDED_FLAG_TOGGLE_UNCORROBORATED),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE_UNCORROBORATED)
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -197,9 +194,9 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                     # Left exactly as it was found. An uncorroborated name is a
                     # reason to stop, not a reason to try it and see.
-                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),
+                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=True)
                 ),
-                timeout=INVESTIGATION_TIMEOUT_SECONDS,
+                timeout=INVESTIGATION_TIMEOUT_SECONDS
             )
         )
 
@@ -225,7 +222,7 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
         .given(
             _a_feature_flag_was_toggled_on(),
             another_flag_was_toggled_on(SOME_UNRELATED_FLAG),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE),
+            the_model_answers_from(RECORDED_FLAG_TOGGLE)
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -239,9 +236,9 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
                     # other, and a second revert would be a production change
                     # nothing diagnosed.
                     the_flag_provider_reports(SOME_UNRELATED_FLAG, enabled=True),
-                    the_service_returned_to_baseline(),
+                    the_service_returned_to_baseline()
                 ),
-                timeout=MITIGATION_TIMEOUT_SECONDS,
+                timeout=MITIGATION_TIMEOUT_SECONDS
             )
         )
 
@@ -259,7 +256,7 @@ def _a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
         response = httpx.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": scenario_id},
-            timeout=10.0,
+            timeout=10.0
         )
 
         return response.status_code == HttpStatus.OK

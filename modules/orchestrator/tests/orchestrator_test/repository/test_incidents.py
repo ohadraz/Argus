@@ -32,7 +32,7 @@ def test_create_writes_incident_and_initial_timeline_event() -> None:
             .then(all_of(
                 the_incident_is(incident_id, "acknowledged"),
                 the_timeline_shows(incident_id, "acknowledged"),
-                the_last_timeline_event_was(incident_id, "orchestrator"),
+                the_last_timeline_event_was(incident_id, "orchestrator")
             ))
 
 
@@ -61,14 +61,14 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
                     actor=Actor.INVESTIGATOR,
                     action="hypothesis formed",
                     result="some hypothesis",
-                    confidence=some_confidence,
+                    confidence=some_confidence
                 )
             ) \
             .then(all_of(
                 the_incident_is(incident_id, "mitigating"),
                 the_timeline_shows(incident_id, "acknowledged", "mitigating"),
                 the_last_timeline_event_was(
-                    incident_id, "investigator", confidence=some_confidence),
+                    incident_id, "investigator", confidence=some_confidence)
             ))
 
 
@@ -86,7 +86,7 @@ def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
             already_finished,
             IncidentStatus.RESOLVED,
             actor=Actor.MITIGATION,
-            action="dont care",
+            action="dont care"
         )
 
         current = incidents.get_current(conn)
@@ -106,7 +106,7 @@ def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
             incident_id,
             IncidentStatus.RESOLVED,
             actor=Actor.MITIGATION,
-            action="dont care",
+            action="dont care"
         )
 
         current = incidents.get_current(conn)
@@ -146,7 +146,7 @@ def test_an_incident_that_resolved_records_when_it_ended() -> None:
                     incident_id,
                     IncidentStatus.RESOLVED,
                     actor=Actor.MITIGATION,
-                    action="dont care",
+                    action="dont care"
                 )
             ) \
             .then(
@@ -175,7 +175,7 @@ def test_an_incident_that_escalated_records_when_it_ended() -> None:
                     incident_id,
                     IncidentStatus.ESCALATED,
                     actor=Actor.ORCHESTRATOR,
-                    action="dont care",
+                    action="dont care"
                 )
             ) \
             .then(
@@ -204,7 +204,7 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
                     incident_id,
                     IncidentStatus.FIXING,
                     actor=Actor.ORCHESTRATOR,
-                    action="dont care",
+                    action="dont care"
                 )
             ) \
             .then(
@@ -246,7 +246,7 @@ def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> No
             incident_id,
             IncidentStatus.MITIGATING,
             actor=Actor.INVESTIGATOR,
-            action="dont care",
+            action="dont care"
         )
 
         incidents.record_note(
@@ -254,7 +254,7 @@ def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> No
             incident_id,
             actor=Actor.MITIGATION,
             action="action rejected at the tier gate",
-            result="the proposed action carries no undo descriptor",
+            result="the proposed action carries no undo descriptor"
         )
 
         incident = incidents.get(conn, incident_id)
@@ -264,7 +264,7 @@ def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> No
     assert [event.to_status for event in events] == [
         "acknowledged",
         "mitigating",
-        "mitigating",
+        "mitigating"
     ]
     assert events[-1].action == "action rejected at the tier gate"
     assert events[-1].actor == "mitigation"
