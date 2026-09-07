@@ -1,15 +1,15 @@
 {
-    "tests/e2e/test_asking_who_changed_the_flag.py::test_argus_recognises_the_change_it_made_and_no_other": 2.681226011000007,
-    "tests/e2e/test_incident_cost.py::test_an_incident_over_a_trading_window_costs_a_measured_amount": 65.26145193799994,
-    "tests/e2e/test_incident_lifecycle.py::test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem": 2.4011739449999254,
-    "tests/e2e/test_incident_response.py::test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent": 56.48671391800008,
-    "tests/e2e/test_incident_response_cost.py::test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent": 64.32041289200004,
-    "tests/e2e/test_mitigation_directions.py::test_a_flag_switched_off_is_mitigated_by_switching_it_back_on": 55.40219662800001,
-    "tests/e2e/test_mitigation_directions.py::test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back": 755.161689346,
-    "tests/e2e/test_scenario_investigation.py::test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted": 4.444624911000346,
-    "tests/e2e/test_scenario_investigation.py::test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed": 22.471371654999984,
-    "tests/e2e/test_scenario_investigation.py::test_a_flag_the_provider_did_not_record_changing_is_not_reverted": 15.127524762999883,
-    "tests/e2e/test_scenario_investigation.py::test_the_flag_the_investigator_named_is_the_one_reverted": 44.90315700700012,
-    "tests/e2e/test_withdrawing_an_incident.py::test_a_flag_changed_from_outside_is_left_alone_when_the_incident_is_withdrawn": 15.72231215900024,
-    "tests/e2e/test_withdrawing_an_incident.py::test_an_incident_withdrawn_mid_walk_stops_and_puts_its_flag_back": 5.391657970999859
+    "tests/e2e/test_asking_who_changed_the_flag.py::test_argus_recognises_the_change_it_made_and_no_other": 2.299447909999998,
+    "tests/e2e/test_incident_cost.py::test_an_incident_over_a_trading_window_costs_a_measured_amount": 70.75693179400002,
+    "tests/e2e/test_incident_lifecycle.py::test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem": 2.3129840909999473,
+    "tests/e2e/test_incident_response.py::test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent": 64.09351754600002,
+    "tests/e2e/test_incident_response_cost.py::test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent": 58.99168958000001,
+    "tests/e2e/test_mitigation_directions.py::test_a_flag_switched_off_is_mitigated_by_switching_it_back_on": 59.09282064900003,
+    "tests/e2e/test_mitigation_directions.py::test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back": 762.7416145,
+    "tests/e2e/test_scenario_investigation.py::test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted": 3.790078325000195,
+    "tests/e2e/test_scenario_investigation.py::test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed": 70.59067713600007,
+    "tests/e2e/test_scenario_investigation.py::test_a_flag_the_provider_did_not_record_changing_is_not_reverted": 19.644954474000087,
+    "tests/e2e/test_scenario_investigation.py::test_the_flag_the_investigator_named_is_the_one_reverted": 40.20505401300011,
+    "tests/e2e/test_withdrawing_an_incident.py::test_a_flag_changed_from_outside_is_left_alone_when_the_incident_is_withdrawn": 4.7576060189999225,
+    "tests/e2e/test_withdrawing_an_incident.py::test_an_incident_withdrawn_mid_walk_stops_and_puts_its_flag_back": 4.7708924660000775
 }
