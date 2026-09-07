@@ -17,6 +17,12 @@ def record(conn: psycopg.Connection, event: IncidentEvent) -> None:
     lifted out beside it because they are what the table is read by. Nothing
     reconstructs an event from those columns - `payload` is the record, and
     they are its index.
+
+    Committing is the caller's, not this function's. An event is written either
+    beside the decision it narrates - on that decision's own connection, so the
+    two are one write - or on a connection opened for it alone, which commits
+    when the block that opened it ends. Committing here would make the first of
+    those impossible.
     """
     with conn.cursor() as cursor:
         cursor.execute(
@@ -30,7 +36,6 @@ def record(conn: psycopg.Connection, event: IncidentEvent) -> None:
                 Jsonb(event.model_dump(mode="json")),
             ),
         )
-    conn.commit()
 
 
 def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[IncidentEvent]:

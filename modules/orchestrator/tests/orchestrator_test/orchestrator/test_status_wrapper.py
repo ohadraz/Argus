@@ -5,7 +5,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from argus_core.events import IncidentEvent, Publisher, StatusChanged, nobody
+from argus_core.events import IncidentEvent, StatusChanged
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
@@ -53,7 +53,6 @@ def record_note() -> MagicMock:
 def test_a_node_that_moved_the_incident_transitions_it_once(
     transition_incident: MagicMock, record_note: MagicMock
 ) -> None:
-    published: list[IncidentEvent] = []
     an_investigation_that_found_something = _a_node_returning(
         {"candidates": [_a_candidate()], "candidate_index": 0}
     )
@@ -62,19 +61,19 @@ def test_a_node_that_moved_the_incident_transitions_it_once(
         an_investigation_that_found_something,
         _an_incident_being_investigated(),
         transition_incident=transition_incident,
-        record_note=record_note,
-        publisher=published.append
+        record_note=record_note
     )
 
     transition_incident.assert_called_once()
     assert transition_incident.call_args.args[1] is IncidentStatus.MITIGATING
-    moved = [event for event in published if isinstance(event, StatusChanged)]
-    assert [event.to_status for event in moved] == [IncidentStatus.MITIGATING]
+    narrating = transition_incident.call_args.kwargs["narrating"]
+    assert isinstance(narrating, StatusChanged)
+    assert narrating.to_status is IncidentStatus.MITIGATING
     record_note.assert_not_called()
 
 
 @pytest.mark.unit
-def test_a_node_that_moved_nothing_writes_no_transition_and_publishes_nothing(
+def test_a_node_that_moved_nothing_writes_no_transition(
     transition_incident: MagicMock, record_note: MagicMock
 ) -> None:
     # The guarantee the whole change exists for. A status set here and
@@ -90,8 +89,7 @@ def test_a_node_that_moved_nothing_writes_no_transition_and_publishes_nothing(
         a_gate_refusing_an_action,
         _an_incident_mitigating(),
         transition_incident=transition_incident,
-        record_note=record_note,
-        publisher=published.append
+        record_note=record_note
     )
 
     transition_incident.assert_not_called()
@@ -208,8 +206,7 @@ def test_a_withdrawn_incident_stops_the_node_before_it_runs(
         _an_incident_mitigating(),
         still_wanted=_the_incident_was_withdrawn(),
         transition_incident=transition_incident,
-        record_note=record_note,
-        publisher=published.append
+        record_note=record_note
     )
 
     assert ran == []
@@ -248,7 +245,6 @@ def _run(
     transition_incident: MagicMock,
     record_note: MagicMock,
     actor: Actor = Actor.ORCHESTRATOR,
-    publisher: Publisher = nobody,
     still_wanted: IsStillWanted | None = None
 ) -> dict[str, Any]:
     wrapped = with_status(
@@ -257,7 +253,6 @@ def _run(
         SOME_MAX_ROUNDS,
         transition_incident=transition_incident,
         record_note=record_note,
-        publisher=publisher,
         still_wanted=still_wanted or _the_incident_is_still_wanted()
     )
 

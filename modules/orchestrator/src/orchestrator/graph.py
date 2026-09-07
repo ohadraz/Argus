@@ -24,6 +24,7 @@ from argus_core.events import (
     ActionTaken,
     AgentInvoked,
     FlagChangesRetrieved,
+    IncidentEvent,
     Publisher,
     StatusChanged,
     VerdictReached,
@@ -51,7 +52,13 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from orchestrator.postmortem import write_postmortem_for
-from orchestrator.publishing import calls_into, events_into
+from orchestrator.publishing import (
+    PublisherFor,
+    calls_into,
+    events_into,
+    events_into_connection,
+    narrate,
+)
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
 from orchestrator.withdrawal import IsStillWanted, wanted_via
 
@@ -180,12 +187,21 @@ class ActionAlreadyTaken(Protocol):
 
 
 class TransitionIncident(Protocol):
+    """Moves the incident and records the account of the move, as one write.
+
+    `narrating` is not optional: a status the incident entered for a reason
+    nobody wrote down is a row a human cannot read the incident from, and the
+    two being one argument is what stops them being two writes that can
+    disagree.
+    """
+
     def __call__(
         self,
         incident_id: str,
         to_status: IncidentStatus,
         actor: Actor,
         action: str,
+        narrating: IncidentEvent,
         result: str | None = None,
         confidence: float | None = None,
     ) -> None: ...
@@ -227,8 +243,11 @@ class Records:
     a pool while Argus is running, a single connection in a script.
     """
 
-    def __init__(self, connections: Connections) -> None:
+    def __init__(self,
+                 connections: Connections,
+                 publisher_for: PublisherFor) -> None:
         self._connections = connections
+        self._publisher_for = publisher_for
 
     def hypothesis(self, hypothesis: Hypothesis, /) -> None:
         with self._connections() as conn:
@@ -244,14 +263,27 @@ class Records:
         to_status: IncidentStatus,
         actor: Actor,
         action: str,
+        narrating: IncidentEvent,
         result: str | None = None,
         confidence: float | None = None,
     ) -> None:
+        """Moves the incident, and says so, in one write.
+
+        `narrating` is required rather than optional because there is no such
+        thing as a transition nobody accounts for: the timeline is what the
+        incident is read from, and a status that arrived without a sentence
+        about it is a row a human cannot act on.
+
+        One connection for both, so the two commit together - and the account
+        written last, inside a savepoint of its own, so it can fail without
+        taking the transition with it.
+        """
         with self._connections() as conn:
             incidents.transition(
                 conn, incident_id, to_status, actor=actor, action=action,
                 result=result, confidence=confidence,
             )
+            narrate(conn, narrating, self._publisher_for(conn))
 
     def note(
         self,
@@ -345,7 +377,6 @@ def with_status(
     transition_incident: TransitionIncident,
     record_note: RecordNote,
     still_wanted: IsStillWanted,
-    publisher: Publisher = nobody,
 ) -> Callable[..., dict[str, Any]]:
     """Wraps a node so that the status it implies is derived, written and
     published in one place (spec §7.1, §10).
@@ -354,6 +385,10 @@ def with_status(
     signature, because that is what LangGraph's `add_node` overloads accept -
     the same shape `functools.partial` produced when nodes were registered
     directly.
+
+    It takes no publisher. The status and the sentence about it are one write,
+    made by `transition_incident` - a wrapper that published separately would
+    be the second writer this arrangement exists to remove.
 
     Applied at registration time rather than called inside each node, because
     the guarantee wanted here - a status is written only when the incident
@@ -414,6 +449,10 @@ def with_status(
                 f"without narrating it"
             )
 
+        # The row and the line about it go together - one call, one write. Said
+        # separately they could disagree: a walk that stopped between them would
+        # leave a status nothing accounts for, and the incident is read from the
+        # account.
         transition_incident(
             state.incident_id,
             next_status,
@@ -421,14 +460,11 @@ def with_status(
             action=narration.action,
             result=narration.result,
             confidence=narration.confidence,
-        )
-        publish(
-            StatusChanged(
+            narrating=StatusChanged(
                 incident_id=state.incident_id,
                 to_status=next_status,
                 detail=narration.published_detail(),
             ),
-            publisher,
         )
 
         return {**updates, "status": next_status}
@@ -1206,7 +1242,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     different pool, is the same graph built with different collaborators."""
     graph: StateGraph[IncidentState] = StateGraph(IncidentState)
 
-    records = Records(connections)
+    records = Records(connections, events_into_connection)
     publisher = events_into(connections)
     recorder = calls_into(connections)
     still_wanted = wanted_via(connections)
@@ -1226,7 +1262,6 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         transition_incident=records.transition,
         record_note=records.note,
         still_wanted=still_wanted,
-        publisher=publisher,
     )
 
     graph.add_node(

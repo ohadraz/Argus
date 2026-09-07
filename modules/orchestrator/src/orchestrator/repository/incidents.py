@@ -76,6 +76,10 @@ def transition(
     `now()` rather than a time the caller supplies - the database already
     stamps `created_at`, and a duration measured between two clocks is a
     duration measuring the difference between them.
+
+    Committing is the caller's. The event that narrates this transition is
+    written on the same connection, and a commit here would put the transition
+    beyond reach of the account before the account existed.
     """
     ends_the_incident = to_status.is_terminal()
 
@@ -92,7 +96,6 @@ def transition(
             "VALUES (%s, %s, %s, %s, %s, %s)",
             (incident_id, to_status, actor, action, result, confidence),
         )
-    conn.commit()
 
 
 def withdraw(conn: psycopg.Connection, incident_id: str, actor: Actor) -> bool:
