@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from agent_mitigation import UndoAttempt, undo_change
-from argus_core.db import connect
+from argus_core.db import Connections
 from argus_core.models.actor import Actor
 
 from orchestrator.repository import actions, incidents
@@ -46,25 +46,35 @@ class RecordNote(Protocol):
     ) -> None: ...
 
 
-def _the_actions_of(incident_id: str) -> list[actions.Action]:
-    with connect() as conn:
-        return actions.get_by_incident(conn, incident_id)
+def actions_from(connections: Connections) -> ActionsOf:
+    """The incident's own changes, read through the connections given."""
+
+    def the_actions_of(incident_id: str) -> list[actions.Action]:
+        with connections() as conn:
+            return actions.get_by_incident(conn, incident_id)
+
+    return the_actions_of
 
 
-def _record_note(incident_id: str,
-                 actor: Actor,
-                 action: str,
-                 result: str | None = None) -> None:
-    with connect() as conn:
-        incidents.record_note(
-            conn, incident_id, actor=actor, action=action, result=result
-        )
+def notes_into(connections: Connections) -> RecordNote:
+    """What became of each change, written through the connections given."""
+
+    def record_note(incident_id: str,
+                    actor: Actor,
+                    action: str,
+                    result: str | None = None) -> None:
+        with connections() as conn:
+            incidents.record_note(
+                conn, incident_id, actor=actor, action=action, result=result
+            )
+
+    return record_note
 
 
 def unwind_incident(incident_id: str,
-                    actions_of: ActionsOf = _the_actions_of,
-                    undo: UndoChange = undo_change,
-                    record_note: RecordNote = _record_note) -> None:
+                    actions_of: ActionsOf,
+                    record_note: RecordNote,
+                    undo: UndoChange = undo_change) -> None:
     """Puts back every change the incident made, and says what became of each.
 
     Nothing is filtered by what the walk made of an action. A change the walk

@@ -22,7 +22,7 @@ import psycopg
 from agent_postmortem import IncidentEvidence, PostmortemDocument, write_postmortem
 from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
 from argus_core.config import get_settings
-from argus_core.db import connect
+from argus_core.db import Connections
 from argus_core.events import LogsRetrieved, OnsetDetected
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
@@ -35,6 +35,7 @@ from orchestrator.repository import actions, events, hypotheses, incidents, repl
 
 
 def write_postmortem_for(incident_id: str,
+                         connections: Connections,
                          recorder: Recorder = records_nothing) -> PostmortemDocument:
     """The real postmortem for one incident: gather, then write.
 
@@ -43,7 +44,7 @@ def write_postmortem_for(incident_id: str,
     in front of a reader looks measured, and the document is built to tell the
     two apart.
     """
-    with connect() as conn:
+    with connections() as conn:
         evidence = gather_evidence(conn, incident_id)
         rates = todays_rates(conn, get_settings().reporting_currency)
 

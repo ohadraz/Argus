@@ -23,6 +23,7 @@ from orchestrator.graph import (
     mitigation_proposal_node,
     tier_gate_node,
 )
+from orchestrator.withdrawal import IsStillWanted
 
 from ..framework.assertions import assert_that
 from ..framework.builders import (
@@ -89,6 +90,14 @@ def claimed_at() -> MagicMock:
 
 
 @pytest.fixture
+def still_wanted() -> MagicMock:
+    wanted = cast(MagicMock, create_autospec(IsStillWanted, instance=True))
+    wanted.return_value = True
+
+    return wanted
+
+
+@pytest.fixture
 def change_landed() -> MagicMock:
     return cast(MagicMock, create_autospec(graph.ChangeLanded, instance=True))
 
@@ -123,11 +132,11 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     "narration": Narration(
                         action="hypothesis formed",
                         result=some_hypothesis.summary,
-                        confidence=some_hypothesis.confidence,
-                    ),
+                        confidence=some_hypothesis.confidence
+                    )
                 }
             ),
-            assert_that(record_hypothesis).was_called_with(some_hypothesis),
+            assert_that(record_hypothesis).was_called_with(some_hypothesis)
         ))
 
 
@@ -160,7 +169,7 @@ def test_a_doubtful_cause_is_still_offered_as_the_one_to_try(
         ) \
         .then(all_of(
             assert_that(result["hypothesis"]).is_equal_to(a_doubtful_hypothesis),
-            assert_that(result["nothing_worth_trying"]).is_equal_to(False),
+            assert_that(result["nothing_worth_trying"]).is_equal_to(False)
         ))
 
 
@@ -202,11 +211,11 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     "narration": Narration(
                         action="insufficient evidence",
                         result=a_hypothesis_with_no_cause.summary,
-                        confidence=None,
-                    ),
+                        confidence=None
+                    )
                 }
             ),
-            assert_that(record_hypothesis).was_called_with(a_hypothesis_with_no_cause),
+            assert_that(record_hypothesis).was_called_with(a_hypothesis_with_no_cause)
         ))
 
 
@@ -322,7 +331,10 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
     take: MagicMock, 
     record_action: MagicMock, 
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -333,7 +345,10 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                              take=take,
                              record_action=record_action,
                              complete_action=complete_action,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             already_taken=already_taken,
+                             claimed_at=claimed_at,
+                             still_wanted=still_wanted)
 
     assert result["action_outcome"] == "confirmed"
 
@@ -343,7 +358,10 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
     take: MagicMock, 
     record_action: MagicMock, 
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -354,7 +372,10 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
                              take=take,
                              record_action=record_action,
                              complete_action=complete_action,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             already_taken=already_taken,
+                             claimed_at=claimed_at,
+                             still_wanted=still_wanted)
 
     assert result["action_outcome"] == "refuted"
 
@@ -364,7 +385,10 @@ def test_the_node_that_takes_the_action_decides_no_status(
     take: MagicMock, 
     record_action: MagicMock, 
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     # The verdict is what this node measured; where the incident stands as a
     # result is a conclusion drawn from it elsewhere. Drawing it here is how the
@@ -378,7 +402,10 @@ def test_the_node_that_takes_the_action_decides_no_status(
                              take=take,
                              record_action=record_action,
                              complete_action=complete_action,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             already_taken=already_taken,
+                             claimed_at=claimed_at,
+                             still_wanted=still_wanted)
 
     assert "status" not in result
 
@@ -388,7 +415,10 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
     take: MagicMock, 
     record_action: MagicMock, 
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -399,7 +429,10 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
                              take=take,
                              record_action=record_action,
                              complete_action=complete_action,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             already_taken=already_taken,
+                             claimed_at=claimed_at,
+                             still_wanted=still_wanted)
 
     assert result["action_outcome"] == "escalated"
 
@@ -409,7 +442,10 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
     take: MagicMock, 
     record_action: MagicMock, 
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     # The descriptor the write tier returned, not the one proposed: it is the
     # record of what actually changed, and it is what a human reading the
@@ -418,7 +454,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
         "tool": "set_feature_flag",
         "flag": "monthly-spend-feature",
         "environment": "production",
-        "was_enabled": False,
+        "was_enabled": False
     }
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
@@ -429,7 +465,10 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
                     take=take,
                     complete_action=complete_action,
                     record_action=record_action,
-                    record_outcome=record_outcome)
+                    record_outcome=record_outcome,
+                    already_taken=already_taken,
+                    claimed_at=claimed_at,
+                    still_wanted=still_wanted)
 
     assert complete_action.call_args.kwargs["undo_descriptor"] == some_undo_descriptor
 
@@ -439,7 +478,10 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     # Withdrawn is not a verdict about the hypothesis. The action was taken and
     # then abandoned, so nothing was measured - and marking the candidate tested
@@ -447,7 +489,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     # experiment that never finished.
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor(),
-        about=a_determined_hypothesis(a_random_id()),
+        about=a_determined_hypothesis(a_random_id())
     )
     take.return_value = _an_outcome(Verdict.WITHDRAWN)
 
@@ -455,7 +497,10 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
                     take=take,
                     complete_action=complete_action,
                     record_action=record_action,
-                    record_outcome=record_outcome)
+                    record_outcome=record_outcome,
+                    already_taken=already_taken,
+                    claimed_at=claimed_at,
+                    still_wanted=still_wanted)
 
     record_outcome.assert_not_called()
 
@@ -465,7 +510,10 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     # The candidate learns nothing, but the action row must: the flag is still
     # changed, and the undo descriptor is the only record of what would restore
@@ -473,7 +521,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
     some_undo_descriptor = {"tool": "set_feature_flag", "was_enabled": True}
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor(),
-        about=a_determined_hypothesis(a_random_id()),
+        about=a_determined_hypothesis(a_random_id())
     )
     take.return_value = _an_outcome(
         Verdict.WITHDRAWN, undo_descriptor=some_undo_descriptor
@@ -483,7 +531,10 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
                     take=take,
                     complete_action=complete_action,
                     record_action=record_action,
-                    record_outcome=record_outcome)
+                    record_outcome=record_outcome,
+                    already_taken=already_taken,
+                    claimed_at=claimed_at,
+                    still_wanted=still_wanted)
 
     assert complete_action.call_args.kwargs["outcome"] == "withdrawn"
     assert complete_action.call_args.kwargs["undo_descriptor"] == some_undo_descriptor
@@ -494,7 +545,10 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
     take: MagicMock, 
     record_action: MagicMock, 
     complete_action: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     # An action was taken and the service was measured afterwards, so this
     # candidate was genuinely tested - and the verdict is the answer it was
@@ -510,7 +564,10 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
                     take=take,
                     complete_action=complete_action,
                     record_action=record_action,
-                    record_outcome=record_outcome)
+                    record_outcome=record_outcome,
+                    already_taken=already_taken,
+                    claimed_at=claimed_at,
+                    still_wanted=still_wanted)
 
     assert record_outcome.call_args.args[0] == some_candidate.id
     assert record_outcome.call_args.kwargs["tested"] is True
@@ -519,8 +576,13 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
 
 @pytest.mark.unit
 def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
-    take: MagicMock, record_action: MagicMock, complete_action: MagicMock,
-    already_taken: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    already_taken: MagicMock, 
+    record_outcome: MagicMock,
+    claimed_at: MagicMock, 
+    still_wanted: MagicMock
 ) -> None:
     # A worker died inside this node and another took the run up. The claim is
     # already in the database, so this walk is refused it - and refusing it is
@@ -538,7 +600,9 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
                              record_action=record_action,
                              complete_action=complete_action,
                              already_taken=already_taken,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             claimed_at=claimed_at,
+                             still_wanted=still_wanted)
 
     assert take.called is False
     assert complete_action.called is False
@@ -547,8 +611,13 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
 
 @pytest.mark.unit
 def test_a_walk_that_claimed_the_action_takes_it(
-    take: MagicMock, record_action: MagicMock, complete_action: MagicMock,
-    already_taken: MagicMock, record_outcome: MagicMock
+    take: MagicMock, 
+    record_action: MagicMock, 
+    complete_action: MagicMock,
+    already_taken: MagicMock, 
+    record_outcome: MagicMock,
+    claimed_at: MagicMock, 
+    still_wanted: MagicMock
 ) -> None:
     # The other half, so the guard cannot pass by never acting at all: a walk
     # that got the claim is the one attempt, and it does the work.
@@ -563,7 +632,9 @@ def test_a_walk_that_claimed_the_action_takes_it(
                     record_action=record_action,
                     complete_action=complete_action,
                     already_taken=already_taken,
-                    record_outcome=record_outcome)
+                    record_outcome=record_outcome,
+                    claimed_at=claimed_at,
+                    still_wanted=still_wanted)
 
     assert take.called is True
     assert already_taken.called is False
@@ -577,7 +648,8 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
     already_taken: MagicMock, 
     claimed_at: MagicMock, 
     change_landed: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     # The worst state to find: the flag was changed and nobody measured what
     # happened next. Argus cannot invent that measurement, and acting again
@@ -586,7 +658,7 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
         proposing=_an_action_with_an_undo_descriptor(),
         about=a_determined_hypothesis(a_random_id()).model_copy(
             update={"subject": "monthly-spend-feature"}
-        ),
+        )
     )
     record_action.return_value = False
     already_taken.return_value = None
@@ -600,7 +672,8 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
                              already_taken=already_taken,
                              claimed_at=claimed_at,
                              change_landed=change_landed,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             still_wanted=still_wanted)
 
     assert take.called is False
     assert result["status"] == IncidentStatus.ESCALATED
@@ -623,7 +696,7 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
         proposing=_an_action_with_an_undo_descriptor(),
         about=a_determined_hypothesis(a_random_id()).model_copy(
             update={"subject": "monthly-spend-feature"}
-        ),
+        )
     )
     record_action.return_value = False
     already_taken.return_value = None
@@ -638,7 +711,8 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
                              already_taken=already_taken,
                              claimed_at=claimed_at,
                              change_landed=change_landed,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             still_wanted=still_wanted)
 
     assert take.called is True
     assert result["action_outcome"] == "confirmed"
@@ -652,7 +726,8 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
     already_taken: MagicMock, 
     claimed_at: MagicMock, 
     change_landed: MagicMock,
-    record_outcome: MagicMock
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
 ) -> None:
     # Unreachable, or a deployment where Argus and its operators share a
     # credential. Either way nobody can say whether the change was made, and
@@ -661,7 +736,7 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
         proposing=_an_action_with_an_undo_descriptor(),
         about=a_determined_hypothesis(a_random_id()).model_copy(
             update={"subject": "monthly-spend-feature"}
-        ),
+        )
     )
     record_action.return_value = False
     already_taken.return_value = None
@@ -675,7 +750,8 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
                              already_taken=already_taken,
                              claimed_at=claimed_at,
                              change_landed=change_landed,
-                             record_outcome=record_outcome)
+                             record_outcome=record_outcome,
+                             still_wanted=still_wanted)
 
     assert take.called is False
     assert result["status"] == IncidentStatus.ESCALATED
@@ -689,9 +765,8 @@ def _an_investigating_incident() -> IncidentState:
     return an_incident_state(some_alert, IncidentStatus.INVESTIGATING)
 
 
-def _a_mitigating_incident(
-    proposing: Action | None = None, about: Hypothesis | None = None
-) -> IncidentState:
+def _a_mitigating_incident(proposing: Action | None = None, 
+                           about: Hypothesis | None = None) -> IncidentState:
     some_service = "kuki-service"
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
@@ -700,7 +775,7 @@ def _a_mitigating_incident(
     return state.model_copy(
         update={
             "hypothesis": about or a_determined_hypothesis(state.incident_id),
-            "proposed_action": proposing,
+            "proposed_action": proposing
         }
     )
 
@@ -715,7 +790,7 @@ def _an_action_with_an_undo_descriptor() -> Action:
         flag=DONT_CARE_FLAG,
         enabled=False,
         undo_descriptor={"tool": "set_feature_flag", "flag": DONT_CARE_FLAG,
-                         "was_enabled": True},
+                         "was_enabled": True}
     )
 
 
@@ -724,7 +799,7 @@ def _an_action_with_no_undo_descriptor() -> Action:
         action_type="revert-feature-flag",
         flag=DONT_CARE_FLAG,
         enabled=False,
-        undo_descriptor={},
+        undo_descriptor={}
     )
 
 
@@ -733,7 +808,7 @@ def _an_outcome(verdict: Verdict,
     return Outcome(
         verdict=verdict,
         detail="dont care",
-        undo_descriptor=undo_descriptor or {},
+        undo_descriptor=undo_descriptor or {}
     )
 
 

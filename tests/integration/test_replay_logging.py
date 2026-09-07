@@ -9,12 +9,13 @@ from agent_investigator import investigate
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_core.config import get_settings
+from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 from argus_core.replay import CallType, ReplayEntry
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.publishing import record_call
+from orchestrator.publishing import calls_into
 from orchestrator.repository import incidents, replay
 
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN
@@ -75,7 +76,7 @@ def test_an_investigations_calls_reach_the_replay_log(
                     fetch_metrics=_metrics_that_show_an_onset,
                     fetch_logs=_logs_that_say_little,
                     fetch_change_events=_no_changes,
-                    recorder=record_call,
+                    recorder=calls_into(connect)
                 )
             ) \
             .then(

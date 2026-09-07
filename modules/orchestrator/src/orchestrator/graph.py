@@ -19,7 +19,7 @@ from agent_mitigation.tools import (
 )
 from agent_postmortem import PostmortemDocument
 from argus_core.config import get_settings
-from argus_core.db import connect
+from argus_core.db import Connections
 from argus_core.events import (
     ActionTaken,
     AgentInvoked,
@@ -51,9 +51,9 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from orchestrator.postmortem import write_postmortem_for
-from orchestrator.publishing import record_call, record_event
+from orchestrator.publishing import calls_into, events_into
 from orchestrator.repository import actions, hypotheses, incidents, postmortems
-from orchestrator.withdrawal import IsStillWanted, is_still_wanted
+from orchestrator.withdrawal import IsStillWanted, wanted_via
 
 
 class Investigate(Protocol):
@@ -215,92 +215,105 @@ class RecordNote(Protocol):
     ) -> None: ...
 
 
-def _record_hypothesis(hypothesis: Hypothesis) -> None:
-    with connect() as conn:
-        hypotheses.record(conn, hypothesis)
+class Records:
+    """Every write a node makes, against one source of connections.
 
+    One object rather than nine functions taking a tenth argument: each of its
+    methods is already the shape of the `Protocol` a node asks for, so a bound
+    method goes straight in where the node expects a collaborator and the
+    database stops appearing in any node's signature.
 
-def _record_outcome(hypothesis_id: str, tested: bool, result: str) -> None:
-    with connect() as conn:
-        hypotheses.record_outcome(conn, hypothesis_id, tested=tested, result=result)
+    Built once where the graph is assembled, from whatever that process holds -
+    a pool while Argus is running, a single connection in a script.
+    """
 
+    def __init__(self, connections: Connections) -> None:
+        self._connections = connections
 
-def _transition_incident(
-    incident_id: str,
-    to_status: IncidentStatus,
-    actor: Actor,
-    action: str,
-    result: str | None = None,
-    confidence: float | None = None,
-) -> None:
-    with connect() as conn:
-        incidents.transition(
-            conn, incident_id, to_status, actor=actor, action=action,
-            result=result, confidence=confidence,
-        )
+    def hypothesis(self, hypothesis: Hypothesis, /) -> None:
+        with self._connections() as conn:
+            hypotheses.record(conn, hypothesis)
 
+    def outcome(self, hypothesis_id: str, tested: bool, result: str) -> None:
+        with self._connections() as conn:
+            hypotheses.record_outcome(conn, hypothesis_id, tested=tested, result=result)
 
-def _record_note(
-    incident_id: str,
-    actor: Actor,
-    action: str,
-    result: str | None = None,
-    confidence: float | None = None,
-) -> None:
-    with connect() as conn:
-        incidents.record_note(
-            conn, incident_id, actor=actor, action=action,
-            result=result, confidence=confidence,
-        )
+    def transition(
+        self,
+        incident_id: str,
+        to_status: IncidentStatus,
+        actor: Actor,
+        action: str,
+        result: str | None = None,
+        confidence: float | None = None,
+    ) -> None:
+        with self._connections() as conn:
+            incidents.transition(
+                conn, incident_id, to_status, actor=actor, action=action,
+                result=result, confidence=confidence,
+            )
 
+    def note(
+        self,
+        incident_id: str,
+        actor: Actor,
+        action: str,
+        result: str | None = None,
+        confidence: float | None = None,
+    ) -> None:
+        with self._connections() as conn:
+            incidents.record_note(
+                conn, incident_id, actor=actor, action=action,
+                result=result, confidence=confidence,
+            )
 
-def _record_action(
-    incident_id: str,
-    hypothesis_id: str,
-    action_type: str,
-) -> bool:
-    with connect() as conn:
-        return actions.claim(
-            conn,
-            incident_id,
-            hypothesis_id=hypothesis_id,
-            action_type=action_type,
-        )
+    def claim_action(
+        self,
+        incident_id: str,
+        hypothesis_id: str,
+        action_type: str,
+    ) -> bool:
+        with self._connections() as conn:
+            return actions.claim(
+                conn,
+                incident_id,
+                hypothesis_id=hypothesis_id,
+                action_type=action_type,
+            )
 
+    def complete_action(
+        self,
+        incident_id: str,
+        hypothesis_id: str,
+        outcome: str,
+        undo_descriptor: dict[str, Any],
+    ) -> None:
+        with self._connections() as conn:
+            actions.complete(
+                conn,
+                incident_id,
+                hypothesis_id=hypothesis_id,
+                outcome=outcome,
+                undo_descriptor=undo_descriptor,
+            )
 
-def _complete_action(
-    incident_id: str,
-    hypothesis_id: str,
-    outcome: str,
-    undo_descriptor: dict[str, Any],
-) -> None:
-    with connect() as conn:
-        actions.complete(
-            conn,
-            incident_id,
-            hypothesis_id=hypothesis_id,
-            outcome=outcome,
-            undo_descriptor=undo_descriptor,
-        )
+    def action_outcome(self, incident_id: str, hypothesis_id: str) -> str | None:
+        with self._connections() as conn:
+            taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
 
+        return taken.outcome if taken is not None else None
 
-def _action_already_taken(incident_id: str, hypothesis_id: str) -> str | None:
-    with connect() as conn:
-        taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+    def action_claimed_at(self,
+                          incident_id: str,
+                          hypothesis_id: str) -> datetime | None:
+        with self._connections() as conn:
+            taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
 
-    return taken.outcome if taken is not None else None
+        return taken.taken_at if taken is not None else None
 
-
-def _action_claimed_at(incident_id: str, hypothesis_id: str) -> datetime | None:
-    with connect() as conn:
-        taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
-
-    return taken.taken_at if taken is not None else None
-
-
-def _record_postmortem(incident_id: str, document: PostmortemDocument) -> None:
-    with connect() as conn:
-        postmortems.record(conn, incident_id, document)
+    def postmortem(self, incident_id: str, document: PostmortemDocument, /) -> None:
+        with self._connections() as conn:
+            postmortems.record(conn, incident_id, document)
 
 
 class Narration(BaseModel):
@@ -329,10 +342,10 @@ def with_status(
     node: Callable[[IncidentState], dict[str, Any]],
     actor: Actor,
     max_rounds: int,
-    transition_incident: TransitionIncident = _transition_incident,
-    record_note: RecordNote = _record_note,
+    transition_incident: TransitionIncident,
+    record_note: RecordNote,
+    still_wanted: IsStillWanted,
     publisher: Publisher = nobody,
-    still_wanted: IsStillWanted = is_still_wanted,
 ) -> Callable[..., dict[str, Any]]:
     """Wraps a node so that the status it implies is derived, written and
     published in one place (spec §7.1, §10).
@@ -466,7 +479,7 @@ def mitigation_proposal_node(
 
 def tier_gate_node(
     state: IncidentState,
-    record_outcome: RecordOutcome = _record_outcome,
+    record_outcome: RecordOutcome,
 ) -> dict[str, Any]:
     """Refuses to let a reversible action reach its call without a way back
     (spec §13).
@@ -538,8 +551,8 @@ def route_after_gate(state: IncidentState) -> str:
 
 def investigator_node(
     state: IncidentState,
+    record_hypothesis: RecordHypothesis,
     investigate: Investigate = _investigate,
-    record_hypothesis: RecordHypothesis = _record_hypothesis,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
 ) -> dict[str, Any]:
@@ -668,14 +681,14 @@ def route_after_investigation(state: IncidentState) -> str:
 
 def mitigation_node(
     state: IncidentState,
+    record_action: RecordAction,
+    complete_action: CompleteAction,
+    already_taken: ActionAlreadyTaken,
+    claimed_at: ActionClaimedAt,
+    record_outcome: RecordOutcome,
+    still_wanted: IsStillWanted,
     take: TakeAction = take_action,
-    record_action: RecordAction = _record_action,
-    complete_action: CompleteAction = _complete_action,
-    already_taken: ActionAlreadyTaken = _action_already_taken,
-    claimed_at: ActionClaimedAt = _action_claimed_at,
     change_landed: ChangeLanded = argus_changed_flag_since,
-    record_outcome: RecordOutcome = _record_outcome,
-    still_wanted: IsStillWanted = is_still_wanted,
     publisher: Publisher = nobody,
 ) -> dict[str, Any]:
     """Performs the action the gate admitted, and records what came of it
@@ -1131,8 +1144,8 @@ def _why_a_human_is_needed(state: IncidentState) -> str:
 
 def postmortem_node(
     state: IncidentState,
-    write: WritePostmortem = write_postmortem_for,
-    record: RecordPostmortem = _record_postmortem,
+    write: WritePostmortem,
+    record: RecordPostmortem,
 ) -> dict[str, Any]:
     """Writes the incident up, and stores whatever was written (spec §7.6).
 
@@ -1180,49 +1193,92 @@ def recursion_limit(max_rounds: int, max_candidates: int) -> int:
     return max_rounds * a_full_round + _NODES_ENDING_A_WALK
 
 
-def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[IncidentState]:
+def build_graph(checkpointer: BaseCheckpointSaver[Any],
+                connections: Connections) -> CompiledStateGraph[IncidentState]:
     """Assembles spec §10's incident FSM as a LangGraph `StateGraph` (§7.1) -
     every sub-agent and the tier-gate node are present, and every edge from
     §10's diagram is wired, even though this change's happy path only
-    drives `investigating -> mitigating -> resolved`."""
+    drives `investigating -> mitigating -> resolved`.
+
+    This is where a node meets the database. A node names what it needs and is
+    handed it here, so the only thing in this module that knows a connection can
+    be had is the assembly - and a walk in a different process, against a
+    different pool, is the same graph built with different collaborators."""
     graph: StateGraph[IncidentState] = StateGraph(IncidentState)
-    # The subscriber is bound here rather than defaulted on the nodes. A node's
-    # collaborators default to the real thing because a caller that wants the
-    # real thing is the ordinary case; publishing is the exception, since the
-    # ordinary case for a node called on its own - in a test - is that nobody
-    # is listening. Wiring it where the graph is assembled keeps a unit test
-    # away from the database without every one of them having to say so.
+
+    records = Records(connections)
+    publisher = events_into(connections)
+    recorder = calls_into(connections)
+    still_wanted = wanted_via(connections)
+    # Everything that reaches the database is bound here rather than defaulted
+    # on the nodes. A node called on its own - in a test - talks to nobody and
+    # writes nothing, which is what a node called on its own should do; the
+    # walk is where the real collaborators are, and this is where the walk is
+    # assembled.
     #
     # Every node is wrapped so the status its work implies is derived, written
     # and published in one place. The actor is supplied here because which agent
     # a node belongs to is a fact about the graph, not about the node.
     max_rounds = get_settings().investigation_max_rounds
     deciding_status = partial(
-        with_status, max_rounds=max_rounds, publisher=record_event
+        with_status,
+        max_rounds=max_rounds,
+        transition_incident=records.transition,
+        record_note=records.note,
+        still_wanted=still_wanted,
+        publisher=publisher,
     )
 
     graph.add_node(
         "investigator",
         deciding_status(
-            partial(investigator_node, publisher=record_event, recorder=record_call),
+            partial(investigator_node,
+                    record_hypothesis=records.hypothesis,
+                    publisher=publisher,
+                    recorder=recorder),
             Actor.INVESTIGATOR
         ),
     )
     graph.add_node(
         "mitigation_proposal",
         deciding_status(
-            partial(mitigation_proposal_node, publisher=record_event), Actor.MITIGATION
+            partial(mitigation_proposal_node, publisher=publisher), Actor.MITIGATION
         ),
     )
-    graph.add_node("tier_gate", deciding_status(tier_gate_node, Actor.MITIGATION))
+    graph.add_node(
+        "tier_gate",
+        deciding_status(
+            partial(tier_gate_node, record_outcome=records.outcome), Actor.MITIGATION
+        ),
+    )
     graph.add_node(
         "mitigation",
-        deciding_status(partial(mitigation_node, publisher=record_event), Actor.MITIGATION),
+        deciding_status(
+            partial(mitigation_node,
+                    record_action=records.claim_action,
+                    complete_action=records.complete_action,
+                    already_taken=records.action_outcome,
+                    claimed_at=records.action_claimed_at,
+                    record_outcome=records.outcome,
+                    still_wanted=still_wanted,
+                    publisher=publisher),
+            Actor.MITIGATION
+        ),
     )
     graph.add_node("next_candidate", deciding_status(next_candidate_node, Actor.MITIGATION))
     graph.add_node("codefix", deciding_status(codefix_node, Actor.CODEFIX))
     graph.add_node("communicator", deciding_status(communicator_node, Actor.COMMUNICATOR))
-    graph.add_node("postmortem", deciding_status(postmortem_node, Actor.POSTMORTEM))
+    graph.add_node(
+        "postmortem",
+        deciding_status(
+            partial(postmortem_node,
+                    write=partial(write_postmortem_for,
+                                  connections=connections,
+                                  recorder=recorder),
+                    record=records.postmortem),
+            Actor.POSTMORTEM
+        ),
+    )
 
     graph.add_edge(START, "investigator")
     # Every router is wrapped so a withdrawn incident leaves the graph from

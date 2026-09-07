@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 from unittest.mock import create_autospec
@@ -13,6 +14,7 @@ from argus_testkit import Assertion, Scenario, all_of
 from langgraph.graph.state import CompiledStateGraph
 from orchestrator import entrypoint, worker
 from orchestrator.repository import incidents, runs, timeline
+from orchestrator.withdrawal import wanted_via
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 
@@ -39,7 +41,7 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs() -> None:
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, graph_of=lambda: a_graph
+                    incident_id, connect, graph_of=lambda: a_graph
                 )
             ) \
             .then(all_of(
@@ -77,6 +79,8 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident() -> None:
                     the_worker_that_came_after,
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
+                    unwind=_an_unwind_that_must_not_be_called(),
+                    still_wanted=wanted_via(connect),
                 )
             ) \
             .then(all_of(
@@ -104,7 +108,7 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread() -> None:
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, graph_of=lambda: a_graph
+                    incident_id, connect, graph_of=lambda: a_graph
                 )
             ) \
             .then(all_of(
@@ -237,3 +241,13 @@ def _the_state_it_started_from_is_the_incidents(a_graph: Any,
         return True
 
     return assertion
+
+
+def _an_unwind_that_must_not_be_called() -> Callable[[str], None]:
+    def unwind(incident_id: str) -> None:
+        raise AssertionError(
+            f"Expected a resumed run nobody withdrew not to be unwound, got "
+            f"[{incident_id}]."
+        )
+
+    return unwind

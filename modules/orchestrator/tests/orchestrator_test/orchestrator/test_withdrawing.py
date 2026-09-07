@@ -8,7 +8,7 @@ from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.repository import incidents
-from orchestrator.withdrawal import is_still_wanted, withdraw_incident
+from orchestrator.withdrawal import wanted_via, withdraw_incident
 
 """The door a human stops Argus through.
 
@@ -37,7 +37,7 @@ def test_a_withdrawal_that_took_effect_is_published(a_clean_database: None) -> N
             incident_id
         ) \
         .when(
-            withdraw_incident(incident_id, publisher=published.append)
+            withdraw_incident(incident_id, connect, publisher=published.append)
         ) \
         .then(all_of(
             _it_reports(True),
@@ -69,7 +69,7 @@ def test_a_withdrawal_that_changed_nothing_publishes_nothing(a_clean_database: N
             incident_id
         ) \
         .when(
-            withdraw_incident(incident_id, publisher=published.append)
+            withdraw_incident(incident_id, connect, publisher=published.append)
         ) \
         .then(all_of(
             _it_reports(False),
@@ -91,7 +91,7 @@ def test_a_withdrawal_reaches_the_incident_itself(a_clean_database: None) -> Non
             incident_id
         ) \
         .when(
-            withdraw_incident(incident_id, publisher=_nobody_is_listening)
+            withdraw_incident(incident_id, connect, publisher=_nobody_is_listening)
         ) \
         .then(
             _the_incident_is(incident_id, IncidentStatus.WITHDRAWN)
@@ -121,7 +121,7 @@ def test_an_incident_argus_resolved_is_still_wanted(a_clean_database: None) -> N
             incident_id
         ) \
         .when(
-            is_still_wanted(incident_id)
+            wanted_via(connect)(incident_id)
         ) \
         .then(
             _it_reports(True)
@@ -141,7 +141,7 @@ def test_an_incident_somebody_withdrew_is_not_wanted(a_clean_database: None) -> 
             incident_id
         ) \
         .when(
-            is_still_wanted(incident_id)
+            wanted_via(connect)(incident_id)
         ) \
         .then(
             _it_reports(False)
@@ -160,7 +160,7 @@ def test_an_incident_with_no_row_at_all_is_not_wanted(a_clean_database: None) ->
             some_incident_id_nobody_created
         ) \
         .when(
-            is_still_wanted(some_incident_id_nobody_created)
+            wanted_via(connect)(some_incident_id_nobody_created)
         ) \
         .then(
             _it_reports(False)

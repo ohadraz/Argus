@@ -12,6 +12,7 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import worker
 from orchestrator.repository import incidents, runs
+from orchestrator.withdrawal import wanted_via
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 
@@ -42,12 +43,14 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker() -> None:
                     dont_care_worker,
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect)
                 )
             ) \
             .then(all_of(
                 _the_worker_reports_it_took_work(),
                 _the_incident_walked_was(walked, incident_id),
-                _the_run_is_done(conn, incident_id),
+                _the_run_is_done(conn, incident_id)
             ))
 
 
@@ -72,6 +75,8 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking() -> None:
                     dont_care_worker,
                     A_GENEROUS_LEASE,
                     walk=walk_that_must_not_be_called,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect)
                 )
             ) \
             .then(
@@ -103,12 +108,17 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason() -> None
             ) \
             .when(
                 worker.take_one_run(
-                    conn, dont_care_worker, A_GENEROUS_LEASE, walk=walk_that_fails
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect)
                 )
             ) \
             .then(all_of(
                 _the_run_is_failed(conn, incident_id, what_went_wrong),
-                _the_incident_was_not_called_resolved(conn, incident_id),
+                _the_incident_was_not_called_resolved(conn, incident_id)
             ))
 
 
@@ -140,13 +150,14 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked() -> None:
                     dont_care_worker,
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
-                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect),
+                    unwind=_an_unwind_recording_what_it_was_given([])
                 )
             ) \
             .then(all_of(
                 _the_worker_reports_it_took_work(),
                 _nothing_was_walked(walked),
-                _the_run_is_done(conn, incident_id),
+                _the_run_is_done(conn, incident_id)
             ))
 
 
@@ -175,6 +186,7 @@ def test_a_withdrawn_incident_has_its_changes_put_back() -> None:
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_must_not_be_called(),
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    still_wanted=wanted_via(connect)
                 )
             ) \
             .then(
@@ -210,11 +222,12 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards() -> No
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_partway,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    still_wanted=wanted_via(connect)
                 )
             ) \
             .then(all_of(
                 _the_incident_unwound_was(unwound, incident_id),
-                _the_run_is_done(conn, incident_id),
+                _the_run_is_done(conn, incident_id)
             ))
 
 

@@ -24,11 +24,7 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.reading import Reading
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
-from orchestrator.graph import (
-    investigator_node,
-    mitigation_node,
-    mitigation_proposal_node,
-)
+from orchestrator.graph import investigator_node, mitigation_node, mitigation_proposal_node
 from orchestrator.publishing import acknowledge_alert
 
 from ..framework.builders import a_determined_hypothesis, an_incident_state
@@ -96,7 +92,7 @@ def test_the_investigation_publishes_to_the_same_place_the_graph_does() -> None:
 
     _the_investigator_runs(
         publisher=published.append,
-        remember_publisher=what_the_investigation_was_given.append,
+        remember_publisher=what_the_investigation_was_given.append
     )
 
     assert what_the_investigation_was_given == [published.append]
@@ -156,7 +152,7 @@ def test_the_graph_says_what_flag_history_it_chose_the_action_from() -> None:
             flag="monthly-spend-feature",
             enabled=True,
             occurred_at="2026-08-30T10:05:00Z",
-            actor="a-human",
+            actor="a-human"
         )
     ]
 
@@ -200,7 +196,7 @@ _AN_ACTION = Action(
     action_type="revert-feature-flag",
     flag="monthly-spend-feature",
     enabled=False,
-    undo_descriptor={"flag": "monthly-spend-feature", "was_enabled": True},
+    undo_descriptor={"flag": "monthly-spend-feature", "was_enabled": True}
 )
 _CONFIRMED = Outcome(verdict=Verdict.CONFIRMED, detail="dont care",
                      undo_descriptor={"was_enabled": True})
@@ -235,7 +231,7 @@ def _the_investigator_runs(publisher: Any,
         state,
         investigate=investigate,
         record_hypothesis=lambda dont_care_hypothesis: None,
-        publisher=publisher,
+        publisher=publisher
     )
 
 
@@ -275,7 +271,10 @@ def _an_action_is_taken(candidate: Any,
         record_action=lambda incident_id, hypothesis_id, action_type: True,
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
-        **keywords,
+        already_taken=lambda incident_id, hypothesis_id: None,
+        claimed_at=lambda incident_id, hypothesis_id: None,
+        still_wanted=lambda dont_care_incident_id: True,
+        **keywords
     )
 
 

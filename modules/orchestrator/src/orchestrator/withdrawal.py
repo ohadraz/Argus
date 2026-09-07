@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from argus_core.db import connect
+from argus_core.db import Connections
 from argus_core.events import Publisher, StatusChanged, publish
 from argus_core.models.actor import Actor
 from argus_core.models.incident_status import IncidentStatus
 
-from orchestrator.publishing import record_event
 from orchestrator.repository import incidents
 
 """How an incident is taken back - and nothing about how one is walked.
@@ -38,7 +37,21 @@ class IsStillWanted(Protocol):
     def __call__(self, incident_id: str, /) -> bool: ...
 
 
-def is_still_wanted(incident_id: str) -> bool:
+def wanted_via(connections: Connections) -> IsStillWanted:
+    """The real question, bound to the connections that can answer it.
+
+    A factory for the same reason the subscribers are: what asks this is a walk,
+    and a walk is entitled to ask with an incident id alone. Where the answer is
+    read from is the process's business, settled once where the process starts.
+    """
+
+    def is_still_wanted(incident_id: str, /) -> bool:
+        return _is_still_wanted(incident_id, connections)
+
+    return is_still_wanted
+
+
+def _is_still_wanted(incident_id: str, connections: Connections) -> bool:
     """Reads back whether the incident is still one Argus should be working on.
 
     Beside the withdrawal rather than in the graph, because three things ask it
@@ -58,15 +71,16 @@ def is_still_wanted(incident_id: str) -> bool:
     which is exactly the state a suite leaves behind when it empties the
     database between cases.
     """
-    with connect() as conn:
+    with connections() as conn:
         incident = incidents.get(conn, incident_id)
 
     return incident is not None and incident.status is not IncidentStatus.WITHDRAWN
 
 
 def withdraw_incident(incident_id: str,
-                      actor: Actor = Actor.HUMAN,
-                      publisher: Publisher = record_event) -> bool:
+                      connections: Connections,
+                      publisher: Publisher,
+                      actor: Actor = Actor.HUMAN) -> bool:
     """Stops Argus working on an incident, and says whether it took effect.
 
     `Actor.HUMAN` by default because that is who the door is for. A suite
@@ -81,7 +95,7 @@ def withdraw_incident(incident_id: str,
     moved, so a second press does not tell every watcher the incident ended
     twice.
     """
-    with connect() as conn:
+    with connections() as conn:
         withdrawn = incidents.withdraw(conn, incident_id, actor)
 
     if withdrawn:

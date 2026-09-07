@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from argus_core.config import get_settings
-from argus_core.db import connect
+from argus_core.db import Connections
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
@@ -24,15 +24,6 @@ survive a gateway timeout - and what makes the checkpointer worth having, since
 a run nobody is holding can be picked up by whoever comes next.
 """
 
-# Lazily built once per process and kept alive for the process lifetime -
-# acceptable for this walking-skeleton's single-process demo scope; a real
-# deployment would manage this via an app lifespan hook instead.
-# `_checkpointer_cm` must stay referenced at module level: it owns the
-# underlying connection, and letting it get garbage-collected closes it out
-# from under the compiled graph.
-_checkpointer_cm: object | None = None
-_compiled_graph: CompiledStateGraph[IncidentState] | None = None
-
 # Where the graph a walk runs on comes from. A parameter rather than a global
 # reached through: the thread a resumed run continues on is the whole of what
 # makes a resume a resume, and it is not assertable through a module-level
@@ -40,17 +31,41 @@ _compiled_graph: CompiledStateGraph[IncidentState] | None = None
 type GraphOf = Callable[[], CompiledStateGraph[IncidentState]]
 
 
-def _get_graph() -> CompiledStateGraph[IncidentState]:
-    global _checkpointer_cm, _compiled_graph
-    if _compiled_graph is None:
-        _checkpointer_cm = PostgresSaver.from_conn_string(get_settings().database_url)
-        checkpointer = _checkpointer_cm.__enter__()
-        checkpointer.setup()
-        _compiled_graph = build_graph(checkpointer)
-    return _compiled_graph
+def graph_for(connections: Connections) -> GraphOf:
+    """The compiled graph, built once for the process that asks and kept.
+
+    Built lazily and held, because compiling it sets up a checkpointer and the
+    whole node wiring, and a walk should not pay for that on every run. Held by
+    the closure rather than at module level, so two processes - or a suite and
+    the application inside it - are two graphs against two sets of connections
+    rather than one that whichever ran first got to decide.
+
+    The checkpointer's context manager is kept alongside the graph deliberately:
+    it owns the connection the checkpointer writes on, and letting it be
+    collected would close that out from under the compiled graph.
+    """
+    graph: CompiledStateGraph[IncidentState] | None = None
+    checkpointer_cm: object | None = None
+
+    def compiled() -> CompiledStateGraph[IncidentState]:
+        nonlocal graph, checkpointer_cm
+
+        if graph is None:
+            checkpointer_cm = PostgresSaver.from_conn_string(
+                get_settings().database_url
+            )
+            checkpointer = checkpointer_cm.__enter__()
+            checkpointer.setup()
+            graph = build_graph(checkpointer, connections)
+
+        return graph
+
+    return compiled
 
 
-def run_incident(incident_id: str, graph_of: GraphOf = _get_graph) -> None:
+def run_incident(incident_id: str,
+                 connections: Connections,
+                 graph_of: GraphOf) -> None:
     """Walks one incident's graph to whatever end it reaches.
 
     Called by the worker that claimed the run, never by the alert endpoint.
@@ -66,7 +81,7 @@ def run_incident(incident_id: str, graph_of: GraphOf = _get_graph) -> None:
     asserted without a model, an MCP server or a real checkpointer behind it -
     the one property of this function that a test has any business pinning.
     """
-    with connect() as conn:
+    with connections() as conn:
         incident = incidents.get(conn, incident_id)
 
     if incident is None:
@@ -80,7 +95,7 @@ def run_incident(incident_id: str, graph_of: GraphOf = _get_graph) -> None:
     # Idempotent by way of the status it writes: a resumed run re-announces an
     # investigation that is already under way, which is true again each time it
     # is taken up.
-    with connect() as conn:
+    with connections() as conn:
         incidents.transition(
             conn,
             incident_id,

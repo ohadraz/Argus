@@ -5,16 +5,17 @@ import socket
 import time
 from collections.abc import Callable
 from datetime import timedelta
+from functools import partial
 from os import getpid
 
 import psycopg
 from argus_core.config import get_settings
-from argus_core.db import connect
+from argus_core.db import Connections, open_pool
 
-from orchestrator.entrypoint import run_incident
+from orchestrator.entrypoint import graph_for, run_incident
 from orchestrator.repository import runs
-from orchestrator.unwinding import unwind_incident
-from orchestrator.withdrawal import IsStillWanted, is_still_wanted
+from orchestrator.unwinding import actions_from, notes_into, unwind_incident
+from orchestrator.withdrawal import IsStillWanted, wanted_via
 
 """The process that walks incidents.
 
@@ -43,9 +44,9 @@ type Unwind = Callable[[str], None]
 def take_one_run(conn: psycopg.Connection,
                  claimed_by: str,
                  lease: timedelta,
-                 walk: Walk = run_incident,
-                 unwind: Unwind = unwind_incident,
-                 still_wanted: IsStillWanted = is_still_wanted) -> bool:
+                 walk: Walk,
+                 unwind: Unwind,
+                 still_wanted: IsStillWanted) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
 
     Answers `False` for an empty queue rather than blocking on it, so the
@@ -90,13 +91,20 @@ def take_one_run(conn: psycopg.Connection,
     return True
 
 
-def work_forever(walk: Walk = run_incident) -> None:
+def work_forever(connections: Connections,
+                 walk: Walk,
+                 unwind: Unwind,
+                 still_wanted: IsStillWanted) -> None:
     """Takes runs for as long as the process lives.
 
     Looks again immediately after taking work and waits only when it found
     none: the interval is the delay a queued incident pays before anything
     starts on it, and paying it between two waiting runs would add it to an
     incident that was already in line.
+
+    Holds one connection for the queue and nothing else. What a walk needs, the
+    walk was given when it was built - this loop's own connection is only ever
+    the claim, the lease and the settling.
     """
     settings = get_settings()
     lease = timedelta(seconds=settings.run_lease_seconds)
@@ -105,20 +113,34 @@ def work_forever(walk: Walk = run_incident) -> None:
 
     logger.info("worker %s waiting for runs", me)
 
-    with connect() as conn:
+    with connections() as conn:
         while True:
-            if not take_one_run(conn, me, lease, walk):
+            if not take_one_run(conn, me, lease, walk, unwind, still_wanted):
                 time.sleep(idle_wait)
 
 
 def main() -> None:
-    """The process itself: logging on, then take runs until killed.
+    """The process itself: a pool, then take runs until killed.
 
-    A `main` rather than bare module-level code, so that importing this module -
-    which the tests do - starts nothing.
+    Where everything this process needs is built, and the only place that knows
+    a pool exists. A `main` rather than bare module-level code, so that
+    importing this module - which the tests do - starts nothing and opens
+    nothing.
     """
     logging.basicConfig(level=logging.INFO)
-    work_forever()
+
+    with open_pool() as pool:
+        connections = pool.connection
+        graph_of = graph_for(connections)
+
+        work_forever(
+            connections,
+            walk=partial(run_incident, connections=connections, graph_of=graph_of),
+            unwind=partial(unwind_incident,
+                           actions_of=actions_from(connections),
+                           record_note=notes_into(connections)),
+            still_wanted=wanted_via(connections),
+        )
 
 
 def this_worker() -> str:
