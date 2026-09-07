@@ -14,6 +14,7 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Scenario, all_of
 from orchestrator import graph
 from orchestrator.graph import (
@@ -23,7 +24,6 @@ from orchestrator.graph import (
     mitigation_proposal_node,
     tier_gate_node,
 )
-from orchestrator.withdrawal import IsStillWanted
 
 from ..framework.assertions import assert_that
 from ..framework.builders import (

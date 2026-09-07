@@ -10,8 +10,8 @@ from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
+from argus_incidents.repository import hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.repository import hypotheses, incidents
 
 
 @pytest.mark.integration

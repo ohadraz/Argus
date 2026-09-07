@@ -11,11 +11,11 @@ from os import getpid
 import psycopg
 from argus_core.config import get_settings
 from argus_core.db import Connections, open_pool
+from argus_incidents.repository import runs
+from argus_incidents.withdrawal import IsStillWanted, wanted_via
 
 from orchestrator.entrypoint import graph_for, run_incident
-from orchestrator.repository import runs
-from orchestrator.unwinding import actions_from, notes_into, unwind_incident
-from orchestrator.withdrawal import IsStillWanted, wanted_via
+from orchestrator.unwinding import notes_into, taken_actions_from, unwind_incident
 
 """The process that walks incidents.
 
@@ -137,7 +137,7 @@ def main() -> None:
             connections,
             walk=partial(run_incident, connections=connections, graph_of=graph_of),
             unwind=partial(unwind_incident,
-                           actions_of=actions_from(connections),
+                           taken_actions_of=taken_actions_from(connections),
                            record_note=notes_into(connections)),
             still_wanted=wanted_via(connections),
         )

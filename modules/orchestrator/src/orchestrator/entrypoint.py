@@ -8,13 +8,13 @@ from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from orchestrator.graph import build_graph, recursion_limit
-from orchestrator.repository import incidents
 
-"""How an incident is walked. Starting one is `orchestrator.intake`.
+"""How an incident is walked. Starting one is `argus_incidents.intake`.
 
 The two live apart because importing this builds the graph and everything
 under it: a process that can reach here can run an investigation, and the

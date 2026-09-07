@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import psycopg
-from orchestrator.repository import (
-    actions,
+from argus_incidents.repository import (
     events,
     hypotheses,
     incidents,
     postmortems,
+    taken_actions,
     timeline,
 )
 
@@ -55,7 +55,7 @@ def read_incident(conn: psycopg.Connection, incident_id: str) -> IncidentDetail 
     return build_incident_detail(
         incident,
         candidates=hypotheses.get_all_by_incident(conn, incident_id),
-        attempts=actions.get_by_incident(conn, incident_id),
+        attempts=taken_actions.get_by_incident(conn, incident_id),
         timeline=timeline.get_timeline_events(conn, incident_id),
     )
 

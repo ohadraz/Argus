@@ -11,9 +11,9 @@ from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import hypotheses, incidents, postmortems, taken_actions
 from argus_web.app import app
 from fastapi.testclient import TestClient
-from orchestrator.repository import actions, hypotheses, incidents, postmortems
 
 """Argus's own screen, through the browser's door.
 
@@ -375,7 +375,7 @@ def _an_attempt_taken_for(conn: psycopg.Connection,
                           incident_id: str,
                           hypothesis_id: str,
                           outcome: str) -> None:
-    actions.record(
+    taken_actions.record(
         conn,
         incident_id,
         hypothesis_id=hypothesis_id,

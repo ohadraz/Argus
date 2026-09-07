@@ -12,9 +12,9 @@ from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.withdrawal import IsStillWanted
 from orchestrator import graph
 from orchestrator.graph import Narration, with_status
-from orchestrator.withdrawal import IsStillWanted
 
 """The one place a status is persisted, and the one place it is published.
 

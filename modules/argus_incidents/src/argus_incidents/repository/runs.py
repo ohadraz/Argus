@@ -4,10 +4,9 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 import psycopg
+from argus_core.ids import UuidStr
 from psycopg.rows import class_row
 from pydantic import BaseModel
-
-from orchestrator.repository._types import UuidStr
 
 """The queue of incidents waiting to be walked.
 

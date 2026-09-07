@@ -9,8 +9,8 @@ import psycopg
 import pytest
 from agent_mitigation import Undone
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import postmortems, timeline
 from argus_testkit import Assertion, Scenario, all_of, eventually
-from orchestrator.repository import postmortems, timeline
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,

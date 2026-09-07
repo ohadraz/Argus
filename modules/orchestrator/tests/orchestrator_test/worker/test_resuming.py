@@ -10,11 +10,11 @@ import pytest
 from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import incidents, runs, timeline
+from argus_incidents.withdrawal import wanted_via
 from argus_testkit import Assertion, Scenario, all_of
 from langgraph.graph.state import CompiledStateGraph
 from orchestrator import entrypoint, worker
-from orchestrator.repository import incidents, runs, timeline
-from orchestrator.withdrawal import wanted_via
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 

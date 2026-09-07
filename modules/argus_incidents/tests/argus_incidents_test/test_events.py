@@ -13,7 +13,7 @@ from argus_core.events import (
 )
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
-from orchestrator.repository import events, incidents
+from argus_incidents.repository import events, incidents
 
 """The account of an incident, written down and read back.
 

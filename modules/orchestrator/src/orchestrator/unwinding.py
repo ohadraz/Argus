@@ -6,8 +6,8 @@ from typing import Protocol
 from agent_mitigation import UndoAttempt, undo_change
 from argus_core.db import Connections
 from argus_core.models.actor import Actor
-
-from orchestrator.repository import actions, incidents
+from argus_core.models.taken_action import TakenAction
+from argus_incidents.repository import incidents, taken_actions
 
 """Putting back everything an incident changed, once nobody wants it walked.
 
@@ -27,7 +27,7 @@ them.
 # this module is about - every change, in order, each one recorded - is
 # assertable without a database behind it, and is the whole of what can go
 # wrong here.
-type ActionsOf = Callable[[str], list[actions.Action]]
+type TakenActionsOf = Callable[[str], list[TakenAction]]
 
 
 class UndoChange(Protocol):
@@ -46,14 +46,14 @@ class RecordNote(Protocol):
     ) -> None: ...
 
 
-def actions_from(connections: Connections) -> ActionsOf:
+def taken_actions_from(connections: Connections) -> TakenActionsOf:
     """The incident's own changes, read through the connections given."""
 
-    def the_actions_of(incident_id: str) -> list[actions.Action]:
+    def the_taken_actions_of(incident_id: str) -> list[TakenAction]:
         with connections() as conn:
-            return actions.get_by_incident(conn, incident_id)
+            return taken_actions.get_by_incident(conn, incident_id)
 
-    return the_actions_of
+    return the_taken_actions_of
 
 
 def notes_into(connections: Connections) -> RecordNote:
@@ -72,7 +72,7 @@ def notes_into(connections: Connections) -> RecordNote:
 
 
 def unwind_incident(incident_id: str,
-                    actions_of: ActionsOf,
+                    taken_actions_of: TakenActionsOf,
                     record_note: RecordNote,
                     undo: UndoChange = undo_change) -> None:
     """Puts back every change the incident made, and says what became of each.
@@ -92,11 +92,11 @@ def unwind_incident(incident_id: str,
     that happens to an incident, and a failure that took the remaining changes
     with it would leave more behind rather than less.
     """
-    for action in actions_of(incident_id):
-        if not action.undo_descriptor:
+    for taken_action in taken_actions_of(incident_id):
+        if not taken_action.undo_descriptor:
             continue
 
-        attempt = undo(action.undo_descriptor)
+        attempt = undo(taken_action.undo_descriptor)
         record_note(
             incident_id,
             actor=Actor.ORCHESTRATOR,

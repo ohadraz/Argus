@@ -46,21 +46,21 @@ from argus_core.models.reading import Reading
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from argus_core.timestamps import to_iso
-from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel
-
-from orchestrator.postmortem import write_postmortem_for
-from orchestrator.publishing import (
+from argus_incidents.publishing import (
     PublisherFor,
     calls_into,
     events_into,
     events_into_connection,
     narrate,
 )
-from orchestrator.repository import actions, hypotheses, incidents, postmortems
-from orchestrator.withdrawal import IsStillWanted, wanted_via
+from argus_incidents.repository import hypotheses, incidents, postmortems, taken_actions
+from argus_incidents.withdrawal import IsStillWanted, wanted_via
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+from pydantic import BaseModel
+
+from orchestrator.postmortem import write_postmortem_for
 
 
 class Investigate(Protocol):
@@ -312,7 +312,7 @@ class Records:
         action_type: str,
     ) -> bool:
         with self._connections() as conn:
-            return actions.claim(
+            return taken_actions.claim(
                 conn,
                 incident_id,
                 hypothesis_id=hypothesis_id,
@@ -336,7 +336,7 @@ class Records:
         never recorded against the action it was about.
         """
         with self._connections() as conn:
-            actions.complete(
+            taken_actions.complete(
                 conn,
                 incident_id,
                 hypothesis_id=hypothesis_id,
@@ -347,17 +347,19 @@ class Records:
 
     def action_outcome(self, incident_id: str, hypothesis_id: str) -> str | None:
         with self._connections() as conn:
-            taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+            taken_action = taken_actions.get_action_for_hypothesis(
+                conn, incident_id, hypothesis_id)
 
-        return taken.outcome if taken is not None else None
+        return taken_action.outcome if taken_action is not None else None
 
     def action_claimed_at(self,
                           incident_id: str,
                           hypothesis_id: str) -> datetime | None:
         with self._connections() as conn:
-            taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+            taken_action = taken_actions.get_action_for_hypothesis(
+                conn, incident_id, hypothesis_id)
 
-        return taken.taken_at if taken is not None else None
+        return taken_action.taken_at if taken_action is not None else None
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /) -> None:
         with self._connections() as conn:

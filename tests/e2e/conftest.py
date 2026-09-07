@@ -7,8 +7,8 @@ import httpx
 import pytest
 from argus_core.config import get_settings
 from argus_core.db import connect
-from orchestrator.repository import incidents
-from orchestrator.repository.runs import RunState
+from argus_incidents.repository import incidents
+from argus_incidents.repository.runs import RunState
 from psycopg import sql
 
 from tests.e2e.framework.argus import (

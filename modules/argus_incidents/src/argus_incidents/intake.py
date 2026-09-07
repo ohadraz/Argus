@@ -4,19 +4,21 @@ from argus_core.db import Connections
 from argus_core.events import Publisher
 from argus_core.models.alert import Alert
 
-from orchestrator.publishing import acknowledge_alert
-from orchestrator.repository import incidents, runs
+from argus_incidents.publishing import acknowledge_alert
+from argus_incidents.repository import incidents, runs
 
 """How an incident starts - and nothing about how one is walked.
 
-A module of its own so that the process receiving alerts cannot invoke the
-graph even by accident. `orchestrator.entrypoint` builds the compiled graph at
-import time's first call and pulls the whole of langgraph in with it; anything
-importing it can run an incident, and a web process that can run an incident
-eventually does.
+Here rather than in `orchestrator` so that the process receiving alerts cannot
+invoke the graph even by accident. `orchestrator.entrypoint` builds the
+compiled graph at import time's first call and pulls the whole of langgraph in
+with it; anything importing it can run an incident, and a web process that can
+run an incident eventually does.
 
-The split is therefore the point rather than tidiness: `argus_web` imports this
-and reaches nothing that walks. What walks is the worker's, in its own process.
+The split is therefore the point rather than tidiness, and it is now a package
+boundary rather than a convention: `argus_web` depends on this package and not
+on `orchestrator`, so langgraph is never installed in the web process at all.
+What walks is the worker's, in its own process.
 """
 
 

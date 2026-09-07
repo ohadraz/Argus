@@ -21,10 +21,9 @@ from datetime import date
 
 import psycopg
 from agent_postmortem.sources import RateTable
+from argus_incidents.repository import exchange_rates
 from exchange_rate_source import PublishedRates, RatesUnavailable
 from exchange_rate_source import rates_published_for as from_the_provider
-
-from orchestrator.repository import exchange_rates
 
 # Where a table comes from when one has to be fetched. Injected so a test can
 # say what the provider did - answered, or refused - without a network.

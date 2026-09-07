@@ -1,28 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 import psycopg
+from argus_core.models.taken_action import TakenAction
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel
-
-from orchestrator.repository._types import UuidStr
-
-
-class Action(BaseModel):
-    id: UuidStr
-    incident_id: UuidStr
-    hypothesis_id: UuidStr | None
-    type: str | None
-    target: str | None
-    reversible: bool
-    tier: str | None
-    undo_descriptor: dict[str, Any] | None
-    outcome: str | None
-    taken_at: datetime
-    approved_by: str | None
 
 
 def claim(
@@ -120,7 +103,7 @@ def record(
 
 def get_action_for_hypothesis(conn: psycopg.Connection,
                               incident_id: str,
-                              hypothesis_id: str) -> Action | None:
+                              hypothesis_id: str) -> TakenAction | None:
     """The action claimed for one candidate, whether or not it finished.
 
     What a resumed walk asks. An `outcome` of `None` on the row it finds is the
@@ -128,7 +111,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     before recording what happened, which is a question only the provider can
     answer.
     """
-    with conn.cursor(row_factory=class_row(Action)) as cursor:
+    with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, target, reversible, "
             "       tier, undo_descriptor, outcome, taken_at, approved_by "
@@ -140,7 +123,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
         return cursor.fetchone()
 
 
-def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Action]:
+def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAction]:
     """Everything the walk did during an incident, in the order it did it.
 
     A walk's actions are a sequence - tried, undone, tried again - and read back
@@ -148,7 +131,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Action]:
     that order; `id` does not, because a random uuid says nothing about when its
     row was written.
     """
-    with conn.cursor(row_factory=class_row(Action)) as cursor:
+    with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, target, reversible, "
             "       tier, undo_descriptor, outcome, taken_at, approved_by "

@@ -14,9 +14,9 @@ from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 from argus_core.replay import CallType, ReplayEntry
+from argus_incidents.publishing import calls_into
+from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.publishing import calls_into
-from orchestrator.repository import incidents, replay
 
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN
 

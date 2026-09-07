@@ -8,14 +8,15 @@ from argus_core.events import AlertAcknowledged, IncidentEvent, Publisher, publi
 from argus_core.models.alert import Alert
 from argus_core.replay import Recorder, ReplayEntry
 
-from orchestrator.repository import events, replay
+from argus_incidents.repository import events, replay
 
 """The one subscriber the event stream has.
 
 `argus_core` defines what an event is and how it is published; it cannot know
 where an event goes, because knowing would make the shared library depend on
-the module that owns the tables. So the wiring lives here, and the process that
-holds the connections builds it and hands it to every component it invokes.
+the module that owns the tables - which is this one. So the wiring lives here,
+and the process that holds the connections builds it and hands it to every
+component it invokes.
 
 In-process and synchronous, which is what makes the recorded order the real
 order: an event published before a decision is written before it, rather than

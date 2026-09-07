@@ -9,8 +9,8 @@ from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
+from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.repository import actions, hypotheses, incidents
 
 """The read paths an incident view needs, which the graph never had a use for.
 
@@ -109,7 +109,7 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
 
         def two_actions_are_taken() -> None:
             for candidate, outcome in ((first, "refuted"), (second, "confirmed")):
-                actions.record(
+                taken_actions.record(
                     conn,
                     incident_id,
                     hypothesis_id=candidate,
@@ -140,7 +140,7 @@ def test_an_action_comes_back_naming_the_candidate_it_was_taken_for() -> None:
 
         incident_id = an_incident_created_for(some_alert)
         candidate_id = a_candidate_recorded_for(incident_id, subject="a-flag", rank=1)
-        actions.record(
+        taken_actions.record(
             conn,
             incident_id,
             hypothesis_id=candidate_id,
@@ -149,7 +149,7 @@ def test_an_action_comes_back_naming_the_candidate_it_was_taken_for() -> None:
             undo_descriptor={"flag": "a-flag"},
         )
 
-        taken = actions.get_by_incident(conn, incident_id)
+        taken = taken_actions.get_by_incident(conn, incident_id)
 
         assert len(taken) == 1, f"Expected one action, got {len(taken)}."
         assert taken[0].hypothesis_id == candidate_id, (
@@ -243,7 +243,7 @@ def _the_actions_read_back_are(conn: psycopg.Connection,
                                incident_id: str,
                                outcomes: list[str]) -> Assertion[Any]:
     def assertion(_result: Any) -> bool:
-        found = [taken.outcome for taken in actions.get_by_incident(conn, incident_id)]
+        found = [taken.outcome for taken in taken_actions.get_by_incident(conn, incident_id)]
 
         assert found == outcomes, f"Expected outcomes {outcomes}, got {found}."
 

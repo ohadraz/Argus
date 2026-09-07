@@ -9,8 +9,8 @@ from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import incidents, timeline
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.repository import incidents, timeline
 
 
 @pytest.mark.integration

@@ -517,7 +517,7 @@ _INTEGRATION_STACK = _a_database_of_its_own(
     "argus-integration", _INTEGRATION_POSTGRES_PORT
 ) | {"ANTHROPIC_DOUBLE_PORT": _INTEGRATION_ANTHROPIC_DOUBLE_PORT}
 
-# The module suites bring up a database of their own - three of them do, from
+# The module suites bring up a database of their own - four of them do, from
 # their own conftests, which is what a `component` test needing real postgres
 # looks like. No double: every module suite that reaches a model reaches a stub
 # it constructs itself.

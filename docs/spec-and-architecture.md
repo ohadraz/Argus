@@ -754,6 +754,7 @@ argus/
 │   └── e2e/                         # full stack via docker-compose, real chaos scenarios end-to-end
 ├── modules/
 │   ├── argus_core/                  # shared Pydantic models, tool schemas, config/LLM client factory
+│   ├── argus_incidents/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
 │   ├── orchestrator/                # LangGraph graph, FSM, tier-gate node
 │   ├── argus_web/                   # HTTP surface: alert webhook, incident read API, config API
 │   ├── agent_investigator/

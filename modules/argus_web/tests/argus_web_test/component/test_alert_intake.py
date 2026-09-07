@@ -5,10 +5,10 @@ from typing import Any
 import pytest
 from argus_core.db import connect
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import incidents, runs, timeline
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
-from orchestrator.repository import incidents, runs, timeline
 
 # The state a run is in when nothing has picked it up yet. Named from the
 # repository's own vocabulary rather than spelled out here, so a rename moves

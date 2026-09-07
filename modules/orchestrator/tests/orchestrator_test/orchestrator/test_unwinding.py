@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import UndoAttempt, Undone
 from argus_core.ids import new_id
+from argus_core.models.taken_action import TakenAction
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import unwinding
-from orchestrator.repository.actions import Action
 from orchestrator.unwinding import unwind_incident
 
 """Putting back everything an incident changed, once nobody wants it walked.
@@ -56,7 +56,7 @@ def test_every_change_the_incident_recorded_is_put_back(
         .when(
             lambda: unwind_incident(
                 _DONT_CARE_INCIDENT_ID,
-                actions_of=_reading(an_incident_that_changed),
+                taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
                 record_note=record_note,
             )
@@ -75,12 +75,14 @@ def test_an_action_that_changed_nothing_has_nothing_to_put_back(
     # for it would ask the provider about a flag nobody set.
     Scenario() \
         .given(
-            an_incident_that_changed_nothing := _an_incident_whose_action_carries_no_descriptor()
+            an_incident_that_changed_nothing := (
+                _an_incident_whose_taken_action_carries_no_descriptor()
+            )
         ) \
         .when(
             lambda: unwind_incident(
                 _DONT_CARE_INCIDENT_ID,
-                actions_of=_reading(an_incident_that_changed_nothing),
+                taken_actions_of=_reading(an_incident_that_changed_nothing),
                 undo=undo,
                 record_note=record_note,
             )
@@ -111,7 +113,7 @@ def test_what_each_undo_found_is_recorded_on_the_incident(
         .when(
             lambda: unwind_incident(
                 _DONT_CARE_INCIDENT_ID,
-                actions_of=_reading(an_incident_that_changed),
+                taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
                 record_note=record_note,
             )
@@ -148,7 +150,7 @@ def test_one_change_that_cannot_be_read_does_not_stop_the_others(
         .when(
             lambda: unwind_incident(
                 _DONT_CARE_INCIDENT_ID,
-                actions_of=_reading(an_incident_that_changed),
+                taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
                 record_note=record_note,
             )
@@ -267,24 +269,24 @@ def _an_undo_descriptor_for(flag: str, was_enabled: bool = True) -> dict[str, An
     }
 
 
-def _an_incident_that_changed(*descriptors: dict[str, Any]) -> list[Action]:
-    return [_an_action_carrying(descriptor) for descriptor in descriptors]
+def _an_incident_that_changed(*descriptors: dict[str, Any]) -> list[TakenAction]:
+    return [_a_taken_action_carrying(descriptor) for descriptor in descriptors]
 
 
-def _an_incident_whose_action_carries_no_descriptor() -> list[Action]:
-    return [_an_action_carrying(None)]
+def _an_incident_whose_taken_action_carries_no_descriptor() -> list[TakenAction]:
+    return [_a_taken_action_carrying(None)]
 
 
-def _reading(recorded: list[Action]) -> Callable[[str], list[Action]]:
+def _reading(recorded: list[TakenAction]) -> Callable[[str], list[TakenAction]]:
     """The incident's own changes, as the unwind asks for them."""
-    def actions_of(_incident_id: str) -> list[Action]:
+    def taken_actions_of(_incident_id: str) -> list[TakenAction]:
         return recorded
 
-    return actions_of
+    return taken_actions_of
 
 
-def _an_action_carrying(undo_descriptor: dict[str, Any] | None) -> Action:
-    return Action(
+def _a_taken_action_carrying(undo_descriptor: dict[str, Any] | None) -> TakenAction:
+    return TakenAction(
         id=new_id(),
         incident_id=_DONT_CARE_INCIDENT_ID,
         hypothesis_id=new_id(),

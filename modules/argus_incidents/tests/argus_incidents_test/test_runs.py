@@ -8,8 +8,8 @@ import psycopg
 import pytest
 from argus_core.db import connect
 from argus_core.models.alert import Alert
+from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.repository import incidents, runs
 
 # Long enough that nothing in this test expires on its own: what is being
 # measured here is who gets the run, not what happens when a holder goes quiet.

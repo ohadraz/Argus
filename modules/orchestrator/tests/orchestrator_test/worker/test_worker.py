@@ -9,10 +9,10 @@ from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import incidents, runs
+from argus_incidents.withdrawal import wanted_via
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import worker
-from orchestrator.repository import incidents, runs
-from orchestrator.withdrawal import wanted_via
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 

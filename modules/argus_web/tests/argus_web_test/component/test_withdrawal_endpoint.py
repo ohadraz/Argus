@@ -8,10 +8,10 @@ from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
-from orchestrator.repository import incidents
 
 """The button that stops Argus, from the outside.
 

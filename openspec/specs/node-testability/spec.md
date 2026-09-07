@@ -4,7 +4,7 @@
 TBD - created by archiving change test-coverage-hardening. Update Purpose after archive.
 ## Requirements
 ### Requirement: The repository layer has integration test coverage
-The system SHALL have integration test coverage for `orchestrator/repository`'s core read/write paths - creating an incident, transitioning its status, and the atomic pairing with the resulting timeline events - verified against a real Postgres connection.
+The system SHALL have integration test coverage for `argus_incidents/repository`'s core read/write paths - creating an incident, transitioning its status, and the atomic pairing with the resulting timeline events - verified against a real Postgres connection.
 
 #### Scenario: Creating an incident writes the expected rows
 - **GIVEN** an alert

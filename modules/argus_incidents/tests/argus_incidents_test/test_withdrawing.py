@@ -6,9 +6,9 @@ from argus_core.events import IncidentEvent, StatusChanged
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.repository import incidents
+from argus_incidents.withdrawal import wanted_via, withdraw_incident
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.repository import incidents
-from orchestrator.withdrawal import wanted_via, withdraw_incident
 
 """The door a human stops Argus through.
 

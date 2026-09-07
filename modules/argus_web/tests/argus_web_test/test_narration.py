@@ -21,10 +21,10 @@ from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.flag_change import FlagChange
+from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
 from argus_web.views import NarrationLine, build_live_incident, build_narration
-from orchestrator.repository.incidents import Incident
 
 """Turning the recorded account into the lines a reader sees.
 

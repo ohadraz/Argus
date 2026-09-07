@@ -8,11 +8,11 @@ from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.taken_action import TakenAction
+from argus_core.models.timeline_event import TimelineEvent
 from argus_web.views import build_incident_detail, build_incident_summary
-from orchestrator.repository.actions import Action
-from orchestrator.repository.incidents import Incident
-from orchestrator.repository.timeline import TimelineEvent
 
 """Shaping an incident's rows into what a reader is shown.
 
@@ -222,8 +222,8 @@ def _a_candidate(incident_id: str,
 
 def _an_attempt(incident_id: str,
                 hypothesis_id: str | None,
-                outcome: str | None) -> Action:
-    return Action(
+                outcome: str | None) -> TakenAction:
+    return TakenAction(
         id=new_id(),
         incident_id=incident_id,
         hypothesis_id=hypothesis_id,

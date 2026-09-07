@@ -8,11 +8,11 @@ import psycopg
 import pytest
 from agent_postmortem.sources import RateTable
 from argus_core.db import connect
+from argus_incidents.repository import exchange_rates
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.collecting import Kept
 from exchange_rate_source import PublishedRates, RatesUnavailable
 from orchestrator.rates import todays_rates
-from orchestrator.repository import exchange_rates
 
 """The day's rates: fetched once, held, and stood in for when nobody answers.
 

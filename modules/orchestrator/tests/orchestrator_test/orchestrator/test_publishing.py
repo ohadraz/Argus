@@ -24,13 +24,13 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.reading import Reading
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
+from argus_incidents.publishing import acknowledge_alert
 from orchestrator.graph import (
     CompleteAction,
     investigator_node,
     mitigation_node,
     mitigation_proposal_node,
 )
-from orchestrator.publishing import acknowledge_alert
 
 from ..framework.builders import a_determined_hypothesis, an_incident_state
 

@@ -9,8 +9,8 @@ from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
+from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.repository import actions, hypotheses, incidents
 
 
 @pytest.mark.integration
@@ -41,7 +41,7 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
                 dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
             ) \
             .when(
-                lambda: actions.record(
+                lambda: taken_actions.record(
                     conn,
                     incident_id,
                     hypothesis_id=dont_care_hypothesis_id,
@@ -79,7 +79,7 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
                 dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
             ) \
             .when(
-                lambda: actions.record(
+                lambda: taken_actions.record(
                     conn,
                     incident_id,
                     hypothesis_id=dont_care_hypothesis_id,
@@ -116,7 +116,7 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
                 hypothesis_id := a_hypothesis_recorded_for(incident_id)
             ) \
             .when(
-                lambda: actions.record(
+                lambda: taken_actions.record(
                     conn,
                     incident_id,
                     hypothesis_id=hypothesis_id,
@@ -153,7 +153,7 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
 
         def an_action_is_taken_for_each() -> None:
             for candidate, outcome in ((first, "refuted"), (second, "confirmed")):
-                actions.record(
+                taken_actions.record(
                     conn,
                     incident_id,
                     hypothesis_id=candidate,

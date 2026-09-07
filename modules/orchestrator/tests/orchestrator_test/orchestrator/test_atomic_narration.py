@@ -6,10 +6,10 @@ from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictRe
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.publishing import events_into_connection
+from argus_incidents.repository import events, hypotheses, incidents, taken_actions, timeline
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.graph import Records
-from orchestrator.publishing import events_into_connection
-from orchestrator.repository import actions, events, hypotheses, incidents, timeline
 
 from ..framework.builders import a_determined_hypothesis
 
@@ -124,7 +124,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
         incident_id = incidents.create(conn, some_alert)
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
-        actions.claim(
+        taken_actions.claim(
             conn,
             incident_id,
             hypothesis_id=candidate.id,
@@ -180,7 +180,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
         incident_id = incidents.create(conn, some_alert)
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
-        actions.claim(
+        taken_actions.claim(
             conn,
             incident_id,
             hypothesis_id=candidate.id,
@@ -348,7 +348,7 @@ def _a_publisher_that_looks_at_the_action(seen: list[str | None],
     holds the outcome open, then lets the real subscriber write."""
     def publisher(event: IncidentEvent) -> None:
         with connect() as another_connection:
-            taken = actions.get_action_for_hypothesis(
+            taken = taken_actions.get_action_for_hypothesis(
                 another_connection, incident_id, hypothesis_id
             )
 
@@ -389,7 +389,7 @@ def _the_action_records_the_outcome(incident_id: str,
                                     outcome: str) -> Assertion[None]:
     def assertion(_result: None) -> bool:
         with connect() as conn:
-            taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+            taken = taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
 
         if taken is None:
             raise AssertionError(f"No action found for candidate [{hypothesis_id}].")

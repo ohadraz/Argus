@@ -7,13 +7,13 @@ from argus_core.events import Publisher, StatusChanged, publish
 from argus_core.models.actor import Actor
 from argus_core.models.incident_status import IncidentStatus
 
-from orchestrator.repository import incidents
+from argus_incidents.repository import incidents
 
 """How an incident is taken back - and nothing about how one is walked.
 
-The Orchestrator's second entrypoint, beside `intake`, and in its own module for
-that module's reason rather than for tidiness: `argus_web` calls this, and
-anything `argus_web` can import must reach nothing that walks a graph.
+The Orchestrator's second entrypoint, beside `intake`, and in this package for
+its reason rather than for tidiness: `argus_web` calls this, and anything
+`argus_web` can import must reach nothing that walks a graph.
 
 Marking is all this does. The walk that is running the incident finds out by
 reading the status back, and unwinds what it had done itself - which is what

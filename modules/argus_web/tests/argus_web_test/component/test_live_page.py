@@ -18,9 +18,9 @@ from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
+from argus_incidents.repository import events, incidents
 from argus_web.app import app
 from fastapi.testclient import TestClient
-from orchestrator.repository import events, incidents
 
 """The front door: what is happening now, as a browser gets it.
 

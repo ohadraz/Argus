@@ -33,13 +33,13 @@ from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.postmortem import Postmortem
+from argus_core.models.taken_action import TakenAction
+from argus_core.models.timeline_event import TimelineEvent
 from argus_core.timestamps import parse_iso
-from orchestrator.repository.actions import Action
-from orchestrator.repository.incidents import Incident
-from orchestrator.repository.postmortems import Postmortem
-from orchestrator.repository.timeline import TimelineEvent
 from pydantic import BaseModel
 
 # The verdict a reversible action gets when the service did not recover. The
@@ -413,7 +413,7 @@ def build_incident_summary(incident: Incident) -> IncidentSummary:
 def build_incident_detail(
     incident: Incident,
     candidates: list[Hypothesis],
-    attempts: list[Action],
+    attempts: list[TakenAction],
     timeline: list[TimelineEvent],
 ) -> IncidentDetail:
     """Arranges an incident's rows into the walk a reader follows.
@@ -429,12 +429,12 @@ def build_incident_detail(
     attached: dict[str, list[Attempt]] = {}
     unattributed: list[Attempt] = []
 
-    for action in attempts:
-        shown = _an_attempt(action)
-        if action.hypothesis_id is None:
+    for taken_action in attempts:
+        shown = _an_attempt(taken_action)
+        if taken_action.hypothesis_id is None:
             unattributed.append(shown)
         else:
-            attached.setdefault(action.hypothesis_id, []).append(shown)
+            attached.setdefault(taken_action.hypothesis_id, []).append(shown)
 
     return IncidentDetail(
         id=incident.id,
@@ -1303,7 +1303,7 @@ def _a_percentage(confidence: float) -> str:
     return f"{confidence * 100:.0f}%"
 
 
-def _an_attempt(action: Action) -> Attempt:
+def _an_attempt(taken_action: TakenAction) -> Attempt:
     """One action row, as a reader sees it.
 
     An action with no outcome yet is undecided rather than undone: it was taken
@@ -1312,10 +1312,10 @@ def _an_attempt(action: Action) -> Attempt:
     in progress.
     """
     return Attempt(
-        action_type=action.type,
-        outcome=action.outcome,
-        undone=action.outcome == _REFUTED,
-        taken_at=action.taken_at,
+        action_type=taken_action.type,
+        outcome=taken_action.outcome,
+        undone=taken_action.outcome == _REFUTED,
+        taken_at=taken_action.taken_at,
     )
 
 

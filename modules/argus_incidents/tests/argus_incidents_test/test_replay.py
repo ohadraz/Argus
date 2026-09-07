@@ -9,8 +9,8 @@ import pytest
 from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.replay import CallType, ReplayEntry
+from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.repository import incidents, replay
 
 """Where a call Argus made out of its own process is written down (spec §11.1).
 

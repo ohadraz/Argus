@@ -8,10 +8,11 @@ from typing import Any
 import httpx
 import psycopg
 import pytest
+from argus_core.models.postmortem import Postmortem
 from argus_core.timestamps import parse_iso
+from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.assertions import eventually
-from orchestrator.repository import postmortems
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
@@ -179,7 +180,7 @@ def _the_responders_were_counted() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_postmortem_for(incident_id: str) -> postmortems.Postmortem:
+def _the_postmortem_for(incident_id: str) -> Postmortem:
     with psycopg.connect(DATABASE_URL) as conn:
         postmortem = postmortems.get_by_incident(conn, incident_id)
 

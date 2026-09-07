@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-"""Every test here reaches the database, so every test here asks for one.
+"""Both tests here reach the database, so both ask for one without saying so.
 
 The fixtures themselves live a level up, where the module's other database-
 backed tests can see them too. What is left is the one thing true of this
-directory and not of that one: there is no repository test that does not want a
-database, so none of them should have to say so.
+directory and not of that one: nothing in it runs without a database.
+
+The directory outlived its name. The repository moved to `argus_incidents` and
+took its suites with it; what stayed reads rows to test `orchestrator.rates`
+and `orchestrator.postmortem`, which is a different subject wearing the old
+folder.
 """
 
 

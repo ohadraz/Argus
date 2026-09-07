@@ -12,9 +12,10 @@ from agent_postmortem.document import (
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from argus_core.config import get_settings
+from argus_core.models.postmortem import Postmortem
+from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.assertions import eventually
-from orchestrator.repository import postmortems
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
@@ -205,7 +206,7 @@ def _what_those_minutes_can_cost(minutes: int) -> tuple[Decimal, Decimal]:
             THE_DEAREST_MIDPOINT * minutes / a_year)
 
 
-def _the_postmortem_for(response: httpx.Response) -> postmortems.Postmortem:
+def _the_postmortem_for(response: httpx.Response) -> Postmortem:
     incident_id = incident_id_from(response)
 
     with psycopg.connect(DATABASE_URL) as conn:

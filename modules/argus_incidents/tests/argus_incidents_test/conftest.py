@@ -10,17 +10,12 @@ from psycopg import sql
 
 """The database this module's tests run against, and its state between them.
 
-Here rather than in one directory, because more than one of this module's
-directories reaches a database: what is left in `repository`, the worker's
-tests, and the narration ones. A fixture only one of them could see left the
-others hanging on a connection to a database nobody had started.
+Autouse, unlike the same fixtures in the modules that keep a database at arm's
+length: every test here writes rows and reads them back, because writing rows
+and reading them back is what this module does. A suite in which no test can
+run without a database is one where asking per test is ceremony.
 
-Offered rather than imposed. Most of this module's tests are unit tests with no
-database in sight, and an autouse fixture at this level would make every one of
-them wait for a container to come up. A test that needs the database asks for
-it, one at a time.
-
-The same shape as `argus_incidents`' and the integration suite's own conftests,
+The same shape as the orchestrator's and the integration suite's own conftests,
 deliberately: each needs one database for a whole run and an empty one for each
 test, and several answers to that question would be several ways for a suite to
 be dirty. Not shared code, though. `argus_testkit` is where shared test support
@@ -42,7 +37,7 @@ def postgres() -> Iterator[None]:
         subprocess.run(["docker", "compose", "stop", "postgres"], check=True)
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def a_clean_database(postgres: None) -> Iterator[None]:
     """Empties every table after each test.
 

@@ -1,29 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import psycopg
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
+from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel
-
-from orchestrator.repository._types import UuidStr
-
-
-class Incident(BaseModel):
-    id: UuidStr
-    alert_payload: dict[str, object]
-    status: IncidentStatus
-    slack_channel_id: str | None
-    pr_url: str | None
-    created_at: datetime
-    # Absent while the incident is still being worked, which is a state it
-    # spends most of its life in and `fixing` keeps it in despite reading like
-    # an ending.
-    ended_at: datetime | None
 
 
 def create(conn: psycopg.Connection, alert: Alert) -> str:

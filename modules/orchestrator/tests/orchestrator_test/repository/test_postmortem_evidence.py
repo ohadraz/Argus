@@ -14,11 +14,11 @@ from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.timestamps import parse_iso
+from argus_incidents.repository import events, hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
 from orchestrator.postmortem import gather_evidence
-from orchestrator.repository import events, hypotheses, incidents
 
 """Turning four tables back into one incident.
 

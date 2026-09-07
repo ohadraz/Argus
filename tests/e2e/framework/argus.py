@@ -11,8 +11,8 @@ from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_UR
 from argus_core.config import get_settings
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.replay import CallType
+from argus_incidents.repository import hypotheses, incidents, postmortems, replay, timeline
 from argus_testkit import Assertion, all_of
-from orchestrator.repository import hypotheses, incidents, postmortems, replay, timeline
 
 """Talking to a running Argus stack, and asserting on what it did.
 

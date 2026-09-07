@@ -1,7 +1,7 @@
 """Turning an incident's rows back into one incident (spec §7.6).
 
 The Postmortem agent holds no connection and reads no rows; what it needs is
-scattered across the tables this module owns, and assembling it is the
+scattered across the tables `argus_incidents` owns, and assembling it is the
 Orchestrator's work. Keeping the gathering here is also what stops two readers
 of the same incident disagreeing: the page and the postmortem read the same
 account, through the same repositories.
@@ -29,9 +29,16 @@ from argus_core.models.metrics import MetricBucket
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from argus_core.timestamps import parse_iso, to_iso
+from argus_incidents.repository import (
+    events,
+    hypotheses,
+    incidents,
+    replay,
+    taken_actions,
+    timeline,
+)
 
 from orchestrator.rates import todays_rates
-from orchestrator.repository import actions, events, hypotheses, incidents, replay, timeline
 
 
 def write_postmortem_for(incident_id: str,
@@ -242,9 +249,9 @@ def _what_was_considered(conn: psycopg.Connection, incident_id: str) -> list[str
 
 def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[str]:
     return [
-        f"{action.type or 'action'} on {action.target} - "
-        f"{action.outcome or 'no verdict recorded'}"
-        for action in actions.get_by_incident(conn, incident_id)
+        f"{taken_action.type or 'action'} on {taken_action.target} - "
+        f"{taken_action.outcome or 'no verdict recorded'}"
+        for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
 
 
