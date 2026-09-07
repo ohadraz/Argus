@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import pytest
 from argus_core.db import connect
-from argus_core.events import IncidentEvent, Publisher, StatusChanged
+from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.graph import Records
 from orchestrator.publishing import events_into_connection
-from orchestrator.repository import events, incidents, timeline
+from orchestrator.repository import actions, events, hypotheses, incidents, timeline
+
+from ..framework.builders import a_determined_hypothesis
 
 """That a decision and the account of it are one write.
 
@@ -104,6 +106,109 @@ def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
             _nothing_outside_saw(seen_mid_write, SOME_STATUS),
             _the_incident_is(incident_id, SOME_STATUS),
             _the_narration_records(incident_id, SOME_STATUS)
+        ))
+
+
+@pytest.mark.component
+def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
+    a_clean_database: None
+) -> None:
+    # The same rule where the fact is what the action settled rather than where
+    # the incident stands. An outcome recorded and not yet narrated is a verdict
+    # a reader would find with nothing beside it saying what reached it.
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    some_outcome = "confirmed"
+    dont_care_undo_descriptor = {"tool": "set_feature_flag", "was_enabled": True}
+
+    with connect() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, candidate)
+        actions.claim(
+            conn,
+            incident_id,
+            hypothesis_id=candidate.id,
+            action_type=DONT_CARE_ACTION
+        )
+
+    seen_mid_write: list[str | None] = []
+
+    records = Records(
+        connect,
+        publisher_for=lambda conn: _a_publisher_that_looks_at_the_action(
+            seen_mid_write, incident_id, candidate.id, events_into_connection(conn)
+        )
+    )
+
+    Scenario() \
+        .given(
+            candidate.id
+        ) \
+        .when(
+            lambda: records.complete_action(
+                incident_id,
+                hypothesis_id=candidate.id,
+                outcome=some_outcome,
+                undo_descriptor=dont_care_undo_descriptor,
+                narrating=VerdictReached(
+                    incident_id=incident_id,
+                    hypothesis_id=candidate.id,
+                    outcome=some_outcome
+                )
+            )
+        ) \
+        .then(all_of(
+            _nothing_outside_saw_the_outcome(seen_mid_write, some_outcome),
+            _the_action_records_the_outcome(incident_id, candidate.id, some_outcome),
+            _the_narration_reports_the_verdict(incident_id, some_outcome)
+        ))
+
+
+@pytest.mark.component
+def test_a_verdict_survives_a_narration_that_could_not_be_written(
+    a_clean_database: None
+) -> None:
+    # The savepoint, from the side that costs something. The flag has already
+    # been put back or left as it was by the time this row is written, and the
+    # verdict is what says which - losing it to a sentence nobody could write
+    # would make the account load-bearing (spec §4 principle 8).
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_outcome = "refuted"
+    dont_care_undo_descriptor = {"tool": "set_feature_flag", "was_enabled": True}
+
+    with connect() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, candidate)
+        actions.claim(
+            conn,
+            incident_id,
+            hypothesis_id=candidate.id,
+            action_type=DONT_CARE_ACTION
+        )
+
+    records = Records(connect, publisher_for=lambda dont_care_conn: _nobody_can_write)
+
+    Scenario() \
+        .given(
+            candidate.id
+        ) \
+        .when(
+            lambda: records.complete_action(
+                incident_id,
+                hypothesis_id=candidate.id,
+                outcome=some_outcome,
+                undo_descriptor=dont_care_undo_descriptor,
+                narrating=VerdictReached(
+                    incident_id=incident_id,
+                    hypothesis_id=candidate.id,
+                    outcome=some_outcome
+                )
+            )
+        ) \
+        .then(all_of(
+            _the_action_records_the_outcome(incident_id, candidate.id, some_outcome),
+            _nothing_was_narrated(incident_id)
         ))
 
 
@@ -233,3 +338,88 @@ def _a_publisher_that_looks_from_outside(seen: list[IncidentStatus],
         then_publishing(event)
 
     return publisher
+
+
+def _a_publisher_that_looks_at_the_action(seen: list[str | None],
+                                          incident_id: str,
+                                          hypothesis_id: str,
+                                          then_publishing: Publisher) -> Publisher:
+    """Reads the action back from a second connection while the first still
+    holds the outcome open, then lets the real subscriber write."""
+    def publisher(event: IncidentEvent) -> None:
+        with connect() as another_connection:
+            taken = actions.get_action_for_hypothesis(
+                another_connection, incident_id, hypothesis_id
+            )
+
+            if taken is None:
+                raise AssertionError(
+                    f"No action found for candidate [{hypothesis_id}] to look at."
+                )
+
+            seen.append(taken.outcome)
+
+        then_publishing(event)
+
+    return publisher
+
+
+def _nothing_outside_saw_the_outcome(seen: list[str | None],
+                                     outcome: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        if not seen:
+            raise AssertionError(
+                "Expected the narration to have been written at all - nothing "
+                "looked from outside, so nothing was asserted."
+            )
+
+        if outcome in seen:
+            raise AssertionError(
+                f"Expected a reader outside the transaction to see no [{outcome}] "
+                f"while it was still being written, got {seen}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_records_the_outcome(incident_id: str,
+                                    hypothesis_id: str,
+                                    outcome: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect() as conn:
+            taken = actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+
+        if taken is None:
+            raise AssertionError(f"No action found for candidate [{hypothesis_id}].")
+
+        if taken.outcome != outcome:
+            raise AssertionError(
+                f"Expected the action to record [{outcome}], got [{taken.outcome}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_narration_reports_the_verdict(incident_id: str,
+                                       outcome: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect() as conn:
+            narrated = events.get_by_incident(conn, incident_id)
+
+        reached = [event.outcome
+                   for event in narrated
+                   if isinstance(event, VerdictReached)]
+
+        if outcome not in reached:
+            raise AssertionError(
+                f"Expected the stream to report the verdict [{outcome}], got "
+                f"{reached}."
+            )
+
+        return True
+
+    return assertion

@@ -24,7 +24,12 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.reading import Reading
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
-from orchestrator.graph import investigator_node, mitigation_node, mitigation_proposal_node
+from orchestrator.graph import (
+    CompleteAction,
+    investigator_node,
+    mitigation_node,
+    mitigation_proposal_node,
+)
 from orchestrator.publishing import acknowledge_alert
 
 from ..framework.builders import a_determined_hypothesis, an_incident_state
@@ -39,6 +44,8 @@ had already gated. Between them the two accounts are one story.
 Where the incident moved is published in one place, by the wrapper that derives
 it - see `test_status_wrapper.py`. A node has no status to announce.
 """
+
+_AN_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")
 
 
 @pytest.mark.unit
@@ -131,12 +138,12 @@ def test_the_graph_says_which_way_it_moved_the_flag() -> None:
 def test_the_graph_says_what_verdict_came_back() -> None:
     # The verdict is what the action was for, and it arrives after it - two
     # lines in the narration, because they are two moments.
-    published: list[IncidentEvent] = []
+    narrated: list[IncidentEvent] = []
     some_candidate = a_determined_hypothesis(_SOME_INCIDENT_ID)
 
-    _an_action_is_taken(some_candidate, _REFUTED, publisher=published.append)
+    _an_action_is_taken(some_candidate, _REFUTED, narrated=narrated)
 
-    reached = [event for event in published if isinstance(event, VerdictReached)]
+    reached = [event for event in narrated if isinstance(event, VerdictReached)]
     assert [event.outcome for event in reached] == [str(Verdict.REFUTED)]
 
 
@@ -255,7 +262,8 @@ def _an_action_is_proposed(flag_changes: Any, publisher: Any) -> dict[str, Any]:
 
 def _an_action_is_taken(candidate: Any,
                         outcome: Outcome,
-                        publisher: Any = None) -> dict[str, Any]:
+                        publisher: Any = None,
+                        narrated: list[IncidentEvent] | None = None) -> dict[str, Any]:
     """One turn of the mitigation node, with the action already gated."""
     state = an_incident_state(
         _AN_ALERT, IncidentStatus.MITIGATING, incident_id=_SOME_INCIDENT_ID
@@ -269,7 +277,7 @@ def _an_action_is_taken(candidate: Any,
         state,
         take=lambda dont_care_action, **dont_care_keywords: outcome,
         record_action=lambda incident_id, hypothesis_id, action_type: True,
-        complete_action=lambda *dont_care_args, **dont_care_keywords: None,
+        complete_action=_a_completion_recording_what_it_narrated(narrated),
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
         claimed_at=lambda incident_id, hypothesis_id: None,
@@ -278,4 +286,16 @@ def _an_action_is_taken(candidate: Any,
     )
 
 
-_AN_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")
+def _a_completion_recording_what_it_narrated(
+    narrated: list[IncidentEvent] | None
+) -> CompleteAction:
+    """The verdict's own write, which is where its narration travels now."""
+    def complete_action(incident_id: str,
+                        hypothesis_id: str,
+                        outcome: str,
+                        undo_descriptor: dict[str, Any],
+                        narrating: IncidentEvent) -> None:
+        if narrated is not None:
+            narrated.append(narrating)
+
+    return complete_action

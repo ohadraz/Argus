@@ -80,6 +80,10 @@ def complete(
 
     The descriptor recorded is the one the write tier returned rather than the
     one proposed, since that is the account of what actually changed.
+
+    Committing is the caller's. The event reporting this verdict is written on
+    the same connection, and a commit here would put the verdict beyond reach
+    of the account before the account existed.
     """
     with conn.cursor() as cursor:
         cursor.execute(
@@ -92,7 +96,6 @@ def complete(
                 hypothesis_id,
             ),
         )
-    conn.commit()
 
 
 def record(

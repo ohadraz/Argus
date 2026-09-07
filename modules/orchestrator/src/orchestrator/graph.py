@@ -137,7 +137,12 @@ class RecordAction(Protocol):
 
 
 class CompleteAction(Protocol):
-    """Records what came of an action already claimed."""
+    """Records what came of an action already claimed, and says so.
+
+    `narrating` for the reason `TransitionIncident` has one: the verdict and
+    the line reporting it are one fact, and two writes of one fact can end up
+    disagreeing about it.
+    """
 
     def __call__(
         self,
@@ -145,6 +150,7 @@ class CompleteAction(Protocol):
         hypothesis_id: str,
         outcome: str,
         undo_descriptor: dict[str, Any],
+        narrating: IncidentEvent,
     ) -> None: ...
 
 
@@ -319,7 +325,16 @@ class Records:
         hypothesis_id: str,
         outcome: str,
         undo_descriptor: dict[str, Any],
+        narrating: IncidentEvent,
     ) -> None:
+        """Records what came of the action, and says so, in one write.
+
+        The same pairing a transition gets, for the same reason and in the same
+        order: the verdict is written first and the sentence about it second,
+        inside a savepoint. Published separately - and it used to be published
+        *first* - a walk that stopped in between announced a verdict that was
+        never recorded against the action it was about.
+        """
         with self._connections() as conn:
             actions.complete(
                 conn,
@@ -328,6 +343,7 @@ class Records:
                 outcome=outcome,
                 undo_descriptor=undo_descriptor,
             )
+            narrate(conn, narrating, self._publisher_for(conn))
 
     def action_outcome(self, incident_id: str, hypothesis_id: str) -> str | None:
         with self._connections() as conn:
@@ -794,15 +810,9 @@ def mitigation_node(
     )
     outcome = str(result.verdict)
 
-    publish(
-        VerdictReached(
-            incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            outcome=outcome,
-        ),
-        publisher,
-    )
-
+    # The verdict and the line reporting it, in that order and in one write.
+    # Announced first, as it was, a walk that stopped in between left a verdict
+    # every reader could see and no action recording it.
     complete_action(
         state.incident_id,
         # The candidate this attempt is about, named while it is still in hand.
@@ -813,6 +823,11 @@ def mitigation_node(
         hypothesis_id=state.hypothesis.id,
         outcome=outcome,
         undo_descriptor=result.undo_descriptor,
+        narrating=VerdictReached(
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            outcome=outcome,
+        ),
     )
     # This candidate was genuinely tested: an action was taken and the service
     # was measured afterwards. The verdict is the answer it was tested for, so
