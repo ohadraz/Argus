@@ -16,7 +16,7 @@ name: Nightly Sweep
 
 on:
   schedule:
-    - cron: '0 3 * * *'   # 03:00 UTC every day
+    - cron: '0 0 * * *'   # 03:00 local with daylight saving, 02:00 without
   workflow_dispatch:        # allows manual trigger from the Actions tab
 
 jobs:
