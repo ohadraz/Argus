@@ -15,7 +15,7 @@ from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
-from argus_testkit import Scenario, all_of
+from argus_testkit import Scenario, all_of, calling
 from orchestrator import graph
 from orchestrator.graph import (
     Narration,
@@ -25,7 +25,7 @@ from orchestrator.graph import (
     tier_gate_node,
 )
 
-from ..framework.assertions import assert_that
+from ..framework.assertions import assert_that, the_result_at, the_result_is
 from ..framework.builders import (
     a_determined_hypothesis,
     a_random_id,
@@ -112,15 +112,15 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
 
     Scenario() \
         .given(
-            lambda: _investigation_returned(investigate, some_hypothesis)
+            calling(lambda: _investigation_returned(investigate, some_hypothesis))
         ) \
         .when(
-            result := investigator_node(an_investigating_incident_state,
+            lambda: investigator_node(an_investigating_incident_state,
                                         investigate=investigate,
                                         record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
-            assert_that(result).is_equal_to(
+            the_result_is(
                 {
                     "hypothesis": some_hypothesis,
                     "candidates": [some_hypothesis],
@@ -160,16 +160,16 @@ def test_a_doubtful_cause_is_still_offered_as_the_one_to_try(
 
     Scenario() \
         .given(
-            lambda: _investigation_returned(investigate, a_doubtful_hypothesis)
+            calling(lambda: _investigation_returned(investigate, a_doubtful_hypothesis))
         ) \
         .when(
-            result := investigator_node(an_investigating_incident_state,
+            lambda: investigator_node(an_investigating_incident_state,
                                         investigate=investigate,
                                         record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
-            assert_that(result["hypothesis"]).is_equal_to(a_doubtful_hypothesis),
-            assert_that(result["nothing_worth_trying"]).is_equal_to(False)
+            the_result_at("hypothesis", a_doubtful_hypothesis),
+            the_result_at("nothing_worth_trying", False)
         ))
 
 
@@ -191,15 +191,15 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
 
     Scenario() \
         .given(
-            lambda: _investigation_returned(investigate, a_hypothesis_with_no_cause)
+            calling(lambda: _investigation_returned(investigate, a_hypothesis_with_no_cause))
         ) \
         .when(
-            result := investigator_node(an_investigating_incident_state,
+            lambda: investigator_node(an_investigating_incident_state,
                                         investigate=investigate,
                                         record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
-            assert_that(result).is_equal_to(
+            the_result_is(
                 {
                     "hypothesis": a_hypothesis_with_no_cause,
                     "candidates": [a_hypothesis_with_no_cause],

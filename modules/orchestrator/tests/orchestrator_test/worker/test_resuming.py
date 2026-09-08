@@ -74,7 +74,7 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident() -> None:
                 runs.claim(conn, the_worker_that_stopped, A_LEASE_ALREADY_OVER)
             ) \
             .when(
-                worker.take_one_run(
+                lambda: worker.take_one_run(
                     conn,
                     the_worker_that_came_after,
                     A_GENEROUS_LEASE,

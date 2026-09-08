@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 from unittest.mock import MagicMock, call
 
 from argus_testkit import Assertion
@@ -29,3 +30,21 @@ class _AssertThat[A]:
             return True
 
         return assertion
+
+
+def the_result_is[R](expected: R) -> Assertion[R]:
+    """What `when` produced, whole."""
+    def assertion(result: R) -> bool:
+        assert result == expected
+        return True
+
+    return assertion
+
+
+def the_result_at(key: str, is_: object) -> Assertion[Mapping[str, Any]]:
+    """One field of what `when` produced."""
+    def assertion(result: Mapping[str, Any]) -> bool:
+        assert result[key] == is_
+        return True
+
+    return assertion

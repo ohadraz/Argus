@@ -9,6 +9,7 @@ from agent_investigator.tools import LOGS_TOOL, Dispatcher
 from argus_core.models.transcript import ToolResult
 from argus_core.replay import CallType, Replay, ReplayEntry
 from argus_testkit import Assertion, Kept, Scenario, all_of
+from argus_testkit.scenario import calling
 
 from ..framework.builders.dispatcher import A_SERVICE, AN_ALERT_TIME, AN_ONSET, a_call_to
 
@@ -108,7 +109,7 @@ def test_a_window_asked_for_twice_is_written_down_once() -> None:
 
     Scenario() \
         .given(
-            the_same_window_again
+            calling(the_same_window_again)
         ) \
         .when(
             the_same_window_again

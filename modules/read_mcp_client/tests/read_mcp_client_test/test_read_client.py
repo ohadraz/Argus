@@ -11,7 +11,7 @@ from argus_core.models.change_event import ChangeEvent
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso
 from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario
+from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import get_change_events, get_log_lines, get_metrics_summary
 
 from read_mcp_client_test.conftest import FakeTargetServiceHandler
@@ -32,7 +32,7 @@ def test_get_log_lines_reaches_the_real_read_mcp_server(
 
     Scenario() \
         .given(
-            the_target_service_has_logs(some_logs)
+            calling(the_target_service_has_logs(some_logs))
         ) \
         .when(
             get_log_lines
@@ -55,7 +55,7 @@ def test_both_retrieval_phases_drive_each_other_through_the_client(
 
     Scenario() \
         .given(
-            the_target_service_has(
+            calling(the_target_service_has(
                 metrics=[
                     a_metric_at(some_time_the_cause_happened),
                     a_metric_at(
@@ -66,7 +66,7 @@ def test_both_retrieval_phases_drive_each_other_through_the_client(
                     a_cause_line_at(some_time_the_cause_happened),
                     a_failure_line_at(some_time_the_error_appeared)
                 ]
-            )
+            ))
         ) \
         .when(
             _drilling_down_from_metrics_to_logs(
@@ -96,9 +96,9 @@ def test_get_change_events_reaches_the_real_read_mcp_server(
 
     Scenario() \
         .given(
-            the_target_service_has_deploys(
+            calling(the_target_service_has_deploys(
                 [_an_argocd_deploy_at(some_deploy_time, revision=some_revision)]
-            )
+            ))
         ) \
         .when(
             lambda: get_change_events(

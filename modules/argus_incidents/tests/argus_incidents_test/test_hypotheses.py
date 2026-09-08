@@ -11,7 +11,7 @@ from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_incidents.repository import hypotheses, incidents
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 
 @pytest.mark.integration
@@ -131,7 +131,7 @@ def test_a_candidate_the_walk_reached_comes_back_carrying_what_happened_to_it() 
 
         Scenario() \
             .given(
-                a_hypothesis_was_recorded(a_candidate)
+                calling(a_hypothesis_was_recorded(a_candidate))
             ) \
             .when(
                 lambda: hypotheses.record_outcome(
@@ -162,7 +162,7 @@ def test_a_candidate_that_was_never_tried_comes_back_saying_why() -> None:
 
         Scenario() \
             .given(
-                a_hypothesis_was_recorded(an_untried_candidate)
+                calling(a_hypothesis_was_recorded(an_untried_candidate))
             ) \
             .when(
                 lambda: hypotheses.record_outcome(
@@ -192,7 +192,7 @@ def test_the_latest_hypothesis_for_an_incident_is_the_one_returned() -> None:
 
         Scenario() \
             .given(
-                a_hypothesis_was_recorded(the_first_hypothesis)
+                calling(a_hypothesis_was_recorded(the_first_hypothesis))
             ) \
             .when(
                 lambda: hypotheses.record(conn, the_second_hypothesis)
@@ -223,7 +223,7 @@ def test_the_best_candidate_of_a_verdict_is_the_one_returned() -> None:
 
         Scenario() \
             .given(
-                a_hypothesis_was_recorded(the_best_candidate)
+                calling(a_hypothesis_was_recorded(the_best_candidate))
             ) \
             .when(
                 lambda: hypotheses.record(conn, the_alternative_it_carried)

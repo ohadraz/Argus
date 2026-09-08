@@ -24,15 +24,14 @@ def test_create_writes_incident_and_initial_timeline_event() -> None:
         the_timeline_shows = partial(_the_timeline_shows, conn)
         the_last_timeline_event_was = partial(_the_last_timeline_event_was, conn)
 
-
         Scenario() \
             .when(
-                incident_id := incidents.create(conn, some_alert)
+                lambda: incidents.create(conn, some_alert)
             ) \
             .then(all_of(
-                the_incident_is(incident_id, "acknowledged"),
-                the_timeline_shows(incident_id, "acknowledged"),
-                the_last_timeline_event_was(incident_id, "orchestrator")
+                the_incident_is("acknowledged"),
+                the_timeline_shows("acknowledged"),
+                the_last_timeline_event_was("orchestrator")
             ))
 
 
@@ -65,10 +64,10 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
                 )
             ) \
             .then(all_of(
-                the_incident_is(incident_id, "mitigating"),
-                the_timeline_shows(incident_id, "acknowledged", "mitigating"),
+                the_incident_is("mitigating", incident_id=incident_id),
+                the_timeline_shows("acknowledged", "mitigating", incident_id=incident_id),
                 the_last_timeline_event_was(
-                    incident_id, "investigator", confidence=some_confidence)
+                    "investigator", confidence=some_confidence, incident_id=incident_id)
             ))
 
 
@@ -271,17 +270,22 @@ def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> No
 
 
 def _the_timeline_shows(conn: psycopg.Connection,
-                        incident_id: str,
-                        *statuses: str) -> Assertion[Any]:
+                        *statuses: str,
+                        incident_id: str | None = None) -> Assertion[Any]:
     """The whole sequence a timeline recorded, in order.
 
     The whole of it rather than a slice: a timeline is read as the account of
     where an incident has been, and an assertion checking only its last entry
     would pass just as happily on an account that skipped a status entirely.
+
+    `incident_id` is optional because a scenario whose `when` created the
+    incident has no id to give until it has run - so the default is to read the
+    one `when` produced. A test that already holds an id names it.
     """
-    def assertion(_result: Any) -> bool:
+    def assertion(result: Any) -> bool:
+        the_incident = incident_id if incident_id is not None else result
         recorded = [event.to_status
-                    for event in timeline.get_timeline_events(conn, incident_id)]
+                    for event in timeline.get_timeline_events(conn, the_incident)]
 
         if recorded != list(statuses):
             raise AssertionError(
@@ -294,43 +298,22 @@ def _the_timeline_shows(conn: psycopg.Connection,
 
 
 def _the_incident_is(conn: psycopg.Connection,
-                     incident_id: str,
-                     status: str) -> Assertion[Any]:
-    def assertion(_result: Any) -> bool:
-        incident = incidents.get(conn, incident_id)
+                     status: str,
+                     incident_id: str | None = None) -> Assertion[Any]:
+    """The status the incident row carries.
+
+    `incident_id` is optional for the reason it is above.
+    """
+    def assertion(result: Any) -> bool:
+        the_incident = incident_id if incident_id is not None else result
+        incident = incidents.get(conn, the_incident)
 
         if incident is None:
-            raise AssertionError(f"No incident found with id [{incident_id}].")
+            raise AssertionError(f"No incident found with id [{the_incident}].")
 
         if incident.status != status:
             raise AssertionError(
                 f"Expected status [{status!r}], got [{incident.status!r}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_last_timeline_event_was(conn: psycopg.Connection,
-                                 incident_id: str,
-                                 actor: str,
-                                 confidence: float | None = None) -> Assertion[Any]:
-    """Who moved the incident, and how sure they were.
-
-    Separate from the sequence below because it answers a different question:
-    that one says where the incident went, this says who took it there. A test
-    asking only one of the two calls only one of these.
-    """
-    def assertion(_result: Any) -> bool:
-        last = timeline.get_timeline_events(conn, incident_id)[-1]
-
-        if last.actor != actor:
-            raise AssertionError(f"Expected actor [{actor!r}], got [{last.actor!r}].")
-
-        if confidence is not None and last.confidence != confidence:
-            raise AssertionError(
-                f"Expected confidence [{confidence}], got [{last.confidence!r}]."
             )
 
         return True
@@ -372,6 +355,35 @@ def _the_incident_records_no_end(conn: psycopg.Connection, incident_id: str) -> 
             raise AssertionError(
                 f"Expected incident [{incident_id}] to record no end while it is still "
                 f"being worked, got [{incident.ended_at}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_last_timeline_event_was(conn: psycopg.Connection,
+                                 actor: str,
+                                 confidence: float | None = None,
+                                 incident_id: str | None = None) -> Assertion[Any]:
+    """Who moved the incident, and how sure they were.
+
+    Separate from the sequence above because it answers a different question:
+    that one says where the incident went, this says who took it there. A test
+    asking only one of the two calls only one of these.
+
+    `incident_id` is optional for the reason it is above.
+    """
+    def assertion(result: Any) -> bool:
+        the_incident = incident_id if incident_id is not None else result
+        last = timeline.get_timeline_events(conn, the_incident)[-1]
+
+        if last.actor != actor:
+            raise AssertionError(f"Expected actor [{actor!r}], got [{last.actor!r}].")
+
+        if confidence is not None and last.confidence != confidence:
+            raise AssertionError(
+                f"Expected confidence [{confidence}], got [{last.confidence!r}]."
             )
 
         return True

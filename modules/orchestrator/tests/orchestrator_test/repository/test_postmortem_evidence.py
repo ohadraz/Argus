@@ -15,7 +15,7 @@ from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.timestamps import parse_iso
 from argus_incidents.repository import events, hypotheses, incidents
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
 from orchestrator.postmortem import gather_evidence
@@ -66,13 +66,13 @@ def test_the_evidence_carries_the_candidates_the_investigation_ranked() -> None:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn),
-                lambda: hypotheses.record(conn, Hypothesis(
+                calling(lambda: hypotheses.record(conn, Hypothesis(
                     incident_id=incident_id,
                     summary=some_cause,
                     cause_type=some_cause_type,
                     confidence=dont_care_confidence,
                     supporting_evidence=[]
-                ))
+                )))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)
@@ -94,12 +94,12 @@ def test_the_evidence_carries_the_log_lines_the_incident_read() -> None:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn),
-                lambda: events.record(conn, LogsRetrieved(
+                calling(lambda: events.record(conn, LogsRetrieved(
                     incident_id=incident_id,
                     window_start=some_window_start,
                     window_end=some_window_end,
                     lines=[some_log_line]
-                ))
+                )))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)

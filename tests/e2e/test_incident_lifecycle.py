@@ -4,7 +4,7 @@ from http import HTTPStatus as HttpStatus
 
 import pytest
 from argus_core.models.incident_status import IncidentStatus
-from argus_testkit import Scenario, all_of, eventually
+from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
@@ -36,7 +36,7 @@ def test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem() -> Non
 
     Scenario() \
         .given(
-            the_model_answers_from(RECORDED_ABSENCE_OF_EVIDENCE)
+            calling(the_model_answers_from(RECORDED_ABSENCE_OF_EVIDENCE))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

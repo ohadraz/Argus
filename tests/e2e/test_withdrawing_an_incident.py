@@ -10,7 +10,7 @@ import pytest
 from agent_mitigation import Undone
 from argus_core.models.incident_status import IncidentStatus
 from argus_incidents.repository import postmortems, timeline
-from argus_testkit import Assertion, Scenario, all_of, eventually
+from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
@@ -61,8 +61,8 @@ def test_an_incident_withdrawn_mid_walk_stops_and_puts_its_flag_back() -> None:
 
     Scenario() \
         .given(
-            _a_feature_flag_was_toggled_on(),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE),
+            calling(_a_feature_flag_was_toggled_on()),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
             _argus_is_withdrawn_once_it_has_acted_on(some_alert)
@@ -89,8 +89,8 @@ def test_a_flag_changed_from_outside_is_left_alone_when_the_incident_is_withdraw
 
     Scenario() \
         .given(
-            _a_feature_flag_was_toggled_on(),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE),
+            calling(_a_feature_flag_was_toggled_on()),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
             _argus_is_withdrawn_after_somebody_else_changed_the_flag(some_alert)

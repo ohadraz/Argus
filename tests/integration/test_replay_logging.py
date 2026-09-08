@@ -16,7 +16,7 @@ from argus_core.models.metrics import MetricBucket
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.publishing import calls_into
 from argus_incidents.repository import incidents, replay
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN
 
@@ -67,7 +67,7 @@ def test_an_investigations_calls_reach_the_replay_log(
 
         Scenario() \
             .given(
-                lambda: _the_double_is_answering(double)
+                calling(lambda: _the_double_is_answering(double))
             ) \
             .when(
                 lambda: investigate(
@@ -100,7 +100,7 @@ def test_an_investigation_that_records_nowhere_still_investigates(
 
         Scenario() \
             .given(
-                lambda: _the_double_is_answering(double)
+                calling(lambda: _the_double_is_answering(double))
             ) \
             .when(
                 lambda: investigate(

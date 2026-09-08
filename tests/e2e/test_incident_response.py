@@ -11,7 +11,7 @@ import pytest
 from argus_core.models.postmortem import Postmortem
 from argus_core.timestamps import parse_iso
 from argus_incidents.repository import postmortems
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually
 
 from tests.e2e.framework.argus import (
@@ -65,8 +65,8 @@ def test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent() -> 
 
     Scenario() \
         .given(
-            _a_feature_flag_was_toggled_on(),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE),
+            calling(_a_feature_flag_was_toggled_on()),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

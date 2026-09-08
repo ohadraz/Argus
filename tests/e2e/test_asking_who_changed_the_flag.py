@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from agent_mitigation.tools import argus_changed_flag_since, set_flag
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 from .framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG
 
@@ -30,10 +30,10 @@ def test_argus_recognises_the_change_it_made_and_no_other() -> None:
 
     Scenario() \
         .given(
-            _argus_changed(THE_DEMO_FLAG)
+            calling(_argus_changed(THE_DEMO_FLAG))
         ) \
         .when(
-            argus_changed_flag_since(THE_DEMO_FLAG, since)
+            lambda: argus_changed_flag_since(THE_DEMO_FLAG, since)
         ) \
         .then(all_of(
             _the_answer_is(True),

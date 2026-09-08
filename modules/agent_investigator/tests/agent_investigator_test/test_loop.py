@@ -9,7 +9,7 @@ from argus_core.events import RetrievalChannel
 from argus_core.ids import new_id
 from argus_core.models.attempt import Attempt
 from argus_core.models.transcript import Ask
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 from .framework.builders.budget import (
     a_budget,
@@ -88,7 +88,7 @@ def test_the_answer_the_model_gave_is_what_the_investigation_returns() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate(incident_id=some_incident_id)
@@ -115,7 +115,7 @@ def test_the_model_chooses_which_channel_to_read() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -145,7 +145,7 @@ def test_a_tool_result_feeds_the_next_turn() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -173,7 +173,7 @@ def test_a_turn_that_only_talks_is_not_an_answer() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -195,7 +195,7 @@ def test_the_investigation_stops_at_the_calls_it_was_allowed() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -224,7 +224,7 @@ def test_the_investigation_stops_when_the_tokens_run_out() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -249,7 +249,7 @@ def test_the_investigation_stops_when_the_clock_runs_out() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -283,7 +283,7 @@ def test_the_model_is_told_when_one_turn_is_all_that_is_left() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -319,7 +319,7 @@ def test_a_turn_cut_short_is_asked_again_when_there_is_budget_for_it() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -347,7 +347,7 @@ def test_a_turn_cut_short_escalates_when_there_is_no_budget_to_ask_again() -> No
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -376,7 +376,7 @@ def test_a_model_that_is_cut_short_every_turn_is_still_ended_by_the_clock() -> N
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -401,7 +401,7 @@ def test_a_refusal_ends_the_investigation_however_much_budget_is_left() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -431,7 +431,7 @@ def test_what_the_investigation_read_comes_back_with_its_answer() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -452,7 +452,7 @@ def test_the_model_is_told_the_onset_it_does_not_get_to_choose() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(some_metrics)
+            calling(investigation.metrics_showed(some_metrics))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -471,7 +471,7 @@ def test_a_window_with_no_anomalous_minute_is_answered_without_asking_the_model(
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_steady_window())
+            calling(investigation.metrics_showed(a_steady_window()))
         ) \
         .when(
             lambda: investigation.investigate()
@@ -498,7 +498,7 @@ def test_a_later_round_is_shown_what_was_tried_and_what_was_read() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate(

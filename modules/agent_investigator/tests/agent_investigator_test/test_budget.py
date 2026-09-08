@@ -5,7 +5,7 @@ from collections.abc import Callable
 import pytest
 from agent_investigator.budget import Bound, Budget
 from argus_core.models.turn import ToolCall, Turn
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, calling
 
 """What stops an investigation that the model would happily continue.
 
@@ -49,8 +49,8 @@ def test_a_turn_inside_every_bound_reaches_none_of_them() -> None:
         .given(
             some_budget := _a_budget(max_tool_calls=some_generous_tool_call_bound,
                                     max_tokens=some_generous_token_bound),
-            lambda: some_budget.record(
-                _a_turn_asking_for(1, costing_each_way=a_turn_well_inside_them))
+            calling(lambda: some_budget.record(
+                _a_turn_asking_for(1, costing_each_way=a_turn_well_inside_them)))
         ) \
         .when(
             lambda: some_budget
@@ -71,10 +71,10 @@ def test_tool_calls_are_counted_across_turns() -> None:
     Scenario() \
         .given(
             some_budget := _a_budget(max_tool_calls=some_tool_call_bound),
-            lambda: some_budget.record(
-                _a_turn_asking_for(some_slightly_below_bound_calls_a_turn)),
-            lambda: some_budget.record(
-                _a_turn_asking_for(some_slightly_below_bound_calls_a_turn))
+            calling(lambda: some_budget.record(
+                _a_turn_asking_for(some_slightly_below_bound_calls_a_turn))),
+            calling(lambda: some_budget.record(
+                _a_turn_asking_for(some_slightly_below_bound_calls_a_turn)))
         ) \
         .when(
             lambda: some_budget
@@ -101,8 +101,8 @@ def test_tokens_are_counted_across_turns() -> None:
     Scenario() \
         .given(
             some_budget := _a_budget(max_tokens=some_token_bound),
-            lambda: some_budget.record(a_turn_the_bound_allows),
-            lambda: some_budget.record(a_turn_the_bound_allows)
+            calling(lambda: some_budget.record(a_turn_the_bound_allows)),
+            calling(lambda: some_budget.record(a_turn_the_bound_allows))
         ) \
         .when(
             lambda: some_budget
@@ -123,7 +123,7 @@ def test_time_runs_out_even_when_nothing_has_been_spent() -> None:
     Scenario() \
         .given(
             some_budget := _a_budget(max_seconds=some_time_bound_seconds, now=a_clock),
-            lambda: a_clock.moves_to(some_time_bound_seconds)
+            calling(lambda: a_clock.moves_to(some_time_bound_seconds))
         ) \
         .when(
             lambda: some_budget
@@ -143,7 +143,7 @@ def test_the_last_turn_is_known_before_the_bound_binds() -> None:
     Scenario() \
         .given(
             some_budget := _a_budget(max_tool_calls=some_tool_call_bound),
-            lambda: some_budget.record(_a_turn_asking_for(some_tool_call_bound - 1))
+            calling(lambda: some_budget.record(_a_turn_asking_for(some_tool_call_bound - 1)))
         ) \
         .when(
             lambda: some_budget
@@ -162,7 +162,7 @@ def test_a_budget_with_room_to_spare_is_not_on_its_last_turn() -> None:
     Scenario() \
         .given(
             some_budget := _a_budget(max_tool_calls=some_tool_call_bound),
-            lambda: some_budget.record(_a_turn_asking_for(1))
+            calling(lambda: some_budget.record(_a_turn_asking_for(1)))
         ) \
         .when(
             lambda: some_budget

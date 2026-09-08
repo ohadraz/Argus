@@ -7,7 +7,7 @@ import httpx
 import pytest
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
-from argus_testkit import Scenario, all_of, eventually
+from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     INVESTIGATION_TIMEOUT_SECONDS,
@@ -87,8 +87,8 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
 
     Scenario() \
         .given(
-            _a_feature_flag_was_toggled_on(),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE)
+            calling(_a_feature_flag_was_toggled_on()),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -135,8 +135,8 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
 
     Scenario() \
         .given(
-            _a_bad_version_was_deployed(),
-            the_model_answers_from(RECORDED_BAD_DEPLOYMENT)
+            calling(_a_bad_version_was_deployed()),
+            calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -181,9 +181,9 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
 
     Scenario() \
         .given(
-            _a_feature_flag_was_toggled_on(),
-            the_flag_provider_forgot_every_change,
-            the_model_answers_from(RECORDED_FLAG_TOGGLE_UNCORROBORATED)
+            calling(_a_feature_flag_was_toggled_on()),
+            calling(the_flag_provider_forgot_every_change),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_UNCORROBORATED))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -220,9 +220,9 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
 
     Scenario() \
         .given(
-            _a_feature_flag_was_toggled_on(),
-            another_flag_was_toggled_on(SOME_UNRELATED_FLAG),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE)
+            calling(_a_feature_flag_was_toggled_on()),
+            calling(another_flag_was_toggled_on(SOME_UNRELATED_FLAG)),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

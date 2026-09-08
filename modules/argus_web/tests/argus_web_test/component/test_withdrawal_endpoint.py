@@ -35,7 +35,7 @@ def test_withdrawing_a_running_incident_stops_it() -> None:
                 incident_id
             ) \
             .when(
-                client.post(f"/incidents/{incident_id}/withdraw")
+                lambda: client.post(f"/incidents/{incident_id}/withdraw")
             ) \
             .then(all_of(
                 _the_answer_was(HttpStatus.OK),
@@ -67,7 +67,7 @@ def test_withdrawing_an_incident_that_already_ended_is_refused() -> None:
                 incident_id
             ) \
             .when(
-                client.post(f"/incidents/{incident_id}/withdraw")
+                lambda: client.post(f"/incidents/{incident_id}/withdraw")
             ) \
             .then(all_of(
                 _the_answer_was(HttpStatus.CONFLICT),
@@ -82,7 +82,7 @@ def test_withdrawing_an_incident_nobody_has_is_not_found() -> None:
     with TestClient(app) as client:
         Scenario() \
             .when(
-                client.post(f"/incidents/{some_id_that_never_existed}/withdraw")
+                lambda: client.post(f"/incidents/{some_id_that_never_existed}/withdraw")
             ) \
             .then(
                 _the_answer_was(HttpStatus.NOT_FOUND)

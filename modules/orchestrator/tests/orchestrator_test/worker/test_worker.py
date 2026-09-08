@@ -38,7 +38,7 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker() -> None:
                 incident_id
             ) \
             .when(
-                worker.take_one_run(
+                lambda: worker.take_one_run(
                     conn,
                     dont_care_worker,
                     A_GENEROUS_LEASE,
@@ -70,7 +70,7 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking() -> None:
     with connect() as conn:
         Scenario() \
             .when(
-                worker.take_one_run(
+                lambda: worker.take_one_run(
                     conn,
                     dont_care_worker,
                     A_GENEROUS_LEASE,
@@ -107,7 +107,7 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason() -> None
                 incident_id
             ) \
             .when(
-                worker.take_one_run(
+                lambda: worker.take_one_run(
                     conn,
                     dont_care_worker,
                     A_GENEROUS_LEASE,
@@ -145,7 +145,7 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked() -> None:
                 incidents.withdraw(conn, incident_id, dont_care_actor)
             ) \
             .when(
-                worker.take_one_run(
+                lambda: worker.take_one_run(
                     conn,
                     dont_care_worker,
                     A_GENEROUS_LEASE,
@@ -180,7 +180,7 @@ def test_a_withdrawn_incident_has_its_changes_put_back() -> None:
                 incidents.withdraw(conn, incident_id, dont_care_actor)
             ) \
             .when(
-                worker.take_one_run(
+                lambda: worker.take_one_run(
                     conn,
                     dont_care_worker,
                     A_GENEROUS_LEASE,
@@ -216,7 +216,7 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards() -> No
                 incident_id
             ) \
             .when(
-                worker.take_one_run(
+                lambda: worker.take_one_run(
                     conn,
                     dont_care_worker,
                     A_GENEROUS_LEASE,

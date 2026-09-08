@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from argus_core.models.flag_change import FlagChange
 from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario
+from argus_testkit.scenario import Scenario, calling
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
 
 from write_mcp_client_test.fake_feature_flag_provider import FakeUnleashHandler, a_running_write_mcp
@@ -33,7 +33,7 @@ def test_switching_a_flag_off_reaches_the_provider_through_the_real_write_server
 
     Scenario() \
         .given(
-            the_provider_has_enabled(running_write_mcp, some_flag)
+            calling(the_provider_has_enabled(running_write_mcp, some_flag))
         ) \
         .when(
             lambda: set_feature_flag(some_flag, enabled=False)
@@ -54,7 +54,7 @@ def test_switching_a_flag_on_reaches_the_provider_through_the_real_write_server(
 
     Scenario() \
         .given(
-            the_provider_has_enabled(running_write_mcp)
+            calling(the_provider_has_enabled(running_write_mcp))
         ) \
         .when(
             lambda: set_feature_flag(some_flag, enabled=True)
@@ -73,10 +73,10 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
 
     Scenario() \
         .given(
-            the_provider_recorded(
+            calling(the_provider_recorded(
                 running_write_mcp,
                 [a_disabling_of(some_flag, at=INSIDE_THE_WINDOW)],
-            )
+            ))
         ) \
         .when(
             lambda: get_recent_flag_changes(SINCE)
@@ -97,7 +97,7 @@ def test_a_change_the_client_made_can_be_undone_through_the_same_call(
 
     Scenario() \
         .given(
-            the_provider_has_enabled(running_write_mcp, some_flag)
+            calling(the_provider_has_enabled(running_write_mcp, some_flag))
         ) \
         .when(
             lambda: _undoing(set_feature_flag(some_flag, enabled=False), some_flag)

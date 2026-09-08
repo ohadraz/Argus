@@ -7,6 +7,7 @@ from agent_investigator.retrieval import fetch_logs
 from agent_investigator.tools import LOGS_TOOL, METRICS_TOOL
 from argus_core.models.transcript import ToolResult
 from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit.scenario import calling
 
 from ..framework.assertions.tool_results import the_result_answers, the_result_failed
 from ..framework.builders.dispatcher import a_call_to, a_dispatcher
@@ -80,7 +81,7 @@ def test_a_window_that_was_already_read_is_not_read_again() -> None:
     Scenario() \
         .given(
             some_dispatcher := a_dispatcher(reads_logs=some_fetch_logs),
-            the_same_window_again
+            calling(the_same_window_again)
         ) \
         .when(
             the_same_window_again

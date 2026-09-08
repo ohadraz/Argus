@@ -72,7 +72,7 @@ def test_withdrawing_says_that_it_took_effect() -> None:
                 incident_id := an_incident_created_for(some_alert)
             ) \
             .when(
-                incidents.withdraw(conn, incident_id, actor=dont_care_actor)
+                lambda: incidents.withdraw(conn, incident_id, actor=dont_care_actor)
             ) \
             .then(
                 _it_reported(True)
@@ -96,7 +96,7 @@ def test_an_incident_that_already_ended_is_not_withdrawn() -> None:
                 incident_id := a_resolved_incident_for(some_alert)
             ) \
             .when(
-                incidents.withdraw(conn, incident_id, actor=dont_care_actor)
+                lambda: incidents.withdraw(conn, incident_id, actor=dont_care_actor)
             ) \
             .then(all_of(
                 _it_reported(False),
@@ -127,7 +127,7 @@ def test_withdrawing_twice_changes_nothing_the_second_time() -> None:
                 first_ended_at := _when_it_ended(conn, incident_id)
             ) \
             .when(
-                incidents.withdraw(conn, incident_id, actor=dont_care_actor)
+                lambda: incidents.withdraw(conn, incident_id, actor=dont_care_actor)
             ) \
             .then(all_of(
                 _it_reported(False),

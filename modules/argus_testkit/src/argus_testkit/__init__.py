@@ -6,7 +6,7 @@ from argus_testkit.assertions import (
     eventually,
 )
 from argus_testkit.collecting import Kept
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.scenario import Scenario, attempting, calling
 
 __all__ = [
     "Assertion",
@@ -16,5 +16,6 @@ __all__ = [
     "an_error_was_raised",
     "at_least",
     "attempting",
+    "calling",
     "eventually",
 ]

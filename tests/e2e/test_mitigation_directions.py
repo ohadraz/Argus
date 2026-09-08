@@ -7,7 +7,7 @@ import httpx
 import pytest
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
-from argus_testkit import Scenario, all_of, eventually
+from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
@@ -59,8 +59,8 @@ def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
 
     Scenario() \
         .given(
-            _a_fallback_flag_was_switched_off(),
-            the_model_answers_from(RECORDED_FALLBACK_DISABLED)
+            calling(_a_fallback_flag_was_switched_off()),
+            calling(the_model_answers_from(RECORDED_FALLBACK_DISABLED))
 
         ) \
         .when(
@@ -107,8 +107,8 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
 
     Scenario() \
         .given(
-            _a_flag_was_toggled_but_is_not_the_cause(),
-            the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING),
+            calling(_a_flag_was_toggled_but_is_not_the_cause()),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

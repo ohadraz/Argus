@@ -10,7 +10,7 @@ from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.repository import incidents, replay
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 """Where a call Argus made out of its own process is written down (spec §11.1).
 
@@ -80,7 +80,7 @@ def test_the_calls_of_an_incident_come_back_in_the_order_they_were_made() -> Non
 
         Scenario() \
             .given(
-                a_call_was_recorded(the_first_call)
+                calling(a_call_was_recorded(the_first_call))
             ) \
             .when(
                 lambda: replay.record(conn, the_second_call)
@@ -104,7 +104,7 @@ def test_calls_made_for_another_incident_are_not_this_incidents() -> None:
 
         Scenario() \
             .given(
-                a_call_was_recorded(_an_entry_for(another_incident_id))
+                calling(a_call_was_recorded(_an_entry_for(another_incident_id)))
             ) \
             .when(
                 lambda: replay.record(conn, this_incidents_call)

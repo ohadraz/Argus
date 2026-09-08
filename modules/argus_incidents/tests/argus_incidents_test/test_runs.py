@@ -9,7 +9,7 @@ import pytest
 from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_incidents.repository import incidents, runs
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 # Long enough that nothing in this test expires on its own: what is being
 # measured here is who gets the run, not what happens when a holder goes quiet.
@@ -42,7 +42,7 @@ def test_a_queued_run_is_claimed_by_one_worker_and_not_by_a_second() -> None:
                 incident_id := an_enqueued_run_for(some_alert)
             ) \
             .when(
-                (
+                lambda: (
                     runs.claim(conn, one_worker, A_GENEROUS_LEASE),
                     runs.claim(another_conn, another_worker, A_GENEROUS_LEASE),
                 )
@@ -68,10 +68,10 @@ def test_a_run_whose_lease_ran_out_is_taken_up_again() -> None:
         Scenario() \
             .given(
                 incident_id := an_enqueued_run_for(dont_care_alert),
-                runs.claim(conn, the_worker_that_stopped, A_LEASE_ALREADY_OVER)
+                calling(lambda: runs.claim(conn, the_worker_that_stopped, A_LEASE_ALREADY_OVER))
             ) \
             .when(
-                runs.claim(conn, the_worker_that_came_after, A_GENEROUS_LEASE)
+                lambda: runs.claim(conn, the_worker_that_came_after, A_GENEROUS_LEASE)
             ) \
             .then(all_of(
                 _a_run_was_claimed(),
@@ -96,10 +96,10 @@ def test_a_run_still_being_walked_is_not_taken_from_its_worker() -> None:
         Scenario() \
             .given(
                 an_enqueued_run_for(dont_care_alert),
-                runs.claim(conn, the_worker_still_walking_it, A_GENEROUS_LEASE)
+                calling(lambda: runs.claim(conn, the_worker_still_walking_it, A_GENEROUS_LEASE))
             ) \
             .when(
-                runs.claim(conn, dont_care_worker, A_GENEROUS_LEASE)
+                lambda: runs.claim(conn, dont_care_worker, A_GENEROUS_LEASE)
             ) \
             .then(
                 _nothing_was_claimed()

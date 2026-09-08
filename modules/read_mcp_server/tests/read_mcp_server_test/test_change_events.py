@@ -10,7 +10,7 @@ import pytest
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.timestamps import parse_iso, to_iso
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.scenario import Scenario, attempting, calling
 from read_mcp_server.argocd import fetch_deploys
 from read_mcp_server.change_source import ChangeSourceUnavailable
 from read_mcp_server.retrieval import get_change_events
@@ -25,7 +25,7 @@ def test_the_changes_the_source_reports_are_returned() -> None:
 
     Scenario() \
         .given(
-            the_change_source_reported([a_deploy_of(some_revision, at=some_change_minute)])
+            calling(the_change_source_reported([a_deploy_of(some_revision, at=some_change_minute)]))
         ) \
         .when(
             lambda: get_change_events(
@@ -51,7 +51,7 @@ def test_a_window_containing_no_change_is_not_an_error() -> None:
 
     Scenario() \
         .given(
-            the_change_source_reported([])
+            calling(the_change_source_reported([]))
         ) \
         .when(
             lambda: get_change_events(
@@ -79,7 +79,7 @@ def test_the_service_and_window_asked_about_are_the_ones_passed_on() -> None:
 
     Scenario() \
         .given(
-            the_change_source_reported([])
+            calling(the_change_source_reported([]))
         ) \
         .when(
             lambda: get_change_events(
@@ -107,9 +107,9 @@ def test_an_unreachable_source_surfaces_as_a_failure() -> None:
 
     Scenario() \
         .given(
-            the_change_source_was_unreachable(
+            calling(the_change_source_was_unreachable(
                 ChangeSourceUnavailable("could not read deploy history")
-            )
+            ))
         ) \
         .when(
             attempting(

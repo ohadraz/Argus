@@ -13,7 +13,7 @@ from argus_core.events import (
     RetrievalRequested,
 )
 from argus_core.models.metrics import MetricBucket
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 from .framework.builders.incident import a_window_that_starts_calm, the_onset_of
 from .framework.builders.investigation import Investigation, an_investigation
@@ -63,7 +63,7 @@ def test_each_retrieval_is_published_with_the_window_it_asked_for() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate(publisher=published.append)
@@ -94,8 +94,8 @@ def test_what_a_retrieval_returned_is_published_with_it() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm()),
-            investigation.logs_showed(some_lines)
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(investigation.logs_showed(some_lines))
         ) \
         .when(
             lambda: investigation.investigate(publisher=published.append)
@@ -116,7 +116,7 @@ def test_the_metrics_the_loop_read_itself_are_published() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(some_metrics)
+            calling(investigation.metrics_showed(some_metrics))
         ) \
         .when(
             lambda: investigation.investigate(publisher=published.append)
@@ -137,7 +137,7 @@ def test_the_onset_it_found_is_published() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(some_metrics)
+            calling(investigation.metrics_showed(some_metrics))
         ) \
         .when(
             lambda: investigation.investigate(publisher=published.append)
@@ -170,7 +170,7 @@ def test_every_candidate_it_formed_is_published_with_what_it_rests_on() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate(publisher=published.append)
@@ -198,7 +198,7 @@ def test_a_channel_that_was_never_asked_for_is_published_as_unread() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm())
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: investigation.investigate(publisher=published.append)
@@ -223,8 +223,8 @@ def test_a_channel_that_came_back_empty_is_not_published_as_unread() -> None:
 
     Scenario() \
         .given(
-            investigation.metrics_showed(a_window_that_starts_calm()),
-            investigation.no_changes_were_recorded()
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(investigation.no_changes_were_recorded())
         ) \
         .when(
             lambda: investigation.investigate(publisher=published.append)
@@ -245,8 +245,8 @@ def test_an_investigation_nobody_is_listening_to_concludes_the_same_thing() -> N
 
     Scenario() \
         .given(
-            heard.metrics_showed(a_window_that_starts_calm()),
-            unheard.metrics_showed(a_window_that_starts_calm())
+            calling(heard.metrics_showed(a_window_that_starts_calm())),
+            calling(unheard.metrics_showed(a_window_that_starts_calm()))
         ) \
         .when(
             lambda: (

@@ -12,7 +12,7 @@ from argus_core.config import Settings
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.timestamps import parse_iso, to_iso
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.scenario import Scenario, attempting, calling
 from read_mcp_server.argocd import fetch_argocd_application, fetch_deploys
 from read_mcp_server.change_source import ChangeSourceUnavailable
 
@@ -26,9 +26,9 @@ def test_a_revision_history_entry_becomes_a_deploy_event() -> None:
 
     Scenario() \
         .given(
-            argocd_reported(
+            calling(argocd_reported(
                 an_application_deployed_at(some_deploy_minute, revision=some_revision)
-            )
+            ))
         ) \
         .when(
             lambda: fetch_deploys(
@@ -55,11 +55,11 @@ def test_a_deploy_event_carries_who_deployed_it_and_from_where() -> None:
 
     Scenario() \
         .given(
-            argocd_reported(
+            calling(argocd_reported(
                 an_application_deployed_at(
                     some_deploy_minute, username=some_username, repo_url=some_repo_url
                 )
-            )
+            ))
         ) \
         .when(
             lambda: fetch_deploys(
@@ -86,11 +86,11 @@ def test_an_entry_without_a_deploy_start_time_still_maps() -> None:
 
     Scenario() \
         .given(
-            argocd_reported(
+            calling(argocd_reported(
                 an_application_deployed_at(
                     some_deploy_minute, revision=some_revision, reporting_a_start_time=False
                 )
-            )
+            ))
         ) \
         .when(
             lambda: fetch_deploys(
@@ -118,13 +118,13 @@ def test_deploys_outside_the_window_are_discarded() -> None:
 
     Scenario() \
         .given(
-            argocd_reported(
+            calling(argocd_reported(
                 an_application_with(
                     a_deploy_of("deployed-before-the-window", at=a_while_before(window_start)),
                     a_deploy_of(the_revision_deployed_inside_the_window, at=some_deploy_minute),
                     a_deploy_of("deployed-after-the-window", at=a_while_after(window_end))
                 )
-            )
+            ))
         ) \
         .when(
             lambda: fetch_deploys(
@@ -150,7 +150,7 @@ def test_an_application_that_never_deployed_yields_no_events() -> None:
 
     Scenario() \
         .given(
-            argocd_reported(an_application_that_never_deployed())
+            calling(argocd_reported(an_application_that_never_deployed()))
         ) \
         .when(
             lambda: fetch_deploys(
@@ -174,7 +174,7 @@ def test_a_configured_token_is_sent_as_a_bearer_credential() -> None:
 
     Scenario() \
         .given(
-            the_server_answered_with(an_ok_response())
+            calling(the_server_answered_with(an_ok_response()))
         ) \
         .when(
             lambda: fetch_argocd_application(
@@ -199,7 +199,7 @@ def test_no_configured_token_means_no_authorization_header() -> None:
 
     Scenario() \
         .given(
-            the_server_answered_with(an_ok_response())
+            calling(the_server_answered_with(an_ok_response()))
         ) \
         .when(
             lambda: fetch_argocd_application(
@@ -223,7 +223,7 @@ def test_the_request_goes_to_the_configured_application_path() -> None:
 
     Scenario() \
         .given(
-            the_server_answered_with(an_ok_response())
+            calling(the_server_answered_with(an_ok_response()))
         ) \
         .when(
             lambda: fetch_argocd_application(
@@ -249,7 +249,7 @@ def test_a_path_without_a_placeholder_is_used_as_written() -> None:
 
     Scenario() \
         .given(
-            the_server_answered_with(an_ok_response())
+            calling(the_server_answered_with(an_ok_response()))
         ) \
         .when(
             lambda: fetch_argocd_application(
@@ -275,7 +275,7 @@ def test_an_error_response_raises_rather_than_reporting_no_changes() -> None:
 
     Scenario() \
         .given(
-            the_server_answered_with(an_error_response())
+            calling(the_server_answered_with(an_error_response()))
         ) \
         .when(
             attempting(
@@ -296,7 +296,7 @@ def test_an_unreachable_server_raises_rather_than_reporting_no_changes() -> None
 
     Scenario() \
         .given(
-            the_server_was_unreachable(httpx.ConnectError("no route to host"))
+            calling(the_server_was_unreachable(httpx.ConnectError("no route to host")))
         ) \
         .when(
             attempting(

@@ -28,7 +28,7 @@ def test_an_accepted_alert_is_acknowledged_before_anyone_is_on_it() -> None:
     with TestClient(app) as client:
         Scenario() \
             .when(
-                client.post("/webhooks/alerts", json=some_payload)
+                lambda: client.post("/webhooks/alerts", json=some_payload)
             ) \
             .then(all_of(
                 _the_incident_is_acknowledged(),
@@ -49,7 +49,7 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
     with TestClient(app) as client:
         Scenario() \
             .when(
-                client.post("/webhooks/alerts", json=some_payload)
+                lambda: client.post("/webhooks/alerts", json=some_payload)
             ) \
             .then(all_of(
                 _the_alert_was_accepted(),
