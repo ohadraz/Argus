@@ -1,4 +1,5 @@
 import contextlib
+import ctypes
 import os
 import signal
 import socket
@@ -9,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Final
 
 import nox
 
@@ -166,6 +168,7 @@ def sweep(session: nox.Session) -> None:
         broke = _the_first_to_fail(running)
     finally:
         stopped = _stop_the_rest(running)
+        _clean_up_after(stopped)
 
     if broke is not None:
         session.error(
@@ -220,6 +223,41 @@ def _stop_the_rest(running: dict[str, subprocess.Popen[bytes]]) -> list[str]:
         _stop_service(process)
 
     return list(running)
+
+
+def _clean_up_after(suites: list[str]) -> None:
+    """Removes the containers the killed suites never got to remove themselves.
+
+    The other half of the job object, and not something it can do: a job holds
+    processes, and a compose container is a child of the docker daemon rather
+    than of anything here. Killing the suite that started one leaves it running
+    with nothing left that knows about it.
+
+    Only the suites that were stopped. One that finished on its own ran its own
+    teardown, and tearing down again would be this function guessing at a state
+    it was not there for.
+
+    `down -v` rather than the `stop` a healthy run ends with, because the
+    leftovers of a killed run are of unknown state - a schema half-applied, a
+    fixture interrupted between two writes - and the next run brings its own
+    database up anyway. Failures are reported and not raised: this already runs
+    on the way out of a failing sweep, and a cleanup that turned into the
+    reported failure would bury the suite that actually broke.
+    """
+    for suite in suites:
+        project = _SWEEP_PROJECTS.get(suite)
+
+        if project is None:
+            continue
+
+        removed = subprocess.run(
+            ["docker", "compose", *project, "down", "-v"],
+            capture_output=True, check=False
+        )
+
+        if removed.returncode != 0:
+            print(f"could not remove the containers [{suite}] left behind: "
+                  f"{removed.stderr.decode(errors='replace').strip()}")
 
 
 @nox.session
@@ -331,6 +369,297 @@ def _venv_python_binary() -> str:
     return str(Path(".venv") / venv_bin / exe)
 
 
+# A Windows job object's flag for "kill everything in here when the last handle
+# to it closes", and the information class that carries it. Spelled out rather
+# than imported because Python exposes no job-object API at all - `ctypes` is
+# the whole of the binding, and these two numbers are the header file's.
+_KILL_ON_JOB_CLOSE: Final = 0x2000
+_EXTENDED_LIMIT_INFORMATION: Final = 9
+
+# What is needed to put a process into a job and, having failed, to be able to
+# stop it anyway.
+_PROCESS_SET_QUOTA: Final = 0x0100
+_PROCESS_TERMINATE: Final = 0x0001
+
+
+class _BasicLimits(ctypes.Structure):
+    """`JOBOBJECT_BASIC_LIMIT_INFORMATION`, of which one field is wanted.
+
+    `c_uint32` rather than `wintypes.DWORD` so this module still imports on
+    POSIX: `ctypes.wintypes` raises on any other platform, and a noxfile that
+    cannot be imported is a repo with no sessions at all.
+    """
+
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_int64),
+        ("PerJobUserTimeLimit", ctypes.c_int64),
+        ("LimitFlags", ctypes.c_uint32),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", ctypes.c_uint32),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", ctypes.c_uint32),
+        ("SchedulingClass", ctypes.c_uint32)
+    ]
+
+
+class _IoCounters(ctypes.Structure):
+    """`IO_COUNTERS`, which nothing here reads - it is declared because it sits
+    between the two halves of the extended struct that does get written."""
+
+    _fields_ = [
+        (name, ctypes.c_uint64)
+        for name in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount"
+        )
+    ]
+
+
+class _ExtendedLimits(ctypes.Structure):
+    """`JOBOBJECT_EXTENDED_LIMIT_INFORMATION` - the shape the kill flag is set
+    through, whole, because the call is checked against its size."""
+
+    _fields_ = [
+        ("BasicLimitInformation", _BasicLimits),
+        ("IoInfo", _IoCounters),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t)
+    ]
+
+
+def _kernel32() -> ctypes.CDLL:
+    """`kernel32`, with the calls made here typed and their errors kept.
+
+    Its own instance rather than the shared `ctypes.windll.kernel32`. `restype`
+    is set on the library object, so the shared one carries whatever every
+    other caller in the process has set on it - and `use_last_error`, which is
+    what lets a failure below say more than that it failed, cannot be turned on
+    for it at all.
+
+    Both handle-returning calls are typed because the default `restype` is a C
+    `int`, which truncates a 64-bit handle. That does not fail where it
+    happens: it fails later, as a job or a process that does not exist.
+    """
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+
+    return kernel32
+
+
+def _nothing_will_stop_them_because(complaint: str) -> None:
+    """Says the kill-with-the-parent arrangement failed, and carries on anyway.
+
+    Said rather than raised: this is a guarantee about the abnormal paths, and
+    a run refusing to start because it could not arrange its own cleanup would
+    have traded a leak for an outage. The ordinary teardown still runs.
+
+    Said at all, though, because this is the one failure with no symptom. A job
+    that never took its kill flag, a service that never joined one, a reaper
+    that never heard about it - each behaves exactly like the working version
+    right up until the run that is killed, and then leaks the whole stack,
+    having reported nothing at the point where it could still have been
+    understood.
+    """
+    print(f"[teardown] {complaint}. Services started by this run may outlive "
+          "it if it is killed outright.")
+
+
+def _the_last_windows_error() -> str:
+    """What the Win32 call that just failed had to say for itself."""
+    return str(ctypes.WinError(ctypes.get_last_error()))
+
+
+def _a_job_that_kills_what_it_holds() -> int | None:
+    """A job object every service this process starts is put into, or `None`
+    where there is no such thing.
+
+    Teardown that has to survive a kill cannot live in the process being
+    killed. A `finally` runs on the paths Python is still alive for and on no
+    others - and the paths that leak are exactly the others: a sweep stopping a
+    failing run's siblings, a closed terminal, a second Ctrl+C. A job's handles
+    close when the process holding them ends *however* it ends, so the children
+    go with it without anything having to run.
+
+    Signals cannot do this job. `CTRL_BREAK_EVENT` reaches a process group, and
+    a service started in a group of its own - which is how it is startable at
+    all here - is in a different one; a child that installs no handler for it
+    dies at `0xC000013A` with no `finally` of its own. A job is not delivered
+    to and not handled, so neither applies.
+
+    Windows only, and deliberately not emulated elsewhere: POSIX has no
+    primitive a grandchild calling `setsid` cannot leave, and the one caller
+    that needs this - `sweep` - is a local tool that CI never runs.
+    """
+    if sys.platform != "win32":
+        return None
+
+    kernel32 = _kernel32()
+    job = kernel32.CreateJobObjectW(None, None)
+
+    if not job:
+        _nothing_will_stop_them_because(
+            f"no job object could be created: {_the_last_windows_error()}"
+        )
+        return None
+
+    limits = _ExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = _KILL_ON_JOB_CLOSE
+
+    # A job that would not take the flag is not the thing this returns. It
+    # would hold every service faithfully and let them all go on living, which
+    # is the failure this whole file is about wearing the look of the fix.
+    if not kernel32.SetInformationJobObject(
+        ctypes.c_void_p(job),
+        _EXTENDED_LIMIT_INFORMATION,
+        ctypes.byref(limits),
+        ctypes.sizeof(limits)
+    ):
+        _nothing_will_stop_them_because(
+            "the job object would not take its kill-on-close flag: "
+            f"{_the_last_windows_error()}"
+        )
+        kernel32.CloseHandle(ctypes.c_void_p(job))
+        return None
+
+    return int(job)
+
+
+# One per nox process, created on import so that it is already there before
+# anything is started. Held for the process's lifetime and never closed by
+# hand: closing it is what kills the children, so the close that matters is the
+# one the operating system does when this process ends.
+_CHILD_JOB = _a_job_that_kills_what_it_holds()
+
+
+def _held_by_this_process(pid: int) -> None:
+    """Puts one started service into this process's job, if there is one.
+
+    Complains rather than raises where it cannot - see
+    `_nothing_will_stop_them_because` for which way that trade runs, and why
+    saying nothing is not the same as not raising.
+
+    Opened by pid rather than through `Popen`'s own handle, which is private to
+    it. The two rights asked for are the least that lets a process be adopted
+    and, failing that, stopped.
+    """
+    if _CHILD_JOB is None or sys.platform != "win32":
+        return
+
+    kernel32 = _kernel32()
+    handle = kernel32.OpenProcess(
+        _PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, pid
+    )
+
+    if not handle:
+        _nothing_will_stop_them_because(
+            f"process [{pid}] could not be opened: {_the_last_windows_error()}"
+        )
+        return
+
+    try:
+        if not kernel32.AssignProcessToJobObject(
+            ctypes.c_void_p(_CHILD_JOB), ctypes.c_void_p(handle)
+        ):
+            _nothing_will_stop_them_because(
+                f"process [{pid}] could not be put into the job: "
+                f"{_the_last_windows_error()}"
+            )
+    finally:
+        kernel32.CloseHandle(ctypes.c_void_p(handle))
+
+
+# Where POSIX's half of this lives, and the one thing the reaper needs to be:
+# a process this one does not take with it. Started in a session of its own for
+# exactly that reason - a signal aimed at this run's process group must not
+# reach the thing whose job is to outlive it.
+_REAPER_SCRIPT: Final = "scripts/reap_orphans.py"
+
+_REAPER: subprocess.Popen[bytes] | None = None
+
+# Whether starting one has been attempted at all, which is not the same as
+# having one. A reaper that could not be started is a complaint worth making
+# once; asked again per service, it would be five identical lines burying
+# whatever the run was actually doing.
+_REAPER_ATTEMPTED = False
+
+
+def _the_reaper() -> subprocess.Popen[bytes] | None:
+    """The process that stops this run's services when this run cannot.
+
+    POSIX's answer to the job object, and the same guarantee: it holds the read
+    end of a pipe whose only writer is this process, so it learns that this
+    process has ended - however it ended - by reading EOF. See
+    `scripts/reap_orphans.py` for why a pipe rather than `PR_SET_PDEATHSIG`,
+    which is Linux's alone and would leave a repo with contributors on macOS
+    holding a guarantee that quietly does not apply to them.
+
+    One per run, started on first use rather than on import: most sessions
+    (`lint`, `typecheck`, `guard_e2e_boundary`) start no service at all, and a
+    process spawned to watch nothing is a process to explain.
+
+    `None` on Windows, which has the better mechanism, and `None` again if the
+    reaper cannot be started - the complaint is made once, where it can still
+    be read, rather than at every service after it.
+    """
+    global _REAPER, _REAPER_ATTEMPTED
+
+    if sys.platform == "win32" or _REAPER_ATTEMPTED:
+        return _REAPER
+
+    _REAPER_ATTEMPTED = True
+
+    try:
+        _REAPER = subprocess.Popen(
+            [_venv_python_binary(), _REAPER_SCRIPT],
+            stdin=subprocess.PIPE,
+            start_new_session=True
+        )
+    except OSError as error:
+        _nothing_will_stop_them_because(f"no reaper could be started: {error}")
+
+    return _REAPER
+
+
+def _told_the_reaper(entry: str) -> None:
+    """Passes one line to the reaper, if there is one listening.
+
+    `+<pid>` when a service starts and `-<pid>` when it stops, so that what the
+    reaper is left holding at EOF is exactly what this run did not get to stop.
+    Flushed on every line: a pipe this run never gets to close is also a pipe
+    whose buffer nobody flushes, and a service recorded only in that buffer is
+    one the reaper never hears about.
+    """
+    reaper = _the_reaper()
+
+    if reaper is None or reaper.stdin is None:
+        return
+
+    try:
+        reaper.stdin.write(f"{entry}\n".encode())
+        reaper.stdin.flush()
+    except OSError as error:
+        _nothing_will_stop_them_because(f"the reaper would not take [{entry}]: {error}")
+
+
+def _kept_from_outliving_this_process(pid: int) -> None:
+    """Arranges for one just-started service to end when this run does.
+
+    Two mechanisms, one per platform family, because the platforms genuinely
+    differ: Windows has a job object that kills its members when the last
+    handle closes, and POSIX has no such thing but does have a pipe, which
+    reaches EOF on exactly the same event. Both are arranged from outside the
+    service and need nothing of it.
+    """
+    if sys.platform == "win32":
+        _held_by_this_process(pid)
+    else:
+        _told_the_reaper(f"+{pid}")
+
+
 def _start_service(
     module_args: list[str], env: dict[str, str] | None = None
 ) -> subprocess.Popen[bytes]:
@@ -339,6 +668,14 @@ def _start_service(
     CREATE_NEW_PROCESS_GROUP is required on Windows for CTRL_BREAK_EVENT (the
     graceful-shutdown signal `_stop_service` sends) to be deliverable to the
     child at all.
+
+    The child is arranged to die with this process as soon as it exists - into
+    a job object on Windows, onto the reaper's list on POSIX - so that it is
+    stopped by this run ending even where nothing here gets to stop it. See
+    `_kept_from_outliving_this_process`. Arranged after the spawn rather than
+    before, because holding it suspended to close that window would be a
+    second, larger piece of the same binding; what fits in the gap is the few
+    microseconds before a Python interpreter has finished starting.
 
     `env` overrides settings for *this* service only, which is how one process
     in the stack can be pointed somewhere the others are not - `e2e_replay`
@@ -357,7 +694,7 @@ def _start_service(
     """
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
 
-    return subprocess.Popen(
+    process = subprocess.Popen(
         [_venv_python_binary(), *module_args],
         creationflags=creationflags,
         # The POSIX half of the same idea, and the reason both are set here
@@ -377,6 +714,9 @@ def _start_service(
              "PYTHONUNBUFFERED": "1",
              **(env or {})},
     )
+    _kept_from_outliving_this_process(process.pid)
+
+    return process
 
 
 def _stop_service(process: subprocess.Popen[bytes], timeout: float = 10.0) -> None:
@@ -384,7 +724,15 @@ def _stop_service(process: subprocess.Popen[bytes], timeout: float = 10.0) -> No
     handles - SIGTERM on POSIX, `CTRL_BREAK_EVENT` on Windows (Windows has no
     deliverable SIGTERM equivalent for an arbitrary child process). Falls
     back to a hard kill only if the process hasn't exited within `timeout`.
+
+    Retires the pid from the reaper's list on the way out, which is the half of
+    that arrangement without which it would be dangerous. A pid is only unique
+    while its process lives; an e2e run lasts twenty minutes, and a reaper still
+    holding the number of a service stopped in its first minute would, at the
+    end, kill whatever had since been given that number.
     """
+    _told_the_reaper(f"-{process.pid}")
+
     if sys.platform == "win32":
         process.send_signal(signal.CTRL_BREAK_EVENT)
     else:
@@ -435,9 +783,23 @@ def _refuse_a_stack_that_is_already_up() -> None:
         raise RuntimeError(
             f"port {port} is already in use, so [{name}] cannot start - a stack "
             f"from an earlier run is still up. Stop it first: "
-            f"Get-NetTCPConnection -State Listen -LocalPort {port} | "
-            f"ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force }}"
+            f"{_how_to_free(port)}"
         )
+
+
+def _how_to_free(port: int) -> str:
+    """The command that stops whatever is listening, for the shell the reader
+    is actually in.
+
+    Named separately because the refusal above is the one message a contributor
+    meets before anything else works, and a Windows one-liner offered to
+    somebody on macOS reads as a repo that was never run there.
+    """
+    if sys.platform == "win32":
+        return (f"Get-NetTCPConnection -State Listen -LocalPort {port} | "
+                f"ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force }}")
+
+    return f"lsof -ti tcp:{port} | xargs kill -9"
 
 
 def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
@@ -522,6 +884,23 @@ _INTEGRATION_STACK = _a_database_of_its_own(
 # looks like. No double: every module suite that reaches a model reaches a stub
 # it constructs itself.
 _TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_PORT)
+
+# How to name each swept suite's containers to `docker compose`, for the three
+# that have any. Read only when a suite had to be killed: it is what lets the
+# sweep finish a teardown that never ran, and the reason a suite's project has
+# to be stated somewhere a *different* process can find it.
+#
+# `e2e_replay` is named by saying nothing. It sets no project of its own, and
+# neither does a sweep, so a `docker compose` run from here lands on the same
+# default that child's did - derived by compose, from the directory both ran
+# in. Deriving it here instead would be compose's own rule for turning a
+# directory name into a project name, copied by hand and true until a checkout
+# is named something that rule spells differently.
+_SWEEP_PROJECTS: Final[dict[str, tuple[str, ...]]] = {
+    "test_all": ("-p", _TEST_ALL_STACK["COMPOSE_PROJECT_NAME"]),
+    "integration": ("-p", _INTEGRATION_STACK["COMPOSE_PROJECT_NAME"]),
+    "e2e_replay": ()
+}
 
 
 def _a_database_for(module: str) -> dict[str, str]:

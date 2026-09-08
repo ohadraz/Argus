@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Final
+
 import psycopg
 
 # Mirrors spec §11.1's ERD: INCIDENT, HYPOTHESIS, ACTION, INCIDENT_RUN,
@@ -264,3 +266,48 @@ def create_schema(conn: psycopg.Connection) -> None:
     with conn.cursor() as cursor:
         cursor.execute(DDL)
     conn.commit()
+
+
+def reset_schema(conn: psycopg.Connection) -> None:
+    """Throws the schema away and applies it again, leaving nothing behind.
+
+    What a suite starts a run from, where `create_schema` is what a deployment
+    starts one from. The difference is the database being started against: a
+    suite adopts whatever container was left over, and the DDL is
+    `CREATE TABLE IF NOT EXISTS` throughout, so a table that already exists is
+    never altered. A column added or renamed since that container was last
+    used would silently never appear, and the suite would run against a schema
+    no file in this repo describes.
+
+    It empties the tables as a consequence, which is the other half. Emptying
+    between tests happens *after* each test, so that a failure leaves its rows
+    to be read - which means a run that was killed leaves its last test's rows
+    for the next run's first test to find. Starting from nothing is what makes
+    the manner of the previous run's death stop mattering.
+
+    Here rather than in a conftest because naming the schema is exactly what
+    `create_schema` exists to spare its callers, and four suites naming it
+    would be four places to fix on the day it is no longer `public`.
+
+    Bounded by a lock timeout, because the drop waits for whatever holds a
+    table rather than failing on it. Anything still connected to an adopted
+    container - a worker a killed run left behind, a suite someone started in
+    another terminal - would otherwise stop this at the first statement of a
+    session-scoped fixture, before pytest has printed a line, and a run hung
+    with no output is the hardest kind of failure to place. Given a bound it
+    says which statement waited and for how long.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(f"SET LOCAL lock_timeout = '{_SECONDS_TO_WAIT_FOR_A_LOCK}s'")
+        cursor.execute("DROP SCHEMA public CASCADE")
+        cursor.execute("CREATE SCHEMA public")
+    conn.commit()
+
+    create_schema(conn)
+
+
+# How long the reset waits for a table somebody else is holding. Long enough
+# to outlast a connection on its way out - a process that has just been killed
+# still holds its locks until the server notices - and short enough that a
+# suite blocked behind a live one reports it while somebody is still watching.
+_SECONDS_TO_WAIT_FOR_A_LOCK: Final = 10

@@ -37,6 +37,20 @@ services:
       # truncating its tables between tests. Inside the container it is always
       # 5432; only where it surfaces moves.
       - "${ARGUS_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Named, so that the data directory belongs to the compose project rather
+      # than to the container. The image declares an anonymous volume for this
+      # path either way, and an anonymous one is orphaned every time the
+      # container is replaced - which is every time the published port changes,
+      # so once per suite that has a database of its own. They are invisible,
+      # nothing ever collects them, and they had reached a hundred and
+      # twenty-seven before anyone looked.
+      #
+      # Persisting is not a change of intent: the suites that adopt a leftover
+      # container already reset the schema on the way in (`reset_schema`), and
+      # `down -v` still takes this with it, which is what an e2e run and the
+      # sweep's own cleanup both use.
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       # Over TCP, not the default Unix socket. On a fresh volume the image runs
       # a temporary server for `initdb` that listens on the socket alone, so a
@@ -48,4 +62,10 @@ services:
       interval: 2s
       timeout: 2s
       retries: 15
+
+# One per compose project, which is one per suite: the name is scoped to the
+# project, so `argus-integration` and `argus-modules` get a volume each without
+# either being told about the other.
+volumes:
+  postgres-data:
 

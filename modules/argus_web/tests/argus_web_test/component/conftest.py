@@ -5,7 +5,7 @@ from collections.abc import Iterator
 
 import pytest
 from argus_core.db import connect
-from argus_core.schema import create_schema
+from argus_core.schema import reset_schema
 
 """Postgres, and nothing else.
 
@@ -20,10 +20,15 @@ from the same `docker-compose.yml` the stack runs on, with the same DDL.
 
 @pytest.fixture(scope="session", autouse=True)
 def postgres() -> Iterator[None]:
+    """The database, up for the whole suite and stopped after it.
+
+    Started from an empty schema rather than an adopted one: the container may
+    be a previous run's, and a run that was killed left its rows behind.
+    """
     subprocess.run(["docker", "compose", "up", "-d", "--wait", "postgres"], check=True)
     try:
         with connect() as conn:
-            create_schema(conn)
+            reset_schema(conn)
         yield
     finally:
         subprocess.run(["docker", "compose", "stop", "postgres"], check=True)
