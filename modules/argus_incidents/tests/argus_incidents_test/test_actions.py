@@ -9,6 +9,7 @@ from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -20,12 +21,11 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
     # knowing a flag was touched and not which state it had been in.
     some_service = "kuki-service"
     some_alert = Alert(service=some_service, alert_name="HighErrorRate")
-    some_undo_descriptor = {
-        "tool": "set_feature_flag",
-        "flag": "monthly-spend-feature",
-        "environment": "production",
-        "was_enabled": True,
-    }
+    some_undo_descriptor = UndoDescriptor(
+        flag="monthly-spend-feature",
+        was_enabled=True,
+        environment="production"
+    )
 
     with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
@@ -85,7 +85,7 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
                     hypothesis_id=dont_care_hypothesis_id,
                     action_type="revert-feature-flag",
                     outcome="escalated",
-                    undo_descriptor={},
+                    undo_descriptor=None
                 )
             ) \
             .then(
@@ -122,7 +122,7 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
                     hypothesis_id=hypothesis_id,
                     action_type="revert-feature-flag",
                     outcome="refuted",
-                    undo_descriptor={"tool": "set_feature_flag", "was_enabled": False},
+                    undo_descriptor=UndoDescriptor(flag="monthly-spend-feature", was_enabled=False)
                 )
             ) \
             .then(
@@ -159,7 +159,7 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
                     hypothesis_id=candidate,
                     action_type="revert-feature-flag",
                     outcome=outcome,
-                    undo_descriptor={"flag": the_contested_flag},
+                    undo_descriptor=UndoDescriptor(flag=the_contested_flag, was_enabled=True)
                 )
 
         Scenario() \
@@ -220,12 +220,16 @@ def _the_action_row_says(conn: psycopg.Connection,
 
 def _the_action_row_carries(conn: psycopg.Connection,
                             incident_id: str,
-                            undo_descriptor: dict[str, Any] | None) -> Assertion[object]:
+                            undo_descriptor: UndoDescriptor | None) -> Assertion[object]:
     def assertion(_result: object) -> bool:
         _, _, recorded, _ = _the_only_action_row(conn, incident_id)
+        expected = (
+            undo_descriptor.model_dump(mode="json")
+            if undo_descriptor is not None else None
+        )
 
-        assert recorded == undo_descriptor, (
-            f"Expected undo descriptor {undo_descriptor}, got {recorded}."
+        assert recorded == expected, (
+            f"Expected undo descriptor {expected}, got {recorded}."
         )
 
         return True

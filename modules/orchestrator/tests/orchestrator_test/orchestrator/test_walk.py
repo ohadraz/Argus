@@ -16,6 +16,7 @@ from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus, status_after
 from argus_core.models.reading import Reading
+from argus_core.models.undo_descriptor import UndoDescriptor
 from orchestrator import graph
 from orchestrator.graph import (
     communicator_node,
@@ -489,11 +490,7 @@ def _a_walk_at(
             action_type="revert_feature_flag",
             flag=acted_on,
             enabled=False,
-            undo_descriptor={
-                "tool": "set_feature_flag",
-                "flag": acted_on,
-                "was_enabled": True
-            }
+            undo_descriptor=UndoDescriptor(flag=acted_on, was_enabled=True)
         )
     )
 

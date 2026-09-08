@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from agent_mitigation import Action, Outcome, Verdict
 from agent_mitigation.tools import ChangedFromOutside, StillWanted
@@ -10,7 +9,8 @@ from argus_core.models.cause import CauseType
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.metrics import MetricBucket
-from argus_core.timestamps import to_iso, to_iso_minute
+from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.timestamps import to_iso_minute
 
 DONT_CARE_FLAG = "dont-care-flag"
 DONT_CARE_INCIDENT_ID = "3f0c6a8e-6f1e-4a9a-8c3d-2b7f9d1e5a44"
@@ -32,14 +32,13 @@ CALM_P95_MS = 200
 
 def an_undo_descriptor_for(flag: str,
                            was_enabled: bool = True,
-                           written_at: datetime = ACTION_TIME) -> dict[str, Any]:
-    return {
-        "tool": "set_feature_flag",
-        "flag": flag,
-        "environment": "production",
-        "was_enabled": was_enabled,
-        "written_at": to_iso(written_at)
-    }
+                           written_at: datetime = ACTION_TIME) -> UndoDescriptor:
+    return UndoDescriptor(
+        flag=flag,
+        was_enabled=was_enabled,
+        environment="production",
+        written_at=written_at
+    )
 
 
 def a_hypothesis_blaming(cause_type: CauseType, subject: str | None = None) -> Hypothesis:
@@ -76,11 +75,7 @@ def an_action_setting(flag: str, enabled: bool) -> Action:
         action_type="revert-feature-flag",
         flag=flag,
         enabled=enabled,
-        undo_descriptor={
-            "tool": "set_feature_flag",
-            "flag": flag,
-            "was_enabled": not enabled
-        }
+        undo_descriptor=UndoDescriptor(flag=flag, was_enabled=not enabled)
     )
 
 

@@ -12,6 +12,7 @@ from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.taken_action import TakenAction
 from argus_core.models.timeline_event import TimelineEvent
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_web.views import build_incident_detail, build_incident_summary
 
 """Shaping an incident's rows into what a reader is shown.
@@ -231,7 +232,7 @@ def _an_attempt(incident_id: str,
         target=None,
         reversible=True,
         tier=None,
-        undo_descriptor={"flag": "dont-care", "was_enabled": True},
+        undo_descriptor=UndoDescriptor(flag="dont-care", was_enabled=True),
         outcome=outcome,
         taken_at=datetime(2026, 8, 30, 10, 16, tzinfo=UTC),
         approved_by=None

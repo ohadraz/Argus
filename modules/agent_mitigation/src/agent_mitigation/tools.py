@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Protocol
 
 from argus_core.attribution import change_by_actor_to, changes_not_made_by
 from argus_core.config import get_settings
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_core.timestamps import to_iso
 from read_mcp_client import get_metrics_summary
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
@@ -20,7 +21,7 @@ FlagChangeFetcher = Callable[[], list[FlagChange]]
 class FlagChangesSince(Protocol):
     def __call__(self, since: str) -> list[FlagChange]: ...
 MetricsFetcher = Callable[[], list[MetricBucket]]
-FlagSetter = Callable[[str, bool], dict[str, Any]]
+FlagSetter = Callable[[str, bool], UndoDescriptor]
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
 # Whether the walk waiting on an action is still one anybody wants. Takes
@@ -171,7 +172,7 @@ def fetch_recent_metrics() -> list[MetricBucket]:
     return get_metrics_summary()
 
 
-def set_flag(flag: str, enabled: bool) -> dict[str, Any]:
+def set_flag(flag: str, enabled: bool) -> UndoDescriptor:
     """Sets a flag to a state, returning the undo descriptor for the change.
 
     One seam for both taking an action and undoing it: undoing is the same call

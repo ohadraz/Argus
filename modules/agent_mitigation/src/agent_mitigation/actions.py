@@ -26,11 +26,11 @@ from argus_core.models.action import Action, Outcome, Verdict
 from argus_core.models.cause import CauseType
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.undo_descriptor import UndoDescriptor
 from pydantic import BaseModel
 
 __all__ = [
     "REVERT_FEATURE_FLAG",
-    "SET_FEATURE_FLAG_TOOL",
     "Action",
     "ActionTaker",
     "Outcome",
@@ -92,8 +92,6 @@ class UndoAttempt(BaseModel):
 
 REVERT_FEATURE_FLAG = "revert-feature-flag"
 
-SET_FEATURE_FLAG_TOOL = "set_feature_flag"
-
 
 def propose_action(hypothesis: Hypothesis,
                    flag_changes: Sequence[FlagChange]) -> Action | None:
@@ -130,11 +128,10 @@ def propose_action(hypothesis: Hypothesis,
         action_type=REVERT_FEATURE_FLAG,
         flag=change.flag,
         enabled=not change.enabled,
-        undo_descriptor={
-            "tool": SET_FEATURE_FLAG_TOOL,
-            "flag": change.flag,
-            "was_enabled": change.enabled,
-        },
+        undo_descriptor=UndoDescriptor(
+            flag=change.flag,
+            was_enabled=change.enabled
+        )
     )
 
 

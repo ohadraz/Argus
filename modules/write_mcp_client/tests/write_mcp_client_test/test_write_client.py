@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from argus_core.models.flag_change import FlagChange
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
@@ -112,8 +113,8 @@ INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
 DONT_CARE_ACTOR = "dont-care-actor"
 
 
-def _undoing(undo_descriptor: dict[str, Any], flag: str) -> dict[str, Any]:
-    return set_feature_flag(flag, enabled=bool(undo_descriptor["was_enabled"]))
+def _undoing(undo_descriptor: UndoDescriptor, flag: str) -> UndoDescriptor:
+    return set_feature_flag(flag, enabled=undo_descriptor.was_enabled)
 
 
 def the_provider_has_enabled(handler: type[FakeUnleashHandler],
@@ -145,9 +146,9 @@ def a_disabling_of(flag: str, at: str) -> dict[str, Any]:
     }
 
 
-def the_undo_descriptor_says_it_had_been(enabled: bool) -> Assertion[dict[str, Any]]:
-    def assertion(undo_descriptor: dict[str, Any]) -> bool:
-        actual = undo_descriptor.get("was_enabled")
+def the_undo_descriptor_says_it_had_been(enabled: bool) -> Assertion[UndoDescriptor]:
+    def assertion(undo_descriptor: UndoDescriptor) -> bool:
+        actual = undo_descriptor.was_enabled
         if actual is not enabled:
             raise AssertionError(f"Expected was_enabled {enabled}, got {actual}.")
 

@@ -22,6 +22,7 @@ from argus_core.models.attempt import Attempt
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.reading import Reading
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from argus_incidents.publishing import acknowledge_alert
@@ -203,12 +204,13 @@ _AN_ACTION = Action(
     action_type="revert-feature-flag",
     flag="monthly-spend-feature",
     enabled=False,
-    undo_descriptor={"flag": "monthly-spend-feature", "was_enabled": True}
+    undo_descriptor=UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
 )
+_DONT_CARE_UNDO = UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
 _CONFIRMED = Outcome(verdict=Verdict.CONFIRMED, detail="dont care",
-                     undo_descriptor={"was_enabled": True})
+                     undo_descriptor=_DONT_CARE_UNDO)
 _REFUTED = Outcome(verdict=Verdict.REFUTED, detail="dont care",
-                   undo_descriptor={"was_enabled": True})
+                   undo_descriptor=_DONT_CARE_UNDO)
 
 
 def _the_investigator_runs(publisher: Any,
@@ -293,7 +295,7 @@ def _a_completion_recording_what_it_narrated(
     def complete_action(incident_id: str,
                         hypothesis_id: str,
                         outcome: str,
-                        undo_descriptor: dict[str, Any],
+                        undo_descriptor: UndoDescriptor | None,
                         narrating: IncidentEvent) -> None:
         if narrated is not None:
             narrated.append(narrating)

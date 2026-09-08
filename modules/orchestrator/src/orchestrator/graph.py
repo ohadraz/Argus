@@ -39,6 +39,7 @@ from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus, status_after
 from argus_core.models.reading import Reading
+from argus_core.models.undo_descriptor import UndoDescriptor
 
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
@@ -149,7 +150,7 @@ class CompleteAction(Protocol):
         incident_id: str,
         hypothesis_id: str,
         outcome: str,
-        undo_descriptor: dict[str, Any],
+        undo_descriptor: UndoDescriptor | None,
         narrating: IncidentEvent,
     ) -> None: ...
 
@@ -324,7 +325,7 @@ class Records:
         incident_id: str,
         hypothesis_id: str,
         outcome: str,
-        undo_descriptor: dict[str, Any],
+        undo_descriptor: UndoDescriptor | None,
         narrating: IncidentEvent,
     ) -> None:
         """Records what came of the action, and says so, in one write.
@@ -583,7 +584,7 @@ def _why_the_action_cannot_proceed(action: Action | None) -> str | None:
     if action is None:
         return "no reversible action was proposed for this cause"
 
-    if not action.undo_descriptor:
+    if action.undo_descriptor is None:
         return (
             f"the proposed action [{action.action_type}] on [{action.flag}] "
             f"carries no undo descriptor, so it is not reversible"
@@ -1099,7 +1100,7 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     """
     action = state.proposed_action
 
-    if action is None or not action.undo_descriptor:
+    if action is None or action.undo_descriptor is None:
         return []
 
     return [

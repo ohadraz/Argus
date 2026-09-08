@@ -13,10 +13,9 @@ caller could skip.
 
 from __future__ import annotations
 
-from typing import Any
-
 from argus_core.config import get_settings
 from argus_core.models.flag_change import FlagChange
+from argus_core.models.undo_descriptor import UndoDescriptor
 from mcp.server.fastmcp import FastMCP
 
 from write_mcp_server import flag_history, flag_state
@@ -30,7 +29,7 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def set_feature_flag(flag: str, enabled: bool) -> dict[str, Any]:
+def set_feature_flag(flag: str, enabled: bool) -> UndoDescriptor:
     """Sets a feature flag on or off in the configured environment.
 
     A reversible action (§13): it changes production state, and the state it

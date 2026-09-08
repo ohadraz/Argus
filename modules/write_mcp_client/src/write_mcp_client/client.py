@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 from argus_core.config import get_settings
 from argus_core.mcp_transport import call_mcp_tool
 from argus_core.models.flag_change import FlagChange
+from argus_core.models.undo_descriptor import UndoDescriptor
 
 
-def set_feature_flag(flag: str, enabled: bool) -> dict[str, Any]:
+def set_feature_flag(flag: str, enabled: bool) -> UndoDescriptor:
     """Sets a feature flag on or off, returning the undo descriptor for the
     change.
 
@@ -33,7 +34,7 @@ def set_feature_flag(flag: str, enabled: bool) -> dict[str, Any]:
         flag=flag,
         enabled=enabled,
     )
-    return cast(dict[str, Any], result)
+    return UndoDescriptor.model_validate(result)
 
 
 def get_recent_flag_changes(since: str) -> list[FlagChange]:

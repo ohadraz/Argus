@@ -303,13 +303,13 @@ def _the_action_proposed_sets(flag: str, enabled: bool) -> Assertion[Action | No
 
 def _the_undo_records(flag: str, was_enabled: bool) -> Assertion[Action | None]:
     def assertion(action: Action | None) -> bool:
-        if action is None:
+        if action is None or action.undo_descriptor is None:
             raise AssertionError(
                 f"Expected an action recording flag [{flag}] as [{was_enabled}], "
                 f"got none."
             )
 
-        recorded = (action.undo_descriptor["flag"], action.undo_descriptor["was_enabled"])
+        recorded = (action.undo_descriptor.flag, action.undo_descriptor.was_enabled)
         if recorded != (flag, was_enabled):
             raise AssertionError(
                 f"Expected the undo to record flag [{flag}] as [{was_enabled}], "

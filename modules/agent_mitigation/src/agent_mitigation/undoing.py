@@ -9,9 +9,7 @@ holds the records.
 
 from __future__ import annotations
 
-from typing import Any
-
-from argus_core.timestamps import parse_iso
+from argus_core.models.undo_descriptor import UndoDescriptor
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
 from agent_mitigation.tools import (
@@ -24,7 +22,7 @@ from agent_mitigation.tools import (
 __all__ = ["undo_change"]
 
 
-def undo_change(undo_descriptor: dict[str, Any],
+def undo_change(undo_descriptor: UndoDescriptor,
                 set_state: FlagSetter = set_flag,
                 changed_from_outside: ChangedFromOutside =
                     somebody_else_changed_flag_since) -> UndoAttempt:
@@ -49,11 +47,11 @@ def undo_change(undo_descriptor: dict[str, Any],
     Nothing raises. An unwind runs over every change an incident made, and one
     flag nobody can read must not stop the others being put back.
     """
-    flag = str(undo_descriptor["flag"])
-    was_enabled = bool(undo_descriptor["was_enabled"])
-    written_at = undo_descriptor.get("written_at")
+    flag = undo_descriptor.flag
+    was_enabled = undo_descriptor.was_enabled
+    written_at = undo_descriptor.written_at
 
-    if not written_at:
+    if written_at is None:
         return UndoAttempt(
             flag=flag,
             outcome=Undone.NOT_ESTABLISHED,
@@ -64,7 +62,7 @@ def undo_change(undo_descriptor: dict[str, Any],
             ),
         )
 
-    changed = changed_from_outside(flag, parse_iso(str(written_at)))
+    changed = changed_from_outside(flag, written_at)
 
     if changed is None:
         return UndoAttempt(

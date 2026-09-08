@@ -8,7 +8,6 @@ from unittest.mock import create_autospec
 import httpx
 import pytest
 from argus_core.config import Settings
-from argus_core.timestamps import to_iso
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from write_mcp_server.flag_state import FlagNotSet, evaluated_flags, set_flag
@@ -177,9 +176,9 @@ def test_switching_a_flag_off_records_that_it_had_been_on() -> None:
         evaluate=provider.evaluate
     )
 
-    assert undo["flag"] == some_flag
-    assert undo["environment"] == some_environment
-    assert undo["was_enabled"] is True
+    assert undo.flag == some_flag
+    assert undo.environment == some_environment
+    assert undo.was_enabled is True
 
 
 @pytest.mark.unit
@@ -197,7 +196,7 @@ def test_switching_a_flag_on_records_that_it_had_been_off() -> None:
         evaluate=provider.evaluate
     )
 
-    assert undo["was_enabled"] is False
+    assert undo.was_enabled is False
 
 
 @pytest.mark.unit
@@ -208,7 +207,6 @@ def test_the_undo_descriptor_records_when_the_provider_recorded_the_write() -> N
     # provider's. The write's own response carries the provider's.
     dont_care_provider_url = "http://kuki.com/"
     some_moment_the_provider_recorded = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
-    some_moment_in_wire_format = to_iso(some_moment_the_provider_recorded)
     provider = a_flag_provider_reporting([])
     provider.post.return_value = httpx.Response(
         status_code=200,
@@ -225,7 +223,7 @@ def test_the_undo_descriptor_records_when_the_provider_recorded_the_write() -> N
         evaluate=provider.evaluate
     )
 
-    assert undo["written_at"] == some_moment_in_wire_format
+    assert undo.written_at == some_moment_the_provider_recorded
 
 
 @pytest.mark.unit
@@ -244,7 +242,7 @@ def test_a_provider_that_dates_nothing_leaves_the_moment_absent() -> None:
         evaluate=provider.evaluate
     )
 
-    assert "written_at" not in undo
+    assert undo.written_at is None
 
 
 class _FlagProvider:

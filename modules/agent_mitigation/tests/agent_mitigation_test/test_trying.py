@@ -11,6 +11,7 @@ from agent_mitigation.tools import fetch_recent_metrics, set_flag
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
 from argus_core.ids import new_id
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.assertions import the_verdict_is
@@ -571,8 +572,7 @@ def _an_action_is_taken(metrics: list[MetricBucket],
 
 def _a_flag_setter_changing_from(flag: str, was_enabled: bool) -> MagicMock:
     """Answers as the real `set_flag` does - with the descriptor that would put
-    the change back. It has to be a real dict: `take_action` hands it to
-    `Outcome`, which refuses anything else."""
+    the change back."""
     set_state: MagicMock = create_autospec(set_flag)
     set_state.return_value = an_undo_descriptor_for(flag, was_enabled)
 
@@ -668,7 +668,7 @@ def _the_flag_was_written_to(set_state: MagicMock, times: int) -> Assertion[Outc
     return assertion
 
 
-def _the_undo_carried_is(expected: dict[str, Any]) -> Assertion[Outcome]:
+def _the_undo_carried_is(expected: UndoDescriptor) -> Assertion[Outcome]:
     def assertion(outcome: Outcome) -> bool:
         if outcome.undo_descriptor != expected:
             raise AssertionError(

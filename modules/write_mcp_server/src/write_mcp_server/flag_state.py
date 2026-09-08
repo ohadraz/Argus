@@ -23,12 +23,13 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
 from argus_core.config import Settings, get_settings
-from argus_core.timestamps import to_iso
+from argus_core.models.undo_descriptor import UndoDescriptor
 
 HttpPost = Callable[..., httpx.Response]
 HttpGet = Callable[..., httpx.Response]
@@ -92,7 +93,7 @@ def set_flag(
     settings: Settings | None = None,
     post: HttpPost = httpx.post,
     evaluate: EvaluateFlags = evaluated_flags,
-) -> dict[str, Any]:
+) -> UndoDescriptor:
     """Sets `flag` on or off in the configured environment and waits until it is.
 
     Returns the undo descriptor: the state that existed before, which is what
@@ -122,21 +123,15 @@ def set_flag(
 
     _wait_until_evaluating(flag, enabled, evaluate)
 
-    descriptor: dict[str, Any] = {
-        "tool": "set_feature_flag",
-        "flag": flag,
-        "environment": resolved.unleash_environment,
-        "was_enabled": not enabled,
-    }
-    written_at = _when_the_provider_recorded(response)
-
-    if written_at is not None:
-        descriptor["written_at"] = written_at
-
-    return descriptor
+    return UndoDescriptor(
+        flag=flag,
+        was_enabled=not enabled,
+        environment=resolved.unleash_environment,
+        written_at=_when_the_provider_recorded(response)
+    )
 
 
-def _when_the_provider_recorded(response: httpx.Response) -> str | None:
+def _when_the_provider_recorded(response: httpx.Response) -> datetime | None:
     """The provider's own time for this write, or `None` where it gave none.
 
     Read from the response rather than taken from this process's clock, because
@@ -156,7 +151,7 @@ def _when_the_provider_recorded(response: httpx.Response) -> str | None:
         return None
 
     try:
-        return to_iso(parsedate_to_datetime(dated))
+        return parsedate_to_datetime(dated)
     except Exception:
         return None
 

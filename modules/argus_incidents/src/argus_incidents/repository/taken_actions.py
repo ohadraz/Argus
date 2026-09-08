@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
 import psycopg
 from argus_core.models.taken_action import TakenAction
+from argus_core.models.undo_descriptor import UndoDescriptor
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 
@@ -53,13 +52,13 @@ def complete(
     incident_id: str,
     hypothesis_id: str,
     outcome: str,
-    undo_descriptor: dict[str, Any],
+    undo_descriptor: UndoDescriptor | None,
 ) -> None:
     """Records what came of an action already claimed (spec §11.1, §13).
 
-    An empty descriptor is stored as NULL rather than as `{}`: an action that
-    never reached the provider changed nothing, and a row offering a way back
-    from a change that was never made would send a human to undo it.
+    An absent descriptor is stored as NULL: an action that never reached the
+    provider changed nothing, and a row offering a way back from a change that
+    was never made would send a human to undo it.
 
     The descriptor recorded is the one the write tier returned rather than the
     one proposed, since that is the account of what actually changed.
@@ -74,7 +73,8 @@ def complete(
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (
                 outcome,
-                Jsonb(undo_descriptor) if undo_descriptor else None,
+                Jsonb(undo_descriptor.model_dump(mode="json"))
+                if undo_descriptor is not None else None,
                 incident_id,
                 hypothesis_id,
             ),
@@ -87,7 +87,7 @@ def record(
     hypothesis_id: str,
     action_type: str,
     outcome: str,
-    undo_descriptor: dict[str, Any],
+    undo_descriptor: UndoDescriptor | None,
 ) -> None:
     """One action, claimed and completed in a single step.
 

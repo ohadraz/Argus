@@ -14,6 +14,7 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Scenario, all_of, calling
 from orchestrator import graph
@@ -450,12 +451,11 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
     # The descriptor the write tier returned, not the one proposed: it is the
     # record of what actually changed, and it is what a human reading the
     # incident afterwards would have to act on.
-    some_undo_descriptor = {
-        "tool": "set_feature_flag",
-        "flag": "monthly-spend-feature",
-        "environment": "production",
-        "was_enabled": False
-    }
+    some_undo_descriptor = UndoDescriptor(
+        flag="monthly-spend-feature",
+        was_enabled=False,
+        environment="production"
+    )
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor()
     )
@@ -518,7 +518,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
     # The candidate learns nothing, but the action row must: the flag is still
     # changed, and the undo descriptor is the only record of what would restore
     # it. Without it the withdrawal has nothing to unwind.
-    some_undo_descriptor = {"tool": "set_feature_flag", "was_enabled": True}
+    some_undo_descriptor = UndoDescriptor(flag=DONT_CARE_FLAG, was_enabled=True)
     an_action_taking_incident = _a_mitigating_incident(
         proposing=_an_action_with_an_undo_descriptor(),
         about=a_determined_hypothesis(a_random_id())
@@ -789,8 +789,7 @@ def _an_action_with_an_undo_descriptor() -> Action:
         action_type="revert-feature-flag",
         flag=DONT_CARE_FLAG,
         enabled=False,
-        undo_descriptor={"tool": "set_feature_flag", "flag": DONT_CARE_FLAG,
-                         "was_enabled": True}
+        undo_descriptor=UndoDescriptor(flag=DONT_CARE_FLAG, was_enabled=True)
     )
 
 
@@ -799,16 +798,16 @@ def _an_action_with_no_undo_descriptor() -> Action:
         action_type="revert-feature-flag",
         flag=DONT_CARE_FLAG,
         enabled=False,
-        undo_descriptor={}
+        undo_descriptor=None
     )
 
 
 def _an_outcome(verdict: Verdict,
-                undo_descriptor: dict[str, object] | None = None) -> Outcome:
+                undo_descriptor: UndoDescriptor | None = None) -> Outcome:
     return Outcome(
         verdict=verdict,
         detail="dont care",
-        undo_descriptor=undo_descriptor or {}
+        undo_descriptor=undo_descriptor
     )
 
 

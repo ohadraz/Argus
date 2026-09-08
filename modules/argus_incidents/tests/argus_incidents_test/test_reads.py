@@ -9,6 +9,7 @@ from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -115,7 +116,7 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
                     hypothesis_id=candidate,
                     action_type="revert-feature-flag",
                     outcome=outcome,
-                    undo_descriptor={"flag": "dont-care"},
+                    undo_descriptor=UndoDescriptor(flag="dont-care", was_enabled=True)
                 )
 
         Scenario() \
@@ -146,7 +147,7 @@ def test_an_action_comes_back_naming_the_candidate_it_was_taken_for() -> None:
             hypothesis_id=candidate_id,
             action_type="revert-feature-flag",
             outcome="confirmed",
-            undo_descriptor={"flag": "a-flag"},
+            undo_descriptor=UndoDescriptor(flag="a-flag", was_enabled=True)
         )
 
         taken = taken_actions.get_by_incident(conn, incident_id)

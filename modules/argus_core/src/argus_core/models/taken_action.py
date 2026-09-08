@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel
 
 from argus_core.ids import UuidStr
+from argus_core.models.undo_descriptor import UndoDescriptor
 
 
 class TakenAction(BaseModel):
@@ -16,7 +16,7 @@ class TakenAction(BaseModel):
     target: str | None
     reversible: bool
     tier: str | None
-    undo_descriptor: dict[str, Any] | None
+    undo_descriptor: UndoDescriptor | None
     outcome: str | None
     taken_at: datetime
     approved_by: str | None

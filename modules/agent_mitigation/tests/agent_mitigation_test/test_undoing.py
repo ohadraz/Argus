@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import UndoAttempt, Undone, undo_change
 from agent_mitigation.tools import FlagSetter
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.builders import (
@@ -82,12 +83,11 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
     # current value is the failure this whole check exists to remove, so an
     # answer nobody can date is one of the three answers rather than a restore.
     set_state = _a_flag_setter()
-    a_descriptor_from_before = {
-        "tool": "set_feature_flag",
-        "flag": SOME_FLAG,
-        "environment": "production",
-        "was_enabled": True,
-    }
+    a_descriptor_from_before = UndoDescriptor(
+        flag=SOME_FLAG,
+        was_enabled=True,
+        environment="production"
+    )
 
     Scenario() \
         .given(
@@ -156,7 +156,7 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
 
 def _a_flag_setter() -> MagicMock:
     setter: MagicMock = create_autospec(FlagSetter)
-    setter.return_value = {}
+    setter.return_value = an_undo_descriptor_for(SOME_FLAG)
 
     return setter
 

@@ -11,6 +11,7 @@ from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, postmortems, taken_actions
 from argus_web.app import app
 from fastapi.testclient import TestClient
@@ -381,5 +382,5 @@ def _an_attempt_taken_for(conn: psycopg.Connection,
         hypothesis_id=hypothesis_id,
         action_type="revert-feature-flag",
         outcome=outcome,
-        undo_descriptor={"flag": "dont-care", "was_enabled": True},
+        undo_descriptor=UndoDescriptor(flag="dont-care", was_enabled=True)
     )

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from argus_core.models.undo_descriptor import UndoDescriptor
 
 
 class Verdict(StrEnum):
@@ -48,12 +49,17 @@ class Action(BaseModel):
     because the gate node's job is to reject an action that has none *before*
     the write. A descriptor filled in by the write it exists to guard would
     guard nothing.
+
+    It is optional for what the gate is *for*: an action type with no way back
+    is exactly what §13 refuses to take autonomously, and the gate can only
+    refuse one if such an action can be expressed. Today's one action type
+    always carries a descriptor; the check is about the next one.
     """
 
     action_type: str
     flag: str
     enabled: bool
-    undo_descriptor: dict[str, Any]
+    undo_descriptor: UndoDescriptor | None
 
 
 class Outcome(BaseModel):
@@ -63,9 +69,9 @@ class Outcome(BaseModel):
     verdict alone cannot - which flag was changed, and, where a restore failed,
     what the provider said about it. `undo_descriptor` is the one the write
     tier returned, which is the record of what was actually changed rather than
-    what was intended; it is empty when nothing was changed at all.
+    what was intended; it is absent when nothing was changed at all.
     """
 
     verdict: Verdict
     detail: str
-    undo_descriptor: dict[str, Any] = Field(default_factory=dict)
+    undo_descriptor: UndoDescriptor | None = None

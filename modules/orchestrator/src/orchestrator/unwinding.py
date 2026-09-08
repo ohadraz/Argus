@@ -7,6 +7,7 @@ from agent_mitigation import UndoAttempt, undo_change
 from argus_core.db import Connections
 from argus_core.models.actor import Actor
 from argus_core.models.taken_action import TakenAction
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.repository import incidents, taken_actions
 
 """Putting back everything an incident changed, once nobody wants it walked.
@@ -33,7 +34,7 @@ type TakenActionsOf = Callable[[str], list[TakenAction]]
 class UndoChange(Protocol):
     """One recorded change, put back where it is still Argus's to put back."""
 
-    def __call__(self, undo_descriptor: dict[str, object], /) -> UndoAttempt: ...
+    def __call__(self, undo_descriptor: UndoDescriptor, /) -> UndoAttempt: ...
 
 
 class RecordNote(Protocol):
@@ -93,7 +94,7 @@ def unwind_incident(incident_id: str,
     with it would leave more behind rather than less.
     """
     for taken_action in taken_actions_of(incident_id):
-        if not taken_action.undo_descriptor:
+        if taken_action.undo_descriptor is None:
             continue
 
         attempt = undo(taken_action.undo_descriptor)

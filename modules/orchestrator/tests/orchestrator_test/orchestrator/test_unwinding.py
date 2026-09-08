@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from agent_mitigation import UndoAttempt, Undone
 from argus_core.ids import new_id
 from argus_core.models.taken_action import TakenAction
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import unwinding
 from orchestrator.unwinding import unwind_incident
@@ -162,7 +163,7 @@ def test_one_change_that_cannot_be_read_does_not_stop_the_others(
 
 
 def _the_changes_put_back(undo: MagicMock,
-                          *expected: dict[str, Any]) -> Assertion[None]:
+                          *expected: UndoDescriptor) -> Assertion[None]:
     def assertion(_unwound: None) -> bool:
         attempted = [call.args[0] for call in undo.call_args_list]
 
@@ -260,16 +261,15 @@ def _restored(flag: str) -> UndoAttempt:
     )
 
 
-def _an_undo_descriptor_for(flag: str, was_enabled: bool = True) -> dict[str, Any]:
-    return {
-        "tool": "set_feature_flag",
-        "flag": flag,
-        "environment": "production",
-        "was_enabled": was_enabled,
-    }
+def _an_undo_descriptor_for(flag: str, was_enabled: bool = True) -> UndoDescriptor:
+    return UndoDescriptor(
+        flag=flag,
+        was_enabled=was_enabled,
+        environment="production"
+    )
 
 
-def _an_incident_that_changed(*descriptors: dict[str, Any]) -> list[TakenAction]:
+def _an_incident_that_changed(*descriptors: UndoDescriptor) -> list[TakenAction]:
     return [_a_taken_action_carrying(descriptor) for descriptor in descriptors]
 
 
@@ -285,7 +285,7 @@ def _reading(recorded: list[TakenAction]) -> Callable[[str], list[TakenAction]]:
     return taken_actions_of
 
 
-def _a_taken_action_carrying(undo_descriptor: dict[str, Any] | None) -> TakenAction:
+def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None) -> TakenAction:
     return TakenAction(
         id=new_id(),
         incident_id=_DONT_CARE_INCIDENT_ID,

@@ -4,6 +4,7 @@ import pytest
 from argus_core.models.action import Action
 from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
+from argus_core.models.undo_descriptor import UndoDescriptor
 from orchestrator.graph import (
     route_after_codefix,
     route_after_gate,
@@ -102,7 +103,7 @@ def _an_action() -> Action:
         action_type="revert_feature_flag",
         flag="monthly-spend-feature",
         enabled=False,
-        undo_descriptor={"tool": "set_feature_flag", "was_enabled": True},
+        undo_descriptor=UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
     )
 
 

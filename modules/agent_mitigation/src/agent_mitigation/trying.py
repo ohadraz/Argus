@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import Protocol
 
 from argus_core.anomaly import has_recovered_since
 from argus_core.config import get_settings
@@ -20,6 +20,7 @@ from argus_core.events import (
     nobody,
     publish,
 )
+from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_core.timestamps import to_iso_minute
 
 from agent_mitigation.actions import (
@@ -62,7 +63,7 @@ class UndoChange(Protocol):
     """
 
     def __call__(self,
-                 undo_descriptor: dict[str, Any],
+                 undo_descriptor: UndoDescriptor,
                  set_state: FlagSetter = ...,
                  changed_from_outside: ChangedFromOutside = ...) -> UndoAttempt:
         ...
@@ -221,7 +222,7 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
 
 
 def _undone(action: Action,
-            undo_descriptor: dict[str, Any],
+            undo_descriptor: UndoDescriptor,
             set_state: FlagSetter,
             changed_from_outside: ChangedFromOutside,
             undo: UndoChange) -> Outcome:
@@ -237,7 +238,7 @@ def _undone(action: Action,
     account for escalates, because an environment Argus cannot describe is
     precisely what a human needs paging for.
     """
-    was_enabled = bool(undo_descriptor["was_enabled"])
+    was_enabled = undo_descriptor.was_enabled
     taken = f"set flag [{action.flag}] {state_name(action.enabled)}"
     attempt = undo(undo_descriptor, set_state, changed_from_outside)
 
@@ -245,14 +246,14 @@ def _undone(action: Action,
         return Outcome(
             verdict=Verdict.ESCALATED,
             detail=f"{taken}, the service did not recover, and {attempt.detail}",
-            undo_descriptor=dict(undo_descriptor),
+            undo_descriptor=undo_descriptor,
         )
 
     if attempt.outcome is Undone.LEFT_AS_FOUND:
         return Outcome(
             verdict=Verdict.REFUTED,
             detail=f"{taken}, the service did not recover, and {attempt.detail}",
-            undo_descriptor=dict(undo_descriptor),
+            undo_descriptor=undo_descriptor,
         )
 
     return Outcome(
@@ -261,5 +262,5 @@ def _undone(action: Action,
             f"{taken}, the service did not recover, so it was put back "
             f"{state_name(was_enabled)}"
         ),
-        undo_descriptor=dict(undo_descriptor),
+        undo_descriptor=undo_descriptor,
     )
