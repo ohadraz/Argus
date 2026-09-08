@@ -19,7 +19,7 @@ where a caller reasoning about mitigation looks for them.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import StrEnum
 
 from argus_core.models.action import Action, Outcome, Verdict
@@ -32,12 +32,27 @@ __all__ = [
     "REVERT_FEATURE_FLAG",
     "SET_FEATURE_FLAG_TOOL",
     "Action",
+    "ActionTaker",
     "Outcome",
     "UndoAttempt",
     "Undone",
     "Verdict",
     "propose_action",
+    "state_name",
 ]
+
+ActionTaker = Callable[[Action], Outcome]
+
+
+def state_name(enabled: bool) -> str:
+    """How a flag's state is spelled in anything a human reads.
+
+    Here rather than beside either caller because both halves of the agent
+    write it - taking an action narrates what it set, putting one back narrates
+    what it restored - and two spellings of the same state would read as two
+    different things having happened.
+    """
+    return "on" if enabled else "off"
 
 
 class Undone(StrEnum):

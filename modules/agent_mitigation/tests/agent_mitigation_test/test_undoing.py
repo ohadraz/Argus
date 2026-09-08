@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from agent_mitigation import UndoAttempt, Undone, undo_change
 from agent_mitigation.tools import FlagSetter
-from argus_core.timestamps import to_iso
 from argus_testkit import Assertion, Scenario, all_of
+
+from agent_mitigation_test.framework.builders import (
+    ACTION_TIME,
+    an_undo_descriptor_for,
+    nobody_can_say,
+    nobody_changed_it,
+    somebody_changed_it,
+)
 
 """Putting one change back, where it is still Argus's to put back.
 
@@ -31,13 +36,13 @@ def test_a_flag_nobody_touched_is_put_back() -> None:
 
     Scenario() \
         .given(
-            _an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
+            an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
         ) \
         .when(
             lambda: undo_change(
-                _an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
-                changed_from_outside=_nobody_changed_it()
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(all_of(
@@ -56,13 +61,13 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
 
     Scenario() \
         .given(
-            _an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
+            an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
         ) \
         .when(
             lambda: undo_change(
-                _an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
-                changed_from_outside=_somebody_changed_it()
+                changed_from_outside=somebody_changed_it()
             )
         ) \
         .then(all_of(
@@ -92,7 +97,7 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
             lambda: undo_change(
                 a_descriptor_from_before,
                 set_state=set_state,
-                changed_from_outside=_nobody_changed_it()
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(all_of(
@@ -109,13 +114,13 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
 
     Scenario() \
         .given(
-            _an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
+            an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
         ) \
         .when(
             lambda: undo_change(
-                _an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
-                changed_from_outside=_nobody_can_say()
+                changed_from_outside=nobody_can_say()
             )
         ) \
         .then(all_of(
@@ -129,61 +134,31 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
     # Not from the moment of the undo, and not from a lookback window: a change
     # made before Argus wrote is not somebody overriding Argus, and asking from
     # anywhere but the write would count it as one.
+    the_moment_argus_wrote = ACTION_TIME
     asked = _a_record_asked_about(answering=False)
 
     Scenario() \
         .given(
-            _an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
+            descriptor := an_undo_descriptor_for(
+                SOME_FLAG, was_enabled=True,written_at=the_moment_argus_wrote)
         ) \
         .when(
             lambda: undo_change(
-                _an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                descriptor,
                 set_state=_a_flag_setter(),
                 changed_from_outside=asked.record
             )
         ) \
         .then(
-            _it_was_asked_from(asked, DONT_CARE_MOMENT)
+            _it_was_asked_from(asked, the_moment_argus_wrote)
         )
     
-
-def _an_undo_descriptor_for(flag: str, was_enabled: bool) -> dict[str, Any]:
-    return {
-        "tool": "set_feature_flag",
-        "flag": flag,
-        "environment": "production",
-        "was_enabled": was_enabled,
-        "written_at": to_iso(DONT_CARE_MOMENT),
-    }
-
 
 def _a_flag_setter() -> MagicMock:
     setter: MagicMock = create_autospec(FlagSetter)
     setter.return_value = {}
 
     return setter
-
-
-def _nobody_changed_it() -> Callable[[str, datetime], bool | None]:
-    def changed_from_outside(_flag: str, _since: datetime) -> bool | None:
-        return False
-
-    return changed_from_outside
-
-
-def _somebody_changed_it() -> Callable[[str, datetime], bool | None]:
-    def changed_from_outside(_flag: str, _since: datetime) -> bool | None:
-        return True
-
-    return changed_from_outside
-
-
-def _nobody_can_say() -> Callable[[str, datetime], bool | None]:
-    """The provider could not be reached, or attributes nothing to anybody."""
-    def changed_from_outside(_flag: str, _since: datetime) -> bool | None:
-        return None
-
-    return changed_from_outside
 
 
 class _ARecordAskedAbout:

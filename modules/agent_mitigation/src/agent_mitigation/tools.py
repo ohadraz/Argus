@@ -33,9 +33,42 @@ StillWanted = Callable[[], bool]
 # made after Argus's own is somebody's deliberate decision, and putting the flag
 # back would replace it with a state nobody chose.
 ChangedFromOutside = Callable[[str, datetime], bool | None]
+# The provider's user that Argus writes as, read when it is needed rather than
+# bound once: a name resolved at import would freeze whatever configuration was
+# loaded first, and this is the name every attribution question turns on.
+ArgusUser = Callable[[], str]
+# How far back "recently changed" reaches, read at the moment it is needed for
+# the same reason as the user above.
+Lookback = Callable[[], timedelta]
 
 
-def fetch_recent_flag_changes() -> list[FlagChange]:
+def utc_now() -> datetime:
+    """The clock the verification measures its timeout against, as a seam a
+    test can replace with one that does not actually wait."""
+    return datetime.now(UTC)
+
+
+def flag_change_lookback() -> timedelta:
+    """How far back a window of recent flag changes reaches."""
+    return timedelta(minutes=get_settings().flag_change_lookback_minutes)
+
+
+def argus_user() -> str:
+    """The provider's user Argus's own changes are recorded against.
+
+    Empty where Argus and its operators share one credential. That is a real
+    deployment and not a misconfiguration, and the attribution rules answer
+    `None` there rather than guessing.
+    """
+    return get_settings().unleash_actor
+
+
+def fetch_recent_flag_changes(
+    fetch: FlagChangesSince = get_recent_flag_changes,
+    now: Clock = utc_now,
+    lookback: Lookback = flag_change_lookback,
+    argus_user: ArgusUser = argus_user,
+) -> list[FlagChange]:
     """The flag toggles recorded over the configured lookback, oldest first -
     excluding the ones Argus itself made.
 
@@ -51,12 +84,9 @@ def fetch_recent_flag_changes() -> list[FlagChange]:
     a window carrying it makes the unambiguous case - one flag changed, so that
     is the one to put back - report two flags and refuse to act.
     """
-    settings = get_settings()
-    lookback = timedelta(minutes=settings.flag_change_lookback_minutes)
-
     return changes_not_made_by(
-        settings.unleash_actor,
-        get_recent_flag_changes(since=to_iso(utc_now() - lookback)),
+        argus_user(),
+        fetch(since=to_iso(now() - lookback())),
     )
 
 
@@ -64,6 +94,7 @@ def argus_changed_flag_since(
     flag: str,
     since: datetime,
     fetch: FlagChangesSince = get_recent_flag_changes,
+    argus_user: ArgusUser = argus_user,
 ) -> bool | None:
     """Whether Argus's own change to `flag` reached the provider after `since`.
 
@@ -89,13 +120,14 @@ def argus_changed_flag_since(
         # vocabulary turn "could not ask" into a crash inside a resumed walk.
         return None
 
-    return change_by_actor_to(flag, get_settings().unleash_actor, changes)
+    return change_by_actor_to(flag, argus_user(), changes)
 
 
 def somebody_else_changed_flag_since(
     flag: str,
     since: datetime,
     fetch: FlagChangesSince = get_recent_flag_changes,
+    argus_user: ArgusUser = argus_user,
 ) -> bool | None:
     """Whether anybody but Argus changed `flag` after `since`.
 
@@ -123,7 +155,7 @@ def somebody_else_changed_flag_since(
 
     return any(
         change.flag == flag
-        for change in changes_not_made_by(get_settings().unleash_actor, changes)
+        for change in changes_not_made_by(argus_user(), changes)
     )
 
 
@@ -147,9 +179,3 @@ def set_flag(flag: str, enabled: bool) -> dict[str, Any]:
     refuted mitigation be put back in whichever direction it went.
     """
     return set_feature_flag(flag=flag, enabled=enabled)
-
-
-def utc_now() -> datetime:
-    """The clock the verification measures its timeout against, as a seam a
-    test can replace with one that does not actually wait."""
-    return datetime.now(UTC)
