@@ -19,7 +19,7 @@ figure rests on it.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from argus_core.models.metrics import MetricBucket
@@ -31,6 +31,11 @@ from agent_postmortem.sources import RateTable
 # is long enough that a quiet minute does not become the baseline, and short
 # enough to still be the same day's trade.
 BASELINE_WINDOW_HOURS = 1.0
+
+# The same window as a span, for the callers that subtract it from an instant
+# rather than divide by it. Derived rather than written twice, so the two can
+# never say different things about how long "before" is.
+BASELINE_WINDOW = timedelta(hours=BASELINE_WINDOW_HOURS)
 
 
 def duration_in_hours(started_at: datetime, ended_at: datetime) -> float:

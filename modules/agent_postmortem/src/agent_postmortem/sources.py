@@ -17,6 +17,7 @@ not become a postmortem reporting that the incident cost nothing.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -136,3 +137,28 @@ class EngagementAnswer(BaseModel):
 # Who responded to one incident and for how long, or `None` if nobody could
 # say.
 type Engagement = Callable[[str], EngagementAnswer | None]
+
+
+@dataclass(frozen=True)
+class Sources:
+    """Everything the Postmortem reads and does not own.
+
+    One value rather than five arguments and a setting, because that is what
+    they are: a deployment configures them once, they are the same for every
+    incident it writes about, and only the incident varies from call to call.
+    Passed separately they would be five chances to hand one call a different
+    world from the last.
+
+    `working_hours_a_year` belongs with them despite being a number rather than
+    a port. It is what the annual bands are divided by, so it is read from the
+    same configuration at the same moment as the source that publishes them,
+    and a figure computed under one working year and disclosed under another is
+    the failure this keeps impossible.
+    """
+
+    revenue: Revenue
+    rates: Rates
+    engagement: Engagement
+    bands: PayBands
+    metrics: Metrics
+    working_hours_a_year: float

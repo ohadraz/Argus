@@ -19,7 +19,12 @@ from datetime import datetime
 from decimal import Decimal
 
 import psycopg
-from agent_postmortem import IncidentEvidence, PostmortemDocument, write_postmortem
+from agent_postmortem import (
+    IncidentEvidence,
+    PostmortemDocument,
+    Sources,
+    write_postmortem,
+)
 from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
 from argus_core.config import get_settings
 from argus_core.db import Connections
@@ -57,19 +62,19 @@ def write_postmortem_for(incident_id: str,
 
     return write_postmortem(
         evidence,
-        revenue=_the_shops_takings,
-        rates=lambda: rates,
-        engagement=_who_responded,
-        bands=_what_a_title_is_worth,
-        working_hours_a_year=get_settings().working_hours_a_year,
-        metrics=_metrics_between,
-        llm=_a_recording_client(Replay(incident_id, recorder))
+        Sources(revenue=_the_services_takings,
+                rates=lambda: rates,
+                engagement=_who_responded,
+                bands=_what_a_title_is_worth,
+                metrics=_metrics_between,
+                working_hours_a_year=get_settings().working_hours_a_year),
+        _a_recording_client(Replay(incident_id, recorder))
     )
 
 
-def _the_shops_takings(started_at: datetime,
-                       ended_at: datetime) -> Mapping[str, Decimal] | None:
-    """What the shop took over the incident, read from the payment provider.
+def _the_services_takings(started_at: datetime,
+                          ended_at: datetime) -> Mapping[str, Decimal] | None:
+    """What the service took over the incident, read from the payment provider.
 
     Imported inside for the same reason the metrics channel is: choosing this
     pulls in a vendor's SDK, and a unit test of the gathering above should not

@@ -21,6 +21,7 @@ from argus_core.models.transcript import Ask, ToolResult, ToolResults, Transcrip
 from argus_core.models.turn import Turn
 
 from agent_postmortem.evidence import IncidentEvidence
+from agent_postmortem.measuring import Measurements
 
 # The tool's name and its fields, named once. Both ends of the exchange read
 # them - the definition offered to the model, and the reader taking the call
@@ -73,9 +74,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
 )
 
 
-def opening_ask(evidence: IncidentEvidence,
-                duration_hours: float,
-                error_rate_delta: float | None) -> Transcript:
+def opening_ask(evidence: IncidentEvidence, measured: Measurements) -> Transcript:
     """The whole incident in one message, with nothing left to go and fetch.
 
     A single `Ask` rather than a conversation: by the time a postmortem is
@@ -83,15 +82,13 @@ def opening_ask(evidence: IncidentEvidence,
     would re-open an investigation that has already finished.
     """
     return [Ask(text="\n".join([
-        _the_whole_incident(evidence, duration_hours, error_rate_delta),
+        _the_whole_incident(evidence, measured),
         "",
         f"Call {SUBMIT_TOOL_NAME} with your answer."
     ]))]
 
 
-def _the_whole_incident(evidence: IncidentEvidence,
-                        duration_hours: float,
-                        error_rate_delta: float | None) -> str:
+def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> str:
     """Everything Argus knows, written once and used by both asks."""
     return "\n".join([
         "Write the postmortem for the incident below.",
@@ -99,8 +96,8 @@ def _the_whole_incident(evidence: IncidentEvidence,
         f"Alert: {evidence.alert_summary}",
         f"Started: {evidence.started_at.isoformat()}",
         f"Ended: {evidence.ended_at.isoformat()} "
-        f"({duration_hours:.2f} hours)",
-        _rise_in_errors(error_rate_delta),
+        f"({measured.duration_in_hours:.2f} hours)",
+        _rise_in_errors(measured.error_rate_delta),
         "",
         "What Argus did, in order:",
         *(f"  - {line}" for line in evidence.timeline),
