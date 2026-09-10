@@ -14,7 +14,7 @@ still run.
 
 from __future__ import annotations
 
-from typing import Final, cast
+from typing import Any, Final, cast
 
 import anthropic
 from anthropic.types import (
@@ -35,6 +35,7 @@ from argus_core.llm.client import (
     ModelRefused,
     TurnPaused,
 )
+from argus_core.llm.escapes import with_escapes_resolved
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import (
     Ask,
@@ -153,11 +154,17 @@ def to_turn(message: Message) -> Turn:
     recording.
     """
     return Turn(
-        text=_BETWEEN_WHAT_IT_SAID.join(
-            block.text for block in message.content if block.type == TEXT_TYPE
+        text=with_escapes_resolved(
+            _BETWEEN_WHAT_IT_SAID.join(
+                block.text for block in message.content if block.type == TEXT_TYPE
+            )
         ),
         tool_calls=[
-            ToolCall(id=block.id, name=block.name, arguments=dict(block.input or {}))
+            ToolCall(
+                id=block.id,
+                name=block.name,
+                arguments=_arguments_as_written(dict(block.input or {}))
+            )
             for block in message.content
             if block.type == TOOL_USE_TYPE
         ],
@@ -171,6 +178,35 @@ def to_turn(message: Message) -> Turn:
         cache_read_tokens=message.usage.cache_read_input_tokens or 0,
         cache_write_tokens=message.usage.cache_creation_input_tokens or 0
     )
+
+
+def _arguments_as_written(asked_for: dict[str, Any]) -> dict[str, Any]:
+    """One request's arguments, with any character the model escaped written out.
+
+    Every string, however deeply the tool's schema nests it: the case this was
+    written for is one sentence inside a list of them, and arguments repaired
+    only at the top level would leave the escape standing in the record.
+    """
+    return {name: _as_written(value) for name, value in asked_for.items()}
+
+
+def _as_written(value: Any) -> Any:
+    """One argument, repaired if it is prose and returned untouched if it is not.
+
+    Strings only. A number, a boolean and a null are not things a model escapes
+    a character into, and a walk that reached every value rather than every
+    string would hand a tool a confidence it could no longer compare.
+    """
+    if isinstance(value, str):
+        return with_escapes_resolved(value)
+
+    if isinstance(value, list):
+        return [_as_written(item) for item in value]
+
+    if isinstance(value, dict):
+        return {name: _as_written(item) for name, item in value.items()}
+
+    return value
 
 
 def _a_message_for(exchange: Exchange) -> MessageParam:

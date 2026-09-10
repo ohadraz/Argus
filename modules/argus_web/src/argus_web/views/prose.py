@@ -1,15 +1,14 @@
-r"""A model's sentence, said the way the rest of the page says things.
+"""A model's sentence, said the way the rest of the page says things.
 
-Three repairs, all of them presentation, none of them changing what was
-claimed. The escape sequences are a model artefact: it writes \u2192 where it
-means an arrow, and the text is stored as it arrived because the stream records
-what was said rather than a tidied version of it - so the tidying happens here,
-at the last possible moment.
+Two repairs, both of them presentation, neither changing what was claimed: the
+flag states, which the model quotes as `'on'` and the rest of the page calls
+`ON`; and the times, which it writes in the wire format the tools speak. Three
+spellings of one fact on one screen is a reader wondering whether they are
+three facts.
 
-Then the flag states, which the model quotes as `'on'` and the rest of the page
-calls `ON`; and then the times, which it writes in the wire format the tools
-speak. Three spellings of one fact on one screen is a reader wondering whether
-they are three facts.
+Nothing here decodes what the model wrote. A character it escaped rather than
+typed is resolved where its answer is accepted, so that the page, the postmortem
+and whoever is paged all read the same sentence.
 
 Gathered into one module because it is one decision, and one worth being able
 to look at whole: every pattern here is a fact about how a language model
@@ -47,13 +46,6 @@ _A_STATE_OF_A_FLAG = re.compile(
     rf"\b({_A_FLAG_NAME})(\s*=\s*|\s+(?:to\s+)?)(on|off)\b", re.IGNORECASE
 )
 
-# The arrow between two states, as it sometimes arrives: the line broken around
-# it and a fragment of nothing where the arrow should be. Repaired rather than
-# shown, because a sentence broken across three lines around a word that is not
-# a word is not what was meant - and matched only in this shape, which prose
-# written on one line cannot take.
-_A_BROKEN_ARROW = re.compile(r"\b(on|off)\s*\n\s*\S+\s*\n\s*(on|off)\b", re.IGNORECASE)
-
 # Any run of whitespace that contains a line break.
 _A_LINE_BREAK = re.compile(r"[ \t]*\n\s*")
 
@@ -64,13 +56,11 @@ _A_BARE_CLOCK = re.compile(r"\d{2}:\d{2}(?::\d{2})?Z?")
 def said_plainly(prose: str) -> str:
     """A model's sentence, arranged the way the page arranges everything else.
 
-    The states are repaired before the line breaks are, because the arrow the
-    model draws between two of them is exactly what it sometimes breaks the
-    line around.
+    The states are repaired before the line breaks are, because a transition
+    the model wrote across two lines is still a transition and is read as one
+    either way round.
     """
-    return _with_readable_times(
-        _on_one_line(_with_plain_states(_with_escapes_resolved(prose)))
-    )
+    return _with_readable_times(_on_one_line(_with_plain_states(prose)))
 
 
 def a_time_named_in(cited: str) -> str | None:
@@ -85,22 +75,6 @@ def a_time_named_in(cited: str) -> str | None:
     return None if found is None else found.group(0)
 
 
-def _with_escapes_resolved(prose: str) -> str:
-    r"""`\u2192` and its like, turned back into the characters they name.
-
-    Left as written where the sequence is not one Python can read: the point is
-    to show what the model meant, and guessing at a malformed escape would be
-    inventing it.
-    """
-    if "\\u" not in prose:
-        return prose
-
-    try:
-        return prose.encode("latin-1", "backslashreplace").decode("unicode_escape")
-    except (UnicodeDecodeError, UnicodeEncodeError):
-        return prose
-
-
 def _with_plain_states(prose: str) -> str:
     """`ON` and `OFF`, however the model happened to write them.
 
@@ -113,9 +87,6 @@ def _with_plain_states(prose: str) -> str:
     prose that merely uses the word, which is the mistake in the other
     direction and the more embarrassing one.
     """
-    prose = _A_BROKEN_ARROW.sub(
-        lambda found: f"{found.group(1)} → {found.group(2)}", prose
-    )
     prose = _A_QUOTED_STATE.sub(lambda found: found.group(1).upper(), prose)
     prose = _A_MOVE_IN_WORDS.sub(
         lambda found: f"from {found.group(1).upper()} to {found.group(2).upper()}", prose

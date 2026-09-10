@@ -194,6 +194,85 @@ def test_everything_the_model_said_reaches_the_turn() -> None:
 
 
 @pytest.mark.unit
+def test_a_character_the_model_escaped_is_said_as_that_character() -> None:
+    # The model occasionally escapes a character rather than writing it - an
+    # arrow between two flag states, a dash between two times. Accepted as it
+    # arrived, six characters of machinery land in the middle of a sentence,
+    # and every reader of that sentence sees them: the page, the postmortem,
+    # and whoever is paged about it.
+    #
+    # Resolved on the way in rather than on the way out, which is why the check
+    # is here: a repair living in one of those three readers is missing from
+    # the other two.
+    the_character_it_names = "→"
+    some_escape_the_model_wrote = "\\u2192"
+    some_narration_before_the_arrow = "The flag moved off"
+    some_narration_after_the_arrow = "on at 22:15."
+
+    Scenario() \
+        .given(
+            some_message := _a_message_that_only_spoke(
+                f"{some_narration_before_the_arrow}{some_escape_the_model_wrote}"
+                f"{some_narration_after_the_arrow}"
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message)
+        ) \
+        .then(
+            _the_model_said(
+                f"{some_narration_before_the_arrow}{the_character_it_names}"
+                f"{some_narration_after_the_arrow}"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_character_escaped_inside_an_argument_is_asked_for_as_that_character() -> None:
+    # Where it actually happens. The recorded case is a postmortem assumption -
+    # one string inside a list inside the arguments - so an answer repaired
+    # only at its text would leave the escape standing in the record itself.
+    #
+    # A number rides along because arguments are not all prose: a walk that
+    # reached every value rather than every string would hand the tool a
+    # confidence it could not compare.
+    the_character_it_names = "–"
+    some_escape_the_model_wrote = "\\u2013"
+    some_span = "18:00"
+    some_span_it_ran_to = "21:47"
+    some_confidence = 0.68
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(
+                    name="submit_postmortem",
+                    arguments={
+                        "assumptions": [
+                            f"The change record for {some_span}"
+                            f"{some_escape_the_model_wrote}{some_span_it_ran_to} "
+                            f"is complete."
+                        ],
+                        "confidence": some_confidence
+                    }
+                )
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message)
+        ) \
+        .then(
+            _the_calls_ask_for({
+                "assumptions": [
+                    f"The change record for {some_span}{the_character_it_names}"
+                    f"{some_span_it_ran_to} is complete."
+                ],
+                "confidence": some_confidence
+            })
+        )
+
+
+@pytest.mark.unit
 def test_a_turn_that_only_asked_carries_no_words() -> None:
     # A model that has nothing to say and simply asks is answering normally,
     # not failing. The absence has to arrive as an empty account rather than

@@ -83,33 +83,6 @@ def test_a_word_that_is_merely_the_word_off_is_left_alone() -> None:
 
 
 @pytest.mark.unit
-def test_a_transition_broken_across_lines_is_still_the_transition_it_was() -> None:
-    # What the model sometimes actually sends: the arrow between two states
-    # arrives as a line break, a fragment of nothing, and another line break.
-    # Shown as it stands, a reader gets a claim about a flag that turns into
-    # gibberish exactly where it says which way the flag moved.
-    #
-    # Matched only in this shape, which prose written on one line cannot take -
-    # so the fragment between the breaks is arbitrary, and being a fragment is
-    # the whole of what makes this a broken arrow rather than a sentence.
-    some_state_it_left = "on"
-    some_state_it_arrived_in = "off"
-    some_gibberish_where_the_arrow_should_be = "inosn"
-    some_claim_broken_around_its_arrow = (
-        f"The ramp moved some-ramped-flag {some_state_it_left}\n"
-        f"{some_gibberish_where_the_arrow_should_be}\n\n{some_state_it_arrived_in}."
-    )
-
-    Scenario() \
-        .given(some_claim_broken_around_its_arrow) \
-        .when(lambda: said_plainly(some_claim_broken_around_its_arrow)) \
-        .then(_it_reads(
-            f"The ramp moved some-ramped-flag {some_state_it_left.upper()} "
-            f"→ {some_state_it_arrived_in.upper()}."
-        ))
-
-
-@pytest.mark.unit
 def test_a_claim_broken_across_lines_is_read_as_the_sentence_it_is() -> None:
     # The page lays out its own text. A line break arriving inside a claim is
     # typesetting the model did not mean and this page did not ask for, so it
@@ -129,51 +102,6 @@ def test_a_claim_broken_across_lines_is_read_as_the_sentence_it_is() -> None:
         .then(_it_reads(
             f"The error rate rose{the_space_it_stands_for}to 33% within a minute."
         ))
-
-
-@pytest.mark.unit
-def test_an_escape_sequence_is_shown_as_the_character_it_names() -> None:
-    # The model writes the six characters of an escape where it means one
-    # arrow, and the stream stores what was said rather than a tidied version
-    # of it. Resolved before the states are read, because the arrow it names is
-    # what tells one state from the other - so this case proves the ordering
-    # as well as the repair.
-    some_state_it_left = "on"
-    some_state_it_arrived_in = "off"
-    the_escape_the_model_wrote = "\\u2192"
-    the_character_it_names = "→"
-    some_claim_with_an_escaped_arrow = (
-        f"The ramp moved some-ramped-flag {some_state_it_left} "
-        f"{the_escape_the_model_wrote} {some_state_it_arrived_in}."
-    )
-
-    Scenario() \
-        .given(some_claim_with_an_escaped_arrow) \
-        .when(lambda: said_plainly(some_claim_with_an_escaped_arrow)) \
-        .then(_it_reads(
-            f"The ramp moved some-ramped-flag {some_state_it_left.upper()} "
-            f"{the_character_it_names} {some_state_it_arrived_in.upper()}."
-        ))
-
-
-@pytest.mark.unit
-def test_an_escape_python_cannot_read_is_left_exactly_as_written() -> None:
-    # Guessing at a malformed escape would be inventing what the model meant.
-    # Shown as it arrived, a reader can see that something came through wrong;
-    # repaired by guesswork, they would read a claim nobody made.
-    #
-    # Which malformed sequence it is does not matter, only that it opens like
-    # an escape - that is what carries it into the repair at all, and being
-    # unreadable is what has to carry it back out untouched.
-    some_escape_python_cannot_read = "\\uZZZZ"
-    some_claim_with_a_malformed_escape = (
-        f"The ramp wrote {some_escape_python_cannot_read} into the summary."
-    )
-
-    Scenario() \
-        .given(some_claim_with_a_malformed_escape) \
-        .when(lambda: said_plainly(some_claim_with_a_malformed_escape)) \
-        .then(_it_reads(some_claim_with_a_malformed_escape))
 
 
 @pytest.mark.unit
