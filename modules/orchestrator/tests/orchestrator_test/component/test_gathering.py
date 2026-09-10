@@ -18,7 +18,7 @@ from argus_incidents.repository import events, hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
-from orchestrator.postmortem import gather_evidence
+from orchestrator.gathering import gather_evidence
 
 """Turning four tables back into one incident.
 
@@ -35,8 +35,8 @@ writing a different incident.
 """
 
 
-@pytest.mark.integration
-def test_the_evidence_spans_the_incident_from_its_start_to_its_end() -> None:
+@pytest.mark.component
+def test_the_evidence_spans_the_incident_from_its_start_to_its_end(a_clean_database: None) -> None:
     # The window every figure in the document is measured over. Taken from the
     # incident's own row rather than from the last thing logged, so it does not
     # move when something is written late.
@@ -53,8 +53,10 @@ def test_the_evidence_spans_the_incident_from_its_start_to_its_end() -> None:
             )
 
 
-@pytest.mark.integration
-def test_the_evidence_carries_the_candidates_the_investigation_ranked() -> None:
+@pytest.mark.component
+def test_the_evidence_carries_the_candidates_the_investigation_ranked(
+    a_clean_database: None
+) -> None:
     # Including the ones never tried. An investigation that was confident and
     # right and one that ran out of options look identical from their outcome,
     # and the difference is most of what the walk has to say.
@@ -82,8 +84,8 @@ def test_the_evidence_carries_the_candidates_the_investigation_ranked() -> None:
             )
 
 
-@pytest.mark.integration
-def test_the_evidence_carries_the_log_lines_the_incident_read() -> None:
+@pytest.mark.component
+def test_the_evidence_carries_the_log_lines_the_incident_read(a_clean_database: None) -> None:
     # From the published account rather than from the log store, which has
     # moved on. What the model explains has to be what Argus actually saw.
     some_window_start = "2026-09-02T11:30:00Z"
@@ -109,8 +111,8 @@ def test_the_evidence_carries_the_log_lines_the_incident_read() -> None:
             )
 
 
-@pytest.mark.integration
-def test_the_evidence_carries_the_timeline_in_the_order_it_happened() -> None:
+@pytest.mark.component
+def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_database: None) -> None:
     # The narration the document is written from. Out of order it is a
     # different incident: a mitigation before the investigation that proposed
     # it explains nothing.
@@ -127,8 +129,8 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened() -> None:
             )
 
 
-@pytest.mark.integration
-def test_an_incident_that_has_not_ended_cannot_be_summarised() -> None:
+@pytest.mark.component
+def test_an_incident_that_has_not_ended_cannot_be_summarised(a_clean_database: None) -> None:
     # A postmortem is written once, when the incident is over. Asked for one
     # earlier, this refuses rather than inventing an end - a duration measured
     # to "now" would be a different number every time it was asked for.
@@ -146,8 +148,8 @@ def test_an_incident_that_has_not_ended_cannot_be_summarised() -> None:
             )
 
 
-@pytest.mark.integration
-def test_an_incident_that_does_not_exist_cannot_be_summarised() -> None:
+@pytest.mark.component
+def test_an_incident_that_does_not_exist_cannot_be_summarised(a_clean_database: None) -> None:
     # Distinct from an incident still running: there is nothing to summarise
     # rather than nothing yet. Both refuse, and neither invents a document.
     with connect() as conn:
@@ -160,8 +162,8 @@ def test_an_incident_that_does_not_exist_cannot_be_summarised() -> None:
             )
 
 
-@pytest.mark.integration
-def test_the_evidence_carries_the_onset_the_investigation_measured() -> None:
+@pytest.mark.component
+def test_the_evidence_carries_the_onset_the_investigation_measured(a_clean_database: None) -> None:
     # The instant the service actually began to fail, which is not the instant
     # Argus was told: an alert fires on a rule that needs some minutes of bad
     # traffic to trip. The loss is measured from the onset, so those minutes
@@ -188,8 +190,8 @@ def test_the_evidence_carries_the_onset_the_investigation_measured() -> None:
             )
 
 
-@pytest.mark.integration
-def test_an_incident_whose_onset_was_never_found_carries_none() -> None:
+@pytest.mark.component
+def test_an_incident_whose_onset_was_never_found_carries_none(a_clean_database: None) -> None:
     # A window in which no minute departed from the baseline has no onset to
     # anchor on (spec §9), so the investigation exits without publishing one.
     # The gathering must report that rather than substituting the alert's own

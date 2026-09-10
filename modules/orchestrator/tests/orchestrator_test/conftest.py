@@ -10,10 +10,10 @@ from psycopg import sql
 
 """The database this module's tests run against, and its state between them.
 
-Here rather than in one directory, because more than one of this module's
-directories reaches a database: what is left in `repository`, the worker's
-tests, and the narration ones. A fixture only one of them could see left the
-others hanging on a connection to a database nobody had started.
+Here rather than in one directory, because the tests that reach a database no
+longer sit together: `component` holds most of them, and the module's own
+suites may need one at any time. A fixture only one directory could see left
+the others hanging on a connection to a database nobody had started.
 
 Offered rather than imposed. Most of this module's tests are unit tests with no
 database in sight, and an autouse fixture at this level would make every one of

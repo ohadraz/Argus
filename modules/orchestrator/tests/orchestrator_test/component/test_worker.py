@@ -16,9 +16,13 @@ from orchestrator import worker
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 
+# A lease already over by the time it is written: the state a worker that was
+# killed mid-walk leaves behind, arranged rather than waited for.
+A_LEASE_ALREADY_OVER = timedelta(seconds=-1)
 
-@pytest.mark.integration
-def test_a_queued_run_is_walked_and_settled_by_the_worker() -> None:
+
+@pytest.mark.component
+def test_a_queued_run_is_walked_and_settled_by_the_worker(a_clean_database: None) -> None:
     # Nobody is waiting on an answer: the alert was acknowledged minutes ago
     # and its connection is long closed. What proves the walk happened is the
     # run's own state afterwards, which is the only record anything has.
@@ -54,8 +58,8 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker() -> None:
             ))
 
 
-@pytest.mark.integration
-def test_a_worker_with_nothing_to_take_says_so_rather_than_walking() -> None:
+@pytest.mark.component
+def test_a_worker_with_nothing_to_take_says_so_rather_than_walking(a_clean_database: None) -> None:
     # The idle case, which is most of Argus's life. A worker that answered the
     # same way whether or not it found work would either sleep through a queued
     # incident or spin against an empty queue.
@@ -84,8 +88,10 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking() -> None:
             )
 
 
-@pytest.mark.integration
-def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason() -> None:
+@pytest.mark.component
+def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
+    a_clean_database: None
+) -> None:
     # A walk can fail for reasons that have nothing to do with the incident -
     # the model refusing, an MCP server down, a bug in a node. What must not
     # happen is that it looks like an incident still being worked: the queue is
@@ -122,8 +128,8 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason() -> None
             ))
 
 
-@pytest.mark.integration
-def test_a_run_whose_incident_was_withdrawn_is_never_walked() -> None:
+@pytest.mark.component
+def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: None) -> None:
     # Withdrawn before anybody took it. Walking it would start an investigation
     # into an incident a human already has in hand - and `run_incident`'s first
     # act is to mark it `investigating`, which would take a finished incident
@@ -161,8 +167,8 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked() -> None:
             ))
 
 
-@pytest.mark.integration
-def test_a_withdrawn_incident_has_its_changes_put_back() -> None:
+@pytest.mark.component
+def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -> None:
     # The other half of stopping. A walk halted mid-flight has left production
     # in a state it chose for a reason that no longer applies, and the run is
     # not finished until that is put back.
@@ -194,8 +200,10 @@ def test_a_withdrawn_incident_has_its_changes_put_back() -> None:
             )
 
 
-@pytest.mark.integration
-def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards() -> None:
+@pytest.mark.component
+def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
+    a_clean_database: None
+) -> None:
     # The ordinary case, and the reason the question is asked twice: the walk
     # was live when it was claimed and stopped somewhere in the middle, so
     # nothing before it started could have known.
@@ -228,6 +236,46 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards() -> No
             .then(all_of(
                 _the_incident_unwound_was(unwound, incident_id),
                 _the_run_is_done(conn, incident_id)
+            ))
+
+
+@pytest.mark.component
+def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_database: None) -> None:
+    # The failure this exists to prevent is not "the run is lost" but "the run
+    # is done twice": an incident picked up as a new one would investigate a
+    # fault already investigated and mitigate one already mitigated. So what is
+    # asserted is that the second worker walks the *same* incident, and that
+    # nothing new was created for it to walk.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    the_worker_that_stopped = "worker-that-was-killed-mid-walk"
+    the_worker_that_came_after = "worker-that-started-next"
+    walked: list[str] = []
+
+    def walk_recording_what_it_was_given(incident_id: str) -> None:
+        walked.append(incident_id)
+
+    with connect() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                runs.claim(conn, the_worker_that_stopped, A_LEASE_ALREADY_OVER)
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    the_worker_that_came_after,
+                    A_GENEROUS_LEASE,
+                    walk=walk_recording_what_it_was_given,
+                    unwind=_an_unwind_that_must_not_be_called(),
+                    still_wanted=wanted_via(connect),
+                )
+            ) \
+            .then(all_of(
+                _the_incident_walked_was(walked, incident_id),
+                _only_one_incident_exists(conn),
+                _only_one_run_exists(conn),
             ))
 
 
@@ -372,6 +420,50 @@ def _the_incident_unwound_was(unwound: list[str],
             raise AssertionError(
                 f"Expected incident [{incident_id}] to be unwound exactly once, "
                 f"got {unwound}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _an_unwind_that_must_not_be_called() -> Callable[[str], None]:
+    def unwind(incident_id: str) -> None:
+        raise AssertionError(
+            f"Expected a resumed run nobody withdrew not to be unwound, got "
+            f"[{incident_id}]."
+        )
+
+    return unwind
+
+
+def _only_one_run_exists(conn: psycopg.Connection) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM incident_run")
+            row = cursor.fetchone()
+
+        if row is None or row[0] != 1:
+            raise AssertionError(
+                f"Expected the abandoned run to be taken up rather than "
+                f"replaced, got {row[0] if row else 'no'} runs."
+            )
+
+        return True
+
+    return assertion
+
+
+def _only_one_incident_exists(conn: psycopg.Connection) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM incident")
+            row = cursor.fetchone()
+
+        if row is None or row[0] != 1:
+            raise AssertionError(
+                f"Expected the resumed incident to be the only one, got "
+                f"{row[0] if row else 'no'} incidents."
             )
 
         return True

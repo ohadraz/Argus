@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
+from functools import partial
 
 import psycopg
 from agent_postmortem import (
@@ -36,6 +37,7 @@ from argus_core.replay import nobody as records_nothing
 from argus_core.timestamps import parse_iso, to_iso
 from argus_incidents.repository import (
     events,
+    exchange_rates,
     hypotheses,
     incidents,
     replay,
@@ -58,7 +60,13 @@ def write_postmortem_for(incident_id: str,
     """
     with connections() as conn:
         evidence = gather_evidence(conn, incident_id)
-        rates = todays_rates(conn, get_settings().reporting_currency)
+        # The connection is bound in here rather than passed down: reaching the
+        # rates table takes one, and deciding which rates to use does not.
+        rates = todays_rates(
+            get_settings().reporting_currency,
+            held_rates=partial(exchange_rates.get_latest_for, conn),
+            hold_rates=partial(exchange_rates.record, conn)
+        )
 
     return write_postmortem(
         evidence,

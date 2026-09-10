@@ -81,9 +81,9 @@ strict = true
 [tool.pytest.ini_options]
 pythonpath = ["."]
 markers = [
-    "unit: fast, isolated tests",
-    "component: one module entire, through its own front door, with only the infrastructure it cannot fake brought up around it",
-    "integration: cross-component, in-process",
+    "unit: one function or class, its collaborators doubled where it delegates",
+    "component: one module entire, through its own front door, every collaborator real - Fowler's sociable test, whatever infrastructure it needs behind it",
+    "integration: the code that talks to an external system, exercised against a live one - a repository against postgres, a client against its server",
     "e2e: full stack, hits docker-compose services",
     "contract: the double still matches the third party it stands in for",
     "eval: hits the real Anthropic API and judges the answer, not the plumbing",

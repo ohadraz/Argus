@@ -10,7 +10,7 @@ from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.publishing import events_into_connection
 from argus_incidents.repository import events, hypotheses, incidents, taken_actions, timeline
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.graph import Records
+from orchestrator.records import Records
 
 from ..framework.builders import a_determined_hypothesis
 

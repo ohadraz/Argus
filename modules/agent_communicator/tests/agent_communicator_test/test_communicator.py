@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from agent_communicator import post_update, raise_page
+from agent_communicator import page, post_update
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
 
@@ -69,7 +69,7 @@ def test_a_page_does_not_read_like_an_update() -> None:
     a_page_log = _a_notification_log()
 
     post_update(dont_care_incident_id, same_message, emit=an_update_log.append)
-    raise_page(dont_care_incident_id, same_message, emit=a_page_log.append)
+    page(dont_care_incident_id, same_message, emit=a_page_log.append)
 
     assert an_update_log[0] != a_page_log[0]
 
@@ -82,7 +82,7 @@ def test_neither_raises_on_the_escalation_path() -> None:
     dont_care_incident_id = "kuki-123"
 
     post_update(dont_care_incident_id, "still trying")
-    raise_page(dont_care_incident_id, "escalating")
+    page(dont_care_incident_id, "escalating")
 
 
 def _a_notification_log() -> list[str]:
@@ -108,7 +108,7 @@ def _raising_a_page(
     incident_id: str, message: str, into: list[str]
 ) -> Callable[[], list[str]]:
     def emit_the_notification() -> list[str]:
-        raise_page(incident_id, message, emit=into.append)
+        page(incident_id, message, emit=into.append)
         return into
 
     return emit_the_notification

@@ -24,8 +24,8 @@ def post_update(incident_id: str, message: str, emit: Emit = _to_stdout) -> None
     emit(f"argus[{incident_id}] update: {message}")
 
 
-def raise_page(incident_id: str, message: str, emit: Emit = _to_stdout) -> None:
-    """Raises the page that ends an incident's autonomous phase (spec §7.5) -
+def page(incident_id: str, message: str, emit: Emit = _to_stdout) -> None:
+    """Sends the page that ends an incident's autonomous phase (spec §7.5) -
     no Slack post, no email yet.
 
     Sent once, when the walk is out of moves and a person is required. It is a

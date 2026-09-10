@@ -12,7 +12,8 @@ from argus_incidents.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 
-from orchestrator.graph import build_graph, recursion_limit
+from orchestrator.walk.assembling import against
+from orchestrator.walk.graph import build_graph, recursion_limit
 
 """How an incident is walked. Starting one is `argus_incidents.intake`.
 
@@ -56,7 +57,7 @@ def graph_for(connections: Connections) -> GraphOf:
             )
             checkpointer = checkpointer_cm.__enter__()
             checkpointer.setup()
-            graph = build_graph(checkpointer, connections)
+            graph = build_graph(checkpointer, against(connections))
 
         return graph
 

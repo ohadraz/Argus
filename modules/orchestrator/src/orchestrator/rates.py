@@ -12,6 +12,11 @@ was already known yesterday; a day's drift on a reference rate is small beside
 the difference between a figure and a blank. What must never happen is the
 older rate being reported as today's, which is why the day travels with the
 table rather than beside it.
+
+Where the rates are kept is not this module's business. The table belongs to
+`argus_incidents`, and reaching it takes a connection - so both directions are
+taken as collaborators with that connection already bound in, and nothing here
+names a database.
 """
 
 from __future__ import annotations
@@ -19,9 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date
 
-import psycopg
 from agent_postmortem.sources import RateTable
-from argus_incidents.repository import exchange_rates
 from exchange_rate_source import PublishedRates, RatesUnavailable
 from exchange_rate_source import rates_published_for as from_the_provider
 
@@ -29,9 +32,19 @@ from exchange_rate_source import rates_published_for as from_the_provider
 # say what the provider did - answered, or refused - without a network.
 type Published = Callable[[str], PublishedRates]
 
+# The rates kept from an earlier reading, and how a fresh reading is kept. Two
+# callables rather than a repository and a connection: the caller already holds
+# the connection, so it binds one in and this module is left with the decision.
+# Neither has a default for that reason - there is no connection here to make
+# one out of, and a no-op default would silently stop holding anything.
+type HeldRates = Callable[[str], PublishedRates | None]
+type HoldRates = Callable[[PublishedRates], None]
 
-def todays_rates(conn: psycopg.Connection,
-                 base: str,
+
+def todays_rates(base: str,
+                 *,
+                 held_rates: HeldRates,
+                 hold_rates: HoldRates,
                  published: Published = from_the_provider,
                  today: Callable[[], date] = date.today) -> RateTable | None:
     """The rates to convert with, or `None` if there are none to be had.
@@ -45,7 +58,7 @@ def todays_rates(conn: psycopg.Connection,
     document treats that as an unanswered question and publishes no estimate,
     which is the honest end of this channel.
     """
-    held = exchange_rates.get_latest_for(conn, base)
+    held = held_rates(base)
 
     if held is not None and held.on == today():
         return _a_table_of(held)
@@ -55,7 +68,7 @@ def todays_rates(conn: psycopg.Connection,
     except RatesUnavailable:
         return _a_table_of(held) if held is not None else None
 
-    exchange_rates.record(conn, fetched)
+    hold_rates(fetched)
 
     return _a_table_of(fetched)
 
