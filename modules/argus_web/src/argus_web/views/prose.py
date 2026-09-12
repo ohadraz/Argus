@@ -63,18 +63,6 @@ def said_plainly(prose: str) -> str:
     return _with_readable_times(_on_one_line(_with_plain_states(prose)))
 
 
-def a_time_named_in(cited: str) -> str | None:
-    """The first time this sentence quotes, exactly as it wrote it.
-
-    Here rather than beside the code that follows the link, because what counts
-    as a time in prose is a fact about how the model writes and every other such
-    fact lives in this module.
-    """
-    found = _A_TIME_IN_PROSE.search(cited)
-
-    return None if found is None else found.group(0)
-
-
 def _with_plain_states(prose: str) -> str:
     """`ON` and `OFF`, however the model happened to write them.
 

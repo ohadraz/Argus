@@ -17,6 +17,7 @@ from argus_core.ids import UuidStr
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
@@ -55,7 +56,7 @@ class Candidate(BaseModel):
     cause_type: CauseType | None
     confidence: float | None
     subject: str | None
-    evidence: list[str]
+    evidence: list[Evidence]
     tested: bool
     result: str | None
     attempts: list[Attempt]

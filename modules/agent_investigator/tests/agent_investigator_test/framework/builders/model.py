@@ -21,6 +21,7 @@ from unittest.mock import Mock, create_autospec
 
 from agent_investigator.reasoning import converse
 from argus_core.llm.client import AnswerTruncated, ModelDidNotAnswer, ModelRefused
+from argus_core.models.evidence import Evidence
 from argus_core.models.turn import ToolCall, Turn
 
 METRICS_TOOL = "get_metrics"
@@ -174,14 +175,16 @@ def a_turn_the_model_declined() -> ModelRefused:
 def an_explanation(summary: str = "a feature flag was toggled on just before the errors began",
                    cause_type: str | None = "feature-flag-toggle",
                    confidence: float | None = 0.8,
-                   supporting_evidence: list[str] | None = None,
+                   supporting_evidence: list[Evidence] | None = None,
                    subject: str | None = None) -> dict[str, Any]:
     """One account of the incident, as the model fills the answer schema in."""
     return {
         "summary": summary,
         "cause_type": cause_type,
         "confidence": confidence,
-        "supporting_evidence": supporting_evidence or [],
+        "supporting_evidence": [
+            cited.model_dump(mode="json") for cited in supporting_evidence or []
+        ],
         "subject": subject
     }
 

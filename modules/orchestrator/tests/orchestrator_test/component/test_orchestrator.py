@@ -15,6 +15,7 @@ from argus_core.events import Publisher, nobody
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
@@ -273,7 +274,7 @@ def _a_candidate_blaming(flag: str) -> Hypothesis:
                       summary=f"the {flag} flag was switched on",
                       cause_type=CauseType.FEATURE_FLAG_TOGGLE,
                       confidence=some_confidence,
-                      supporting_evidence=["some log line"],
+                      supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)
 
 
@@ -282,7 +283,7 @@ def _a_candidate_naming_no_cause() -> Hypothesis:
                       summary="no cause determined from the evidence retrieved",
                       cause_type=None,
                       confidence=None,
-                      supporting_evidence=["some log line"])
+                      supporting_evidence=[Evidence(claim="some log line", at=None)])
 
 
 def _an_enabling_of(flag: str) -> FlagChange:

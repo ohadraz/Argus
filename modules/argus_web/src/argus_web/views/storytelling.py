@@ -26,7 +26,7 @@ from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from pydantic import BaseModel
 
-from argus_web.views.findings import a_finding
+from argus_web.views.findings import pointed_at
 from argus_web.views.flags import FlagToggleRow, a_flag_history
 from argus_web.views.logs import LogLine, the_minutes_logged
 from argus_web.views.metrics import BucketRow
@@ -175,7 +175,7 @@ def _pointed_at(line: NarrationLine,
 
     return line.model_copy(update={"candidates": [
         candidate.model_copy(update={"evidence": [
-            a_finding(cited.text, minutes, logged) for cited in candidate.evidence
+            pointed_at(cited, minutes, logged) for cited in candidate.evidence
         ]})
         for candidate in line.candidates
     ]})

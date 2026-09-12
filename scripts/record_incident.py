@@ -12,6 +12,7 @@ import httpx
 import psycopg
 from anthropic_double.recordings import RECORDINGS_DIR
 from argus_core.config import get_settings
+from argus_core.models.incident_status import IncidentStatus
 from argus_core.timestamps import to_iso
 
 from tests.e2e.framework.argus import (
@@ -65,6 +66,10 @@ ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 DATABASE_URL = get_settings().database_url
 
 A_WHOLE_INVESTIGATION_SECONDS = 900.0
+# The webhook only writes the incident down, so this bounds a write rather than
+# a walk - the walk is waited out by polling below.
+REQUEST_TIMEOUT_SECONDS = 30.0
+A_POLL_SECONDS = 5.0
 
 
 class _Recording(NamedTuple):
@@ -231,18 +236,77 @@ def _stage(scenario_id: str) -> None:
 def _drive_one_incident(service: str, alert_name: str) -> str:
     """Fires the alert and waits out the whole investigation.
 
-    The webhook runs the graph in-process and answers only when the incident
-    reaches a terminal status, so this call is as long as the walk is - several
-    model calls and a verification window per attempt.
+    Two steps, because they are two things now: the webhook writes the incident
+    down and answers at once, and a worker walks it afterwards. Waiting on the
+    webhook alone returns two seconds later with an incident nobody has
+    investigated yet - and this script would then store the answers of a walk
+    that had not happened, which is to say none, and discard the answers of the
+    one that had.
     """
     response = httpx.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
         json=_an_alert_for(service, alert_name),
-        timeout=A_WHOLE_INVESTIGATION_SECONDS,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
+    incident_id = str(response.json().get("incident_id", "unknown"))
+    _the_walk_came_to_a_stop(incident_id)
 
-    return str(response.json().get("incident_id", "unknown"))
+    return incident_id
+
+
+def _the_walk_came_to_a_stop(incident_id: str) -> None:
+    """Waits until the incident has stopped moving *and* been written up.
+
+    Both, because a terminal status is not the last model call: the postmortem
+    is written after the incident ends, so a wait that stopped at `resolved`
+    would store every answer but the last one - and a recording one answer
+    short replays as a walk that runs out of answers mid-write, which is how
+    this was found.
+
+    Loudly when neither arrives, because the alternative is worse than a slow
+    run: a partial answer set replays as a walk stopping halfway, and nothing
+    downstream reads that as a recording problem.
+    """
+    deadline = time.monotonic() + A_WHOLE_INVESTIGATION_SECONDS
+
+    while True:
+        status = _the_status_of(incident_id)
+
+        if status is not None and status.is_terminal() and _was_written_up(incident_id):
+            return
+
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"incident [{incident_id}] was [{status}] with "
+                f"[{'a' if _was_written_up(incident_id) else 'no'}] postmortem after "
+                f"[{A_WHOLE_INVESTIGATION_SECONDS:.0f}s] - nothing was recorded from it"
+            )
+
+        time.sleep(A_POLL_SECONDS)
+
+
+def _was_written_up(incident_id: str) -> bool:
+    """Whether the postmortem exists - the last thing an incident produces."""
+    with psycopg.connect(DATABASE_URL) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM postmortem WHERE incident_id = %s LIMIT 1", (incident_id,)
+        )
+
+        return cursor.fetchone() is not None
+
+
+def _the_status_of(incident_id: str) -> IncidentStatus | None:
+    """Where the incident is now, asked of the record rather than of the walk.
+
+    `None` where no row answers, which is a run whose incident never reached
+    the database - reported by the wait above rather than read as an ending.
+    """
+    with psycopg.connect(DATABASE_URL) as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT status FROM incident WHERE id = %s", (incident_id,))
+        found = cursor.fetchone()
+
+        return IncidentStatus(found[0]) if found else None
 
 
 def _the_set_named(name: str) -> list[Path]:

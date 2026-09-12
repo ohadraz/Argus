@@ -27,7 +27,13 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                 hypothesis.summary,
                 hypothesis.cause_type,
                 hypothesis.confidence,
-                json.dumps(hypothesis.supporting_evidence),
+                # Through pydantic rather than `json.dumps` directly: what a
+                # piece of evidence holds is the model's business, and an
+                # instant has no JSON spelling until the model gives it one.
+                json.dumps([
+                    cited.model_dump(mode="json")
+                    for cited in hypothesis.supporting_evidence
+                ]),
                 hypothesis.subject,
                 hypothesis.rank,
                 hypothesis.tested,

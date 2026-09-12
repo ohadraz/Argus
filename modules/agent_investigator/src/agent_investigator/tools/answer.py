@@ -57,6 +57,46 @@ def answer_tool() -> ToolDefinition:
     )
 
 
+def _one_thing_it_rests_on() -> dict[str, Any]:
+    """One cited fact, and the moment it happened at.
+
+    The instant is asked for rather than read back out of the claim. The model
+    is quoting a line it retrieved, so it has the timestamp in front of it;
+    anything downstream that wanted the minute would otherwise have to
+    pattern-match the sentence, and a match landing on the wrong minute points
+    a reader confidently at evidence nobody cited.
+
+    Null is a real answer: an absence of changes across a window happened at no
+    instant, and a plausible time invented for it would be worse than none.
+    """
+    return {
+        "type": _OBJECT_TYPE,
+        "properties": {
+            "claim": {
+                "type": _STRING_TYPE,
+                "description": (
+                    "The line, bucket or absence this rests on, quoted rather "
+                    "than paraphrased."
+                )
+            },
+            "at": {
+                "anyOf": [
+                    {"type": _STRING_TYPE},
+                    {"type": _NULL_TYPE}
+                ],
+                "description": (
+                    "When it happened, copied from the evidence in the wire "
+                    "format the tools speak - 2026-08-30T12:30:00Z. Null when "
+                    "the claim names no moment, such as nothing having changed "
+                    "in a window."
+                )
+            }
+        },
+        "required": ["claim", "at"],
+        "additionalProperties": False
+    }
+
+
 def _one_explanation() -> dict[str, Any]:
     """One account of the incident, as the model fills it in.
 
@@ -101,7 +141,7 @@ def _one_explanation() -> dict[str, Any]:
             },
             "supporting_evidence": {
                 "type": _ARRAY_TYPE,
-                "items": {"type": _STRING_TYPE},
+                "items": _one_thing_it_rests_on(),
                 "description": (
                     "The exact lines or buckets this rests on, quoted rather than "
                     "paraphrased. Empty when no cause was determined."

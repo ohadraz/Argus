@@ -7,6 +7,7 @@ from argus_core.ids import new_id
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
@@ -172,7 +173,8 @@ def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
     # timestamps, which is the reader investigating the incident again.
     an_incident = _an_incident()
     what_it_was_formed_from = [
-        "error rate rose at 10:14", "a-flag was enabled at 10:13"
+        Evidence(claim="error rate rose at 10:14", at=None),
+        Evidence(claim="a-flag was enabled at 10:13", at=None)
     ]
 
     Scenario() \
@@ -261,7 +263,7 @@ def _an_incident(alert: Alert | None = None) -> Incident:
 def _a_candidate(incident_id: str,
                  subject: str,
                  rank: int,
-                 evidence: list[str] | None = None) -> Hypothesis:
+                 evidence: list[Evidence] | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary=f"dont care - {subject}",
@@ -383,7 +385,7 @@ def _the_first_candidate_resulted_in(expected: str | None) -> Assertion[Incident
     return assertion
 
 
-def _the_first_candidate_cites(expected: list[str]) -> Assertion[IncidentDetail]:
+def _the_first_candidate_cites(expected: list[Evidence]) -> Assertion[IncidentDetail]:
     def assertion(detail: IncidentDetail) -> bool:
         cited = _the_first(detail).evidence
 

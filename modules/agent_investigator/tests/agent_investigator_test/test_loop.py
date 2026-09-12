@@ -8,7 +8,9 @@ from agent_investigator import Findings, Reading
 from argus_core.events import RetrievalChannel
 from argus_core.ids import new_id
 from argus_core.models.attempt import Attempt
+from argus_core.models.evidence import Evidence
 from argus_core.models.transcript import Ask
+from argus_core.timestamps import parse_iso
 from argus_testkit import Assertion, Scenario, all_of, calling
 
 from .framework.builders.budget import (
@@ -98,6 +100,67 @@ def test_the_answer_the_model_gave_is_what_the_investigation_returns() -> None:
                 _the_candidates_say(the_best_explanation, the_runner_up),
                 _every_candidate_belongs_to(some_incident_id)
             )
+        )
+
+
+@pytest.mark.unit
+def test_the_evidence_carries_the_moment_the_model_cited_it_at() -> None:
+    # The page links a finding to the minute it rests on, and until now it
+    # recovered that minute by running a regex over the sentence. The model is
+    # quoting a line it retrieved and knows the instant already, so it is asked
+    # for it: a field the model fills in is not a reading somebody downstream
+    # has to guess at.
+    #
+    # The claim travels beside the instant rather than being replaced by it.
+    # What the evidence says is prose and stays prose; only the instant was
+    # ever structure hiding inside it.
+    some_cited = Evidence(
+        claim="monthly-spend-feature evaluated on for all 200 requests",
+        at=parse_iso("2026-08-30T12:30:00Z")
+    )
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_answering(an_explanation(supporting_evidence=[some_cited]))
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_evidence_is(some_cited)
+        )
+
+
+@pytest.mark.unit
+def test_evidence_that_names_no_moment_says_so_rather_than_borrowing_one() -> None:
+    # A real answer from the recordings: "(no changes were recorded for this
+    # service in that window)" rests on the absence of a row, which happened at
+    # no instant. Null rather than the incident's own time, because a finding
+    # handed a plausible minute would link to a row it does not rest on - and a
+    # reader following that link would believe it.
+    some_cited = Evidence(
+        claim="no changes were recorded for this service in that window", at=None
+    )
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_answering(an_explanation(supporting_evidence=[some_cited]))
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_evidence_is(some_cited)
         )
 
 
@@ -716,3 +779,20 @@ def _the_transcript_of(model: Mock, turn: int) -> Any:
         )
 
     return model.call_args_list[turn].args[0]
+
+
+def _the_evidence_is(*cited: Evidence) -> Assertion[Findings]:
+    """What the first candidate rests on, claim and instant alike.
+
+    The whole value rather than its instant: a translation that carried the
+    moment and dropped the sentence would satisfy a check on the moment alone.
+    """
+    def assertion(findings: Findings) -> bool:
+        rested_on = findings.candidates[0].supporting_evidence
+
+        if rested_on != list(cited):
+            raise AssertionError(f"Expected the evidence {list(cited)}, got {rested_on}.")
+
+        return True
+
+    return assertion

@@ -9,6 +9,7 @@ from argus_core.config import get_settings
 from argus_core.models.action import Action
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus, status_after
@@ -335,7 +336,7 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
                       summary="kukibuki hypothesis",
                       cause_type=CauseType.FEATURE_FLAG_TOGGLE,
                       confidence=some_confidence,
-                      supporting_evidence=["some log line"],
+                      supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)
 
 

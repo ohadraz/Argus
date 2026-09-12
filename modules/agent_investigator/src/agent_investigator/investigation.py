@@ -35,6 +35,7 @@ from argus_core.events import (
 from argus_core.llm.client import AnswerTruncated, ModelRefused
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.reading import Reading
@@ -354,7 +355,10 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
             summary=explanation["summary"],
             cause_type=explanation["cause_type"],
             confidence=explanation["confidence"],
-            supporting_evidence=explanation.get("supporting_evidence") or [],
+            supporting_evidence=[
+                Evidence.model_validate(cited)
+                for cited in explanation.get("supporting_evidence") or []
+            ],
             subject=explanation.get("subject"),
             rank=rank
         )

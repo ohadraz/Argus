@@ -12,6 +12,7 @@ from argus_core.events import (
     RetrievalChannel,
     RetrievalRequested,
 )
+from argus_core.models.evidence import Evidence
 from argus_core.models.metrics import MetricBucket
 from argus_testkit import Assertion, Scenario, all_of, calling
 
@@ -155,7 +156,7 @@ def test_every_candidate_it_formed_is_published_with_what_it_rests_on() -> None:
     # because a claim published without it is an assertion.
     the_best_explanation = "the payments flag was switched on at 11:10"
     the_runner_up = "the 11:04 deploy changed the checkout path"
-    some_evidence = ["11:10 INFO flag payments-v2 enabled"]
+    some_evidence = [Evidence(claim="11:10 INFO flag payments-v2 enabled", at=None)]
     published: list[IncidentEvent] = []
     investigation = an_investigation(
         a_model_that_says(
@@ -354,7 +355,7 @@ def _the_candidates_published_were(published: list[IncidentEvent],
 
 
 def _the_first_candidate_published_rests_on(published: list[IncidentEvent],
-                                            evidence: list[str]) -> Assertion[Findings]:
+                                            evidence: list[Evidence]) -> Assertion[Findings]:
     def assertion(dont_care_findings: Findings) -> bool:
         formed = [event for event in published if isinstance(event, HypothesisFormed)]
         if not formed:

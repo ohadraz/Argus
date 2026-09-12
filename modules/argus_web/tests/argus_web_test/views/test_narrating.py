@@ -24,6 +24,7 @@ from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent, ChangeKind
+from argus_core.models.evidence import Evidence
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
@@ -373,7 +374,7 @@ def _a_hypothesis(summary: str,
         confidence=0.9,
         subject=SOME_FLAG,
         rank=rank,
-        evidence=evidence or []
+        evidence=[Evidence(claim=cited, at=None) for cited in evidence or []]
     )
 
 

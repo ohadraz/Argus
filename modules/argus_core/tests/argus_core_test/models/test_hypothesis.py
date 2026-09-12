@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from argus_core.ids import new_id
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from pydantic import ValidationError
 
@@ -195,6 +196,6 @@ def an_investigated_hypothesis(cause_type: CauseType | None,
         summary="some summary",
         cause_type=cause_type,
         confidence=confidence,
-        supporting_evidence=["some log line"],
+        supporting_evidence=[Evidence(claim="some log line", at=None)],
         subject=subject,
     )

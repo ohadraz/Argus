@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from argus_core.models.attempt import Attempt
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.candidates import the_next_worth_trying
@@ -195,7 +196,7 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
                       summary="kukibuki hypothesis",
                       cause_type=CauseType.FEATURE_FLAG_TOGGLE,
                       confidence=some_confidence,
-                      supporting_evidence=["some log line"],
+                      supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from argus_web.views.prose import a_time_named_in, said_plainly
+from argus_web.views.prose import said_plainly
 
 """A model's sentence, said the way the rest of the page says things.
 
@@ -141,51 +141,10 @@ def test_a_clock_time_carrying_a_zone_loses_only_the_zone() -> None:
         .then(_it_reads(f"The last good minute was {some_clock_time}."))
 
 
-@pytest.mark.unit
-def test_a_sentence_naming_no_time_names_none() -> None:
-    # What tells a finding with a link from one without: the absence is the
-    # answer, and a caller handed "" back could not tell it from a time that
-    # rendered as nothing.
-    #
-    # Carrying a number that is not a clock, because most claims do - a
-    # duration, a percentage, a count - and "names no time" has to mean no time
-    # rather than no digits.
-    some_claim_naming_no_time = "The ramp completed 20 minutes in and the errors began."
-
-    Scenario() \
-        .given(some_claim_naming_no_time) \
-        .when(lambda: a_time_named_in(some_claim_naming_no_time)) \
-        .then(_the_time_named_is(None))
-
-
-@pytest.mark.unit
-def test_the_time_a_sentence_names_comes_back_exactly_as_it_was_written() -> None:
-    # Returned as written rather than rendered, because the caller compares it
-    # against the minutes the page holds - and a comparison between two
-    # different renderings of one instant is a link that lands nowhere.
-    some_instant = "2026-08-30T10:14:00Z"
-    some_claim_naming_one_instant = f"Errors began at {some_instant} and rose from there."
-
-    Scenario() \
-        .given(some_claim_naming_one_instant) \
-        .when(lambda: a_time_named_in(some_claim_naming_one_instant)) \
-        .then(_the_time_named_is(some_instant))
-
-
 def _it_reads(expected: str) -> Assertion[str]:
     def assertion(said: str) -> bool:
         if said != expected:
             raise AssertionError(f"expected [{expected}], got [{said}]")
-
-        return True
-
-    return assertion
-
-
-def _the_time_named_is(expected: str | None) -> Assertion[str | None]:
-    def assertion(found: str | None) -> bool:
-        if found != expected:
-            raise AssertionError(f"expected the time [{expected}], got [{found}]")
 
         return True
 

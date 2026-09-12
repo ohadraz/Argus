@@ -9,6 +9,7 @@ from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.undo_descriptor import UndoDescriptor
@@ -363,7 +364,7 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
         summary=f"dont care - {subject}",
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
-        supporting_evidence=evidence or [],
+        supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence or []],
         subject=subject,
         rank=rank,
     )

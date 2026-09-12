@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from argus_core.ids import UuidStr, new_id
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 
 
 class Hypothesis(BaseModel):
@@ -47,7 +48,7 @@ class Hypothesis(BaseModel):
     # bounds on a number - so a model writing 1.4 is refused on the way into
     # the domain rather than on the way out of the API.
     confidence: float | None = Field(ge=0.0, le=1.0)
-    supporting_evidence: list[str]
+    supporting_evidence: list[Evidence]
     subject: str | None = None
     # Where this hypothesis came in the investigation's own ordering, best
     # first. Data rather than list position, because rows come back from a

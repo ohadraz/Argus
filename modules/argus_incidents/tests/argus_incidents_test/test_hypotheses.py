@@ -9,6 +9,7 @@ import pytest
 from argus_core.db import connect
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_incidents.repository import hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -258,7 +259,7 @@ def _a_determined_hypothesis(incident_id: str,
         summary="a feature flag was toggled on just before the errors began",
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=0.94,
-        supporting_evidence=evidence,
+        supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence],
         subject=subject,
         rank=rank,
     )
@@ -270,7 +271,9 @@ def _an_undetermined_hypothesis(incident_id: str) -> Hypothesis:
         summary="no cause determined from the evidence retrieved",
         cause_type=None,
         confidence=None,
-        supporting_evidence=["2026-08-20T11:06:00Z ERROR target-service: request failed"],
+        supporting_evidence=[Evidence(
+            claim="2026-08-20T11:06:00Z ERROR target-service: request failed", at=None
+        )]
     )
 
 

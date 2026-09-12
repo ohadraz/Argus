@@ -5,6 +5,7 @@ import string
 
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
+from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
@@ -38,7 +39,7 @@ def a_determined_hypothesis(incident_id: str, confidence: float = 0.75) -> Hypot
         summary="kukibuki hypothesis",
         cause_type=CauseType.FEATURE_FLAG_TOGGLE,
         confidence=confidence,
-        supporting_evidence=["some log line"],
+        supporting_evidence=[Evidence(claim="some log line", at=None)]
     )
 
 
@@ -54,5 +55,5 @@ def an_undetermined_hypothesis(incident_id: str) -> Hypothesis:
         summary="no cause determined from the evidence retrieved",
         cause_type=None,
         confidence=None,
-        supporting_evidence=["some log line"],
+        supporting_evidence=[Evidence(claim="some log line", at=None)]
     )

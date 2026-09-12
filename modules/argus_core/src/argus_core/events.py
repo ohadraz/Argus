@@ -13,6 +13,7 @@ from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent
+from argus_core.models.evidence import Evidence
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
@@ -186,7 +187,7 @@ class HypothesisFormed(_Event):
     # published without its evidence is an assertion, and an account of an
     # investigation that shows only conclusions asks its reader to take them on
     # trust - which is the one thing an autonomous agent cannot be given.
-    evidence: list[str] = []
+    evidence: list[Evidence] = []
 
 
 class FlagChangesRetrieved(_Event):
