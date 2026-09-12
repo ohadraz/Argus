@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import cast
+from uuid import uuid4
 
 import anthropic
 import httpx
@@ -151,6 +152,11 @@ def test_the_real_api_still_serves_a_repeated_prefix_from_cache() -> None:
     # size, which is why they are here rather than a shorter stand-in.
     real = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
     offered = [cast(ToolParam, tool.to_wire()) for tool in investigator_tools()]
+    # A prefix no earlier run can already have cached. Both calls below share
+    # it, so the claim is unchanged - but a second run of this suite inside the
+    # cache's lifetime would otherwise find the prefix warm, read where it
+    # meant to write, and fail as though the API had stopped caching.
+    asked_only_this_run = f"{SOME_QUESTION_ONLY_THE_TOOL_ANSWERS} (run {uuid4().hex})"
 
     def ask() -> anthropic.types.Message:
         return real.messages.create(
@@ -158,7 +164,7 @@ def test_the_real_api_still_serves_a_repeated_prefix_from_cache() -> None:
             max_tokens=ENOUGH_TO_SAY_ANYTHING,
             cache_control=EPHEMERAL_CACHE,
             tools=offered,
-            messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
+            messages=[{"role": "user", "content": asked_only_this_run}]
         )
 
     wrote = ask()
