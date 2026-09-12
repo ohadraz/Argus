@@ -181,6 +181,22 @@ def test_a_candidate_is_the_hypothesis_that_was_recorded() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_shows_the_move_it_blamed_the_way_the_flag_table_does() -> None:
+    # One spelling for a flag's position across the whole page, so a change
+    # reads as the same kind of thing whether it appears in the flag table or
+    # under a candidate. The states arrive as the model wrote them - the page
+    # is what decides how they are said.
+    some_candidate_blaming_a_toggle = _a_hypothesis(
+        summary="the flag was switched on", rank=1, from_state="off", to_state="on"
+    )
+
+    Scenario() \
+        .given(some_candidate_blaming_a_toggle) \
+        .when(lambda: build_narration([some_candidate_blaming_a_toggle])) \
+        .then(_the_only_candidate_moved(was="OFF", now="ON"))
+
+
+@pytest.mark.unit
 def test_the_candidates_formed_together_are_one_line() -> None:
     # An investigation forms its explanations in one breath, and a story that
     # spent a line on each would bury what it did next under a list. They are
@@ -365,7 +381,9 @@ def _a_bucket(bucket_id: str) -> MetricBucket:
 def _a_hypothesis(summary: str,
                   rank: int,
                   evidence: list[str] | None = None,
-                  incident_id: str | None = None) -> HypothesisFormed:
+                  incident_id: str | None = None,
+                  from_state: str | None = None,
+                  to_state: str | None = None) -> HypothesisFormed:
     return HypothesisFormed(
         incident_id=incident_id or new_id(),
         hypothesis_id=new_id(),
@@ -374,6 +392,8 @@ def _a_hypothesis(summary: str,
         confidence=0.9,
         subject=SOME_FLAG,
         rank=rank,
+        from_state=from_state,
+        to_state=to_state,
         evidence=[Evidence(claim=cited, at=None) for cited in evidence or []]
     )
 
@@ -611,6 +631,21 @@ def _the_lines_are_credited_to(expected: list[str]) -> Assertion[list[NarrationL
 
         if credited != expected:
             raise AssertionError(f"expected {expected} credited, got {credited}")
+
+        return True
+
+    return assertion
+
+
+def _the_only_candidate_moved(was: str, now: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        candidate = _the_only(narration).candidates[0]
+
+        if (candidate.moved_from, candidate.moved_to) != (was, now):
+            raise AssertionError(
+                f"expected the candidate to have moved [{was}] to [{now}], "
+                f"got [{candidate.moved_from}] to [{candidate.moved_to}]"
+            )
 
         return True
 

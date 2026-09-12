@@ -51,7 +51,7 @@ from pydantic import BaseModel
 
 from argus_web.views.clock import a_minute, a_window
 from argus_web.views.findings import Finding, a_finding
-from argus_web.views.flags import on_or_off
+from argus_web.views.flags import on_or_off, said_as_a_state
 from argus_web.views.logs import LogLine, a_log_line
 from argus_web.views.metrics import BucketRow, a_bucket_row
 from argus_web.views.prose import said_plainly
@@ -105,6 +105,11 @@ class CandidateLine(BaseModel):
     summary: str
     subject: str | None
     confidence: str | None
+    # The two ends of the change this candidate blamed, said the way the flag
+    # table says them - struck through and picked out - so that a change reads
+    # as a change wherever on the page it appears.
+    moved_from: str = ""
+    moved_to: str = ""
     evidence: list[Finding]
 
 
@@ -336,6 +341,8 @@ def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
         summary=said_plainly(event.summary),
         subject=event.subject,
         confidence=_a_percentage(event.confidence) if event.confidence else None,
+        moved_from=said_as_a_state(event.from_state),
+        moved_to=said_as_a_state(event.to_state),
         evidence=[a_finding(cited) for cited in event.evidence],
     )
 

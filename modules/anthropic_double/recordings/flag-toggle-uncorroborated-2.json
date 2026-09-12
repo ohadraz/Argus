@@ -2,7 +2,7 @@
   "container": null,
   "content": [
     {
-      "signature": "CAISswIKjgEIERgCKkAkdJr5uQKaU+9xd2G+Gsn4DGmgrbSl0cjl6gRRozTxUsPx0uU6cRqNGaP8CHTiGTWOyStWoQFTjfdevdLyfOBOMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAY6yldUGEgzV2+bgYewUyOoxz84aDOq6e7NZYdHMwyi17iIwoYm8ye9hMDj8M56QxY6K4BdkM+ETTjr3dnyYRaVpGkqgFAeimh/wBa/+Pc6J/6fAKlIgPPBXcUgUJa2ZwADFoSls+0qZhv5PcRemZU8cjPkAgKvZJHMvV848Xe6xAgRciROp4gYSn6t6s/WEWCM/MomBVCdnn+OuiPqZnLnvaDYhW5RiGAE=",
+      "signature": "CAISzgIKjgEIERgCKkA279JG6RJ/I7kfMomdYc2P0Ftx/Zl7lOrFwkR2SRoDCXhYuRBgRu6w8h7wusM1W9HWNFqymZthBlZmciudu593Mg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAZvdldUGEgywgnMctn4rzF59rdQaDOvLRHYPH0l5FZ0UJCIwb8dqFOT7I3m6fPQsSnd9kzBj8wpuI6qcAX9aC7Ykzg0+Msra07+NXvEqlHO6CiRsKm2z4peEa27sVJry9QNCZewq5zuiwgoEJSIctW0sBkdOFNxlswoZTYF9K9pvP9z89bs/bn9co4n3uEaS+pvjRLZ0CxAjpTBQSJUO8epoODtz15fbz4v2VWMmowcLcFvDd6UH+DWSYi/qWJe9mHZ9GAE=",
       "thinking": "",
       "type": "thinking"
     },
@@ -10,52 +10,56 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_013fiWV2KiuQCLWhe661F33d",
+      "id": "toolu_01BJncqu6qUeDN7ffkDMvtTK",
       "input": {
         "hypotheses": [
           {
             "cause_type": "feature-flag-toggle",
             "confidence": 0.94,
+            "from_state": "off",
             "subject": "monthly-spend-feature",
-            "summary": "The feature flag `monthly-spend-feature` was toggled from off to on at 13:47, and the newly enabled code path threw ZeroDivisionError on account page renders, driving error rate from ~1% to ~33%.",
+            "summary": "The feature flag `monthly-spend-feature` was turned on (partial rollout at 15:18, fully on from 15:19), and the code path it enables throws ZeroDivisionError on account page rendering, driving the error rate from ~1-2% baseline to ~30-37%.",
             "supporting_evidence": [
               {
-                "at": "2026-09-12T13:47:00Z",
-                "claim": "INFO io-shop: monthly-spend-feature=off 13 / on 187 - 200 evaluations"
+                "at": "2026-09-12T15:17:00Z",
+                "claim": "INFO io-shop: monthly-spend-feature=off - 200 evaluations (every minute through 15:17)"
               },
               {
-                "at": "2026-09-12T13:47:00Z",
-                "claim": "ERROR io-shop: account page request failed - ZeroDivisionError: division by zero"
+                "at": "2026-09-12T15:18:00Z",
+                "claim": "INFO io-shop: monthly-spend-feature=off 196 / on 4 - 200 evaluations"
               },
               {
-                "at": "2026-09-12T13:46:00Z",
-                "claim": "INFO io-shop: monthly-spend-feature=off - 200 evaluations (every minute up to 13:46, with only sporadic UpstreamTimeout errors and 0-2% error rate)"
+                "at": "2026-09-12T15:18:00Z",
+                "claim": "ERROR io-shop: account page request failed - ZeroDivisionError: division by zero (first appearance, same minute the flag first evaluates on)"
               },
               {
-                "at": "2026-09-12T13:48:00Z",
-                "claim": "INFO io-shop: monthly-spend-feature=on - 200 evaluations, error rate 32% and continuing"
+                "at": "2026-09-12T15:19:00Z",
+                "claim": "INFO io-shop: monthly-spend-feature=on - 200 evaluations"
               },
               {
-                "at": "2026-09-12T13:47:00Z",
-                "claim": "error_rate jumps from 0.015 at 13:46 to 0.335 at 13:47 and stays elevated"
+                "at": "2026-09-12T15:19:00Z",
+                "claim": "error_rate 0.37 at the onset minute, up from 0.015 the minute before"
               },
               {
-                "at": null,
-                "claim": "Every recorded change to io-shop from 2026-09-11T13:47:00Z to 2026-09-12T13:47:00Z: (nothing changed in this window)"
+                "at": "2026-09-12T15:23:00Z",
+                "claim": "WARN io-shop: account page error rate at 32% over the last minute"
               }
-            ]
+            ],
+            "to_state": "on"
           },
           {
             "cause_type": "bad-deployment",
             "confidence": 0.04,
+            "from_state": null,
             "subject": null,
-            "summary": "Alternative: a code change containing the divide-by-zero bug was shipped and only became live when the flag ramped; no deployment appears in the 24h change log, so this is unsupported by the evidence in view.",
+            "summary": "Alternative: a code change/deploy introduced the divide-by-zero path and the flag evaluation logs merely coincide. No deploy or recorded change exists in the 24h lookback, so this is weakly supported.",
             "supporting_evidence": [
               {
                 "at": null,
-                "claim": "Every recorded change to io-shop from 2026-09-11T13:47:00Z to 2026-09-12T13:47:00Z: (nothing changed in this window)"
+                "claim": "Every recorded change to io-shop from 2026-09-11T15:19:00Z to 2026-09-12T15:19:00Z. (nothing changed in this window)"
               }
-            ]
+            ],
+            "to_state": null
           }
         ]
       },
@@ -63,7 +67,7 @@
       "type": "tool_use"
     }
   ],
-  "id": "msg_011CeyeySAZZLL6hdJ3jg5mj",
+  "id": "msg_011CeymytoGXwUa8ZDzgmHQK",
   "model": "claude-opus-5",
   "role": "assistant",
   "stop_details": null,
@@ -73,15 +77,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 5417
+      "ephemeral_5m_input_tokens": 5292
     },
-    "cache_creation_input_tokens": 5417,
-    "cache_read_input_tokens": 9646,
+    "cache_creation_input_tokens": 5292,
+    "cache_read_input_tokens": 9970,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 809,
+    "output_tokens": 806,
     "output_tokens_details": {
-      "thinking_tokens": 32
+      "thinking_tokens": 45
     },
     "service_tier": "standard"
   }

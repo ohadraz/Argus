@@ -182,6 +182,13 @@ class HypothesisFormed(_Event):
     cause_type: CauseType | None
     confidence: float | None
     subject: str | None
+    # The two ends of the change the candidate blamed, as the Investigator was
+    # told them. Values rather than words in `summary`: the narration draws a
+    # transition struck-through and picked out, the way the flag table does,
+    # and a renderer picking the states out of a sentence cannot tell one from
+    # a sentence that merely uses the word.
+    from_state: str | None = None
+    to_state: str | None = None
     rank: int
     # What the candidate rests on, as the Investigator cited it. A claim
     # published without its evidence is an assertion, and an account of an

@@ -36,6 +36,13 @@ class Hypothesis(BaseModel):
     shared by every cause type: a field called `flag` would be dead weight on a
     bad deployment and a lie on whatever comes next. What the string means is
     already fixed by `cause_type` beside it.
+
+    `from_state` and `to_state` are what the subject moved between - `off` and
+    `on` for a flag, two versions for a deployment. Strings for the same reason
+    `subject` is one, and fields for the same reason it is a field: a reader
+    recovering the transition from `summary` has to decide which of the `on`s
+    and `off`s in the sentence were the states, and a sentence that merely uses
+    the word reads as a transition it never described.
     """
 
     id: UuidStr = Field(default_factory=new_id)
@@ -50,6 +57,8 @@ class Hypothesis(BaseModel):
     confidence: float | None = Field(ge=0.0, le=1.0)
     supporting_evidence: list[Evidence]
     subject: str | None = None
+    from_state: str | None = None
+    to_state: str | None = None
     # Where this hypothesis came in the investigation's own ordering, best
     # first. Data rather than list position, because rows come back from a
     # table in no order at all, and an ordering that lived only in a list would
@@ -97,6 +106,30 @@ class Hypothesis(BaseModel):
             raise ValueError(
                 "a hypothesis names a subject only for a cause it identified - "
                 f"got subject={self.subject!r} with cause_type=None"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def _a_transition_has_two_ends(self) -> Hypothesis:
+        """Rejects half a transition.
+
+        "It moved to ON", from nothing in particular, is the cause/confidence
+        incoherence a third time: a change is a pair of states, and one of them
+        alone describes a position rather than a move. The page draws the pair
+        struck-through and picked out, so a half-filled one renders a change out
+        of nowhere - which reads as a fact rather than as a missing field.
+        """
+        if (self.from_state is None) != (self.to_state is None):
+            raise ValueError(
+                "a transition names the state it left and the state it reached, or "
+                f"neither - got from_state={self.from_state!r}, to_state={self.to_state!r}"
+            )
+
+        if self.from_state is not None and self.subject is None:
+            raise ValueError(
+                "a transition is a change to the subject it names - got "
+                f"from_state={self.from_state!r} with subject=None"
             )
 
         return self

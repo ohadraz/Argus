@@ -185,6 +185,32 @@ def test_every_candidate_it_formed_is_published_with_what_it_rests_on() -> None:
 
 
 @pytest.mark.unit
+def test_a_published_candidate_carries_the_transition_it_blamed() -> None:
+    # The narration renders the change struck-through and picked out, the way
+    # the flag table does - so it needs the two states as values. Reading them
+    # back out of the published summary is the guess this field exists to end.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_answering(an_explanation(
+                subject="monthly-spend-feature", from_state="off", to_state="on"
+            ))
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(
+            _the_first_candidate_published_moved(published, "off", "on")
+        )
+
+
+@pytest.mark.unit
 def test_a_channel_that_was_never_asked_for_is_published_as_unread() -> None:
     # "Nobody asked" and "asked, and nothing came back" leave the same silence
     # in an account and mean opposite things - one is a gap in the
@@ -405,6 +431,26 @@ def _both_concluded_the_same() -> Assertion[tuple[Findings, Findings]]:
             raise AssertionError(
                 f"Expected the same evidence to be read either way, got "
                 f"{heard.already_read} and {unheard.already_read}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_first_candidate_published_moved(published: list[IncidentEvent],
+                                         from_state: str | None,
+                                         to_state: str | None) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        formed = [event for event in published if isinstance(event, HypothesisFormed)]
+        if not formed:
+            raise AssertionError("Expected a candidate to be published, and none was.")
+
+        moved = (formed[0].from_state, formed[0].to_state)
+        if moved != (from_state, to_state):
+            raise AssertionError(
+                f"Expected the published candidate to have moved {(from_state, to_state)}, "
+                f"got {moved}."
             )
 
         return True

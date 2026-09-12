@@ -90,6 +90,32 @@ def test_a_hypothesis_comes_back_naming_the_subject_it_blamed() -> None:
 
 
 @pytest.mark.integration
+def test_a_hypothesis_comes_back_carrying_the_transition_it_blamed() -> None:
+    # Two columns rather than one: a row keeping only the state it arrived at
+    # records a position, and the page draws a change. Both have to survive the
+    # table, or the model's own validator refuses the row on the way back out.
+    with connect() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        incident_id = an_incident_created_for(_an_alert())
+        some_hypothesis = _a_determined_hypothesis(
+            incident_id,
+            ["some log line"],
+            subject="monthly-spend-feature",
+            from_state="off",
+            to_state="on"
+        )
+        the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
+
+        Scenario() \
+            .when(
+                lambda: hypotheses.record(conn, some_hypothesis)
+            ) \
+            .then(
+                the_stored_hypothesis_is(some_hypothesis)
+            )
+
+
+@pytest.mark.integration
 def test_a_hypothesis_comes_back_at_the_rank_it_was_recorded_at() -> None:
     # An investigation that named several explanations wrote them down in its
     # own order, best first. Rows come back from a table in no order at all, so
@@ -253,7 +279,9 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
 def _a_determined_hypothesis(incident_id: str,
                              evidence: list[str],
                              subject: str | None = None,
-                             rank: int = 1) -> Hypothesis:
+                             rank: int = 1,
+                             from_state: str | None = None,
+                             to_state: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary="a feature flag was toggled on just before the errors began",
@@ -262,6 +290,8 @@ def _a_determined_hypothesis(incident_id: str,
         supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence],
         subject=subject,
         rank=rank,
+        from_state=from_state,
+        to_state=to_state
     )
 
 

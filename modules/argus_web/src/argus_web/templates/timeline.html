@@ -58,6 +58,12 @@
           {% for candidate in line.candidates %}
           <li data-candidate="{{ candidate.rank }}">
             <span class="claim">{{ candidate.summary }}</span>
+            {# The change it blamed, drawn the way the flag table draws one.
+               Beside the claim rather than inside it: the model's sentence is
+               the model's, and the states are what the page can strike out. #}
+            {% if candidate.moved_to %}
+              <span class="moved"><s>{{ candidate.moved_from }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to }}</span></span>
+            {% endif %}
             {% if candidate.confidence %}
               <span class="confidence">confidence {{ candidate.confidence }}</span>
             {% endif %}

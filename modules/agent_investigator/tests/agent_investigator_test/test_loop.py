@@ -165,6 +165,34 @@ def test_evidence_that_names_no_moment_says_so_rather_than_borrowing_one() -> No
 
 
 @pytest.mark.unit
+def test_the_transition_the_model_named_is_what_the_candidate_carries() -> None:
+    # The two ends of the change as the model stated them, rather than as a
+    # page recovers them by picking the `on`s and `off`s out of the summary -
+    # which cannot tell a state from a sentence that merely uses the word.
+    #
+    # Carried through unchanged: how a state is *shown* is the page's business,
+    # and a loop that upper-cased them here would be deciding it.
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_answering(an_explanation(
+                subject="monthly-spend-feature", from_state="off", to_state="on"
+            ))
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_transition_is("off", "on")
+        )
+
+
+@pytest.mark.unit
 def test_the_model_chooses_which_channel_to_read() -> None:
     # The point of the change. A model that believes the answer is in what
     # changed reads changes and nothing else; the schedule this replaces would
@@ -792,6 +820,27 @@ def _the_evidence_is(*cited: Evidence) -> Assertion[Findings]:
 
         if rested_on != list(cited):
             raise AssertionError(f"Expected the evidence {list(cited)}, got {rested_on}.")
+
+        return True
+
+    return assertion
+
+
+def _the_transition_is(from_state: str | None, to_state: str | None) -> Assertion[Findings]:
+    """The two ends of the change the first candidate blamed.
+
+    Both at once, because half a transition is the failure worth catching: a
+    translation carrying one end and dropping the other would satisfy a check
+    on either one alone.
+    """
+    def assertion(findings: Findings) -> bool:
+        blamed = findings.candidates[0]
+        moved = (blamed.from_state, blamed.to_state)
+
+        if moved != (from_state, to_state):
+            raise AssertionError(
+                f"Expected the transition {(from_state, to_state)}, got {moved}."
+            )
 
         return True
 

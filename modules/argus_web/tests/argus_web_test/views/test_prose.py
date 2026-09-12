@@ -7,11 +7,10 @@ from argus_web.views.prose import said_plainly
 """A model's sentence, said the way the rest of the page says things.
 
 Every pattern under test here is a fact about how a language model happens to
-write: which shapes it puts a flag's position in, that it sometimes breaks a
-line around the arrow it drew, that it writes a time in the format the tools
-speak. The repairs are presentation and change nothing that was claimed - which
-is the line these draw, because the mistake in the other direction is a page
-that quietly rewrites what the investigation said.
+write: that it breaks a line mid-clause, that it writes a time in the format
+the tools speak. The repairs are presentation and change nothing that was
+claimed - which is the line these draw, because the mistake in the other
+direction is a page that quietly rewrites what the investigation said.
 
 Each case is one sentence filled in twice: once as the model wrote it, once as
 the page says it. The claim and the expectation are then visibly the same
@@ -19,67 +18,10 @@ sentence, and the only difference between them is the repair being tested - so
 a repair that reached one word further shows up as a difference rather than
 hiding inside a second string somebody typed out by hand.
 
-A flag name is hyphenated in every one of these because that is what the repair
-keys on: a state is a position only where it follows a flag's name, and "off"
-anywhere else is English.
+A flag's position is no longer among them. It was four regexes deciding which
+of the `on`s and `off`s in a sentence were states and which were English; the
+model states them as fields now, and the page says them in `said_as_a_state`.
 """
-
-
-@pytest.mark.unit
-def test_a_flag_state_is_said_the_way_the_rest_of_the_page_says_it() -> None:
-    # The model writes a flag's position as an ordinary lower-case word; every
-    # other place it appears - the flag table, the action line - says ON and
-    # OFF. Three spellings of one fact on one screen is a reader wondering
-    # whether they are three facts.
-    #
-    # Which position it is does not matter, only that it is one. The flag name
-    # is hyphenated because that is what the repair keys on: a state is a
-    # position where it follows a flag's name, and "off" anywhere else is
-    # English.
-    some_lower_case_state = "off"
-    some_claim_stating_a_flags_position = (
-        f"The ramp turned some-ramped-flag {some_lower_case_state} and left it there."
-    )
-
-    Scenario() \
-        .given(some_claim_stating_a_flags_position) \
-        .when(lambda: said_plainly(some_claim_stating_a_flags_position)) \
-        .then(_it_reads(
-            f"The ramp turned some-ramped-flag {some_lower_case_state.upper()} and left it there."
-        ))
-
-
-@pytest.mark.unit
-def test_a_quoted_state_is_said_the_same_way_and_loses_its_quotes() -> None:
-    # The shape the model reaches for when it is being careful. Its quotes were
-    # a way of marking the word as a value rather than prose; the page marks it
-    # by shouting it, and doing both would mark it twice.
-    some_lower_case_state = "off"
-    some_claim_quoting_a_flags_position = (
-        f"The ramp left some-ramped-flag '{some_lower_case_state}' for the hour."
-    )
-
-    Scenario() \
-        .given(some_claim_quoting_a_flags_position) \
-        .when(lambda: said_plainly(some_claim_quoting_a_flags_position)) \
-        .then(_it_reads(
-            f"The ramp left some-ramped-flag "
-            f"{some_lower_case_state.upper()} for the hour."
-        ))
-
-
-@pytest.mark.unit
-def test_a_word_that_is_merely_the_word_off_is_left_alone() -> None:
-    # The other direction, and the more embarrassing mistake: a page that
-    # uppercased every "off" in a sentence would be shouting at English. The
-    # expectation is the claim itself, because nothing about it should change.
-    Scenario() \
-        .given(
-            claim_using_off_as_english :=
-                "The account page went off the rails when the ramp completed."
-        ) \
-        .when(lambda: said_plainly(claim_using_off_as_english)) \
-        .then(_it_reads(claim_using_off_as_english))
 
 
 @pytest.mark.unit

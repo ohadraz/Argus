@@ -188,6 +188,64 @@ def test_a_subject_without_a_cause_is_rejected() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_hypothesis_carries_the_states_its_subject_moved_between() -> None:
+    # The transition as two fields rather than as words inside `summary`. A
+    # page reading it back out of the sentence has to guess which two of the
+    # `on`s and `off`s in it were the states, and guesses wrong on a sentence
+    # that merely uses the word.
+    hypothesis = Hypothesis(
+        incident_id=new_id(),
+        summary="some summary",
+        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        confidence=0.9,
+        supporting_evidence=[],
+        subject="monthly-spend-feature",
+        from_state="off",
+        to_state="on"
+    )
+
+    assert (hypothesis.from_state, hypothesis.to_state) == ("off", "on")
+
+
+@pytest.mark.unit
+def test_one_state_without_the_other_is_rejected() -> None:
+    # Half a transition is not one. "It moved to ON" from nothing in
+    # particular is the same incoherence as a confidence with no cause, and a
+    # page rendering `<s></s> → ON` would show a change out of nowhere.
+    with pytest.raises(ValidationError, match="state"):
+        Hypothesis(
+            incident_id=new_id(),
+            summary="some summary",
+            cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+            confidence=0.9,
+            supporting_evidence=[],
+            subject="monthly-spend-feature",
+            from_state=None,
+            to_state="on"
+        )
+
+
+@pytest.mark.unit
+def test_a_transition_without_a_subject_is_rejected() -> None:
+    # Something moved from OFF to ON and the hypothesis will not say what. The
+    # states are only readable as a change to the thing `subject` names, so
+    # without one the page has a transition and nothing to attach it to.
+    dont_care_state = "off"
+
+    with pytest.raises(ValidationError, match="subject"):
+        Hypothesis(
+            incident_id=new_id(),
+            summary="some summary",
+            cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+            confidence=0.9,
+            supporting_evidence=[],
+            subject=None,
+            from_state=dont_care_state,
+            to_state="on"
+        )
+
+
 def an_investigated_hypothesis(cause_type: CauseType | None,
                                confidence: float | None,
                                subject: str | None = None) -> Hypothesis:

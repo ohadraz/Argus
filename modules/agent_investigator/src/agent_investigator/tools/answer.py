@@ -97,6 +97,28 @@ def _one_thing_it_rests_on() -> dict[str, Any]:
     }
 
 
+def _a_state(description: str) -> dict[str, Any]:
+    """One end of a transition, said in whatever vocabulary the evidence used.
+
+    A string rather than an enum of `on` and `off`, for the reason `subject` is
+    a string: the two ends of a bad deployment are versions, and a schema that
+    only admitted a flag's positions would force every other kind of change to
+    answer null. What the words mean is already fixed by `cause_type`.
+
+    Asked for rather than read back out of the summary. A page recovering the
+    transition from the sentence has to decide which of the `on`s and `off`s in
+    it were the states, and a sentence that merely uses the word reads as a
+    change it never described.
+    """
+    return {
+        "anyOf": [
+            {"type": _STRING_TYPE},
+            {"type": _NULL_TYPE}
+        ],
+        "description": description
+    }
+
+
 def _one_explanation() -> dict[str, Any]:
     """One account of the incident, as the model fills it in.
 
@@ -155,7 +177,18 @@ def _one_explanation() -> dict[str, Any]:
                     "when the cause names nothing specific, and null when you named "
                     "no cause at all."
                 )
-            }
+            },
+            "from_state": _a_state(
+                "The state the subject was in before the change, copied from the "
+                "evidence - for a feature flag, `off` or `on`. Null when the cause "
+                "is not a change from one state to another, and null when there is "
+                "no subject."
+            ),
+            "to_state": _a_state(
+                "The state the subject was in after the change, in the same "
+                "vocabulary as from_state. Null exactly when from_state is null: "
+                "half a transition describes a position rather than a move."
+            )
         },
         "required": [
             "summary",
@@ -163,6 +196,8 @@ def _one_explanation() -> dict[str, Any]:
             "confidence",
             "supporting_evidence",
             "subject",
+            "from_state",
+            "to_state"
         ],
         "additionalProperties": False
     }

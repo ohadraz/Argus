@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     -- What the named cause is about - for a flag toggle, the flag itself.
     -- Nullable: not every cause names something this system can identify.
     subject TEXT,
+    -- The two ends of the change blamed on that subject - `off` and `on` for a
+    -- flag, two versions for a deployment. Both null together: not every cause
+    -- is a move from one state to another, and half a transition is a position.
+    from_state TEXT,
+    to_state TEXT,
     -- Where this hypothesis came in its investigation's ordering, best first.
     -- Defaulted rather than nullable: every hypothesis has a rank, and a row
     -- that does not say otherwise is first.

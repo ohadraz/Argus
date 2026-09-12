@@ -168,6 +168,28 @@ def test_an_attempt_naming_no_candidate_is_still_shown() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_is_shown_with_the_move_it_blamed() -> None:
+    # Said the way the flag table says it, because this is the same page. The
+    # states arrive as the model wrote them - `off` and `on` - and which of
+    # those two words the page shouts is not the model's to decide.
+    an_incident = _an_incident()
+
+    Scenario() \
+        .given(
+            a_candidate_blaming_a_toggle := _a_candidate(
+                an_incident.id, subject="a-flag", rank=1, from_state="off", to_state="on"
+            )
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_blaming_a_toggle],
+            attempts=NOTHING_WAS_TRIED,
+            timeline=[]
+        )) \
+        .then(_the_only_candidate_moved(was="OFF", now="ON"))
+
+
+@pytest.mark.unit
 def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
     # Evidence in a collection of its own makes a reader correlate claims to
     # timestamps, which is the reader investigating the incident again.
@@ -263,7 +285,9 @@ def _an_incident(alert: Alert | None = None) -> Incident:
 def _a_candidate(incident_id: str,
                  subject: str,
                  rank: int,
-                 evidence: list[Evidence] | None = None) -> Hypothesis:
+                 evidence: list[Evidence] | None = None,
+                 from_state: str | None = None,
+                 to_state: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary=f"dont care - {subject}",
@@ -271,7 +295,9 @@ def _a_candidate(incident_id: str,
         confidence=0.9,
         supporting_evidence=evidence or [],
         subject=subject,
-        rank=rank
+        rank=rank,
+        from_state=from_state,
+        to_state=to_state
     )
 
 
@@ -430,3 +456,18 @@ def _the_first(detail: IncidentDetail) -> Candidate:
         raise AssertionError(f"expected one candidate, got {len(detail.candidates)}")
 
     return detail.candidates[0]
+
+
+def _the_only_candidate_moved(was: str, now: str) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        candidate = detail.candidates[0]
+
+        if (candidate.moved_from, candidate.moved_to) != (was, now):
+            raise AssertionError(
+                f"expected the candidate to have moved [{was}] to [{now}], "
+                f"got [{candidate.moved_from}] to [{candidate.moved_to}]"
+            )
+
+        return True
+
+    return assertion

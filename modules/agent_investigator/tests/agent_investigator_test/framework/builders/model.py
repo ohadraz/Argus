@@ -176,7 +176,9 @@ def an_explanation(summary: str = "a feature flag was toggled on just before the
                    cause_type: str | None = "feature-flag-toggle",
                    confidence: float | None = 0.8,
                    supporting_evidence: list[Evidence] | None = None,
-                   subject: str | None = None) -> dict[str, Any]:
+                   subject: str | None = None,
+                   from_state: str | None = None,
+                   to_state: str | None = None) -> dict[str, Any]:
     """One account of the incident, as the model fills the answer schema in."""
     return {
         "summary": summary,
@@ -185,7 +187,9 @@ def an_explanation(summary: str = "a feature flag was toggled on just before the
         "supporting_evidence": [
             cited.model_dump(mode="json") for cited in supporting_evidence or []
         ],
-        "subject": subject
+        "subject": subject,
+        "from_state": from_state,
+        "to_state": to_state
     }
 
 

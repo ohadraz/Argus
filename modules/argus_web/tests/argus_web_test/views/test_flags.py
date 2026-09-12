@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from argus_core.models.flag_change import FlagChange
 from argus_testkit import Assertion, Scenario, all_of
-from argus_web.views.flags import FlagToggleRow, a_flag_history, on_or_off
+from argus_web.views.flags import FlagToggleRow, a_flag_history, on_or_off, said_as_a_state
 
 """The flag provider's recorded changes, each said as the move it was.
 
@@ -123,6 +123,39 @@ def test_a_history_nobody_recorded_anything_in_is_empty() -> None:
         .then(_there_are_no_rows())
 
 
+@pytest.mark.unit
+def test_a_flag_position_the_model_wrote_is_said_the_way_the_table_says_it() -> None:
+    # The page has one spelling for a flag's position, and the model writes
+    # another. Mapped here, on a field, rather than by re-casing the word
+    # wherever it appears in a sentence - which cannot tell a state from prose
+    # that merely uses the word "off".
+    Scenario() \
+        .given(some_state_as_the_model_wrote_it := "off") \
+        .when(lambda: said_as_a_state(some_state_as_the_model_wrote_it)) \
+        .then(_it_reads("OFF"))
+
+
+@pytest.mark.unit
+def test_a_state_that_is_not_a_flag_position_is_left_exactly_as_it_came() -> None:
+    # A deployment moves between versions, and `V2.3.1` is not a version. Only
+    # the two words this page has a house style for are touched; everything
+    # else is the evidence's own and is shown as the evidence wrote it.
+    Scenario() \
+        .given(some_version_a_deployment_moved_from := "v2.3.1") \
+        .when(lambda: said_as_a_state(some_version_a_deployment_moved_from)) \
+        .then(_it_reads("v2.3.1"))
+
+
+@pytest.mark.unit
+def test_a_cause_that_moved_between_no_states_says_nothing() -> None:
+    # Not every cause is a transition. Empty rather than a word standing in for
+    # one, because the template shows the move only where there is one.
+    Scenario() \
+        .given(nothing_was_stated := None) \
+        .when(lambda: said_as_a_state(nothing_was_stated)) \
+        .then(_it_reads(""))
+
+
 def _a_change(enabled: bool,
               flag: str = "some-ramped-flag",
               occurred_at: str = SOME_MOMENT,
@@ -213,3 +246,13 @@ def _the_only(history: list[FlagToggleRow]) -> FlagToggleRow:
         raise AssertionError(f"expected one row, got {len(history)}")
 
     return history[0]
+
+
+def _it_reads(expected: str) -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        if said != expected:
+            raise AssertionError(f"expected [{expected}], got [{said}]")
+
+        return True
+
+    return assertion

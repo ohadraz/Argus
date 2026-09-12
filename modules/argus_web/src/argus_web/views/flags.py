@@ -9,10 +9,17 @@ something about `legacy-checkout-fallback` that is exactly backwards.
 
 from __future__ import annotations
 
+from typing import Final
+
 from argus_core.models.flag_change import FlagChange
 from pydantic import BaseModel
 
 from argus_web.views.clock import a_moment
+
+# The two words this page has a house style for. Everything else a subject
+# might have moved between - a version, a limit, a region - belongs to the
+# evidence that named it and is shown as the evidence wrote it.
+_A_FLAGS_POSITIONS: Final = frozenset({"on", "off"})
 
 
 class FlagToggleRow(BaseModel):
@@ -63,6 +70,25 @@ def a_flag_history(toggles: list[FlagChange]) -> list[FlagToggleRow]:
 def on_or_off(enabled: bool | None) -> str:
     """A flag's state, said the one way the whole page says it."""
     return "ON" if enabled else "OFF"
+
+
+def said_as_a_state(state: str | None) -> str:
+    """One end of a transition the Investigator named, in the page's own voice.
+
+    A flag's position gets the spelling the flag table uses, so a change reads
+    as the same kind of thing wherever it appears. Anything else is left
+    exactly as it arrived: a deployment moves between versions, and `V2.3.1` is
+    not a version.
+
+    A mapping over a field rather than a repair to a sentence. The states used
+    to be recovered by re-casing every `on` and `off` inside the model's prose,
+    which shouts at a sentence that merely uses the word and cannot tell the
+    two apart - the model states them now, so there is nothing left to guess.
+    """
+    if state is None:
+        return ""
+
+    return state.upper() if state.lower() in _A_FLAGS_POSITIONS else state
 
 
 def _with_the_latest_marked(history: list[FlagToggleRow]) -> list[FlagToggleRow]:

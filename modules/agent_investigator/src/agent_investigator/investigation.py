@@ -100,6 +100,13 @@ cause at all.
 the flag's own name, copied verbatim from the evidence. Something acts on that \
 name, so a name that is not in the evidence identifies nothing.
 
+`from_state` and `to_state` are what that subject moved between, in the words \
+the evidence uses - `off` and `on` for a feature flag, two versions for a \
+deployment. Both or neither: a cause that is not a change from one state to \
+another names no states at all. Do not leave them to be read back out of your \
+summary - a sentence that merely uses the word "off" is not a transition, and \
+whatever reads it cannot tell the difference.
+
 Give every explanation the evidence supports, best first. The one you name \
 first is tried first, and the rest are tried in turn if it does not help.\
 """
@@ -332,7 +339,8 @@ def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResul
                 f"that answer could not be read: {malformed}. Call final_answer again "
                 f"with one entry per explanation, each carrying a summary, a cause_type "
                 f"and confidence that are both null or both set, its supporting "
-                f"evidence, and a subject."
+                f"evidence, a subject, and a from_state and to_state that are both "
+                f"null or both set."
             ),
             failed=True
         )
@@ -360,6 +368,8 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
                 for cited in explanation.get("supporting_evidence") or []
             ],
             subject=explanation.get("subject"),
+            from_state=explanation.get("from_state"),
+            to_state=explanation.get("to_state"),
             rank=rank
         )
         for rank, explanation in enumerate(answering.arguments[HYPOTHESES_ARG], start=1)
@@ -506,6 +516,8 @@ def _say_formed(narrator: Narrator, hypothesis: Hypothesis) -> None:
         cause_type=hypothesis.cause_type,
         confidence=hypothesis.confidence,
         subject=hypothesis.subject,
+        from_state=hypothesis.from_state,
+        to_state=hypothesis.to_state,
         rank=hypothesis.rank,
         evidence=hypothesis.supporting_evidence
     )

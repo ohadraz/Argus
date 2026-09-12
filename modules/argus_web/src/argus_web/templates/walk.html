@@ -56,6 +56,11 @@
         <span class="rank">#{{ candidate.rank }}</span>
         {{ candidate.summary }}
         {% if candidate.subject %}<code>{{ candidate.subject }}</code>{% endif %}
+        {# The move it blamed, struck through and picked out - the same shape
+           the flag table and the story use for a change. #}
+        {% if candidate.moved_to %}
+          <span class="moved"><s>{{ candidate.moved_from }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to }}</span></span>
+        {% endif %}
         {% if candidate.confidence is not none %}
           <span class="confidence">{{ "%.0f%%"|format(candidate.confidence * 100) }}</span>
         {% endif %}

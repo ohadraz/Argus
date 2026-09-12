@@ -2,7 +2,7 @@
   "container": null,
   "content": [
     {
-      "signature": "CAIS1QIKjgEIERgCKkAQQ0PZPu7orOC0ivs5R37vb8tfBLkdrDzoKdtDT22hqtt/nqpoSdPbF8OCzHLKdgBpcF+wYQsMbpp/0aQFAqIJMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAd+tldUGEgwnqczkgBhSFQoF5v8aDGnbwY3tYHB75n6hDyIwA7bOO/S6AHoVZyEK87wrTKWe3V9ZRFNR2LR1qIyhphsC51Fgrv8q2aA8Gj49/3AEKnRm3hilyj0FUM+LNU3yqyDGWOY+XxC5uoWHqcFYubSc+PFjYmVefoysydC4xcXOdtDwcnJRr9cVp6xaYFpEoWLW0RO1xiG7wtdcDx5yshMioftWDXk/dPN174MrkZi6wjIIB6uU/1KkKMXZ2lCWwCxb2ePooRgB",
+      "signature": "CAISqQIKjgEIERgCKkA4jO6PDlrPBB73kt5eF0mi185lMb59BSFUBe8/t4+Qs1XXIZRJDgur6+oKBHfqHAY/Ce8IBzIp8VXdqW/J7wTgMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAfDYldUGEgwADMWfswGhR/X40LQaDFA2Z6g0ZZp2np3BLyIwxdqa1cCc/vcIUSKGKRDQ4lqIKRLgGxXPgVAg/O4SwWXO1CWkKe9NQVPRT9fM1YTrKkgzzWRM3/QuVsL3Zut9IHQt0MDcjj9KJVLdbcYUpIMwq289j0xDJahdV8JDYpkQorDgUZZUpHP8OCm8YiKcTBsO2EnDFEw9Tz4YAQ==",
       "thinking": "",
       "type": "thinking"
     },
@@ -10,52 +10,60 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01XH2HDTHKLma6kD5mEKgFo6",
+      "id": "toolu_01Q6YAfUo49pwyck3r3CuZg4",
       "input": {
         "hypotheses": [
           {
             "cause_type": "feature-flag-toggle",
             "confidence": 0.94,
+            "from_state": "off",
             "subject": "monthly-spend-feature",
-            "summary": "The feature flag `monthly-spend-feature` was ramped from fully off to on starting at 13:37 (partial: 163 off / 37 on) and fully on by 13:38. Requests served with the flag on hit a ZeroDivisionError in the account-page monthly-spend calculation, driving the error rate from ~1% baseline to 26-40%.",
+            "summary": "The feature flag `monthly-spend-feature` was rolled out from off to on starting at 15:09 (partial: 154 off / 46 on, fully on by 15:10). The new code path throws ZeroDivisionError on account page rendering, driving the error rate from ~1% baseline to 28-38%.",
             "supporting_evidence": [
               {
-                "at": "2026-09-12T13:37:00Z",
-                "claim": "INFO io-shop: monthly-spend-feature=off 163 / on 37 - 200 evaluations"
+                "at": "2026-09-12T15:08:00Z",
+                "claim": "2026-09-12T15:08:00Z INFO io-shop: monthly-spend-feature=off - 200 evaluations"
               },
               {
-                "at": "2026-09-12T13:38:00Z",
-                "claim": "INFO io-shop: monthly-spend-feature=on - 200 evaluations"
+                "at": "2026-09-12T15:09:00Z",
+                "claim": "2026-09-12T15:09:00Z INFO io-shop: monthly-spend-feature=off 154 / on 46 - 200 evaluations"
               },
               {
-                "at": "2026-09-12T13:37:00Z",
-                "claim": "ERROR io-shop: account page request failed - ZeroDivisionError: division by zero (new error class, first appears exactly at the onset minute; before 13:37 all errors were 'UpstreamTimeout: payment authorization timed out')"
+                "at": "2026-09-12T15:09:00Z",
+                "claim": "2026-09-12T15:09:00Z ERROR io-shop: account page request failed - ZeroDivisionError: division by zero"
               },
               {
-                "at": "2026-09-12T13:38:00Z",
-                "claim": "error_rate 0.01 at 13:36 -> 0.06 at 13:37 -> 0.31 at 13:38, with request_volume flat at 1200 and p50/p95 latency unchanged"
+                "at": "2026-09-12T15:10:00Z",
+                "claim": "2026-09-12T15:10:00Z INFO io-shop: monthly-spend-feature=on - 200 evaluations"
+              },
+              {
+                "at": "2026-09-12T15:10:00Z",
+                "claim": "error_rate 0.005 at 15:08 -> 0.07 at 15:09 -> 0.325 at 15:10"
               },
               {
                 "at": null,
-                "claim": "Every recorded change to io-shop from 2026-09-11T13:37:00Z to 2026-09-12T13:37:00Z. (nothing changed in this window)"
+                "claim": "Every recorded change to io-shop from 2026-09-11T15:09:00Z to 2026-09-12T15:09:00Z: (nothing changed in this window)"
               }
-            ]
+            ],
+            "to_state": "on"
           },
           {
-            "cause_type": "bad-deployment",
-            "confidence": 0.05,
+            "cause_type": null,
+            "confidence": null,
+            "from_state": null,
             "subject": null,
-            "summary": "Alternative: an unrecorded code rollout introduced the division-by-zero path, and the flag log lines merely reflect the new build's evaluations. Nothing in the change record supports this - the 24h change lookback is empty - so it is a distant second.",
+            "summary": "Alternative: an upstream payment authorization dependency degraded. UpstreamTimeout errors appear before and during the incident, but they occur at pre-onset baseline volume and do not account for the step change, so this is at best a minor contributor.",
             "supporting_evidence": [
               {
-                "at": null,
-                "claim": "Every recorded change to io-shop from 2026-09-11T13:37:00Z to 2026-09-12T13:37:00Z. (nothing changed in this window)"
+                "at": "2026-09-12T15:05:00Z",
+                "claim": "2026-09-12T15:05:00Z ERROR io-shop: account page request failed - UpstreamTimeout: payment authorization timed out"
               },
               {
-                "at": "2026-09-12T13:37:00Z",
-                "claim": "ERROR io-shop: account page request failed - ZeroDivisionError: division by zero"
+                "at": "2026-09-12T15:11:00Z",
+                "claim": "2026-09-12T15:11:00Z ERROR io-shop: account page request failed - UpstreamTimeout: payment authorization timed out"
               }
-            ]
+            ],
+            "to_state": null
           }
         ]
       },
@@ -63,7 +71,7 @@
       "type": "tool_use"
     }
   ],
-  "id": "msg_011CeyeGK7Wp3qucXjajmxxk",
+  "id": "msg_011CeymHEmv8NHvpHQYx6XV2",
   "model": "claude-opus-5",
   "role": "assistant",
   "stop_details": null,
@@ -73,15 +81,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 5117
+      "ephemeral_5m_input_tokens": 1968
     },
-    "cache_creation_input_tokens": 5117,
-    "cache_read_input_tokens": 9646,
+    "cache_creation_input_tokens": 1968,
+    "cache_read_input_tokens": 9970,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 915,
+    "output_tokens": 937,
     "output_tokens_details": {
-      "thinking_tokens": 49
+      "thinking_tokens": 28
     },
     "service_tier": "standard"
   }

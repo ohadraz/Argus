@@ -25,6 +25,8 @@ from argus_core.models.taken_action import TakenAction
 from argus_core.models.timeline_event import TimelineEvent
 from pydantic import BaseModel
 
+from argus_web.views.flags import said_as_a_state
+
 # The verdict a reversible action gets when the service did not recover. The
 # walk undoes such an action before returning it - see `agent_mitigation` - so
 # "refuted" is also the record that the change was put back. Named here because
@@ -56,6 +58,12 @@ class Candidate(BaseModel):
     cause_type: CauseType | None
     confidence: float | None
     subject: str | None
+    # The two ends of the change blamed on that subject, said the way the flag
+    # table says them. Already in the page's voice, unlike `confidence` beside
+    # it: a percentage is formatted from a number the template also compares,
+    # where a state is only ever shown.
+    moved_from: str = ""
+    moved_to: str = ""
     evidence: list[Evidence]
     tested: bool
     result: str | None
@@ -184,6 +192,8 @@ def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
         cause_type=hypothesis.cause_type,
         confidence=hypothesis.confidence,
         subject=hypothesis.subject,
+        moved_from=said_as_a_state(hypothesis.from_state),
+        moved_to=said_as_a_state(hypothesis.to_state),
         evidence=hypothesis.supporting_evidence,
         tested=hypothesis.tested,
         result=hypothesis.result,

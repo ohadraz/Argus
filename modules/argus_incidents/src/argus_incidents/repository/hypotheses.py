@@ -19,8 +19,9 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
         cursor.execute(
             "INSERT INTO hypothesis "
             "       (id, incident_id, summary, cause_type, confidence, "
-            "        supporting_evidence, subject, rank, tested, result) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "        supporting_evidence, subject, from_state, to_state, "
+            "        rank, tested, result) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 hypothesis.id,
                 hypothesis.incident_id,
@@ -35,6 +36,8 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                     for cited in hypothesis.supporting_evidence
                 ]),
                 hypothesis.subject,
+                hypothesis.from_state,
+                hypothesis.to_state,
                 hypothesis.rank,
                 hypothesis.tested,
                 hypothesis.result,
@@ -82,7 +85,8 @@ def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypo
     with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, summary, cause_type, confidence, "
-            "       supporting_evidence, subject, rank, tested, result "
+            "       supporting_evidence, subject, from_state, to_state, "
+            "       rank, tested, result "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
             "ORDER BY rank, created_at",
@@ -112,7 +116,8 @@ def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypoth
     with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, summary, cause_type, confidence, "
-            "       supporting_evidence, subject, rank, tested, result "
+            "       supporting_evidence, subject, from_state, to_state, "
+            "       rank, tested, result "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
             "ORDER BY rank, created_at DESC "
