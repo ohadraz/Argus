@@ -4,12 +4,12 @@ import pytest
 from argus_testkit import Assertion, Scenario
 from argus_web.views.prose import said_plainly
 
-"""A model's sentence, said the way the rest of the page says things.
+"""A model's instant, said the way the rest of the page says instants.
 
-Every pattern under test here is a fact about how a language model happens to
-write: that it breaks a line mid-clause, that it writes a time in the format
-the tools speak. The repairs are presentation and change nothing that was
-claimed - which is the line these draw, because the mistake in the other
+One repair, and one fact about how a language model happens to write: it names
+a time in the wire format the tools speak, where every other time on the page
+is a clock time. The repair is presentation and changes nothing that was
+claimed - which is the line this draws, because the mistake in the other
 direction is a page that quietly rewrites what the investigation said.
 
 Each case is one sentence filled in twice: once as the model wrote it, once as
@@ -18,32 +18,12 @@ sentence, and the only difference between them is the repair being tested - so
 a repair that reached one word further shows up as a difference rather than
 hiding inside a second string somebody typed out by hand.
 
-A flag's position is no longer among them. It was four regexes deciding which
-of the `on`s and `off`s in a sentence were states and which were English; the
-model states them as fields now, and the page says them in `said_as_a_state`.
+Two repairs have left. A flag's position was four regexes deciding which of the
+`on`s and `off`s in a sentence were states and which were English; the model
+states them as fields now. A line break was typesetting nobody asked for, and
+is mended where the answer is accepted, so the postmortem and the pager read
+the same sentence this page does.
 """
-
-
-@pytest.mark.unit
-def test_a_claim_broken_across_lines_is_read_as_the_sentence_it_is() -> None:
-    # The page lays out its own text. A line break arriving inside a claim is
-    # typesetting the model did not mean and this page did not ask for, so it
-    # becomes the space it stands for.
-    #
-    # Whatever whitespace came with the break goes with it: the model indents
-    # its continuation and the page has no use for the indent either.
-    some_break_the_model_wrote = "\n   "
-    the_space_it_stands_for = " "
-    some_claim_broken_mid_sentence = (
-        f"The error rate rose{some_break_the_model_wrote}to 33% within a minute."
-    )
-
-    Scenario() \
-        .given(some_claim_broken_mid_sentence) \
-        .when(lambda: said_plainly(some_claim_broken_mid_sentence)) \
-        .then(_it_reads(
-            f"The error rate rose{the_space_it_stands_for}to 33% within a minute."
-        ))
 
 
 @pytest.mark.unit

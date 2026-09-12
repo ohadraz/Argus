@@ -193,6 +193,48 @@ def test_the_transition_the_model_named_is_what_the_candidate_carries() -> None:
 
 
 @pytest.mark.unit
+def test_a_claim_broken_across_lines_is_accepted_as_the_sentence_it_is() -> None:
+    # Mended where the answer is accepted, not in the view that happens to show
+    # it: the same claim reaches a page, a postmortem and whoever is paged, and
+    # a repair living in one of those is missing from the other two.
+    #
+    # Both fields, because the model wraps whichever it happens to be writing
+    # when the line runs out.
+    some_summary_broken_mid_clause = (
+        "the flag was switched on\n   just before the errors began"
+    )
+    some_cited = Evidence(
+        claim="monthly-spend-feature evaluated on\n  for all 198 requests", at=None
+    )
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_answering(an_explanation(
+                summary=some_summary_broken_mid_clause, supporting_evidence=[some_cited]
+            ))
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            all_of(
+                _the_candidates_say(
+                    "the flag was switched on just before the errors began"
+                ),
+                _the_evidence_is(Evidence(
+                    claim="monthly-spend-feature evaluated on for all 198 requests",
+                    at=None
+                ))
+            )
+        )
+
+
+@pytest.mark.unit
 def test_the_model_chooses_which_channel_to_read() -> None:
     # The point of the change. A model that believes the answer is in what
     # changed reads changes and nothing else; the schedule this replaces would

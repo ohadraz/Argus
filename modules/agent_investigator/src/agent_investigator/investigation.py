@@ -18,7 +18,7 @@ import json
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from argus_core.anomaly import earliest_bucket_is_anomalous, find_onset
 from argus_core.events import (
@@ -33,6 +33,7 @@ from argus_core.events import (
     nobody,
 )
 from argus_core.llm.client import AnswerTruncated, ModelRefused
+from argus_core.llm.line_breaks import on_one_line
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
 from argus_core.models.evidence import Evidence
@@ -356,15 +357,21 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
     `incident_id` is supplied here rather than asked of the model. It is not
     something the model knows, and a schema offering the field would be
     inviting it to invent one.
+
+    The two prose fields are put on one line as they are accepted, because both
+    are one sentence by definition and the model wraps whichever it happens to
+    be writing when its line runs out. Here rather than in a view: this claim
+    reaches a page, a postmortem and whoever is paged, and a repair living in
+    one of those is missing from the other two.
     """
     return [
         Hypothesis(
             incident_id=incident_id,
-            summary=explanation["summary"],
+            summary=on_one_line(explanation["summary"]),
             cause_type=explanation["cause_type"],
             confidence=explanation["confidence"],
             supporting_evidence=[
-                Evidence.model_validate(cited)
+                _a_cited_fact(cited)
                 for cited in explanation.get("supporting_evidence") or []
             ],
             subject=explanation.get("subject"),
@@ -374,6 +381,17 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
         )
         for rank, explanation in enumerate(answering.arguments[HYPOTHESES_ARG], start=1)
     ]
+
+
+def _a_cited_fact(cited: dict[str, Any]) -> Evidence:
+    """One piece of evidence, with its claim said as the sentence it is.
+
+    The instant is left exactly as it arrived. It is a value the model copied
+    out of a line it retrieved, and pydantic is what decides whether it parses.
+    """
+    validated = Evidence.model_validate(cited)
+
+    return validated.model_copy(update={"claim": on_one_line(validated.claim)})
 
 
 def _what_the_model_is_told_next(results: list[ToolResult], one_turn_left: bool) -> Exchange:

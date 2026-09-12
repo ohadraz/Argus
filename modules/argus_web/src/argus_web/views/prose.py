@@ -1,24 +1,20 @@
-"""A model's sentence, said the way the rest of the page says things.
+"""A model's instant, said the way the rest of the page says instants.
 
-Two repairs, both of them presentation, neither changing what was claimed: the
-line breaks, which the model puts mid-clause and the page lays out itself; and
-the times, which it writes in the wire format the tools speak. Two spellings of
-one instant on one screen is a reader wondering whether they are two facts.
+One repair, presentation only, changing nothing that was claimed: the times,
+which the model writes in the wire format the tools speak. Two spellings of one
+instant on one screen is a reader wondering whether they are two facts.
 
-A flag's position used to be repaired here too - four patterns deciding which
-of the `on`s and `off`s in a sentence were states and which were English, which
-is a judgement no pattern can make. The model states the two ends of a
-transition as fields now, and `said_as_a_state` says them; nothing is left to
-recover from the sentence.
+What is left here is what is genuinely the page's own. Everything else this
+module used to carry has moved to where the answer is accepted, so that the
+page, the postmortem and whoever is paged all read one sentence: a character
+the model escaped rather than typed, a line break it wrote mid-clause, and the
+two ends of a transition - which were four patterns deciding which of the `on`s
+and `off`s in a sentence were states and which were English, a judgement no
+pattern can make. The model states them as fields now.
 
-Nothing here decodes what the model wrote. A character it escaped rather than
-typed is resolved where its answer is accepted, so that the page, the postmortem
-and whoever is paged all read the same sentence.
-
-Gathered into one module because it is one decision, and one worth being able
-to look at whole: every pattern here is a fact about how a language model
-happens to write, and a renderer is a strange place to keep such a fact. Until
-they are repaired somewhere better, they are at least repaired in one place.
+That leaves one rendering rather than a collection of repairs, and it stays
+here because it is a rendering: `21:48Z` is not wrong, it is simply not how
+this page says the time.
 """
 
 from __future__ import annotations
@@ -36,32 +32,18 @@ _A_TIME_IN_PROSE = re.compile(
     r"|(?<!\d)(\d{2}:\d{2})(?!:?\d)"
 )
 
-# Any run of whitespace that contains a line break.
-_A_LINE_BREAK = re.compile(r"[ \t]*\n\s*")
-
 # A clock time on its own, with or without the wire format's seconds and zone.
 _A_BARE_CLOCK = re.compile(r"\d{2}:\d{2}(?::\d{2})?Z?")
 
 
 def said_plainly(prose: str) -> str:
-    """A model's sentence, arranged the way the page arranges everything else.
+    """A model's sentence, with its instants said the way the page says them.
 
-    The line breaks go before the times are read, because a model that broke
-    its line around an instant would otherwise leave a shape no pattern here
-    matches.
+    A claim arrives here already on one line - that is settled where the answer
+    is accepted - so an instant is never split across a break by the time these
+    patterns read it.
     """
-    return _with_readable_times(_on_one_line(prose))
-
-
-def _on_one_line(prose: str) -> str:
-    """A sentence, said as a sentence.
-
-    The model writes a paragraph and occasionally breaks it mid-clause; the
-    page lays its own text out. A line break arriving inside a claim is
-    typesetting the model did not mean and the page did not ask for, so it
-    becomes the space it stands for.
-    """
-    return _A_LINE_BREAK.sub(" ", prose).strip()
+    return _with_readable_times(prose)
 
 
 def _with_readable_times(prose: str) -> str:
