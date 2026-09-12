@@ -14,7 +14,10 @@ pattern can make. The model states them as fields now.
 
 That leaves one rendering rather than a collection of repairs, and it stays
 here because it is a rendering: `21:48Z` is not wrong, it is simply not how
-this page says the time.
+this page says the time. It stays *here* rather than following the others to
+the acceptance seam for the same reason - rendering an instant on the way in
+would store `21:48` in place of the moment it names, throwing the date away,
+and a postmortem is entitled to say the date.
 """
 
 from __future__ import annotations
@@ -23,13 +26,16 @@ import re
 
 from argus_web.views.clock import a_minute
 
-# A time inside a sentence, in either of the two shapes this system writes:
-# the wire format the tools speak to each other, and the clock time the model
-# uses when it writes for a person.
+# An instant inside a sentence, in the two shapes that are not already how this
+# page says the time: the wire format the tools speak to each other, and a
+# clock time still carrying the wire's zone marker.
+#
+# A bare `10:14` is deliberately not among them. It is already what this
+# renders to, so matching it only to hand it back is a third pattern that can
+# be got wrong and can never be got right.
 _A_TIME_IN_PROSE = re.compile(
     r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?)"
     r"|(?<!\d)(\d{2}:\d{2}(?::\d{2})?Z)"
-    r"|(?<!\d)(\d{2}:\d{2})(?!:?\d)"
 )
 
 # A clock time on its own, with or without the wire format's seconds and zone.

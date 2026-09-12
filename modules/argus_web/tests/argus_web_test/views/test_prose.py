@@ -63,6 +63,20 @@ def test_a_clock_time_carrying_a_zone_loses_only_the_zone() -> None:
         .then(_it_reads(f"The last good minute was {some_clock_time}."))
 
 
+@pytest.mark.unit
+def test_a_clock_time_the_model_already_wrote_is_left_exactly_as_it_is() -> None:
+    # The common case, and the one that needs no repair: the model writes for a
+    # person more often than it quotes the wire. The expectation is the claim,
+    # because a rendering that touched a time already in the page's own format
+    # would be rewriting what the investigation said.
+    some_claim_naming_a_clock_time = "The error rate rose at 10:14 and held there."
+
+    Scenario() \
+        .given(some_claim_naming_a_clock_time) \
+        .when(lambda: said_plainly(some_claim_naming_a_clock_time)) \
+        .then(_it_reads(some_claim_naming_a_clock_time))
+
+
 def _it_reads(expected: str) -> Assertion[str]:
     def assertion(said: str) -> bool:
         if said != expected:
