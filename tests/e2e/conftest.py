@@ -103,6 +103,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
 
     _every_live_incident_was_withdrawn()
     _every_run_came_to_a_stop()
+    _the_relay_caught_up()
     _every_table_was_emptied()
     _the_target_service_scenario_was_reset()
 
@@ -176,6 +177,58 @@ def _the_runs_still_going() -> list[str]:
         )
 
         return [str(run_id) for (run_id,) in cursor.fetchall()]
+
+
+def _the_relay_caught_up() -> None:
+    """Waits until the Communicator has nothing left to say about this case.
+
+    The wait above covers the worker, which is not the only long-lived process
+    writing here. The relay is a second reader of the same incident, on its own
+    poll loop: a line it has read but not yet delivered is a `slack_thread`
+    insert that lands after the tables are emptied, against an incident that no
+    longer exists. That is a foreign key violation, and `watch_forever` is
+    designed to fail the process on one - so it does not merely lose a message,
+    it takes the relay down for the rest of the run, and every later case waits
+    for messages nobody is left to post.
+
+    Loudly, for the reason the runs are waited for loudly: the case that pays
+    for this is a later one, on evidence it never arranged.
+    """
+    deadline = time.monotonic() + _SETTLING_TIMEOUT_SECONDS
+
+    while True:
+        behind = _the_lines_the_relay_has_not_reached()
+
+        if behind == 0:
+            return
+
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"The relay was still [{behind}] line(s) behind the event log "
+                f"[{_SETTLING_TIMEOUT_SECONDS}s] after every run stopped. "
+                f"Emptying the tables now would kill it on a foreign key to an "
+                f"incident this teardown is about to remove."
+            )
+
+        time.sleep(_SETTLING_POLL_SECONDS)
+
+
+def _the_lines_the_relay_has_not_reached() -> int:
+    """How far the slowest reader of the event log still is from its end.
+
+    Counted against every cursor rather than the relay's own name, so a second
+    reader added tomorrow is waited for without this being edited. A log with
+    events and no cursor at all is fully behind: the relay has not filed
+    anything yet, which is not the same as having nothing to file.
+    """
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT COALESCE(MAX(seq), 0) FROM incident_event")
+        (published,) = cursor.fetchone() or (0,)
+
+        cursor.execute("SELECT COALESCE(MIN(seq), 0) FROM event_cursor")
+        (read,) = cursor.fetchone() or (0,)
+
+    return max(int(published) - int(read), 0)
 
 
 def _every_table_was_emptied() -> None:
