@@ -10,7 +10,7 @@ import psycopg
 from argus_core.db import Connections, open_pool
 from argus_core.events import Publisher
 from argus_core.models.incident_status import IncidentStatus
-from argus_core.schema import create_schema
+from argus_core.schema import require_schema
 from argus_incidents.intake import start_incident
 from argus_incidents.publishing import events_into
 from argus_incidents.withdrawal import withdraw_incident
@@ -32,13 +32,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     lifespan: a process that serves requests wants connections ready before the
     first one arrives and given back when the last one has been answered. What
     a route needs, it asks for; what it asks for comes from here.
+
+    The schema is checked and never applied. This process only reads, and a
+    process that only reads is the last one that should be defining the tables
+    everything else writes - it was also, while it did, the process every other
+    one had to be started after.
     """
     with open_pool() as pool:
         app.state.connections = pool.connection
         app.state.publisher = events_into(pool.connection)
 
         with pool.connection() as conn:
-            create_schema(conn)
+            require_schema(conn)
 
         yield
 

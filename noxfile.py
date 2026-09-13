@@ -95,12 +95,13 @@ def test_module(session: nox.Session, module: str) -> None:
     filter rather than left to `test_all`: a marker a session does not select is a
     marker whose tests quietly never run.
 
-    Runs against a database of this module's own, so it can run beside
-    `e2e_replay` - or beside another module's suite - rather than stop the
-    database either of them is using. The conftests that bring postgres up
-    inherit this environment; none of them is handed one.
+    Runs against a database of this module's own, and a Slack double port of its
+    own, so it can run beside `e2e_replay` - or beside another module's suite -
+    rather than stop the database either of them is using or lose the bind to
+    the double either of them is talking to. The conftests that bring postgres
+    and the double up inherit this environment; none of them is handed one.
     """
-    os.environ.update(_a_database_for(module))
+    os.environ.update(_a_database_for(module) | _a_slack_double_for(module))
     session.run(
         "uv", "run", "--package", f"argus-{module}",
         "python", "-m", "pytest", f"modules/{module}/tests",
@@ -120,9 +121,9 @@ def test_all(session: nox.Session) -> None:
     of earlier failures, then fails the session with a summary if any failed -
     full-picture visibility, intended for CI.
 
-    On a database of its own, for the reason `test_module` has one - and not
-    the same one, since running both at once is the case that would otherwise
-    have each stopping the other's.
+    On a database of its own and a Slack double port of its own, for the reason
+    `test_module` has each - and not the same ones, since running both at once
+    is the case that would otherwise have each stopping the other's.
     """
     os.environ.update(_TEST_ALL_STACK)
     ci_mode = "--ci" in session.posargs or "--aggregate" in session.posargs
@@ -259,6 +260,23 @@ def _clean_up_after(suites: list[str]) -> None:
             print(f"could not remove the containers [{suite}] left behind: "
                   f"{removed.stderr.decode(errors='replace').strip()}")
 
+
+@nox.session
+def schema(session: nox.Session) -> None:
+    """
+    Registers `schema` as a nox session, i.e., runnable via
+    `uv run python -m nox -s schema`.
+    Applies Argus's database schema to whatever database the environment names,
+    by throwing away what is there and applying `argus_core.schema`'s DDL from
+    nothing. It is destructive and that is the design: Argus keeps no migration
+    history, so the DDL is the whole statement of what the database holds, and
+    an edit to it reaches a database only by replacing it.
+
+    A wrapper around `python -m argus_core.schema` rather than the job itself.
+    The e2e stack applies the schema too, as does anyone with a bare checkout
+    and a postgres container, and only some of those are nox.
+    """
+    session.run("uv", "run", "python", "-m", "argus_core.schema", external=True)
 
 @nox.session
 def guard_e2e_boundary(session: nox.Session) -> None:
@@ -894,6 +912,13 @@ _TEST_ALL_POSTGRES_PORT = "5545"
 _MODULE_SUITE_PORT_BASE = 5546
 _INTEGRATION_ANTHROPIC_DOUBLE_PORT = "8093"
 _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_ANTHROPIC_DOUBLE_PORT}"
+# Where a module suite's own Slack double listens, for the reason its database
+# has a port of its own: `agent_communicator`'s component conftest runs the
+# double in-process, and the e2e stack runs one on 8094. Two of those at once -
+# which is exactly what a sweep is - and the second dies on the bind, so a suite
+# that had nothing to do with Slack takes down the run that did.
+_TEST_ALL_SLACK_DOUBLE_PORT = "8095"
+_MODULE_SUITE_SLACK_PORT_BASE = 8100
 
 
 def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
@@ -923,9 +948,13 @@ _INTEGRATION_STACK = _a_database_of_its_own(
 
 # The module suites bring up a database of their own - four of them do, from
 # their own conftests, which is what a `component` test needing real postgres
-# looks like. No double: every module suite that reaches a model reaches a stub
-# it constructs itself.
-_TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_PORT)
+# looks like. No Anthropic double: every module suite that reaches a model
+# reaches a stub it constructs itself. A Slack double, though, is a real server
+# on a real port, because an SDK is what does the reaching - so it gets a port
+# of its own here for the same reason the database does.
+_TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_PORT) | {
+    "SLACK_DOUBLE_PORT": _TEST_ALL_SLACK_DOUBLE_PORT
+}
 
 # How to name each swept suite's containers to `docker compose`, for the three
 # that have any. Read only when a suite had to be killed: it is what lets the
@@ -960,6 +989,18 @@ def _a_database_for(module: str) -> dict[str, str]:
         f"argus-module-{module}",
         str(_MODULE_SUITE_PORT_BASE + MODULES.index(module))
     )
+
+
+def _a_slack_double_for(module: str) -> dict[str, str]:
+    """One module's own Slack double, counted the way its database is.
+
+    Set for every module rather than for the one that runs a double, because
+    which module that is is a fact about a conftest rather than about this file,
+    and a port nobody listens on costs nothing.
+    """
+    return {
+        "SLACK_DOUBLE_PORT": str(_MODULE_SUITE_SLACK_PORT_BASE + MODULES.index(module))
+    }
 
 # Settings every process in an e2e run shares - the services started here and
 # the pytest process asserting on them. One place, because the two derive
@@ -1147,12 +1188,14 @@ def _run_against_the_stack(
     the database names it instead - see `docker-compose.yml`. Teardown runs even
     if the tests fail, so nothing is left running.
 
-    Teardown passes `-v` so Postgres's anonymous volume goes with the
-    container. Without it the database survives between runs, and since the
-    schema is applied as `CREATE TABLE IF NOT EXISTS`, a table that already
-    exists is never altered - a column added or renamed in `argus_core.schema`
-    would silently never appear, and the suite would fail against a schema no
-    file in the repo describes. An e2e run should start from nothing anyway.
+    The schema is applied here, once the database answers and before the first
+    service starts. No Argus process applies it, so the order the services come
+    up in stops being something this function has to get right.
+
+    Teardown passes `-v` so Postgres's volume goes with the container. Not for
+    the schema's sake - the job replaces that on every run either way - but
+    because an e2e run should start from no rows as well as no tables, and a
+    volume nothing removes is a volume nothing ever collects.
     """
     service_env = service_env or {}
     # Before docker, before anything: a stack left running by a killed run does
@@ -1179,6 +1222,12 @@ def _run_against_the_stack(
         # fixture, or 404s on an endpoint the source plainly has.
         session.run(
             "docker", "compose", "up", "-d", "--wait", "--build", external=True
+        )
+        # Before the first service and after the database is answering, which is
+        # the whole of why it is a step of its own: no Argus process applies the
+        # schema, so none of them can be the one that has to start first.
+        session.run(
+            "uv", "run", "python", "-m", "argus_core.schema", external=True
         )
         for name, module_args, ready_url in _the_services_for(slack_stands_in):
             started.append(_start_service(module_args, env=service_env.get(name)))

@@ -1,335 +1,109 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
+from pathlib import Path
 from typing import Final
 
 import psycopg
+from alembic import command
+from alembic.config import Config
 
-# Mirrors spec §11.1's ERD: INCIDENT, HYPOTHESIS, ACTION, INCIDENT_RUN,
-# TIMELINE_EVENT, INCIDENT_EVENT, POSTMORTEM, REPLAY_LOG - and EXCHANGE_RATE,
-# which belongs to no incident and hangs off nothing there either.
+from argus_core.db import connect
 
-DDL = """
-CREATE TABLE IF NOT EXISTS incident (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    alert_payload JSONB NOT NULL,
-    status TEXT NOT NULL,
-    pr_url TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- When the incident stopped being one, stamped on the transition that
-    -- ended it. Null while it is still being worked - which `fixing` is,
-    -- however terminal it reads. How long an incident lasted is reported
-    -- rather than derived, because deriving it from the last row written
-    -- would make it an accident of what happened to be logged last.
-    ended_at TIMESTAMPTZ
-);
+logger = logging.getLogger(__name__)
 
--- `id` keeps its default for hand-written rows, but the application supplies
--- one: identity belongs to the entity, not to the table (argus_core.ids).
-CREATE TABLE IF NOT EXISTS hypothesis (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    cause_type TEXT,
-    summary TEXT,
-    supporting_evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
-    tested BOOLEAN NOT NULL DEFAULT false,
-    result TEXT,
-    confidence FLOAT,
-    -- What the named cause is about - for a flag toggle, the flag itself.
-    -- Nullable: not every cause names something this system can identify.
-    subject TEXT,
-    -- The two ends of the change blamed on that subject - `off` and `on` for a
-    -- flag, two versions for a deployment. Both null together: not every cause
-    -- is a move from one state to another, and half a transition is a position.
-    from_state TEXT,
-    to_state TEXT,
-    -- Where this hypothesis came in its investigation's ordering, best first.
-    -- Defaulted rather than nullable: every hypothesis has a rank, and a row
-    -- that does not say otherwise is first.
-    rank INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+"""Who applies Argus's schema, and what a process that finds none does about it.
 
--- One row per action, written before the action is taken rather than after:
--- the insert is what claims the right to take it. The unique index below is
--- therefore the guard against a resumed walk acting twice - a second insert
--- for the same candidate writes nothing, and writing nothing is how the walk
--- that lost learns the action is already somebody's.
-CREATE TABLE IF NOT EXISTS action (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    -- The candidate this action was taken for. Nullable because not every
-    -- action need have one, never because the association is optional where it
-    -- exists: an action taken on a hypothesis and not naming it leaves a reader
-    -- to guess which candidate it belonged to by matching the flag the two
-    -- happen to mention - which is only ever right because the walk refuses to
-    -- act on one subject twice, a rule about retrying rather than about
-    -- identity.
-    hypothesis_id UUID REFERENCES hypothesis(id),
-    type TEXT,
-    target TEXT,
-    reversible BOOLEAN NOT NULL DEFAULT true,
-    tier TEXT,
-    undo_descriptor JSONB,
-    outcome TEXT,
-    taken_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    approved_by TEXT
-);
+The schema is Alembic's, in `migrations/versions/` - `001` is every table there
+is, and the alters will be `002` onwards. Applied from here and from nowhere
+else: no process that serves requests or drains work touches DDL, so the order
+the stack comes up in is nobody's promise to keep.
 
--- What makes one action one action. A partial index rather than a table
--- constraint, because the insert that claims a candidate names the same
--- predicate in its `ON CONFLICT ... WHERE hypothesis_id IS NOT NULL` arbiter,
--- and that only infers a partial index. It says the same thing either way:
--- two actions belonging to no candidate are two actions, where two claiming
--- the same candidate are one attempt written twice.
-CREATE UNIQUE INDEX IF NOT EXISTS action_once_per_candidate_idx
-    ON action (incident_id, hypothesis_id)
-    WHERE hypothesis_id IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS timeline_event (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    to_status TEXT NOT NULL,
-    actor TEXT,
-    action TEXT,
-    result TEXT,
-    confidence FLOAT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- What Argus did, as it did it (spec §4 principle 8) - the account beside the
--- conclusions the other tables hold. Append-only: a line of the story is never
--- amended, because an account that can be edited afterwards is not one.
---
--- `seq` orders it rather than `at`. Two events can share a moment to the
--- microsecond, and "the order they were published in" is a promise the
--- narration rests on, so it is kept by the sequence the rows were written in
--- rather than by a clock that can tie.
---
--- The event is stored whole in `payload`, and `kind` beside it is what a
--- reader discriminates on. The columns are not a second copy to keep in step -
--- they are what the table is queried by.
-CREATE TABLE IF NOT EXISTS incident_event (
-    seq BIGSERIAL PRIMARY KEY,
-    id UUID NOT NULL UNIQUE,
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    kind TEXT NOT NULL,
-    at TIMESTAMPTZ NOT NULL,
-    payload JSONB NOT NULL
-);
-
--- Every call Argus made out of its own process, kept so a run can be
--- re-examined without making them again (spec §4 principle 6, §11.1).
---
--- Not incident state and not narration. The domain tables hold what Argus
--- concluded and `incident_event` holds the account a human reads; this holds
--- the calls themselves, at a granularity nobody reads for pleasure - one row
--- per model completion or tool call, with both payloads whole. That is what
--- lets the eval harness re-score a benchmark run offline instead of paying for
--- it twice.
---
--- `seq` for the same reason `incident_event` has one: two calls can share a
--- timestamp to the microsecond, and the order they were made in is the only
--- thing that makes a conversation readable back.
---
--- Written by the process that made the call, never by an MCP server - the
--- servers stay pure, as spec §13's boundary requires.
---
--- No cost column. No API returns a price, so any figure here would come from a
--- rate card copied into this repo: right until the vendor moves it, silently
--- wrong after, and wrong in a column somebody would later sum with confidence.
--- The token counts are inside `response`, where they are what the model
--- actually reported, and pricing them is the reader's job at the rate of the
--- day they ask.
-CREATE TABLE IF NOT EXISTS replay_log (
-    seq BIGSERIAL PRIMARY KEY,
-    id UUID NOT NULL UNIQUE,
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    call_type TEXT NOT NULL,
-    target TEXT NOT NULL,
-    request JSONB NOT NULL,
-    response JSONB NOT NULL,
-    latency_ms INTEGER NOT NULL,
-    at TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS postmortem (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    root_cause TEXT,
-    -- Three figures rather than one blob, and three rather than two: what the
-    -- incident cost the business, what it cost the humans, and what it cost
-    -- Argus are different quantities in different units, measured by different
-    -- means. The first two are estimates and carry their assumptions; the
-    -- minutes and the tokens are measurements (spec §21.3).
-    --
-    -- Columns because the eval tier aggregates them - tokens across a
-    -- benchmark run, minutes across a quarter - and a JSON blob would mean
-    -- re-deriving that at query time, which is the same reason the tables
-    -- beside this one are structured.
-    --
-    -- All nullable: a postmortem written before anyone recorded how long they
-    -- spent is still a postmortem, and a zero would claim nobody spent
-    -- anything.
-    customer_loss_estimate NUMERIC,
-    -- The currency that figure is in, stored beside it rather than read from
-    -- configuration. The reporting currency is a setting, and a page that
-    -- looked it up when it rendered would relabel every figure ever written
-    -- the day somebody changed it.
-    estimate_currency TEXT,
-    -- Person-minutes, and the people they were spread across. Both, because
-    -- one number cannot say the difference between a night one engineer lost
-    -- and an hour four of them lost together - and because the eval tier
-    -- (spec §21) will aggregate responders as readily as it aggregates
-    -- minutes.
-    engineer_minutes INTEGER,
-    responders INTEGER,
-    -- What those responders were called by their profession, never who they
-    -- were. A list rather than a column apiece: it is read whole, by a page
-    -- that prints it, and nothing aggregates across titles.
-    responder_titles JSONB,
-    -- What those minutes were worth, priced at the pay band of each
-    -- responder's title. Three columns rather than one, because a band is a
-    -- range: the midpoint is the figure, and the two beside it are the same
-    -- minutes at the bottom and top of the same bands. Stored rather than
-    -- re-derived, for the same reason the loss estimate is - bands are
-    -- republished, and a figure recomputed next year would describe a
-    -- different incident.
-    responder_cost_estimate NUMERIC,
-    responder_cost_minimum NUMERIC,
-    responder_cost_maximum NUMERIC,
-    -- Its own currency rather than `estimate_currency`: the bands come from a
-    -- different source than the takings, and nothing here converts one figure
-    -- into the other.
-    responder_cost_currency TEXT,
-    tokens_spent INTEGER,
-    assumptions JSONB,
-    executive_summary TEXT,
-    checklist_complete BOOLEAN NOT NULL DEFAULT false,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- One row per currency per day, against one base. The rates a document was
--- converted at have to survive the document: a reader checking the arithmetic
--- next month cannot re-fetch them, because the provider publishes today's and
--- an estimate quietly re-derived at today's rate would be a different figure
--- every time anybody looked.
---
--- Not an incident's table. Rates belong to a day and are shared by every
--- postmortem written about it, so this is keyed by what identifies a rate -
--- the base it is quoted against, the currency it prices, and the day the
--- provider published it - and by nothing about who happened to ask first.
---
--- NUMERIC, like the money it converts: a rate held as a float is a rate that
--- rounds differently depending on which figure it is multiplied into.
-CREATE TABLE IF NOT EXISTS exchange_rate (
-    base TEXT NOT NULL,
-    currency TEXT NOT NULL,
-    published_on DATE NOT NULL,
-    per_unit NUMERIC NOT NULL,
-    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (base, currency, published_on)
-);
-
--- One walk of the graph, waiting to be taken or being taken. The alert
--- endpoint writes the row and answers; a worker claims it and invokes the
--- graph. The row is what makes an investigation outlive the request that
--- asked for it - and what lets a worker that died be told from one that is
--- still working.
---
--- Beside the incident rather than inside it: an incident's status says what
--- Argus knows about the failure, and a run's state says whether anything is
--- currently thinking about it. Folding the second into the first would make
--- "nobody is walking this" and "this is resolved" the same column.
-CREATE TABLE IF NOT EXISTS incident_run (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    -- queued, running, done or failed. Text like every other state in this
-    -- schema: the vocabulary lives in the code that reads it, and a check
-    -- constraint here would be a second place to change it.
-    state TEXT NOT NULL,
-    -- Who holds it and until when. Both null while queued. The lease is what
-    -- separates a worker still walking a run from one that stopped mid-walk:
-    -- a lock cannot say that, because a dead worker's lock dies with its
-    -- connection and leaves the row looking held by nobody.
-    claimed_by TEXT,
-    leased_until TIMESTAMPTZ,
-    -- Why a run stopped, where it stopped badly. Recorded against the run
-    -- rather than left in a log: an incident whose walk failed is then
-    -- distinguishable from one still being worked by asking the database,
-    -- which is the question every reader of a run actually asks.
-    failure_reason TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- What a worker asks for, every interval, forever: the runs it could take.
-CREATE INDEX IF NOT EXISTS incident_run_state_idx ON incident_run (state);
-
--- How far each reader of `incident_event` has got. A relay delivering an
--- incident's account somewhere else asks the log what has happened since it
--- last looked, and this is the whole of its state: lose it and the relay
--- either repeats an incident from the beginning of time or starts from now
--- and silently drops whatever was published while it was down.
---
--- One row per reader rather than one row, because two destinations fall
--- behind at different rates and a shared place would let the slower of them
--- decide what the faster has already said.
---
--- Hangs off no incident, like `exchange_rate`: it is a fact about a reader.
--- Written and read by `agent_communicator` alone - the DDL is here because
--- this file is where the schema is stated, not because the incident record
--- owns the table.
--- Which Slack conversation an incident is being told in. Slack has no thread
--- id: a reply names the timestamp of the message it replies to, so the first
--- message an incident got is its thread, and every later line has to find that
--- timestamp again - in another pass, another process, another day.
---
--- A row rather than a column on `incident`, because an incident knows nothing
--- about Slack and should not learn: a second destination adds a mapping of its
--- own shape here instead of a column on the table every part of this system
--- reads. Written and read by `agent_communicator` alone.
-CREATE TABLE IF NOT EXISTS slack_thread (
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    channel TEXT NOT NULL,
-    -- Slack's own shape for a message's identity - seconds and microseconds -
-    -- kept as text because that is what a reply has to send back, to the
-    -- digit. A number would round it and address nothing.
-    ts TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- One conversation per incident per channel. The key is the guard: a
-    -- second opening message - two relays at once, a pass repeated after a
-    -- crash - writes nothing, and the conversation people are already reading
-    -- stays the one the rest of the incident goes into.
-    PRIMARY KEY (incident_id, channel)
-);
-
-CREATE TABLE IF NOT EXISTS event_cursor (
-    reader TEXT PRIMARY KEY,
-    -- A place in `incident_event.seq`, not a foreign key to it: the row a
-    -- reader stopped at can be a row that no longer needs to exist, and a
-    -- cursor that could not point past the end of the log could not be set
-    -- to where the log ends.
-    seq BIGINT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+Applied by replacing, for now. The chain is run against a database that was just
+dropped, which is why `001` can still be edited as though the schema had always
+said what it now says - a licence that lasts exactly as long as no deployment
+outlives a restart, and no longer.
 """
 
 
-def create_schema(conn: psycopg.Connection) -> None:
+def _upgrade_to_head() -> None:
+    """Runs the chain, from wherever the database is to wherever it ends.
+
+    Takes no connection and opens its own. Alembic wants a SQLAlchemy connection
+    where every caller here holds a psycopg one, and the wrapping that would
+    bridge them buys nothing: `env.py` reads the same `Settings` those
+    connections are opened from, so the two cannot be different databases.
+
+    The configuration is built here rather than read from `alembic.ini`, so that
+    the chain is found by the package's own location. A deployment that
+    installed `argus_core` and never checked this repo out still has its
+    migrations; `alembic.ini` exists for the command line, which does not.
+    """
+    config = Config()
+    config.set_main_option("script_location", str(_THE_MIGRATIONS))
+    command.upgrade(config, _THE_LATEST_REVISION)
+
+
+class SchemaNotApplied(Exception):
+    """What a process raises rather than run against a database nobody prepared."""
+
+
+type SchemaPresent = Callable[[psycopg.Connection], bool]
+
+
+def schema_is_present(conn: psycopg.Connection) -> bool:
+    """Whether this database has had the schema applied to it.
+
+    One table is asked after, because the DDL is applied as a single statement
+    in a single transaction: there is no state in which half of it exists, so a
+    second question would have exactly one possible answer.
+
+    `to_regclass` rather than a query against the table, because a name that
+    resolves to nothing is an answer here and an error there - and an error
+    would have to be caught by class and matched by message to be told apart
+    from the database being unreachable, which is not the same problem at all.
+    """
     with conn.cursor() as cursor:
-        cursor.execute(DDL)
-    conn.commit()
+        cursor.execute(f"SELECT to_regclass('{_THE_WITNESS_TABLE}') IS NOT NULL")
+        row = cursor.fetchone()
+
+    return bool(row is not None and row[0])
+
+
+def require_schema(conn: psycopg.Connection,
+                   present: SchemaPresent = schema_is_present) -> None:
+    """Refuses to go on against a database with no schema, naming the fix.
+
+    What every process that holds a connection calls before it serves or drains
+    anything. Argus applies its schema from a job of its own, so a process that
+    finds none has been started out of order rather than found a fault - and the
+    useful thing to say is the command, not the condition. `no such table:
+    incident`, arriving on whatever route is hit first, sends a reader to the
+    schema instead of to the job.
+
+    The asking is injected because whether the tables are there is a question
+    for a database and whether an answer of "no" is fatal is not. Only the first
+    needs a container.
+    """
+    if not present(conn):
+        raise SchemaNotApplied(
+            f"this database has no Argus schema - apply it with "
+            f"`uv run python -m {_THE_JOB}`"
+        )
 
 
 def reset_schema(conn: psycopg.Connection) -> None:
-    """Throws the schema away and applies it again, leaving nothing behind.
+    """Throws the schema away and runs the chain against what is left.
 
-    What a suite starts a run from, where `create_schema` is what a deployment
-    starts one from. The difference is the database being started against: a
-    suite adopts whatever container was left over, and the DDL is
-    `CREATE TABLE IF NOT EXISTS` throughout, so a table that already exists is
-    never altered. A column added or renamed since that container was last
-    used would silently never appear, and the suite would run against a schema
-    no file in this repo describes.
+    The only way the schema is ever applied - by the job below, and by every
+    suite on its way in. The drop goes first while `001` is still the whole
+    chain: a revision that has only ever run against an empty database is one
+    that can be edited, and the drop is what keeps that true. It goes when the
+    first `002` lands, and this becomes an upgrade like any other.
+
+    Dropping takes `alembic_version` with it, which is the point: the chain is
+    then applied from nothing rather than found to be already at head.
 
     It empties the tables as a consequence, which is the other half. Emptying
     between tests happens *after* each test, so that a failure leaves its rows
@@ -338,8 +112,8 @@ def reset_schema(conn: psycopg.Connection) -> None:
     the manner of the previous run's death stop mattering.
 
     Here rather than in a conftest because naming the schema is exactly what
-    `create_schema` exists to spare its callers, and four suites naming it
-    would be four places to fix on the day it is no longer `public`.
+    this exists to spare its callers, and four suites naming it would be four
+    places to fix on the day it is no longer `public`.
 
     Bounded by a lock timeout, because the drop waits for whatever holds a
     table rather than failing on it. Anything still connected to an adopted
@@ -355,7 +129,27 @@ def reset_schema(conn: psycopg.Connection) -> None:
         cursor.execute("CREATE SCHEMA public")
     conn.commit()
 
-    create_schema(conn)
+    _upgrade_to_head()
+
+
+def main() -> None:
+    """The job: the schema, applied to the database `Settings` names.
+
+    A module entry point rather than a nox session's body, because the same act
+    is wanted from three places that are not all nox - a local checkout, the e2e
+    stack, and whatever brings this up the day the services are containerized.
+    `nox -s schema` calls this; it does not reimplement it.
+
+    Says which database it applied to, and not how it reached it: the URL
+    carries a password, and a job whose ordinary output is a credential is a job
+    whose output nobody can paste into an issue.
+    """
+    logging.basicConfig(level=logging.INFO)
+
+    with connect() as conn:
+        reset_schema(conn)
+        logger.info("schema applied to %s on %s:%s",
+                    conn.info.dbname, conn.info.host, conn.info.port)
 
 
 # How long the reset waits for a table somebody else is holding. Long enough
@@ -363,3 +157,27 @@ def reset_schema(conn: psycopg.Connection) -> None:
 # still holds its locks until the server notices - and short enough that a
 # suite blocked behind a live one reports it while somebody is still watching.
 _SECONDS_TO_WAIT_FOR_A_LOCK: Final = 10
+
+# The table a process asks after to learn whether the schema is there. The first
+# one `001` declares and the one every other table hangs off, so a database that
+# has it has all of them. Not `alembic_version`, which says a chain ran and not
+# what it left.
+_THE_WITNESS_TABLE: Final = "incident"
+
+# Where the chain lives, found from this package rather than from a checkout -
+# `alembic.ini` says the same thing for the command line's benefit, and is the
+# copy that goes stale if these ever disagree.
+_THE_MIGRATIONS: Final = Path(__file__).parent / "migrations"
+
+# As far as the chain goes. Alembic's own word for it, named because it is the
+# vocabulary of a tool rather than a sentence of ours.
+_THE_LATEST_REVISION: Final = "head"
+
+# How a process tells somebody to apply the schema. Named here because the two
+# processes that refuse would otherwise each write their own version of one
+# sentence, and the sentence is the whole value of the refusal.
+_THE_JOB: Final = "nox -s schema"
+
+
+if __name__ == "__main__":
+    main()

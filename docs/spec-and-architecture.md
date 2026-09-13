@@ -755,6 +755,12 @@ Only modules with their own network entrypoint - the Web Application, each MCP s
 
 The Target Environment deploys independently of Argus, reflecting that in a real deployment it would simply be swapped for actual production infrastructure.
 
+The Postgres schema (§11.1) is applied by a one-shot job - `argus_core.schema`, invoked as `nox -s schema` locally and as a step of the stack's bring-up - and by nothing else. No service applies DDL: a process that served requests and created tables would be a process everything else had to be started after, and the read-only Web Application is the last component that should define the tables the rest of the system writes. Each service instead checks the schema is there and refuses to start without it, naming the job in the refusal.
+
+The schema is Alembic's, versioned in `argus_core/migrations/versions/`. Revision `001` is every table there is; alters arrive as `002` onwards. The job runs `upgrade head`, and until the first alter lands it drops the schema first - a revision that has only ever run against an empty database is one that can still be edited in place, and the drop is what keeps that true. The drop goes the day a database holds something worth keeping, and the job becomes an upgrade like any other.
+
+The chain lives inside the package rather than in a checkout, so a deployment that installed `argus_core` has its migrations. `alembic.ini` at the repository root exists for the command line - writing a revision, reading history - and carries no connection string: `env.py` takes the database from `Settings`, which is where every process takes it from.
+
 ## 20. Repository and Module Structure
 
 ### 20.1 Approach

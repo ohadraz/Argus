@@ -11,6 +11,7 @@ from os import getpid
 import psycopg
 from argus_core.config import get_settings
 from argus_core.db import Connections, open_pool
+from argus_core.schema import require_schema
 from argus_incidents.repository import runs
 from argus_incidents.withdrawal import IsStillWanted, wanted_via
 
@@ -131,6 +132,13 @@ def main() -> None:
 
     with open_pool() as pool:
         connections = pool.connection
+
+        # Before anything is claimed. A worker that took a run and then found no
+        # table to record it in would have marked an incident as being worked on
+        # by a process that is about to die.
+        with pool.connection() as conn:
+            require_schema(conn)
+
         graph_of = graph_for(connections)
 
         work_forever(
