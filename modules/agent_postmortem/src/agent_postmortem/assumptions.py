@@ -45,8 +45,20 @@ EXCHANGE_RATE_ASSUMPTION_LABEL = "exchange rate"
 # only while the document says which part is missing.
 EXCLUDED_CURRENCY_ASSUMPTION_LABEL = "excluded currency"
 
+# Why that currency was left out. Two reasons rather than one, because they
+# send a reader to two different places: a provider that publishes no rate for
+# a currency is a fact about the currency, and a table nobody could fetch is a
+# fact about the read. Told the first when the second happened, a reader goes
+# hunting for a currency the provider covers perfectly well.
+NO_RATE_PUBLISHED_REASON = "no rate was published for it"
+RATES_UNAVAILABLE_REASON = "the exchange rate source could not be read"
+
 # Said when a figure is missing because nobody could answer, so that the gap
 # reads as an unanswered question rather than as a measurement of nothing.
+#
+# Only the takings can cost the document its estimate. A rate table that never
+# arrived leaves the money that needed no rate, which is a partial figure and
+# not an absent one - so it is disclosed a currency at a time, above.
 REVENUE_UNAVAILABLE_ASSUMPTION = "no loss estimate: the revenue source could not be read"
 ONSET_UNKNOWN_ASSUMPTION = (
     "no loss estimate: no minute departed from the baseline, so there is no "
@@ -92,17 +104,16 @@ def assumptions_of(answer: dict[str, Any],
         assumptions.append(ONSET_UNKNOWN_ASSUMPTION)
 
     assumptions.extend(_rates_applied(measured))
-    assumptions.extend(
-        f"{EXCLUDED_CURRENCY_ASSUMPTION_LABEL}: takings in {currency} are not in "
-        f"the figure, because no rate was published for it"
-        for currency in measured.currencies_left_out
-    )
+    assumptions.extend(_currencies_left_out_of(measured))
 
     assumptions.extend(_the_pricing_behind(measured, working_hours_a_year))
 
     assumptions.extend(str(stated) for stated in answer.get(ASSUMPTIONS_FIELD, []))
 
-    if measured.baseline_revenue is None:
+    # The takings rather than the figure they became: a figure is also absent
+    # where the money was read and no rate could be, and that is a partial
+    # estimate disclosed a currency at a time rather than an unread provider.
+    if measured.baseline_takings is None:
         assumptions.append(REVENUE_UNAVAILABLE_ASSUMPTION)
     if measured.engaged is None:
         assumptions.append(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
@@ -110,6 +121,25 @@ def assumptions_of(answer: dict[str, Any],
         assumptions.append(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
 
     return assumptions
+
+
+def _currencies_left_out_of(measured: Measurements) -> list[str]:
+    """Every currency missing from the figure, each with why it is missing.
+
+    The reason is read from whether a table arrived at all rather than from the
+    currency, because that is what distinguishes the two: with a table in hand,
+    a currency is left out because the provider prices nothing for it; with no
+    table, every currency is left out for the same reason, and it is not the
+    currency's.
+    """
+    reason = (RATES_UNAVAILABLE_REASON if measured.rates is None
+              else NO_RATE_PUBLISHED_REASON)
+
+    return [
+        f"{EXCLUDED_CURRENCY_ASSUMPTION_LABEL}: takings in {currency} are not in "
+        f"the figure, because {reason}"
+        for currency in measured.currencies_left_out
+    ]
 
 
 def _the_pricing_behind(measured: Measurements,

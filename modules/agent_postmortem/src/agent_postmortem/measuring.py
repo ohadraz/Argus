@@ -100,8 +100,10 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     rates = sources.rates()
     taken_before = sources.revenue(began - BASELINE_WINDOW, began)
     taken_during = sources.revenue(began, evidence.ended_at)
-    baseline_revenue, left_out = _as_one_figure(taken_before, rates)
-    revenue_during, _ = _as_one_figure(taken_during, rates)
+    baseline_revenue, left_out = _as_one_figure(
+        taken_before, rates, sources.reporting_currency)
+    revenue_during, _ = _as_one_figure(
+        taken_during, rates, sources.reporting_currency)
     loss = (_loss(baseline_revenue, revenue_during, duration)
             if evidence.onset_at is not None else None)
     engaged = sources.engagement(evidence.incident_id)
@@ -114,7 +116,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
             began,
             evidence.ended_at),
         loss=loss,
-        currency=rates.base if rates is not None and loss is not None else None,
+        currency=sources.reporting_currency if loss is not None else None,
         baseline_revenue=baseline_revenue,
         baseline_takings=taken_before,
         rates=rates,
@@ -127,23 +129,44 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
 
 
 def _as_one_figure(taken: Mapping[str, Decimal] | None,
-                   rates: RateTable | None) -> tuple[Decimal | None, list[str]]:
+                   rates: RateTable | None,
+                   reporting_currency: str) -> tuple[Decimal | None, list[str]]:
     """What the service took, stated in the one currency the document reports
     in, and whatever could not be stated there at all.
 
     A quiet window took nothing, and nothing is a measurement: an empty mapping
-    is zero rather than an unanswered question.
+    is zero rather than an unanswered question. Only an unread provider leaves
+    no figure, because only it leaves no takings to state.
 
-    Everything else needs the table, because the table is what says which
-    currency this document is written in. Without it there is no figure to
-    publish even where only one currency was taken - naming that currency would
-    be a guess, and a guess about which money this is would be a worse failure
-    than an absent estimate.
+    A table nobody could read is a table with no rates in it, which the
+    arithmetic already knows how to answer: whatever needed no conversion is in
+    the figure, and every currency that did is named as missing from it. The
+    currency this is reported in comes from the configuration either way - it is
+    what the table was asked to quote against - so it is not a guess, and losing
+    the money that needed no rate at all would be the worse answer.
     """
-    if taken is None or rates is None:
+    if taken is None:
         return None, []
 
+    if rates is None:
+        return _only_the_money_needing_no_rate(taken, reporting_currency)
+
     return in_the_reporting_currency(taken, rates)
+
+
+def _only_the_money_needing_no_rate(
+        taken: Mapping[str, Decimal],
+        reporting_currency: str) -> tuple[Decimal, list[str]]:
+    """The takings already in the reporting currency, and every other currency.
+
+    The same shape `in_the_reporting_currency` returns for a currency the table
+    does not cover, because it is the same finding: money that was taken, and
+    no rate to state it with.
+    """
+    return (
+        taken.get(reporting_currency, Decimal(0)),
+        [currency for currency in taken if currency != reporting_currency]
+    )
 
 
 def _loss(baseline_revenue: Decimal | None,

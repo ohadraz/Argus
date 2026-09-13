@@ -263,23 +263,47 @@ def test_a_currency_the_table_has_no_rate_for_is_left_out_and_named() -> None:
 
 
 @pytest.mark.unit
-def test_rates_that_cannot_be_read_leave_no_currency_to_publish_a_figure_in() -> None:
-    # The table is what says which currency this document reports in, so
-    # without one there is no figure to publish even where only one currency
-    # was taken. Naming that currency would be a guess, and a guess about which
-    # money this is would be a worse failure than an absent estimate.
+def test_rates_that_cannot_be_read_still_leave_the_takings_that_needed_no_rate() -> None:
+    # A table nobody could read is a table with no rates in it, and the currency
+    # the document reports in is configured rather than derived from one. So the
+    # figure covers the money that needed no conversion and names every currency
+    # that did - the same answer the arithmetic already gives for a single
+    # currency the table does not cover. Losing the whole estimate over the part
+    # that cannot be converted throws away the part that can.
+    some_calm_hourly_revenue = 1_000
+    dont_care_hourly_revenue_abroad = 400
+    dont_care_revenue_abroad = Decimal("50.00")
+    expected_loss = (
+        Decimal(some_calm_hourly_revenue)
+        * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        - SOME_REVENUE_DURING_THE_INCIDENT
+    )
+
     Scenario() \
         .given(
             evidence := an_evidence_bundle()
         ) \
         .when(
             lambda: measure(
-                evidence, some_sources(rates=rates_that_cannot_be_read()))
+                evidence,
+                some_sources(
+                    revenue=revenue_that_was(
+                        per_hour={
+                            SOME_CURRENCY: some_calm_hourly_revenue,
+                            SOME_OTHER_CURRENCY: dont_care_hourly_revenue_abroad
+                        },
+                        until=ONSET,
+                        and_then={
+                            SOME_CURRENCY: SOME_REVENUE_DURING_THE_INCIDENT,
+                            SOME_OTHER_CURRENCY: dont_care_revenue_abroad
+                        }),
+                    rates=rates_that_cannot_be_read()))
         ) \
         .then(
             all_of(
-                _nothing_was_costed(),
-                _the_figure_is_in(None)
+                _the_loss_was(expected_loss),
+                _the_figure_is_in(SOME_CURRENCY),
+                _left_out(SOME_OTHER_CURRENCY)
             )
         )
 

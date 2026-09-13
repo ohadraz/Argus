@@ -8,9 +8,11 @@ from agent_postmortem import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
     EXCHANGE_RATE_ASSUMPTION_LABEL,
     EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
+    NO_RATE_PUBLISHED_REASON,
     ONSET_UNKNOWN_ASSUMPTION,
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
+    RATES_UNAVAILABLE_REASON,
     REVENUE_UNAVAILABLE_ASSUMPTION,
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
@@ -252,8 +254,12 @@ def test_a_currency_left_out_of_the_figure_is_named_with_the_reason() -> None:
                                    DONT_CARE_WORKING_YEAR)
         ) \
         .then(
-            _names_a_line_mentioning(EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
-                                     SOME_UNPRICED_CURRENCY)
+            all_of(
+                _names_a_line_mentioning(EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
+                                         SOME_UNPRICED_CURRENCY),
+                _names_a_line_mentioning(EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
+                                         NO_RATE_PUBLISHED_REASON)
+            )
         )
 
 
@@ -285,7 +291,7 @@ def test_a_revenue_source_that_could_not_be_read_says_so() -> None:
     Scenario() \
         .given(
             an_incident_nobody_could_cost := a_measured_incident(
-                baseline_revenue=None)
+                baseline_revenue=None, takings=None)
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
@@ -294,6 +300,32 @@ def test_a_revenue_source_that_could_not_be_read_says_so() -> None:
         ) \
         .then(
             _names(REVENUE_UNAVAILABLE_ASSUMPTION)
+        )
+
+
+@pytest.mark.unit
+def test_a_currency_left_out_because_no_table_arrived_says_which() -> None:
+    # Two reasons a currency is missing from the figure, and they send a reader
+    # to two different places: a provider publishing no rate for a currency is a
+    # fact about the currency, and a table nobody could fetch is a fact about the
+    # read. Told the first when the second happened, a reader goes hunting for a
+    # currency the provider covers perfectly well.
+    Scenario() \
+        .given(
+            an_incident_no_table_arrived_for := a_measured_incident(
+                rates=None, left_out=[SOME_OTHER_CURRENCY])
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_no_table_arrived_for,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            all_of(
+                _names_a_line_mentioning(EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
+                                         RATES_UNAVAILABLE_REASON),
+                _says_nothing_about(NO_RATE_PUBLISHED_REASON)
+            )
         )
 
 

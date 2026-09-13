@@ -71,7 +71,8 @@ def write_postmortem_for(incident_id: str,
                 engagement=_who_responded,
                 bands=_what_a_title_is_worth,
                 metrics=_metrics_between,
-                working_hours_a_year=get_settings().working_hours_a_year),
+                working_hours_a_year=get_settings().working_hours_a_year,
+                reporting_currency=get_settings().reporting_currency),
         _a_recording_client(Replay(incident_id, recorder))
     )
 

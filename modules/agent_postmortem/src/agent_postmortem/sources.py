@@ -154,6 +154,11 @@ class Sources:
     same configuration at the same moment as the source that publishes them,
     and a figure computed under one working year and disclosed under another is
     the failure this keeps impossible.
+
+    `reporting_currency` is here on the same terms, and for a second reason: it
+    is what the rate source was asked to quote against, so a table that arrives
+    and the currency it was wanted in cannot be configured apart. It is also the
+    only thing left saying which money a figure is when no table arrives at all.
     """
 
     revenue: Revenue
@@ -162,3 +167,4 @@ class Sources:
     bands: PayBands
     metrics: Metrics
     working_hours_a_year: float
+    reporting_currency: str

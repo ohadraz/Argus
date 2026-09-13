@@ -118,7 +118,7 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         error_rate_delta: float | None = None,
                         loss: Decimal | None = DONT_CARE_LOSS,
                         baseline_revenue: Decimal | None = DONT_CARE_BASELINE_REVENUE,
-                        takings: Mapping[str, Decimal] | None = None,
+                        takings: Mapping[str, Decimal] | None = DONT_CARE_TAKINGS,
                         rates: RateTable | None = DONT_CARE_TABLE,
                         left_out: list[str] | None = None,
                         onset_at: datetime | None = ONSET,
@@ -145,7 +145,7 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         loss=loss if baseline_revenue is not None else None,
         currency=rates.base if rates is not None else None,
         baseline_revenue=baseline_revenue,
-        baseline_takings=takings if takings is not None else DONT_CARE_TAKINGS,
+        baseline_takings=takings,
         rates=rates,
         currencies_left_out=left_out if left_out is not None else [],
         onset_at=onset_at,
@@ -160,7 +160,8 @@ def some_sources(revenue: Revenue | None = None,
                  engagement: Engagement | None = None,
                  bands: PayBands | None = None,
                  metrics: Metrics | None = None,
-                 working_hours_a_year: float = DONT_CARE_WORKING_YEAR) -> Sources:
+                 working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
+                 reporting_currency: str = SOME_CURRENCY) -> Sources:
     """Everything the postmortem reads, with each source answering plainly.
 
     A test names only the source it is about and leaves the other five alone,
@@ -180,7 +181,8 @@ def some_sources(revenue: Revenue | None = None,
                        responders=DONT_CARE_RESPONDERS),
         bands=bands if bands is not None else a_band_source_pricing_nobody(),
         metrics=metrics if metrics is not None else metrics_showing_a_rise(),
-        working_hours_a_year=working_hours_a_year
+        working_hours_a_year=working_hours_a_year,
+        reporting_currency=reporting_currency
     )
 
 
