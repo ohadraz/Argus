@@ -19,6 +19,7 @@ from tests.e2e.framework.argus import (
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
+    argus_wrote_a_postmortem,
     incident_id_from,
     the_model_answers_from,
 )
@@ -64,15 +65,16 @@ def test_an_incident_over_a_trading_window_costs_a_measured_amount() -> None:
             argus_is_triggered_with_alert(some_alert)
         ) \
         .then(
-            # `eventually`, because the webhook answers as soon as the incident
-            # exists and a worker walks it afterwards: the postmortem is
-            # written minutes after the response this asserts against.
-            eventually(
-                all_of(
-                    _the_postmortem_estimates_a_loss(),
-                    _the_conversion_was_disclosed()
-                ),
-                timeout=WALK_TIMEOUT_SECONDS
+            # `eventually` on the row alone: the webhook answers as soon as the
+            # incident exists and a worker walks it afterwards, so the document
+            # arrives minutes later. What it says is settled the moment it does
+            # - it is written once and never updated - so the figures are
+            # asserted once rather than retried against a deadline.
+            all_of(
+                eventually(argus_wrote_a_postmortem(),
+                           timeout=WALK_TIMEOUT_SECONDS),
+                _the_postmortem_estimates_a_loss(),
+                _the_conversion_was_disclosed()
             )
         )
 

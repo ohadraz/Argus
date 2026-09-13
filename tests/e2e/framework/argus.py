@@ -266,6 +266,32 @@ def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx.Response]:
     return assertion
 
 
+def argus_wrote_a_postmortem() -> Assertion[httpx.Response]:
+    """The row exists, and nothing about what it says.
+
+    The one thing about a postmortem worth waiting for. It is written in a
+    single insert and never updated, so every figure on it is settled the
+    instant it appears - polling one that is already there for another ten
+    minutes asks a question whose answer cannot change, and turns a case that
+    failed in seconds into a shard that takes half an hour.
+
+    So a suite waits on this and asserts the contents once, rather than
+    retrying the contents until a deadline that only the absent row deserved.
+    """
+    def assertion(response: httpx.Response) -> bool:
+        incident_id = incident_id_from(response)
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            postmortem = postmortems.get_by_incident(conn, incident_id)
+
+        if postmortem is None:
+            raise AssertionError(f"No postmortem exists for incident [{incident_id}].")
+
+        return True
+
+    return assertion
+
+
 def the_model_answers_from(recording: str) -> Callable[[], bool]:
     """A `given` step naming the stored answers the model gives for this case.
 

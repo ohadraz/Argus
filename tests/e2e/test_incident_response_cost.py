@@ -21,6 +21,7 @@ from tests.e2e.framework.argus import (
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
+    argus_wrote_a_postmortem,
     incident_id_from,
     the_model_answers_from,
 )
@@ -73,16 +74,16 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
             argus_is_triggered_with_alert(some_alert)
         ) \
         .then(
-            # `eventually`, for the reason every postmortem assertion here is:
-            # the webhook answers as soon as the incident exists, and a worker
-            # walks it and writes the document minutes afterwards.
-            eventually(
-                all_of(
-                    _the_postmortem_prices_the_response(),
-                    _the_figure_carries_the_band_it_came_from(),
-                    _the_arithmetic_was_disclosed()
-                ),
-                timeout=WALK_TIMEOUT_SECONDS
+            # `eventually` on the row alone: the webhook answers as soon as the
+            # incident exists, and a worker walks it and writes the document
+            # minutes afterwards. What it says is settled the moment it appears
+            # - one insert, never updated - so the figures are asserted once.
+            all_of(
+                eventually(argus_wrote_a_postmortem(),
+                           timeout=WALK_TIMEOUT_SECONDS),
+                _the_postmortem_prices_the_response(),
+                _the_figure_carries_the_band_it_came_from(),
+                _the_arithmetic_was_disclosed()
             )
         )
 

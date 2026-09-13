@@ -21,6 +21,7 @@ from tests.e2e.framework.argus import (
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
+    argus_wrote_a_postmortem,
     incident_id_from,
     the_model_answers_from,
 )
@@ -72,16 +73,18 @@ def test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent() -> 
             argus_is_triggered_with_alert(some_alert)
         ) \
         .then(
-            # `eventually`, because the webhook now answers as soon as the
-            # incident exists and a worker walks it afterwards: the postmortem
-            # is written minutes after the response this asserts against.
-            eventually(
-                all_of(
-                    _the_provider_paged_the_people_this_test_assumes(),
-                    _the_postmortem_reports_the_minutes_they_spent(),
-                    _the_responders_were_counted()
-                ),
-                timeout=WALK_TIMEOUT_SECONDS
+            # `eventually` on the row alone: the webhook answers as soon as the
+            # incident exists and a worker walks it afterwards, so the document
+            # is written minutes after the response this asserts against. Once
+            # it is there everything here is settled - the document is one
+            # insert and the paging happened before it - so each is asserted
+            # once rather than retried until a deadline.
+            all_of(
+                eventually(argus_wrote_a_postmortem(),
+                           timeout=WALK_TIMEOUT_SECONDS),
+                _the_provider_paged_the_people_this_test_assumes(),
+                _the_postmortem_reports_the_minutes_they_spent(),
+                _the_responders_were_counted()
             )
         )
 
