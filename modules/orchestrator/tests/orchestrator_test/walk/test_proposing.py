@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
@@ -11,6 +11,7 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.proposing import mitigation_proposal_node
 
 from ..framework.builders import a_determined_hypothesis, an_incident_state
@@ -27,7 +28,6 @@ goes to a human either way - crashing the graph instead would drop everything
 already learned about it.
 """
 
-type NodeResult = dict[str, Any]
 
 DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
 
@@ -136,9 +136,9 @@ def _an_enabling_of(flag: str) -> FlagChange:
     return FlagChange(flag=flag, enabled=True, occurred_at=DONT_CARE_MOMENT)
 
 
-def _the_proposed_action_is_about(flag: str) -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        proposed = updates["proposed_action"]
+def _the_proposed_action_is_about(flag: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        proposed = updates.proposed_action
         if proposed is None:
             raise AssertionError(
                 f"Expected an action about [{flag}], nothing was proposed."
@@ -154,11 +154,11 @@ def _the_proposed_action_is_about(flag: str) -> Assertion[NodeResult]:
     return assertion
 
 
-def _the_proposed_action_turns_the_flag_off() -> Assertion[NodeResult]:
+def _the_proposed_action_turns_the_flag_off() -> Assertion[StateDelta]:
     """The flag was switched on and that is what is being undone, so the action
     is the opposite of the change it answers - never a repeat of it."""
-    def assertion(updates: NodeResult) -> bool:
-        proposed = updates["proposed_action"]
+    def assertion(updates: StateDelta) -> bool:
+        proposed = updates.proposed_action
         if proposed is None or proposed.enabled is not False:
             raise AssertionError(
                 f"Expected the action to turn the flag off, it was {proposed!r}."
@@ -169,9 +169,9 @@ def _the_proposed_action_turns_the_flag_off() -> Assertion[NodeResult]:
     return assertion
 
 
-def _nothing_was_proposed() -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        proposed = updates["proposed_action"]
+def _nothing_was_proposed() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        proposed = updates.proposed_action
         if proposed is not None:
             raise AssertionError(
                 f"Expected no action to be proposed, got {proposed!r}."
@@ -184,8 +184,8 @@ def _nothing_was_proposed() -> Assertion[NodeResult]:
 
 def _the_history_published_is(expected: list[FlagChange],
                               published: list[IncidentEvent]
-                              ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                              ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         read = [event for event in published
                 if isinstance(event, FlagChangesRetrieved)]
         if len(read) != 1:
@@ -205,8 +205,8 @@ def _the_history_published_is(expected: list[FlagChange],
 
 
 def _no_history_was_published(published: list[IncidentEvent]
-                              ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                              ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         read = [event for event in published
                 if isinstance(event, FlagChangesRetrieved)]
         if read:

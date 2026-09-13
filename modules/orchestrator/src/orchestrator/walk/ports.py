@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Protocol
 
 from agent_investigator import Findings
-from agent_mitigation import Action, Outcome
+from agent_mitigation import Action, Outcome, Verdict
 from agent_mitigation.tools import StillWanted
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models.actor import Actor
@@ -145,13 +145,17 @@ class ActionAlreadyTaken(Protocol):
     `None` where the claim exists and nothing was recorded against it: the
     worker holding it stopped between taking the action and saying what
     happened, which is the one case this walk cannot answer for itself.
+
+    The verdict itself rather than the text of the row it was read from. The
+    walk branches on this, and a branch on a string is a branch that goes on
+    compiling after somebody changes how a verdict is spelt.
     """
 
     def __call__(
         self,
         incident_id: str,
         hypothesis_id: str
-    ) -> str | None: ...
+    ) -> Verdict | None: ...
 
 
 class TransitionIncident(Protocol):

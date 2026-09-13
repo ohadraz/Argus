@@ -6,6 +6,7 @@ from datetime import datetime
 
 from argus_core.db import Connections
 from argus_core.events import IncidentEvent, PostmortemWritten
+from argus_core.models.action import Verdict
 from argus_core.models.actor import Actor
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
@@ -128,12 +129,21 @@ class Records:
             )
             publish_beside(conn, narrating, self._publisher_for(conn))
 
-    def action_outcome(self, incident_id: str, hypothesis_id: str) -> str | None:
+    def action_outcome(self, incident_id: str, hypothesis_id: str) -> Verdict | None:
+        """What the row says an earlier attempt concluded, as a verdict.
+
+        Converted here rather than passed on as text. This is the edge between
+        a column and the walk, and a verdict that stayed a string until some
+        branch compared it against a literal is a branch nothing checks.
+        """
         with self._connections() as conn:
             taken_action = taken_actions.get_action_for_hypothesis(
                 conn, incident_id, hypothesis_id)
 
-        return taken_action.outcome if taken_action is not None else None
+        if taken_action is None or taken_action.outcome is None:
+            return None
+
+        return Verdict(taken_action.outcome)
 
     def action_claimed_at(self,
                           incident_id: str,

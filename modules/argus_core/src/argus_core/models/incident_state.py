@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from .action import Action
+from .action import Action, Verdict
 from .alert import Alert
 from .attempt import Attempt
 from .hypothesis import Hypothesis
@@ -62,4 +62,7 @@ class IncidentState(BaseModel):
     # Derivable from `hypothesis`, kept because the graph's state is what the
     # Dashboard reads (§7.7) and a confidence-over-time view wants it flat.
     confidence: float | None = None
-    action_outcome: str | None = None
+    # What the attempt concluded, as the verdict itself. Not its spelling: the
+    # state machine branches on this, and a comparison against a string is one
+    # that keeps compiling after somebody changes how a verdict is written.
+    action_outcome: Verdict | None = None

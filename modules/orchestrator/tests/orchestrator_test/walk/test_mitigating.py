@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
@@ -16,6 +16,7 @@ from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk import ports
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, NEXT_CANDIDATE_ROUTE, RESOLVED_ROUTE
 
@@ -34,8 +35,6 @@ claim is a walk that has been resumed inside this node - and what it does next
 depends on what the earlier attempt left behind: a recorded outcome, a change
 that reached the provider with nothing measured after it, or nothing at all.
 """
-
-type NodeResult = dict[str, Any]
 
 DONT_CARE_FLAG = "dont-care-flag"
 SOME_FLAG_THE_CANDIDATE_BLAMES = "monthly-spend-feature"
@@ -110,7 +109,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                                       already_taken=already_taken,
                                       claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
-        .then(_the_verdict_reported_is(str(Verdict.CONFIRMED)))
+        .then(_the_verdict_reported_is(Verdict.CONFIRMED))
 
 
 @pytest.mark.unit
@@ -138,7 +137,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
                                       already_taken=already_taken,
                                       claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
-        .then(_the_verdict_reported_is(str(Verdict.REFUTED)))
+        .then(_the_verdict_reported_is(Verdict.REFUTED))
 
 
 @pytest.mark.unit
@@ -166,7 +165,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
                                       already_taken=already_taken,
                                       claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
-        .then(_the_verdict_reported_is(str(Verdict.ESCALATED)))
+        .then(_the_verdict_reported_is(Verdict.ESCALATED))
 
 
 @pytest.mark.unit
@@ -359,7 +358,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
     # already in the database, so this walk is refused it - and refusing it is
     # the whole guard: acting again would set a flag that is already set and,
     # worse, write a second attempt into an incident that made one.
-    the_outcome_the_first_attempt_recorded = str(Verdict.CONFIRMED)
+    the_outcome_the_first_attempt_recorded = Verdict.CONFIRMED
 
     Scenario() \
         .given(
@@ -490,7 +489,7 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_taken(take),
-                     _the_verdict_reported_is(str(Verdict.CONFIRMED))))
+                     _the_verdict_reported_is(Verdict.CONFIRMED)))
 
 
 @pytest.mark.unit
@@ -669,7 +668,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
     still_wanted: MagicMock
 ) -> None:
     # The account is never part of the work, at this level as at every other.
-    def run(publisher: Publisher) -> NodeResult:
+    def run(publisher: Publisher) -> StateDelta:
         return mitigation_node(
             _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor()),
             take=take,
@@ -765,12 +764,12 @@ def _the_provider_cannot_say(change_landed: MagicMock) -> None:
     change_landed.return_value = None
 
 
-def _the_verdict_reported_is(expected: str) -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        reported = updates.get("action_outcome")
+def _the_verdict_reported_is(expected: Verdict) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        reported = updates.action_outcome
         if reported != expected:
             raise AssertionError(
-                f"expected the verdict [{expected}], the node reported [{reported}]"
+                f"Expected the verdict [{expected}], the node reported [{reported}]."
             )
 
         return True
@@ -778,12 +777,12 @@ def _the_verdict_reported_is(expected: str) -> Assertion[NodeResult]:
     return assertion
 
 
-def _no_status_was_decided() -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        if "status" in updates:
+def _no_status_was_decided() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if "status" in updates.model_fields_set:
             raise AssertionError(
-                f"expected the node to decide no status, it decided "
-                f"[{updates['status']}]"
+                f"Expected the node to decide no status, it decided "
+                f"[{updates.status}]."
             )
 
         return True
@@ -791,15 +790,15 @@ def _no_status_was_decided() -> Assertion[NodeResult]:
     return assertion
 
 
-def _the_incident_was_escalated() -> Assertion[NodeResult]:
+def _the_incident_was_escalated() -> Assertion[StateDelta]:
     """The one case where this node does name a status: nothing was measured
     and nothing can be, so there is no verdict for anything downstream to draw
     a conclusion from."""
-    def assertion(updates: NodeResult) -> bool:
-        if updates.get("status") != IncidentStatus.ESCALATED:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.status != IncidentStatus.ESCALATED:
             raise AssertionError(
-                f"expected the incident to be escalated, the node returned "
-                f"[{updates.get('status')}]"
+                f"Expected the incident to be escalated, the node returned "
+                f"[{updates.status}]."
             )
 
         return True
@@ -809,13 +808,13 @@ def _the_incident_was_escalated() -> Assertion[NodeResult]:
 
 def _the_action_row_records_the_way_back(expected: UndoDescriptor,
                                          complete_action: MagicMock
-                                         ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                                         ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         recorded = complete_action.call_args.kwargs["undo_descriptor"]
         if recorded != expected:
             raise AssertionError(
                 f"expected the action row to record {expected}, it recorded "
-                f"{recorded}"
+                f"{recorded}."
             )
 
         return True
@@ -825,13 +824,13 @@ def _the_action_row_records_the_way_back(expected: UndoDescriptor,
 
 def _the_action_row_records_the_outcome(expected: str,
                                         complete_action: MagicMock
-                                        ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                                        ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         recorded = complete_action.call_args.kwargs["outcome"]
         if recorded != expected:
             raise AssertionError(
-                f"expected the action row to record [{expected}], it recorded "
-                f"[{recorded}]"
+                f"Expected the action row to record [{expected}], it recorded "
+                f"[{recorded}]."
             )
 
         return True
@@ -839,12 +838,12 @@ def _the_action_row_records_the_outcome(expected: str,
     return assertion
 
 
-def _the_candidate_learned_nothing(record_outcome: MagicMock) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+def _the_candidate_learned_nothing(record_outcome: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         if record_outcome.call_count != 0:
             raise AssertionError(
-                f"expected the candidate to be left untouched, it was recorded "
-                f"as {record_outcome.call_args_list}"
+                f"Expected the candidate to be left untouched, it was recorded "
+                f"as {record_outcome.call_args_list}."
             )
 
         return True
@@ -855,25 +854,25 @@ def _the_candidate_learned_nothing(record_outcome: MagicMock) -> Assertion[NodeR
 def _the_candidate_was_tested_and_settled(candidate: Hypothesis,
                                           verdict: str,
                                           record_outcome: MagicMock
-                                          ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                                          ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         recorded_about = record_outcome.call_args.args[0]
         if recorded_about != candidate.id:
             raise AssertionError(
-                f"expected the outcome to be about [{candidate.id}], it was "
-                f"about [{recorded_about}]"
+                f"Expected the outcome to be about [{candidate.id}], it was "
+                f"about [{recorded_about}]."
             )
 
         recorded = record_outcome.call_args.kwargs
         if recorded["tested"] is not True:
             raise AssertionError(
-                "expected the candidate to be recorded as having been tested"
+                "Expected the candidate to be recorded as having been tested."
             )
 
         if recorded["result"] != verdict:
             raise AssertionError(
-                f"expected the candidate to record [{verdict}], it recorded "
-                f"[{recorded['result']}]"
+                f"Expected the candidate to record [{verdict}], it recorded "
+                f"[{recorded['result']}]."
             )
 
         return True
@@ -881,22 +880,22 @@ def _the_candidate_was_tested_and_settled(candidate: Hypothesis,
     return assertion
 
 
-def _the_action_was_taken(take: MagicMock) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+def _the_action_was_taken(take: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         if not take.called:
-            raise AssertionError("expected the action to be taken, it was not")
+            raise AssertionError("Expected the action to be taken, it was not.")
 
         return True
 
     return assertion
 
 
-def _the_action_was_not_taken(take: MagicMock) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+def _the_action_was_not_taken(take: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         if take.called:
             raise AssertionError(
-                f"expected the action not to be taken, it was taken with "
-                f"{take.call_args}"
+                f"Expected the action not to be taken, it was taken with "
+                f"{take.call_args}."
             )
 
         return True
@@ -904,12 +903,12 @@ def _the_action_was_not_taken(take: MagicMock) -> Assertion[NodeResult]:
     return assertion
 
 
-def _nothing_was_completed(complete_action: MagicMock) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+def _nothing_was_completed(complete_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         if complete_action.called:
             raise AssertionError(
-                f"expected no action row to be completed, one was completed with "
-                f"{complete_action.call_args}"
+                f"Expected no action row to be completed, one was completed with "
+                f"{complete_action.call_args}."
             )
 
         return True
@@ -918,13 +917,13 @@ def _nothing_was_completed(complete_action: MagicMock) -> Assertion[NodeResult]:
 
 
 def _no_earlier_outcome_was_looked_up(already_taken: MagicMock
-                                      ) -> Assertion[NodeResult]:
+                                      ) -> Assertion[StateDelta]:
     """A walk holding the claim has no earlier attempt to ask about, and asking
     anyway would mean the guard was reading state it had already ruled out."""
-    def assertion(dont_care_result: NodeResult) -> bool:
+    def assertion(dont_care_result: StateDelta) -> bool:
         if already_taken.called:
             raise AssertionError(
-                "expected no earlier outcome to be looked up, one was"
+                "Expected no earlier outcome to be looked up, one was."
             )
 
         return True
@@ -935,7 +934,7 @@ def _no_earlier_outcome_was_looked_up(already_taken: MagicMock
 def _the_route_is(expected: str) -> Assertion[str]:
     def assertion(route: str) -> bool:
         if route != expected:
-            raise AssertionError(f"expected the route [{expected}], got [{route}]")
+            raise AssertionError(f"Expected the route [{expected}], got [{route}].")
 
         return True
 
@@ -953,18 +952,18 @@ def _a_listener() -> Publisher:
 def _exactly_one_action_was_announced(candidate: Hypothesis,
                                       action: Action,
                                       published: list[IncidentEvent]
-                                      ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                                      ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         taken = [event for event in published if isinstance(event, ActionTaken)]
         if len(taken) != 1:
-            raise AssertionError(f"expected one action announced, got {len(taken)}")
+            raise AssertionError(f"Expected one action announced, got {len(taken)}.")
 
         announced = taken[0]
         if (announced.hypothesis_id, announced.action_type) != (candidate.id,
                                                                 action.action_type):
             raise AssertionError(
-                f"expected [{action.action_type}] for candidate [{candidate.id}], "
-                f"got [{announced.action_type}] for [{announced.hypothesis_id}]"
+                f"Expected [{action.action_type}] for candidate [{candidate.id}], "
+                f"got [{announced.action_type}] for [{announced.hypothesis_id}]."
             )
 
         return True
@@ -974,13 +973,13 @@ def _exactly_one_action_was_announced(candidate: Hypothesis,
 
 def _the_announced_action_moved_the_flag(expected: bool,
                                          published: list[IncidentEvent]
-                                         ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                                         ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         moved_to = [event.enabled for event in published
                     if isinstance(event, ActionTaken)]
         if moved_to != [expected]:
             raise AssertionError(
-                f"expected the flag to be announced as [{expected}], got {moved_to}"
+                f"Expected the flag to be announced as [{expected}], got {moved_to}."
             )
 
         return True
@@ -989,19 +988,19 @@ def _the_announced_action_moved_the_flag(expected: bool,
 
 
 def _the_verdict_was_narrated(expected: str,
-                              complete_action: MagicMock) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                              complete_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         narrating = complete_action.call_args.kwargs["narrating"]
         if not isinstance(narrating, VerdictReached):
             raise AssertionError(
-                f"expected the verdict to be narrated as one, it was narrated as "
-                f"[{type(narrating).__name__}]"
+                f"Expected the verdict to be narrated as one, it was narrated as "
+                f"[{type(narrating).__name__}]."
             )
 
         if narrating.outcome != expected:
             raise AssertionError(
-                f"expected the narration to report [{expected}], it reported "
-                f"[{narrating.outcome}]"
+                f"Expected the narration to report [{expected}], it reported "
+                f"[{narrating.outcome}]."
             )
 
         return True
@@ -1009,13 +1008,13 @@ def _the_verdict_was_narrated(expected: str,
     return assertion
 
 
-def _both_runs_did_the_same_work() -> Assertion[tuple[NodeResult, NodeResult]]:
-    def assertion(runs: tuple[NodeResult, NodeResult]) -> bool:
+def _both_runs_did_the_same_work() -> Assertion[tuple[StateDelta, StateDelta]]:
+    def assertion(runs: tuple[StateDelta, StateDelta]) -> bool:
         listened_to, unheard = runs
         if listened_to != unheard:
             raise AssertionError(
-                f"expected the same work with nobody listening, got {unheard} "
-                f"instead of {listened_to}"
+                f"Expected the same work with nobody listening, got {unheard} "
+                f"instead of {listened_to}."
             )
 
         return True

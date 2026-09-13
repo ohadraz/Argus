@@ -15,7 +15,8 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
-from orchestrator.walk.narrating import Narration, with_status
+from orchestrator.walk.deltas import Narration, StateDelta
+from orchestrator.walk.narrating import with_status
 
 """The one place a status is persisted, and the one place it is published.
 
@@ -32,7 +33,7 @@ already toggled a flag cannot be stopped by anything this wrapper does with its
 return value.
 """
 
-type Node = Callable[[IncidentState], dict[str, Any]]
+type Node = Callable[[IncidentState], StateDelta]
 type NodeResult = dict[str, Any]
 
 SOME_MAX_ROUNDS = 3
@@ -304,19 +305,25 @@ def _there_is_no_such_incident() -> IsStillWanted:
 def _a_node_returning(updates: dict[str, Any],
                       narration: Narration = DONT_CARE_NARRATION) -> Node:
     """A node standing in for a real one, so the wrapper is tested on what it
-    does with a return value rather than on any node's private reasoning."""
-    def node(dont_care_state: IncidentState) -> dict[str, Any]:
-        return {**updates, "narration": narration}
+    does with a return value rather than on any node's private reasoning.
+
+    Still a mapping at the call sites, because what a case here says is "a node
+    that changed these fields" and naming them is the readable way to say it.
+    `StateDelta` forbids extras, so a field misspelt in one of those mappings
+    fails here rather than being dropped in silence.
+    """
+    def node(dont_care_state: IncidentState) -> StateDelta:
+        return StateDelta(**updates, narration=narration)
 
     return node
 
 
 def _a_node_that_records_being_run(ran: list[str]) -> Node:
     """A node that says it was reached, for the cases where it must not be."""
-    def node(state: IncidentState) -> dict[str, Any]:
+    def node(state: IncidentState) -> StateDelta:
         ran.append(state.incident_id)
 
-        return {"proposed_action": None, "narration": DONT_CARE_NARRATION}
+        return StateDelta(proposed_action=None, narration=DONT_CARE_NARRATION)
 
     return node
 
@@ -349,14 +356,14 @@ def _the_incident_was_moved_once_to(expected: IncidentStatus,
     def assertion(dont_care_result: NodeResult) -> bool:
         if transition_incident.call_count != 1:
             raise AssertionError(
-                f"expected exactly one transition, "
-                f"got {transition_incident.call_count}"
+                f"Expected exactly one transition, "
+                f"got {transition_incident.call_count}."
             )
 
         moved_to = transition_incident.call_args.args[1]
         if moved_to is not expected:
             raise AssertionError(
-                f"expected a transition to [{expected}], it was to [{moved_to}]"
+                f"Expected a transition to [{expected}], it was to [{moved_to}]."
             )
 
         return True
@@ -370,14 +377,14 @@ def _the_move_was_narrated_as(expected: IncidentStatus,
         narrating = transition_incident.call_args.kwargs["narrating"]
         if not isinstance(narrating, StatusChanged):
             raise AssertionError(
-                f"expected the move to be narrated as a status change, "
-                f"it was narrated as [{type(narrating).__name__}]"
+                f"Expected the move to be narrated as a status change, "
+                f"it was narrated as [{type(narrating).__name__}]."
             )
 
         if narrating.to_status is not expected:
             raise AssertionError(
-                f"expected the narration to report [{expected}], "
-                f"it reported [{narrating.to_status}]"
+                f"Expected the narration to report [{expected}], "
+                f"it reported [{narrating.to_status}]."
             )
 
         return True
@@ -391,8 +398,8 @@ def _the_move_was_attributed_to(expected: Actor,
         attributed_to = transition_incident.call_args.kwargs["actor"]
         if attributed_to is not expected:
             raise AssertionError(
-                f"expected the move to be attributed to [{expected}], "
-                f"it was attributed to [{attributed_to}]"
+                f"Expected the move to be attributed to [{expected}], "
+                f"it was attributed to [{attributed_to}]."
             )
 
         return True
@@ -404,7 +411,7 @@ def _the_incident_was_not_moved(transition_incident: MagicMock) -> Assertion[Nod
     def assertion(dont_care_result: NodeResult) -> bool:
         if transition_incident.call_count != 0:
             raise AssertionError(
-                f"expected no transition, got {transition_incident.call_args_list}"
+                f"Expected no transition, got {transition_incident.call_args_list}."
             )
 
         return True
@@ -418,14 +425,14 @@ def _exactly_one_note_said(action: str,
     def assertion(dont_care_result: NodeResult) -> bool:
         if record_note.call_count != 1:
             raise AssertionError(
-                f"expected exactly one note, got {record_note.call_count}"
+                f"Expected exactly one note, got {record_note.call_count}."
             )
 
         noted = record_note.call_args.kwargs
         if (noted["action"], noted["result"]) != (action, result):
             raise AssertionError(
-                f"expected a note of [{action}] / [{result}], "
-                f"got [{noted['action']}] / [{noted['result']}]"
+                f"Expected a note of [{action}] / [{result}], "
+                f"got [{noted['action']}] / [{noted['result']}]."
             )
 
         return True
@@ -437,7 +444,7 @@ def _nothing_was_noted(record_note: MagicMock) -> Assertion[NodeResult]:
     def assertion(dont_care_result: NodeResult) -> bool:
         if record_note.call_count != 0:
             raise AssertionError(
-                f"expected no note, got {record_note.call_args_list}"
+                f"Expected no note, got {record_note.call_args_list}."
             )
 
         return True
@@ -451,7 +458,7 @@ def _the_updates_are(expected: NodeResult) -> Assertion[NodeResult]:
     def assertion(updates: NodeResult) -> bool:
         if updates != expected:
             raise AssertionError(
-                f"expected the node's updates to be {expected}, got {updates}"
+                f"Expected the node's updates to be {expected}, got {updates}."
             )
 
         return True
@@ -463,12 +470,12 @@ def _the_updates_carry(field: str, expected: Any) -> Assertion[NodeResult]:
     def assertion(updates: NodeResult) -> bool:
         if field not in updates:
             raise AssertionError(
-                f"expected the updates to carry [{field}], they carry {sorted(updates)}"
+                f"Expected the updates to carry [{field}], they carry {sorted(updates)}."
             )
 
         if updates[field] != expected:
             raise AssertionError(
-                f"expected [{field}] to be [{expected}], it was [{updates[field]}]"
+                f"Expected [{field}] to be [{expected}], it was [{updates[field]}]."
             )
 
         return True
@@ -479,7 +486,7 @@ def _the_updates_carry(field: str, expected: Any) -> Assertion[NodeResult]:
 def _the_node_never_ran(ran: list[str]) -> Assertion[NodeResult]:
     def assertion(dont_care_result: NodeResult) -> bool:
         if ran:
-            raise AssertionError(f"expected the node not to run, it ran for {ran}")
+            raise AssertionError(f"Expected the node not to run, it ran for {ran}.")
 
         return True
 

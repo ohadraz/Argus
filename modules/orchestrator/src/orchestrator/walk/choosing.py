@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent_mitigation.tools import utc_now
 from argus_core.config import get_settings
 from argus_core.models.attempt import Attempt
@@ -12,7 +10,7 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_core.timestamps import to_iso
 
 from orchestrator.walk.candidates import the_next_worth_trying
-from orchestrator.walk.narrating import Narration
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.routes import (
     FIXING_ROUTE,
     INVESTIGATING_ROUTE,
@@ -20,7 +18,7 @@ from orchestrator.walk.routes import (
 )
 
 
-def next_candidate_node(state: IncidentState) -> dict[str, Any]:
+def next_candidate_node(state: IncidentState) -> StateDelta:
     """Decides what happens after an attempt settled nothing (spec §7.3).
 
     Reached two ways - the gate refusing an action, and the service refusing to
@@ -54,41 +52,41 @@ def next_candidate_node(state: IncidentState) -> dict[str, Any]:
         # Narration, and no transition behind it: the incident was mitigating
         # before this and is mitigating after. Moving to the next candidate is
         # progress through a phase, not out of one.
-        return {
-            "attempts": attempts,
-            "candidate_index": next_index,
-            "hypothesis": next_candidate,
-            "confidence": next_candidate.confidence,
-            "narration": Narration(
+        return StateDelta(
+            attempts=attempts,
+            candidate_index=next_index,
+            hypothesis=next_candidate,
+            confidence=next_candidate.confidence,
+            narration=Narration(
                 action="moving on to the next candidate",
                 result=next_candidate.summary,
                 confidence=next_candidate.confidence
             )
-        }
+        )
 
     if state.rounds < get_settings().investigation_max_rounds:
-        return {
-            "attempts": attempts,
-            "candidate_index": next_index,
-            "narration": Narration(
+        return StateDelta(
+            attempts=attempts,
+            candidate_index=next_index,
+            narration=Narration(
                 action="every explanation was refuted, investigating again"
             )
-        }
+        )
 
     # Nothing reversible is left, and what remains is a permanent fix - which is
     # the one thing `fixing` means. Reported, not decided: the index past the end
     # of the list and a spent round budget are what say so.
-    return {
-        "attempts": attempts,
-        "candidate_index": next_index,
-        "narration": Narration(
+    return StateDelta(
+        attempts=attempts,
+        candidate_index=next_index,
+        narration=Narration(
             action="no explanation left to try",
             result=(
                 f"{len(attempts)} action(s) were taken and undone, and the evidence "
                 f"offers nothing further to try"
             )
         )
-    }
+    )
 
 
 def _what_was_just_tried(state: IncidentState) -> list[Attempt]:

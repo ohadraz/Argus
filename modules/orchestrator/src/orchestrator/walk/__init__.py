@@ -11,17 +11,19 @@ from orchestrator.walk.choosing import (
     route_after_next_candidate,
 )
 from orchestrator.walk.closing import postmortem_node
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
-from orchestrator.walk.narrating import Narration, with_status
+from orchestrator.walk.narrating import with_status
 from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
 __all__ = [
     "Narration",
+    "StateDelta",
     "build_graph",
     "codefix_node",
     "investigator_node",

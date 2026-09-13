@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from argus_core.models.incident_state import IncidentState
 
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import RecordPostmortem, WritePostmortem
 
 
@@ -13,7 +12,7 @@ def postmortem_node(
     state: IncidentState,
     write: WritePostmortem,
     record: RecordPostmortem,
-) -> dict[str, Any]:
+) -> StateDelta:
     """Writes the incident up, and stores whatever was written (spec §7.6).
 
     The last node, and the only one whose work nothing downstream reads - which
@@ -28,4 +27,4 @@ def postmortem_node(
     """
     record(state.incident_id, write(state.incident_id))
 
-    return {}
+    return StateDelta()

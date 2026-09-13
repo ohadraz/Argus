@@ -14,6 +14,7 @@ from argus_core.models.incident_status import IncidentStatus, status_after
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.routes import FIXING_ROUTE, INVESTIGATING_ROUTE, MITIGATING_ROUTE
 
 from ..framework.builders import a_determined_hypothesis, a_random_id, an_undetermined_hypothesis
@@ -41,7 +42,6 @@ which follows the events these decisions are published as - so the node
 decides, publishes, and knows nothing about who is listening.
 """
 
-type NodeResult = dict[str, Any]
 
 SOME_FLAG = "monthly-spend-feature"
 ANOTHER_FLAG = "legacy-checkout-fallback"
@@ -273,7 +273,7 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
                       subject=flag)
 
 
-def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[NodeResult]:
+def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[StateDelta]:
     """Where the graph takes the state this node produced.
 
     The status is derived rather than read off the updates, because the node no
@@ -282,8 +282,8 @@ def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[NodeResu
     the way, as the graph drops it: it is what the node said, not part of the
     state.
     """
-    def assertion(updates: NodeResult) -> bool:
-        work = {key: value for key, value in updates.items() if key != "narration"}
+    def assertion(updates: StateDelta) -> bool:
+        work = updates.as_updates()
         after = state.model_copy(update=work)
         routed = route_after_next_candidate(
             after.model_copy(update={"status": status_after(after, _every_round())})
@@ -291,7 +291,7 @@ def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[NodeResu
 
         if routed != expected:
             raise AssertionError(
-                f"expected the walk to go to [{expected}], it went to [{routed}]"
+                f"Expected the walk to go to [{expected}], it went to [{routed}]."
             )
 
         return True
@@ -299,29 +299,18 @@ def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[NodeResu
     return assertion
 
 
-def _the_updates_carry(field: str, expected: Any) -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        if field not in updates:
+def _the_updates_carry(field: str, expected: Any) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if field not in updates.model_fields_set:
             raise AssertionError(
-                f"expected the updates to carry [{field}], they carry {sorted(updates)}"
+                f"Expected the updates to carry [{field}], they carry "
+                f"{sorted(updates.model_fields_set)}."
             )
 
-        if updates[field] != expected:
+        if getattr(updates, field) != expected:
             raise AssertionError(
-                f"expected [{field}] to be [{expected}], it was [{updates[field]}]"
-            )
-
-        return True
-
-    return assertion
-
-
-def _no_candidate_was_taken_up() -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        if "hypothesis" in updates:
-            raise AssertionError(
-                f"expected no candidate to be taken up, the node took up "
-                f"[{updates['hypothesis']}]"
+                f"Expected [{field}] to be [{expected}], it was "
+                f"[{getattr(updates, field)}]."
             )
 
         return True
@@ -329,12 +318,25 @@ def _no_candidate_was_taken_up() -> Assertion[NodeResult]:
     return assertion
 
 
-def _the_attempts_recorded_are(expected: list[str]) -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        recorded = [attempt.subject for attempt in updates["attempts"]]
+def _no_candidate_was_taken_up() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if "hypothesis" in updates.model_fields_set:
+            raise AssertionError(
+                f"Expected no candidate to be taken up, the node took up "
+                f"[{updates.hypothesis}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempts_recorded_are(expected: list[str]) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        recorded = [attempt.subject for attempt in updates.attempts or []]
         if recorded != expected:
             raise AssertionError(
-                f"expected the attempts to record {expected}, they record {recorded}"
+                f"Expected the attempts to record {expected}, they record {recorded}."
             )
 
         return True

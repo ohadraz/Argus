@@ -17,8 +17,8 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.reading import Reading
 from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk import ports
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
-from orchestrator.walk.narrating import Narration
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 
 from ..framework.assertions import assert_that, the_result_at, the_result_is
@@ -72,20 +72,20 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
         ) \
         .then(all_of(
             the_result_is(
-                {
-                    "hypothesis": some_hypothesis,
-                    "candidates": [some_hypothesis],
-                    "candidate_index": 0,
-                    "already_read": [],
-                    "rounds": 1,
-                    "confidence": some_hypothesis.confidence,
-                    "nothing_worth_trying": False,
-                    "narration": Narration(
+                StateDelta(
+                    hypothesis=some_hypothesis,
+                    candidates=[some_hypothesis],
+                    candidate_index=0,
+                    already_read=[],
+                    rounds=1,
+                    confidence=some_hypothesis.confidence,
+                    nothing_worth_trying=False,
+                    narration=Narration(
                         action="hypothesis formed",
                         result=some_hypothesis.summary,
                         confidence=some_hypothesis.confidence
                     )
-                }
+                )
             ),
             assert_that(record_hypothesis).was_called_with(some_hypothesis)
         ))
@@ -150,20 +150,20 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
         ) \
         .then(all_of(
             the_result_is(
-                {
-                    "hypothesis": a_hypothesis_with_no_cause,
-                    "candidates": [a_hypothesis_with_no_cause],
-                    "candidate_index": 0,
-                    "already_read": [],
-                    "rounds": 1,
-                    "confidence": None,
-                    "nothing_worth_trying": True,
-                    "narration": Narration(
+                StateDelta(
+                    hypothesis=a_hypothesis_with_no_cause,
+                    candidates=[a_hypothesis_with_no_cause],
+                    candidate_index=0,
+                    already_read=[],
+                    rounds=1,
+                    confidence=None,
+                    nothing_worth_trying=True,
+                    narration=Narration(
                         action="insufficient evidence",
                         result=a_hypothesis_with_no_cause.summary,
                         confidence=None
                     )
-                }
+                )
             ),
             assert_that(record_hypothesis).was_called_with(a_hypothesis_with_no_cause)
         ))

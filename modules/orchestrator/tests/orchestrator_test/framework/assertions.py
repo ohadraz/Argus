@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 from unittest.mock import MagicMock, call
 
+from anthropic import BaseModel
 from argus_testkit import Assertion
 
 
@@ -41,10 +41,17 @@ def the_result_is[R](expected: R) -> Assertion[R]:
     return assertion
 
 
-def the_result_at(key: str, is_: object) -> Assertion[Mapping[str, Any]]:
-    """One field of what `when` produced."""
-    def assertion(result: Mapping[str, Any]) -> bool:
-        assert result[key] == is_
+def the_result_at(field: str, is_: object) -> Assertion[BaseModel]:
+    """One field of what `when` produced.
+
+    A field rather than a key: a node answers with a `StateDelta` now, and the
+    mapping this used to index is what the graph is handed rather than what a
+    node returns. Typed as the model it reads, so the next thing to change
+    shape fails here instead of at run time - subscripting a `Mapping[str, Any]`
+    is something mypy will believe of anything.
+    """
+    def assertion(result: BaseModel) -> bool:
+        assert getattr(result, field) == is_
         return True
 
     return assertion

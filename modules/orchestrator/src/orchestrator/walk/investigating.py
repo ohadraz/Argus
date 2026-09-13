@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent_investigator import investigate as _investigate
 from argus_core.events import AgentInvoked, Publisher, nobody, publish
 from argus_core.models.actor import Actor
@@ -18,7 +16,7 @@ from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 
 from orchestrator.walk.candidates import the_next_worth_trying
-from orchestrator.walk.narrating import Narration
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import Investigate, RecordHypothesis
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 
@@ -29,7 +27,7 @@ def investigator_node(
     investigate: Investigate = _investigate,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
-) -> dict[str, Any]:
+) -> StateDelta:
     """Forms a hypothesis, records every candidate it considered, and reports
     whether any of them is worth acting on (spec §7.2, §10).
 
@@ -90,22 +88,22 @@ def investigator_node(
     for candidate in findings.candidates:
         record_hypothesis(candidate)
 
-    return {
-        "hypothesis": hypothesis,
-        "candidates": findings.candidates,
-        "candidate_index": next_up[0] if next_up is not None else 0,
+    return StateDelta(
+        hypothesis=hypothesis,
+        candidates=findings.candidates,
+        candidate_index=next_up[0] if next_up is not None else 0,
         # Everything read across this incident, not only this round's, so a
         # third round is told about the first as well as the second.
-        "already_read": [*state.already_read, *findings.already_read],
-        "rounds": state.rounds + 1,
-        "confidence": hypothesis.confidence,
-        "nothing_worth_trying": nothing_worth_trying,
-        "narration": Narration(
+        already_read=[*state.already_read, *findings.already_read],
+        rounds=state.rounds + 1,
+        confidence=hypothesis.confidence,
+        nothing_worth_trying=nothing_worth_trying,
+        narration=Narration(
             action=_what_the_investigation_did(hypothesis),
             result=hypothesis.summary,
             confidence=hypothesis.confidence,
         ),
-    }
+    )
 
 
 def _what_the_investigation_did(hypothesis: Hypothesis) -> str:

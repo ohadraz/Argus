@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from argus_core.models.action import Action
 from argus_core.models.incident_state import IncidentState
 
-from orchestrator.walk.narrating import Narration
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import RecordOutcome
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
 
@@ -15,7 +13,7 @@ from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
 def tier_gate_node(
     state: IncidentState,
     record_outcome: RecordOutcome,
-) -> dict[str, Any]:
+) -> StateDelta:
     """Refuses to let a reversible action reach its call without a way back
     (spec §13).
 
@@ -44,16 +42,16 @@ def tier_gate_node(
     reason = _why_the_action_cannot_proceed(state.proposed_action)
 
     if reason is None:
-        return {}
+        return StateDelta()
 
     # The candidate's own row says it was never put to the question, and why.
     if state.hypothesis is not None:
         record_outcome(state.hypothesis.id, tested=False, result=reason)
 
-    return {
-        "proposed_action": None,
-        "narration": Narration(action="action rejected at the tier gate", result=reason),
-    }
+    return StateDelta(
+        proposed_action=None,
+        narration=Narration(action="action rejected at the tier gate", result=reason),
+    )
 
 
 def _why_the_action_cannot_proceed(action: Action | None) -> str | None:

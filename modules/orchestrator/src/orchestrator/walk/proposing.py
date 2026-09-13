@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent_mitigation import propose_action
 from agent_mitigation.tools import fetch_recent_flag_changes
 from argus_core.events import FlagChangesRetrieved, Publisher, nobody, publish
 from argus_core.models.incident_state import IncidentState
 
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import FetchFlagChanges
 
 
@@ -16,7 +15,7 @@ def mitigation_proposal_node(
     state: IncidentState,
     fetch_flag_changes: FetchFlagChanges = fetch_recent_flag_changes,
     publisher: Publisher = nobody,
-) -> dict[str, Any]:
+) -> StateDelta:
     """Chooses the reversible action that answers the hypothesis, and stops
     there (spec §7.3).
 
@@ -31,7 +30,7 @@ def mitigation_proposal_node(
     place - no action, and a human - and neither is a reason to fail the graph.
     """
     if state.hypothesis is None:
-        return {"proposed_action": None}
+        return StateDelta(proposed_action=None)
 
     try:
         flag_changes = fetch_flag_changes()
@@ -39,7 +38,7 @@ def mitigation_proposal_node(
         # Deliberately unpublished. An empty history here would state that
         # nothing had changed, where what happened is that nobody could say -
         # and the two look identical on a page while meaning opposite things.
-        return {"proposed_action": None}
+        return StateDelta(proposed_action=None)
 
     # The whole basis of the action about to be proposed: which flag moved,
     # which way, and when. Published from the node that reads it, because by
@@ -50,4 +49,4 @@ def mitigation_proposal_node(
         publisher,
     )
 
-    return {"proposed_action": propose_action(state.hypothesis, flag_changes)}
+    return StateDelta(proposed_action=propose_action(state.hypothesis, flag_changes))

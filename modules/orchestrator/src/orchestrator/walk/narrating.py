@@ -16,35 +16,13 @@ from argus_core.models.actor import Actor
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus, status_after
 from argus_incidents.withdrawal import IsStillWanted
-from pydantic import BaseModel
 
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import RecordNote, TransitionIncident
 
 
-class Narration(BaseModel):
-    """What a node says it just did, on its way past.
-
-    Three of these are the `timeline_event` columns a human reads the incident
-    from. `detail` is what the published `StatusChanged` carries, which is not
-    always the same sentence: the Investigator's event names what the
-    investigation did, while Mitigation's names what came back from the action.
-    Defaulting it to `action` keeps the ordinary case to one field.
-
-    A node returns this alongside its work and never writes it anywhere. Nothing
-    about narration is a node's to decide except the words.
-    """
-
-    action: str
-    result: str | None = None
-    confidence: float | None = None
-    detail: str | None = None
-
-    def published_detail(self) -> str:
-        return self.detail if self.detail is not None else self.action
-
-
 def with_status(
-    node: Callable[[IncidentState], dict[str, Any]],
+    node: Callable[[IncidentState], StateDelta],
     actor: Actor,
     max_rounds: int,
     transition_incident: TransitionIncident,
@@ -76,9 +54,14 @@ def with_status(
     when the graph is built and was being repeated inside every node as a
     constant.
 
-    `narration` is popped rather than passed on. Left in the updates it would
-    become a field of `IncidentState`, checkpointed with the incident forever,
-    describing whichever node happened to run last.
+    A node returns a `StateDelta` and this is the only place it becomes the
+    mapping LangGraph merges. One boundary rather than seven: a key misspelt in
+    a literal type-checks, runs, and silently drops whatever the walk turned on,
+    and `StateDelta` is what makes that a type error instead.
+
+    `narration` is read off the delta and left out of the updates. Passed on it
+    would become a field of `IncidentState`, checkpointed with the incident
+    forever, describing whichever node happened to run last.
 
     It is also where a walk finds out it is no longer wanted, for the same
     reason it is where a status is written: every node passes through here, so
@@ -96,10 +79,11 @@ def with_status(
     """
     def run(state: IncidentState) -> dict[str, Any]:
         if not still_wanted(state.incident_id):
-            return {"status": IncidentStatus.WITHDRAWN}
+            return StateDelta(status=IncidentStatus.WITHDRAWN).as_updates()
 
-        updates = dict(node(state))
-        narration = updates.pop("narration", None)
+        delta = node(state)
+        updates = delta.as_updates()
+        narration = delta.narration
         next_status = status_after(state.model_copy(update=updates), max_rounds)
 
         if next_status == state.status:

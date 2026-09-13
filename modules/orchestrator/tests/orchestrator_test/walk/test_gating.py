@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
@@ -12,6 +12,7 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
 
@@ -29,7 +30,6 @@ says why, and moves the incident nowhere - whether anything follows is decided
 one node further on, in one place.
 """
 
-type NodeResult = dict[str, Any]
 
 DONT_CARE_FLAG = "dont-care-flag"
 
@@ -160,14 +160,15 @@ def _an_action_with_no_undo_descriptor() -> Action:
                   undo_descriptor=None)
 
 
-def _the_gate_changed_nothing() -> Assertion[NodeResult]:
+def _the_gate_changed_nothing() -> Assertion[StateDelta]:
     """An admitted action leaves the state exactly as it arrived. Anything at
     all here would be the gate deciding something, and the gate decides only
     whether to refuse."""
-    def assertion(updates: NodeResult) -> bool:
-        if updates != {}:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.model_fields_set:
             raise AssertionError(
-                f"expected the gate to change nothing, it returned {updates}"
+                f"Expected the gate to change nothing, it set "
+                f"{sorted(updates.model_fields_set)}."
             )
 
         return True
@@ -175,15 +176,15 @@ def _the_gate_changed_nothing() -> Assertion[NodeResult]:
     return assertion
 
 
-def _no_outcome_was_recorded(record_outcome: MagicMock) -> Assertion[NodeResult]:
+def _no_outcome_was_recorded(record_outcome: MagicMock) -> Assertion[StateDelta]:
     """The candidate is about to be put to the question, so nothing is known
     about it yet - a row marked with an outcome here would be marked before the
     experiment that produces one."""
-    def assertion(dont_care_result: NodeResult) -> bool:
+    def assertion(dont_care_result: StateDelta) -> bool:
         if record_outcome.call_count != 0:
             raise AssertionError(
-                f"expected no outcome to be recorded, got "
-                f"{record_outcome.call_args_list}"
+                f"Expected no outcome to be recorded, got "
+                f"{record_outcome.call_args_list}."
             )
 
         return True
@@ -191,12 +192,12 @@ def _no_outcome_was_recorded(record_outcome: MagicMock) -> Assertion[NodeResult]
     return assertion
 
 
-def _the_action_was_cleared() -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        if updates.get("proposed_action") is not None:
+def _the_action_was_cleared() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.proposed_action is not None:
             raise AssertionError(
-                f"expected the refused action to be cleared, the gate returned "
-                f"{updates.get('proposed_action')!r}"
+                f"Expected the refused action to be cleared, the gate returned "
+                f"{updates.proposed_action!r}."
             )
 
         return True
@@ -204,14 +205,14 @@ def _the_action_was_cleared() -> Assertion[NodeResult]:
     return assertion
 
 
-def _the_incident_was_moved_nowhere() -> Assertion[NodeResult]:
+def _the_incident_was_moved_nowhere() -> Assertion[StateDelta]:
     """A rejection ends this attempt, not the incident: `mitigating` before and
     after, so the gate names no status at all."""
-    def assertion(updates: NodeResult) -> bool:
-        if "status" in updates:
+    def assertion(updates: StateDelta) -> bool:
+        if "status" in updates.model_fields_set:
             raise AssertionError(
-                f"expected the gate to name no status, it named "
-                f"[{updates['status']}]"
+                f"Expected the gate to name no status, it named "
+                f"[{updates.status}]."
             )
 
         return True
@@ -219,22 +220,22 @@ def _the_incident_was_moved_nowhere() -> Assertion[NodeResult]:
     return assertion
 
 
-def _the_rejection_was_narrated(reason: str) -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        narration = updates.get("narration")
+def _the_rejection_was_narrated(reason: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        narration = updates.narration
         if narration is None:
-            raise AssertionError("expected the rejection to be narrated, it was not")
+            raise AssertionError("Expected the rejection to be narrated, it was not.")
 
         if narration.action != "action rejected at the tier gate":
             raise AssertionError(
-                f"expected a rejection at the tier gate, the narration said "
-                f"[{narration.action}]"
+                f"Expected a rejection at the tier gate, the narration said "
+                f"[{narration.action}]."
             )
 
         if reason not in (narration.result or ""):
             raise AssertionError(
-                f"expected the reason to say [{reason}], it said "
-                f"[{narration.result}]"
+                f"Expected the reason to say [{reason}], it said "
+                f"[{narration.result}]."
             )
 
         return True
@@ -245,31 +246,31 @@ def _the_rejection_was_narrated(reason: str) -> Assertion[NodeResult]:
 def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,
                                            reason: str,
                                            record_outcome: MagicMock
-                                           ) -> Assertion[NodeResult]:
-    def assertion(dont_care_result: NodeResult) -> bool:
+                                           ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
         if record_outcome.call_count != 1:
             raise AssertionError(
-                f"expected exactly one outcome to be recorded, got "
-                f"{record_outcome.call_count}"
+                f"Expected exactly one outcome to be recorded, got "
+                f"{record_outcome.call_count}."
             )
 
         recorded_about = record_outcome.call_args.args[0]
         if recorded_about != candidate.id:
             raise AssertionError(
-                f"expected the outcome to be about [{candidate.id}], it was "
-                f"about [{recorded_about}]"
+                f"Expected the outcome to be about [{candidate.id}], it was "
+                f"about [{recorded_about}]."
             )
 
         recorded = record_outcome.call_args.kwargs
         if recorded["tested"] is not False:
             raise AssertionError(
-                "expected the candidate to be recorded as never having been tried"
+                "Expected the candidate to be recorded as never having been tried."
             )
 
         if reason not in recorded["result"]:
             raise AssertionError(
-                f"expected the reason to say [{reason}], it said "
-                f"[{recorded['result']}]"
+                f"Expected the reason to say [{reason}], it said "
+                f"[{recorded['result']}]."
             )
 
         return True
@@ -280,7 +281,7 @@ def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,
 def _the_route_is(expected: str) -> Assertion[str]:
     def assertion(route: str) -> bool:
         if route != expected:
-            raise AssertionError(f"expected the route [{expected}], got [{route}]")
+            raise AssertionError(f"Expected the route [{expected}], got [{route}].")\
 
         return True
 

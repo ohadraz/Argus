@@ -7,8 +7,8 @@ from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
-from orchestrator.walk.narrating import Narration
 from orchestrator.walk.routes import ESCALATED_ROUTE, RESOLVED_ROUTE
 
 """Looking for a permanent fix, and admitting there isn't one.
@@ -19,7 +19,6 @@ Silence was how an incident could reach the end of the graph still marked
 `fixing`, which is a status nothing was working on.
 """
 
-type NodeResult = dict[str, Any]
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "buki-123"
@@ -56,16 +55,18 @@ def _an_incident_in(status: IncidentStatus) -> IncidentState:
                          status=status)
 
 
-def _the_updates_carry(field: str, expected: Any) -> Assertion[NodeResult]:
-    def assertion(updates: NodeResult) -> bool:
-        if field not in updates:
+def _the_updates_carry(field: str, expected: Any) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if field not in updates.model_fields_set:
             raise AssertionError(
-                f"expected the updates to carry [{field}], they carry {sorted(updates)}"
+                f"Expected the updates to carry [{field}], they carry "
+                f"{sorted(updates.model_fields_set)}."
             )
 
-        if updates[field] != expected:
+        if getattr(updates, field) != expected:
             raise AssertionError(
-                f"expected [{field}] to be [{expected}], it was [{updates[field]}]"
+                f"Expected [{field}] to be [{expected}], it was "
+                f"[{getattr(updates, field)}]."
             )
 
         return True
@@ -73,15 +74,15 @@ def _the_updates_carry(field: str, expected: Any) -> Assertion[NodeResult]:
     return assertion
 
 
-def _the_work_was_narrated() -> Assertion[NodeResult]:
+def _the_work_was_narrated() -> Assertion[StateDelta]:
     """Something was said, not what. A node that moves the incident and says
     nothing raises in `with_status`, and the words themselves are not a promise
     to anybody."""
-    def assertion(updates: NodeResult) -> bool:
-        if not isinstance(updates.get("narration"), Narration):
+    def assertion(updates: StateDelta) -> bool:
+        if not isinstance(updates.narration, Narration):
             raise AssertionError(
-                f"expected the node to narrate what it did, it returned "
-                f"{updates.get('narration')!r}"
+                f"Expected the node to narrate what it did, it returned "
+                f"{updates.narration!r}."
             )
 
         return True
@@ -92,7 +93,7 @@ def _the_work_was_narrated() -> Assertion[NodeResult]:
 def _the_route_is(expected: str) -> Assertion[str]:
     def assertion(route: str) -> bool:
         if route != expected:
-            raise AssertionError(f"expected the route [{expected}], got [{route}]")
+            raise AssertionError(f"Expected the route [{expected}], got [{route}].")
 
         return True
 

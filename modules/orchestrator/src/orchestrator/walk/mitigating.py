@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
 
 from agent_mitigation import Verdict, take_action
 from agent_mitigation.tools import argus_changed_flag_since
@@ -20,7 +19,7 @@ from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
 
-from orchestrator.walk.narrating import Narration
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     ActionAlreadyTaken,
     ActionClaimedAt,
@@ -48,7 +47,7 @@ def mitigation_node(
     take: TakeAction = take_action,
     change_landed: ChangeLanded = argus_changed_flag_since,
     publisher: Publisher = nobody
-) -> dict[str, Any]:
+) -> StateDelta:
     """Performs the action the gate admitted, and records what came of it
     (spec §7.3, §11.1).
 
@@ -114,7 +113,7 @@ def mitigation_node(
         incident_id=state.incident_id,
         publisher=publisher
     )
-    outcome = str(result.verdict)
+    outcome = result.verdict
 
     # The verdict and the line reporting it, in that order and in one write.
     # Announced first, as it was, a walk that stopped in between left a verdict
@@ -151,19 +150,19 @@ def mitigation_node(
     if state.hypothesis is not None and result.verdict is not Verdict.WITHDRAWN:
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
 
-    return {
-        "action_outcome": outcome,
-        "narration": Narration(
+    return StateDelta(
+        action_outcome=outcome,
+        narration=Narration(
             action="mitigation attempted", result=result.detail, detail=result.detail
         )
-    }
+    )
 
 
 def _what_the_earlier_attempt_left(state: IncidentState,
                                    already_taken: ActionAlreadyTaken,
                                    claimed_at: ActionClaimedAt,
                                    change_landed: ChangeLanded
-                                   ) -> dict[str, Any] | None:
+                                   ) -> StateDelta | None:
     """What a walk resumed inside the mitigation node should answer with, or
     `None` where it should simply take the action itself.
 
@@ -193,14 +192,14 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     outcome = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
 
     if outcome is not None:
-        return {
-            "action_outcome": outcome,
-            "narration": Narration(
+        return StateDelta(
+            action_outcome=outcome,
+            narration=Narration(
                 action="mitigation resumed",
                 result=f"an earlier attempt already acted on this explanation: "
                        f"{outcome}"
             )
-        }
+        )
 
     # Both are needed to ask the question at all: which flag, and from when.
     # A candidate naming no subject, or a claim whose moment cannot be read, is
@@ -214,13 +213,13 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     if landed is False:
         return None
 
-    return {
-        "status": IncidentStatus.ESCALATED,
-        "narration": Narration(
+    return StateDelta(
+        status=IncidentStatus.ESCALATED,
+        narration=Narration(
             action="mitigation resumed",
             result=_why_the_resumed_walk_stopped(landed)
         )
-    }
+    )
 
 
 def _why_the_resumed_walk_stopped(landed: bool | None) -> str:
@@ -239,7 +238,7 @@ def _why_the_resumed_walk_stopped(landed: bool | None) -> str:
             "whether the change was made")
 
 
-def _nothing_to_act_on() -> dict[str, Any]:
+def _nothing_to_act_on() -> StateDelta:
     """The unreachable case, handled rather than assumed away.
 
     The gate escalates an unproposed action, so nothing should arrive here
@@ -247,12 +246,12 @@ def _nothing_to_act_on() -> dict[str, Any]:
     true would fail inside a state-changing step, which is the worst place to
     discover it.
     """
-    return {
-        "action_outcome": str(Verdict.ESCALATED),
-        "narration": Narration(
+    return StateDelta(
+        action_outcome=Verdict.ESCALATED,
+        narration=Narration(
             action="mitigation attempted", result="no action reached the mitigation step"
         )
-    }
+    )
 
 
 def route_after_mitigation(state: IncidentState) -> str:
