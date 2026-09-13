@@ -7,10 +7,7 @@ from http import HTTPStatus as HttpStatus
 import httpx
 import psycopg
 import pytest
-from agent_postmortem.document import (
-    PAY_BAND_ASSUMPTION_LABEL,
-    WORKING_YEAR_ASSUMPTION_LABEL,
-)
+from agent_postmortem import PAY_BAND_ASSUMPTION_LABEL, WORKING_YEAR_ASSUMPTION_LABEL
 from argus_core.config import get_settings
 from argus_core.models.postmortem import Postmortem
 from argus_incidents.repository import postmortems

@@ -7,9 +7,10 @@ from typing import Any
 import httpx
 import pytest
 from argus_core.config import Settings
+from argus_core.models.rates import PublishedRates, RatesUnavailable
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
-from exchange_rate_source import PublishedRates, RatesUnavailable, rates_published_for
+from exchange_rate_source import rates_published_for
 
 """Reading a day's rates from the provider that publishes them.
 

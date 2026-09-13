@@ -8,7 +8,7 @@ nothing but words.
 
 from __future__ import annotations
 
-from agent_postmortem.document import (
+from agent_postmortem.assumptions import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
     EXCHANGE_RATE_ASSUMPTION_LABEL,
     EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
@@ -18,7 +18,6 @@ from agent_postmortem.document import (
     REVENUE_UNAVAILABLE_ASSUMPTION,
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
-    PostmortemDocument,
 )
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.sources import Sources
@@ -35,7 +34,6 @@ __all__ = [
     "UNPRICED_TITLE_ASSUMPTION_LABEL",
     "WORKING_YEAR_ASSUMPTION_LABEL",
     "IncidentEvidence",
-    "PostmortemDocument",
     "Sources",
     "write_postmortem",
 ]

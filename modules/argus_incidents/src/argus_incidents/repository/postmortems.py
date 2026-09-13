@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import psycopg
-from agent_postmortem import PostmortemDocument
-from argus_core.models.postmortem import Postmortem
+from argus_core.models.postmortem import Postmortem, PostmortemDocument
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 

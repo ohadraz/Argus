@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 import psycopg
-from exchange_rate_source import PublishedRates
+from argus_core.models.rates import PublishedRates
 
 """Where a day's exchange rates are written down.
 

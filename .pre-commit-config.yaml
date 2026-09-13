@@ -13,6 +13,12 @@ repos:
         language: system  # uses the system's Python interpreter, which is already installed on the machine
         pass_filenames: false  # no filenames - it always lints/typechecks everything.
 
+      - id: guard-layering
+        name: module layering (via nox)
+        entry: uv run python -m nox -s guard_layering  # fails if a module imports across a layer it may not
+        language: system
+        pass_filenames: false  # no filenames - a contract is about the whole graph.
+
       - id: guard-e2e-boundary
         name: e2e test boundary (via nox)
         entry: uv run python -m nox -s guard_e2e_boundary  # fails if a module's tests/ contains an e2e-marked test

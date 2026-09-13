@@ -24,8 +24,7 @@ from typing import Any, Final
 
 import httpx
 from argus_core.config import Settings, get_settings
-
-from exchange_rate_source.rates import PublishedRates, RatesUnavailable
+from argus_core.models.rates import PublishedRates, RatesUnavailable
 
 # How the request is made. Injected rather than called outright so a test can
 # answer with a real `httpx.Response` - the provider's own body, parsed by the

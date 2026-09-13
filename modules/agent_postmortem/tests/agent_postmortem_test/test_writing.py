@@ -5,12 +5,13 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_postmortem import PostmortemDocument, write_postmortem
+from agent_postmortem import write_postmortem
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import EngagedResponder
+from argus_core.models.postmortem import PostmortemDocument
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (

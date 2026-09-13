@@ -20,18 +20,14 @@ from decimal import Decimal
 from functools import partial
 
 import psycopg
-from agent_postmortem import (
-    IncidentEvidence,
-    PostmortemDocument,
-    Sources,
-    write_postmortem,
-)
+from agent_postmortem import IncidentEvidence, Sources, write_postmortem
 from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
 from argus_core.config import get_settings
 from argus_core.db import Connections
 from argus_core.events import LogsRetrieved, OnsetDetected
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.postmortem import PostmortemDocument
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from argus_core.timestamps import parse_iso, to_iso

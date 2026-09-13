@@ -4,7 +4,6 @@ import re
 
 import psycopg
 import pytest
-from agent_postmortem.document import PostmortemDocument
 from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
@@ -12,6 +11,7 @@ from argus_core.models.cause import CauseType
 from argus_core.models.evidence import Evidence
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.postmortem import PostmortemDocument
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, postmortems, taken_actions
 from argus_web.app import app

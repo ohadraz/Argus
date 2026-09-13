@@ -181,8 +181,8 @@ def sweep(session: nox.Session) -> None:
 # What a sweep runs. Every suite that costs nothing and needs no key - the same
 # set CI runs on a push, which is what makes a green sweep mean something
 # before the push rather than after it.
-_SWEEP = ["lint", "typecheck", "guard_e2e_boundary", "test_all", "integration",
-          "e2e_replay"]
+_SWEEP = ["lint", "typecheck", "guard_layering", "guard_e2e_boundary", "test_all",
+          "integration", "e2e_replay"]
 
 # How often a sweep looks at its children. Long enough that watching is free,
 # short enough that a failure stops the others while they still have most of
@@ -277,6 +277,22 @@ def schema(session: nox.Session) -> None:
     and a postgres container, and only some of those are nox.
     """
     session.run("uv", "run", "python", "-m", "argus_core.schema", external=True)
+
+@nox.session
+def guard_layering(session: nox.Session) -> None:
+    """
+    Registers `guard_layering` as a nox session, i.e., runnable via
+    `uv run python -m nox -s guard_layering`.
+    Fails if a module imports something its layer may not know about, per the
+    import-linter contracts in the root `pyproject.toml`: the kernel depends on
+    nothing here, the incident record knows only the kernel, and the page serves
+    HTML without installing an agent.
+
+    A guard rather than a note in `CLAUDE.md`, because the note was there while
+    `argus_incidents` depended on an agent - a documented invariant nothing
+    checks is one nobody finds out about.
+    """
+    session.run("uv", "run", "python", "scripts/guard_layering.py", external=True)
 
 @nox.session
 def guard_e2e_boundary(session: nox.Session) -> None:

@@ -20,10 +20,10 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from argus_core.llm.client import LLMClient
+from argus_core.models.postmortem import PostmortemDocument
 
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
-from agent_postmortem.document import PostmortemDocument
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import EXECUTIVE_SUMMARY_FIELD, ROOT_CAUSE_FIELD

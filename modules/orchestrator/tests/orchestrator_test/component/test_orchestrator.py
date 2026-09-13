@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_investigator import Findings
 from agent_mitigation import Action, Outcome, Verdict
-from agent_postmortem import PostmortemDocument
 from argus_core.config import get_settings
 from argus_core.events import Publisher, nobody
 from argus_core.models.alert import Alert
@@ -20,6 +19,7 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.postmortem import PostmortemDocument
 from argus_core.models.reading import Reading
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing

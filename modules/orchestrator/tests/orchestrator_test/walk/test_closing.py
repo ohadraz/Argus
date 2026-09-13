@@ -3,10 +3,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from agent_postmortem import PostmortemDocument
 from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.postmortem import PostmortemDocument
 from argus_testkit import Assertion, Kept, Scenario, all_of
 from orchestrator.walk.closing import postmortem_node
 from orchestrator.walk.ports import RecordPostmortem, WritePostmortem

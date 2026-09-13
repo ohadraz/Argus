@@ -5,9 +5,9 @@ from decimal import Decimal
 
 import pytest
 from argus_core.db import connect
+from argus_core.models.rates import PublishedRates
 from argus_incidents.repository import exchange_rates
 from argus_testkit import Assertion, Scenario, all_of, calling
-from exchange_rate_source import PublishedRates
 
 """Where a day's exchange rates are written down, and read back whole.
 

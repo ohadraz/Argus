@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from agent_postmortem import PostmortemDocument
 from argus_core.db import Connections
 from argus_core.events import IncidentEvent, PostmortemWritten
 from argus_core.models.actor import Actor
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.postmortem import PostmortemDocument
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.publishing import PublisherFor, publish_beside
 from argus_incidents.repository import (

@@ -21,6 +21,7 @@ dev = [
     "psycopg[binary]",
     "argus-argus_testkit",
     "argus-anthropic_double",
+    "import-linter>=2.15",
 ]
 
 
@@ -88,3 +89,81 @@ markers = [
     "contract: the double still matches the third party it stands in for",
     "eval: hits the real Anthropic API and judges the answer, not the plumbing",
 ]
+
+
+# import-linter (the layering, enforced rather than described)
+#
+# The arrow at the bottom of this system points one way: the kernel knows
+# nothing about anybody, the incident record knows only the kernel, and the page
+# knows only what it reads from. That claim has been written in `CLAUDE.md` since
+# before it was true - `argus_incidents` declared a dependency on an agent for
+# months, which is precisely the failure a documented invariant nobody checks
+# produces. These contracts are the check.
+#
+# `forbidden_modules = ["*"]` rather than a deny-list naming every other package.
+# A list would be a nineteenth module's free pass: absent from all three
+# contracts, importing whatever it likes, in the one file whose job is catching a
+# drift nobody noticed. The exceptions are stated instead - `ignore_imports` is
+# the whole of what each layer is permitted to know - so a new module is covered
+# on the day it exists and a new *allowance* is a line somebody had to write.
+#
+# `root_packages` is still a list, because import-linter takes no wildcard there.
+# `scripts/guard_layering.py` asserts it names every module under `modules/`: one
+# missing is not analyzed at all, and a contract that cannot see a package cannot
+# be broken by it.
+[tool.importlinter]
+root_packages = [
+    "agent_codefix",
+    "agent_communicator",
+    "agent_investigator",
+    "agent_mitigation",
+    "agent_postmortem",
+    "argus_core",
+    "argus_incidents",
+    "argus_narration",
+    "argus_web",
+    "exchange_rate_source",
+    "oncall_source",
+    "orchestrator",
+    "read_mcp_client",
+    "read_mcp_server",
+    "responder_rate_source",
+    "revenue_source",
+    "write_mcp_client",
+    "write_mcp_server",
+]
+
+[[tool.importlinter.contracts]]
+name = "argus_core is the kernel and depends on nothing in this workspace"
+type = "forbidden"
+source_modules = ["argus_core"]
+forbidden_modules = ["*"]
+
+[[tool.importlinter.contracts]]
+name = "argus_incidents is the incident record and knows only the kernel"
+type = "forbidden"
+source_modules = ["argus_incidents"]
+forbidden_modules = ["*"]
+ignore_imports = ["argus_incidents.** -> argus_core.**"]
+# A layer that stops importing something it was allowed to import is not a
+# failure, and an allowance is written for a package rather than for whichever
+# of its modules happens to be reached today - so an exception that matches
+# nothing says so and does not stop the build.
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "argus_web serves HTML without installing an agent"
+type = "forbidden"
+source_modules = ["argus_web"]
+forbidden_modules = ["*"]
+# One line per allowance, in the form that layer actually uses: a package
+# imported through its own front door is named bare, and one reached by module
+# path is named with `.**`. A wildcard cannot replace part of a name, so listing
+# both spellings of every allowance would warn about the unused half on every
+# run - and a build that always prints warnings is a build nobody reads.
+ignore_imports = [
+    "argus_web.** -> argus_core.**",
+    "argus_web.** -> argus_incidents.**",
+    "argus_web.** -> argus_narration",
+]
+unmatched_ignore_imports_alerting = "warn"

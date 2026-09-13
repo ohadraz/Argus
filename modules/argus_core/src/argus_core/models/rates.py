@@ -5,9 +5,15 @@ unit of the base buys. Rates move, so the day is part of the answer rather than
 metadata about it - a figure converted at Tuesday's rate and published as
 Wednesday's is a figure nobody can check.
 
-Nothing here reaches a provider. The vocabulary lives apart from the fetching
-so that a cached table and a freshly fetched one are the same kind of thing,
-which is what lets yesterday's rates stand in for today's when nobody answers.
+Here rather than in `exchange_rate_source` because the table is named by three
+modules - the source that fetches one, the repository that holds one, and the
+walk that chooses between them - and a vocabulary kept inside the provider is a
+vocabulary the repository imports an HTTP client to speak.
+
+Nothing here reaches a provider, which was already this file's rule where it
+used to live: a cached table and a freshly fetched one are the same kind of
+thing, and that is what lets yesterday's rates stand in for today's when nobody
+answers.
 """
 
 from __future__ import annotations

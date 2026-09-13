@@ -199,7 +199,12 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- What those responders were called by their profession, never who they
     -- were. A list rather than a column apiece: it is read whole, by a page
     -- that prints it, and nothing aggregates across titles.
-    responder_titles JSONB,
+    --
+    -- Never null. An empty list says the question was answered and the answer
+    -- was none - that the source could say how many responded and not what any
+    -- of them was called - which is a different fact from not having asked, and
+    -- null would collapse the two.
+    responder_titles JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- What those minutes were worth, priced at the pay band of each
     -- responder's title. Three columns rather than one, because a band is a
     -- range: the midpoint is the figure, and the two beside it are the same
@@ -215,7 +220,12 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- into the other.
     responder_cost_currency TEXT,
     tokens_spent INTEGER,
-    assumptions JSONB,
+    -- Never null, for the reason `responder_titles` is not: a document that
+    -- rested on nothing worth disclosing discloses nothing, and that is an
+    -- answer. Every absent figure above is explained by a line in here, so a
+    -- null list would be the one place the explanations could go missing
+    -- without the figures doing so.
+    assumptions JSONB NOT NULL DEFAULT '[]'::jsonb,
     executive_summary TEXT,
     checklist_complete BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()

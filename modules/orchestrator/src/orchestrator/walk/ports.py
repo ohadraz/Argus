@@ -15,7 +15,6 @@ from typing import Protocol
 from agent_investigator import Findings
 from agent_mitigation import Action, Outcome
 from agent_mitigation.tools import StillWanted
-from agent_postmortem import PostmortemDocument
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
@@ -23,6 +22,7 @@ from argus_core.models.attempt import Attempt
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.postmortem import PostmortemDocument
 from argus_core.models.reading import Reading
 from argus_core.models.undo_descriptor import UndoDescriptor
 

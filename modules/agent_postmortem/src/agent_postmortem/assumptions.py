@@ -15,27 +15,65 @@ blank.
 Nothing here reads a source. Everything was read while the incident was being
 measured, so a disclosure describes the same read that produced the figure it
 sits beside.
+
+The wording is here too, as a constant per disclosure. The document and anything
+reading it back have to agree on the phrasing, and two spellings would leave a
+disclosed assumption looking undisclosed - so the sentence and the code that
+decides to say it are kept in one file rather than one apiece.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from agent_postmortem.document import (
-    ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
-    EXCHANGE_RATE_ASSUMPTION_LABEL,
-    EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
-    ONSET_UNKNOWN_ASSUMPTION,
-    PAY_BAND_ASSUMPTION_LABEL,
-    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
-    REVENUE_UNAVAILABLE_ASSUMPTION,
-    UNPRICED_TITLE_ASSUMPTION_LABEL,
-    WORKING_YEAR_ASSUMPTION_LABEL,
-)
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import ASSUMPTIONS_FIELD
 from agent_postmortem.responder_cost import unpriced_titles
 from agent_postmortem.sources import EngagementAnswer
+
+# How a conversion announces itself in the assumptions. A constant rather than
+# a phrase written at each end, because the document and anything reading it
+# have to agree on the wording, and two spellings would leave a disclosed
+# assumption looking undisclosed. Money taken abroad
+# reaches the estimate through a rate, and a figure converted at a rate nobody
+# can see is a figure nobody can check.
+EXCHANGE_RATE_ASSUMPTION_LABEL = "exchange rate"
+
+# How money left out of the figure announces itself. A shop can be paid in a
+# currency the rate source prices nothing for, and the estimate then covers
+# some of what was taken rather than all of it - which is a real answer, but
+# only while the document says which part is missing.
+EXCLUDED_CURRENCY_ASSUMPTION_LABEL = "excluded currency"
+
+# Said when a figure is missing because nobody could answer, so that the gap
+# reads as an unanswered question rather than as a measurement of nothing.
+REVENUE_UNAVAILABLE_ASSUMPTION = "no loss estimate: the revenue source could not be read"
+ONSET_UNKNOWN_ASSUMPTION = (
+    "no loss estimate: no minute departed from the baseline, so there is no "
+    "measured incident to attribute a loss to"
+)
+ENGAGEMENT_UNAVAILABLE_ASSUMPTION = (
+    "no engineer minutes: no source could say when a person engaged"
+)
+PAY_BANDS_UNAVAILABLE_ASSUMPTION = (
+    "no responder cost: the pay band source could not be read"
+)
+
+# How the divisor behind the response cost announces itself. An annual band
+# becomes a per-minute rate only by being divided by a working year, and that
+# year is a convention somebody configured rather than anything measured - so a
+# reader reproducing the figure needs it stated beside the figure.
+WORKING_YEAR_ASSUMPTION_LABEL = "working year"
+
+# How each band the figure rests on announces itself, one line per title. The
+# published figure is a midpoint, which is a range collapsed to a point: naming
+# the range is what stops the point being read as a measurement.
+PAY_BAND_ASSUMPTION_LABEL = "pay band"
+
+# How a title nothing could price announces itself. The cost is absent rather
+# than short, and the absence is only honest while the document can say which
+# title caused it.
+UNPRICED_TITLE_ASSUMPTION_LABEL = "unpriced title"
 
 
 def assumptions_of(answer: dict[str, Any],

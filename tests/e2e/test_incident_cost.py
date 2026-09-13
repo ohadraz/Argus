@@ -7,7 +7,7 @@ from http import HTTPStatus as HttpStatus
 import httpx
 import psycopg
 import pytest
-from agent_postmortem.document import EXCHANGE_RATE_ASSUMPTION_LABEL
+from agent_postmortem import EXCHANGE_RATE_ASSUMPTION_LABEL
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually

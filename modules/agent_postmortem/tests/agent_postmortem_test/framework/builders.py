@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from agent_postmortem import IncidentEvidence, PostmortemDocument, write_postmortem
+from agent_postmortem import IncidentEvidence, write_postmortem
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
@@ -27,6 +27,7 @@ from agent_postmortem.sources import (
 )
 from argus_core.llm.client import LLMClient
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.postmortem import PostmortemDocument
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Transcript
 from argus_core.models.turn import ToolCall, Turn
