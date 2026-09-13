@@ -1071,6 +1071,13 @@ _E2E_SETTINGS = {
     # rather than because a title had no band.
     "HR_API_KEY": "hr_test_argus_demo",
     "HR_BASE_URL": "http://localhost:8080/bamboohr",
+    # What a currency is worth, read from the Target Service's own
+    # Frankfurter-shaped endpoint. The last source that was still reaching a
+    # live third party over the internet, and the only one that could fail a
+    # run for weather: the first case of a shard has no rates held to fall back
+    # on, so one hiccup there is one red run. No key, because the provider
+    # needs none and the stand-in asks for none.
+    "EXCHANGE_RATE_BASE_URL": "http://localhost:8080/frankfurter",
     # Where Argus answers, which is what a message in a channel links back to.
     # Set for every stack rather than only the suites: a demo whose postmortem
     # linked nowhere would be a demo of the one thing a reader in a channel
