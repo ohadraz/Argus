@@ -116,5 +116,5 @@ and read by every destination rather than written twice.
       `spec-doc-style` skill. §12.1 and the integration table go with it: no
       outbound message passes through either MCP server, because telling a
       person something changes nothing in the environment being fixed.
-- [ ] 7.3 One-line commit, approved before it is made, and the archive as a
+- [x] 7.3 One-line commit, approved before it is made, and the archive as a
       second commit.
