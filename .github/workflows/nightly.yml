@@ -55,6 +55,35 @@ jobs:
       - name: Guard e2e test placement
         run: uv run python -m nox -s guard_e2e_boundary
 
+      # The Slack half of the contract, which is free: Slack charges nothing
+      # for a message, so this belongs in the nightly rather than beside the
+      # suites that spend tokens. What it guards rots the same way a recording
+      # does - the double is believed by every other Slack suite in the repo,
+      # and a workspace that changed an answer under it would leave all of them
+      # passing against a Slack that no longer exists.
+      #
+      # The credential is checked before the run rather than left to the test.
+      # The test skips itself without one, which is right on a laptop and wrong
+      # here: a nightly whose whole job is to notice drift, reporting green
+      # because it quietly checked nothing, is the failure this step exists to
+      # make impossible.
+      - name: A workspace to check the contract against
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_WAR_ROOM_CHANNEL: ${{ vars.SLACK_WAR_ROOM_CHANNEL }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ] || [ -z "$SLACK_WAR_ROOM_CHANNEL" ]; then
+            echo "::error::the Slack contract has no workspace to check against - set the"
+            echo "::error::SLACK_BOT_TOKEN secret and the SLACK_WAR_ROOM_CHANNEL variable"
+            exit 1
+          fi
+
+      - name: Slack contract (real workspace)
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_WAR_ROOM_CHANNEL: ${{ vars.SLACK_WAR_ROOM_CHANNEL }}
+        run: uv run python -m nox -s contract_slack
+
   record-e2e-durations:
     runs-on: ubuntu-latest
 

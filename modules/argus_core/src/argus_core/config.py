@@ -119,6 +119,37 @@ class Settings(BaseSettings):
     # `messages.parse` and the real schema transform still run.
     anthropic_base_url: str = Field(default="")
 
+    # The bot the Communicator posts as. Empty by default, and empty means it
+    # says nothing: a workspace nobody configured is not a workspace to guess
+    # at, and an incident is reported through a channel somebody chose.
+    slack_bot_token: str = Field(default="")
+
+    # Where the Slack SDK sends its requests. Empty means the real workspace,
+    # for the reason `anthropic_base_url` works that way: pointing this at the
+    # double is the only thing that selects it, so the real adapter, the real
+    # client and the real argument encoding still run in every suite.
+    slack_base_url: str = Field(default="")
+
+    # Where an incident is reported and where its postmortem is delivered. Two
+    # channels rather than one: an incident's traffic is for whoever is on, and
+    # a postmortem is read afterwards by people who were not.
+    slack_war_room_channel: str = Field(default="")
+    slack_postmortem_channel: str = Field(default="")
+
+    # How long the relay waits after finding the log unchanged. Short, because
+    # it is the delay between something happening and a person hearing about
+    # it - and paid only when there is nothing to say, since a pass that
+    # delivered anything looks again at once.
+    slack_relay_poll_seconds: float = Field(default=2.0, gt=0.0)
+
+    # Where Argus answers, as somebody outside it reaches it - what a message
+    # in a channel links back to. Configured rather than observed, as it is for
+    # everything that links into itself: the relay never serves a request to
+    # learn a host from, and behind a proxy the host a request arrived on is
+    # not the one a reader can click anyway. Empty means a message carries no
+    # link, which is a demo without one rather than a broken one in a channel.
+    argus_base_url: str = Field(default="")
+
     # The credential the payment provider is read with. Empty by default, and
     # empty means the source reports that it could not answer: a postmortem
     # resting on money nobody can vouch for is worse than one saying the figure

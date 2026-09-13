@@ -13,7 +13,6 @@ from langgraph.graph.state import CompiledStateGraph
 from orchestrator.walk.assembling import against
 from orchestrator.walk.graph import (
     CODEFIX_NODE,
-    COMMUNICATOR_NODE,
     INVESTIGATOR_NODE,
     MITIGATION_NODE,
     MITIGATION_PROPOSAL_NODE,
@@ -23,14 +22,6 @@ from orchestrator.walk.graph import (
     build_graph,
     recursion_limit,
 )
-from orchestrator.walk.routes import (
-    ESCALATED_ROUTE,
-    FIXING_ROUTE,
-    INVESTIGATING_ROUTE,
-    MITIGATING_ROUTE,
-    RESOLVED_ROUTE,
-    WITHDRAWN_ROUTE,
-)
 
 """The shape of the walk, and what a walk is allowed to cost.
 
@@ -38,7 +29,8 @@ Spec §10's diagram, written down twice - once as the graph the Orchestrator
 assembles and once here - so that the two can be compared. Read off the
 compiled graph rather than driven, which is the limit of what this can say: it
 proves every edge exists, not that any router ever returns the key that takes
-one. The walk itself is `component/`'s subject.
+one - nor which route takes which edge, since two routes to one node are drawn
+as a single edge. The walk itself is `component/`'s subject.
 
 LangGraph ends a run that exceeds its recursion limit as failed, so the limit
 has to be derived from the graph rather than picked: a verdict with one more
@@ -46,62 +38,59 @@ explanation than usual would otherwise end the incident on a recursion error,
 with production already changed and no postmortem written.
 """
 
-type Edge = tuple[str, str, str | None]
+type Edge = tuple[str, str]
 
 NODES_PER_ATTEMPT = 4
 
 EVERY_NODE_IN_THE_WALK = [
     CODEFIX_NODE,
-    COMMUNICATOR_NODE,
     INVESTIGATOR_NODE,
     MITIGATION_NODE,
     MITIGATION_PROPOSAL_NODE,
     NEXT_CANDIDATE_NODE,
     POSTMORTEM_NODE,
-    TIER_GATE_NODE,
+    TIER_GATE_NODE
 ]
 
-# Every edge of §10, as `(from, to, the route that takes it)`. A route of
-# `None` is an edge with no decision behind it - and, in the two cases where a
-# route key happens to be spelled like the node it leads to, LangGraph draws
-# the label as `None` because it would be saying the same word twice.
+# Every edge of §10, as `(from, to)`. Pairs rather than routes: where two
+# routes lead to one node - a code fix that worked and one that did not both
+# reach the postmortem - LangGraph draws a single edge and keeps whichever
+# label the mapping listed last, so a table of labels would assert an accident
+# of ordering. Which route takes which edge is asserted where it is decided,
+# in each router's own test.
 EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
-    (START, INVESTIGATOR_NODE, None),
+    (START, INVESTIGATOR_NODE),
 
-    (INVESTIGATOR_NODE, MITIGATION_PROPOSAL_NODE, MITIGATING_ROUTE),
-    (INVESTIGATOR_NODE, COMMUNICATOR_NODE, ESCALATED_ROUTE),
-    (INVESTIGATOR_NODE, END, WITHDRAWN_ROUTE),
+    (INVESTIGATOR_NODE, MITIGATION_PROPOSAL_NODE),
+    (INVESTIGATOR_NODE, POSTMORTEM_NODE),
+    (INVESTIGATOR_NODE, END),
 
     # The gate stands between the proposal and the call that performs it
     # (spec §13) - not at the start of the graph, where it would guard nothing
     # because no action exists yet to be judged.
-    (MITIGATION_PROPOSAL_NODE, TIER_GATE_NODE, None),
+    (MITIGATION_PROPOSAL_NODE, TIER_GATE_NODE),
 
-    (TIER_GATE_NODE, MITIGATION_NODE, MITIGATING_ROUTE),
-    (TIER_GATE_NODE, NEXT_CANDIDATE_NODE, None),
-    (TIER_GATE_NODE, END, WITHDRAWN_ROUTE),
+    (TIER_GATE_NODE, MITIGATION_NODE),
+    (TIER_GATE_NODE, NEXT_CANDIDATE_NODE),
+    (TIER_GATE_NODE, END),
 
-    (MITIGATION_NODE, POSTMORTEM_NODE, RESOLVED_ROUTE),
-    (MITIGATION_NODE, NEXT_CANDIDATE_NODE, None),
-    (MITIGATION_NODE, COMMUNICATOR_NODE, ESCALATED_ROUTE),
-    (MITIGATION_NODE, END, WITHDRAWN_ROUTE),
+    (MITIGATION_NODE, NEXT_CANDIDATE_NODE),
+    (MITIGATION_NODE, POSTMORTEM_NODE),
+    (MITIGATION_NODE, END),
 
     # The loop. An attempt that settled nothing goes back to the proposal node
     # for the next explanation, or back to the Investigator for a wider look -
     # and Code-Fix is reached only once neither is left, which is what "Argus
     # is out of moves" actually means.
-    (NEXT_CANDIDATE_NODE, MITIGATION_PROPOSAL_NODE, MITIGATING_ROUTE),
-    (NEXT_CANDIDATE_NODE, INVESTIGATOR_NODE, INVESTIGATING_ROUTE),
-    (NEXT_CANDIDATE_NODE, CODEFIX_NODE, FIXING_ROUTE),
-    (NEXT_CANDIDATE_NODE, END, WITHDRAWN_ROUTE),
+    (NEXT_CANDIDATE_NODE, MITIGATION_PROPOSAL_NODE),
+    (NEXT_CANDIDATE_NODE, INVESTIGATOR_NODE),
+    (NEXT_CANDIDATE_NODE, CODEFIX_NODE),
+    (NEXT_CANDIDATE_NODE, END),
 
-    (CODEFIX_NODE, POSTMORTEM_NODE, RESOLVED_ROUTE),
-    (CODEFIX_NODE, COMMUNICATOR_NODE, ESCALATED_ROUTE),
-    (CODEFIX_NODE, END, WITHDRAWN_ROUTE),
+    (CODEFIX_NODE, POSTMORTEM_NODE),
+    (CODEFIX_NODE, END),
 
-    # Every ending writes a postmortem, including the ones nobody fixed.
-    (COMMUNICATOR_NODE, POSTMORTEM_NODE, None),
-    (POSTMORTEM_NODE, END, None),
+    (POSTMORTEM_NODE, END)
 })
 
 
@@ -130,12 +119,12 @@ def test_every_edge_of_the_walk_is_wired() -> None:
 def test_the_shortest_possible_walk_costs_what_the_graph_says_it_costs() -> None:
     # Countable by hand off the graph, which is the point of asserting it: one
     # investigation, then the four nodes of a single attempt - proposal, gate,
-    # mitigation, next_candidate - then the three that end an incident nobody
-    # could fix: codefix, communicator, postmortem.
+    # mitigation, next_candidate - then the two that end an incident nobody
+    # could fix: codefix, postmortem.
     Scenario() \
         .given(the_shortest_walk := {"max_rounds": 1, "max_candidates": 1}) \
         .when(lambda: recursion_limit(**the_shortest_walk)) \
-        .then(_the_limit_is(8))
+        .then(_the_limit_is(7))
 
 
 @pytest.mark.unit
@@ -180,8 +169,7 @@ def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:
 
 def _the_edges_of(graph: CompiledStateGraph[IncidentState]) -> frozenset[Edge]:
     return frozenset(
-        (edge.source, edge.target, None if edge.data is None else str(edge.data))
-        for edge in graph.get_graph().edges
+        (edge.source, edge.target) for edge in graph.get_graph().edges
     )
 
 

@@ -30,7 +30,6 @@ from orchestrator.walk import ports
 from orchestrator.walk.assembling import Collaborators
 from orchestrator.walk.graph import (
     CODEFIX_NODE,
-    COMMUNICATOR_NODE,
     INVESTIGATOR_NODE,
     MITIGATION_NODE,
     MITIGATION_PROPOSAL_NODE,
@@ -97,8 +96,6 @@ def collaborators(transition_incident: MagicMock,
         already_taken=lambda incident_id, hypothesis_id: None,
         claimed_at=lambda incident_id, hypothesis_id: None,
         change_landed=_a_change_that_never_landed(),
-        post_update=lambda incident_id, message: None,
-        page=lambda incident_id, message: None,
         write_postmortem=lambda dont_care_incident: _a_document(),
         record_postmortem=lambda dont_care_incident, dont_care_document: None,
         transition_incident=transition_incident,
@@ -146,7 +143,7 @@ def test_an_investigation_that_names_no_cause_reaches_a_human(
         .when(lambda: _the_walk_of(_an_incident_just_alerted(),
                                    an_investigation_finding_nothing)) \
         .then(all_of(
-            _the_walk_went(INVESTIGATOR_NODE, COMMUNICATOR_NODE, POSTMORTEM_NODE),
+            _the_walk_went(INVESTIGATOR_NODE, POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 
 
@@ -207,7 +204,6 @@ def test_a_walk_with_no_action_left_to_try_ends_at_code_fix_and_a_human(
                            TIER_GATE_NODE,
                            NEXT_CANDIDATE_NODE,
                            CODEFIX_NODE,
-                           COMMUNICATOR_NODE,
                            POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 

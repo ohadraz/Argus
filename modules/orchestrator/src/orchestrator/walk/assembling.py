@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_communicator import page as _page
-from agent_communicator import post_update as _post_update
 from agent_investigator import investigate as _investigate
 from agent_mitigation import take_action
 from agent_mitigation.tools import argus_changed_flag_since, fetch_recent_flag_changes
@@ -34,8 +32,6 @@ from orchestrator.walk.ports import (
     CompleteAction,
     FetchFlagChanges,
     Investigate,
-    Page,
-    PostUpdate,
     RecordAction,
     RecordHypothesis,
     RecordNote,
@@ -68,8 +64,6 @@ class Collaborators:
     already_taken: ActionAlreadyTaken
     claimed_at: ActionClaimedAt
     change_landed: ChangeLanded
-    post_update: PostUpdate
-    page: Page
     write_postmortem: WritePostmortem
     record_postmortem: RecordPostmortem
     transition_incident: TransitionIncident
@@ -100,8 +94,6 @@ def against(connections: Connections) -> Collaborators:
         already_taken=records.action_outcome,
         claimed_at=records.action_claimed_at,
         change_landed=argus_changed_flag_since,
-        post_update=_post_update,
-        page=_page,
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id, connections=connections, recorder=recorder),
         record_postmortem=records.postmortem,

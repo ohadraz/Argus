@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS incident (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     alert_payload JSONB NOT NULL,
     status TEXT NOT NULL,
-    slack_channel_id TEXT,
     pr_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- When the incident stopped being one, stamped on the transition that
@@ -264,6 +263,54 @@ CREATE TABLE IF NOT EXISTS incident_run (
 
 -- What a worker asks for, every interval, forever: the runs it could take.
 CREATE INDEX IF NOT EXISTS incident_run_state_idx ON incident_run (state);
+
+-- How far each reader of `incident_event` has got. A relay delivering an
+-- incident's account somewhere else asks the log what has happened since it
+-- last looked, and this is the whole of its state: lose it and the relay
+-- either repeats an incident from the beginning of time or starts from now
+-- and silently drops whatever was published while it was down.
+--
+-- One row per reader rather than one row, because two destinations fall
+-- behind at different rates and a shared place would let the slower of them
+-- decide what the faster has already said.
+--
+-- Hangs off no incident, like `exchange_rate`: it is a fact about a reader.
+-- Written and read by `agent_communicator` alone - the DDL is here because
+-- this file is where the schema is stated, not because the incident record
+-- owns the table.
+-- Which Slack conversation an incident is being told in. Slack has no thread
+-- id: a reply names the timestamp of the message it replies to, so the first
+-- message an incident got is its thread, and every later line has to find that
+-- timestamp again - in another pass, another process, another day.
+--
+-- A row rather than a column on `incident`, because an incident knows nothing
+-- about Slack and should not learn: a second destination adds a mapping of its
+-- own shape here instead of a column on the table every part of this system
+-- reads. Written and read by `agent_communicator` alone.
+CREATE TABLE IF NOT EXISTS slack_thread (
+    incident_id UUID NOT NULL REFERENCES incident(id),
+    channel TEXT NOT NULL,
+    -- Slack's own shape for a message's identity - seconds and microseconds -
+    -- kept as text because that is what a reply has to send back, to the
+    -- digit. A number would round it and address nothing.
+    ts TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- One conversation per incident per channel. The key is the guard: a
+    -- second opening message - two relays at once, a pass repeated after a
+    -- crash - writes nothing, and the conversation people are already reading
+    -- stays the one the rest of the incident goes into.
+    PRIMARY KEY (incident_id, channel)
+);
+
+CREATE TABLE IF NOT EXISTS event_cursor (
+    reader TEXT PRIMARY KEY,
+    -- A place in `incident_event.seq`, not a foreign key to it: the row a
+    -- reader stopped at can be a row that no longer needs to exist, and a
+    -- cursor that could not point past the end of the log could not be set
+    -- to where the log ends.
+    seq BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 

@@ -21,7 +21,7 @@ def create(conn: psycopg.Connection, alert: Alert) -> str:
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO incident (alert_payload, status) VALUES (%s, %s) RETURNING id",
-            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.ACKNOWLEDGED),
+            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.ACKNOWLEDGED)
         )
         row = cursor.fetchone()
         assert row is not None
@@ -29,7 +29,7 @@ def create(conn: psycopg.Connection, alert: Alert) -> str:
         cursor.execute(
             "INSERT INTO timeline_event (incident_id, to_status, actor, action) "
             "VALUES (%s, %s, %s, %s)",
-            (incident_id, IncidentStatus.ACKNOWLEDGED, Actor.ORCHESTRATOR, "incident created"),
+            (incident_id, IncidentStatus.ACKNOWLEDGED, Actor.ORCHESTRATOR, "incident created")
         )
     conn.commit()
     return incident_id
@@ -42,7 +42,7 @@ def transition(
     actor: Actor,
     action: str,
     result: str | None = None,
-    confidence: float | None = None,
+    confidence: float | None = None
 ) -> None:
     """Updates `Incident.status` and writes the paired `TimelineEvent` row in
     the same transaction (spec §7.1, §11.1's single-writer rule).
@@ -71,13 +71,13 @@ def transition(
             "UPDATE incident "
             "   SET status = %s, ended_at = CASE WHEN %s THEN now() ELSE ended_at END "
             " WHERE id = %s",
-            (to_status, ends_the_incident, incident_id),
+            (to_status, ends_the_incident, incident_id)
         )
         cursor.execute(
             "INSERT INTO timeline_event "
             "(incident_id, to_status, actor, action, result, confidence) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
-            (incident_id, to_status, actor, action, result, confidence),
+            (incident_id, to_status, actor, action, result, confidence)
         )
 
 
@@ -113,7 +113,7 @@ def withdraw(conn: psycopg.Connection, incident_id: str, actor: Actor) -> bool:
         cursor.execute(
             "UPDATE incident SET status = %s, ended_at = now() "
             " WHERE id = %s AND status = ANY(%s)",
-            (IncidentStatus.WITHDRAWN, incident_id, still_going),
+            (IncidentStatus.WITHDRAWN, incident_id, still_going)
         )
         withdrawn = cursor.rowcount == 1
 
@@ -121,7 +121,7 @@ def withdraw(conn: psycopg.Connection, incident_id: str, actor: Actor) -> bool:
             cursor.execute(
                 "INSERT INTO timeline_event (incident_id, to_status, actor, action) "
                 "VALUES (%s, %s, %s, %s)",
-                (incident_id, IncidentStatus.WITHDRAWN, actor, "incident withdrawn"),
+                (incident_id, IncidentStatus.WITHDRAWN, actor, "incident withdrawn")
             )
     conn.commit()
 
@@ -134,7 +134,7 @@ def record_note(
     actor: Actor,
     action: str,
     result: str | None = None,
-    confidence: float | None = None,
+    confidence: float | None = None
 ) -> None:
     """Writes a `TimelineEvent` row for work that did not move the incident.
 
@@ -155,7 +155,7 @@ def record_note(
             "INSERT INTO timeline_event "
             "(incident_id, to_status, actor, action, result, confidence) "
             "SELECT %s, status, %s, %s, %s, %s FROM incident WHERE id = %s",
-            (incident_id, actor, action, result, confidence, incident_id),
+            (incident_id, actor, action, result, confidence, incident_id)
         )
     conn.commit()
 
@@ -169,7 +169,7 @@ def get_recent(conn: psycopg.Connection) -> list[Incident]:
     """
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at, ended_at "
+            "SELECT id, alert_payload, status, pr_url, created_at, ended_at "
             "  FROM incident "
             "ORDER BY created_at DESC"
         )
@@ -198,11 +198,11 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
 
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at, ended_at "
+            "SELECT id, alert_payload, status, pr_url, created_at, ended_at "
             "  FROM incident "
             "ORDER BY status = ANY(%s), created_at DESC "
             " LIMIT 1",
-            (terminal,),
+            (terminal,)
         )
         return cursor.fetchone()
 
@@ -210,9 +210,9 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
 def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, slack_channel_id, pr_url, created_at, ended_at "
+            "SELECT id, alert_payload, status, pr_url, created_at, ended_at "
             "  FROM incident "
             " WHERE id = %s",
-            (incident_id,),
+            (incident_id,)
         )
         return cursor.fetchone()

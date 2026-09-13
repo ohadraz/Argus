@@ -11,7 +11,6 @@ from orchestrator.walk.choosing import (
     route_after_next_candidate,
 )
 from orchestrator.walk.closing import postmortem_node
-from orchestrator.walk.communicating import communicator_node
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.graph import build_graph, recursion_limit
@@ -25,7 +24,6 @@ __all__ = [
     "Narration",
     "build_graph",
     "codefix_node",
-    "communicator_node",
     "investigator_node",
     "mitigation_node",
     "mitigation_proposal_node",

@@ -20,7 +20,6 @@ from orchestrator.walk.choosing import (
     route_after_next_candidate,
 )
 from orchestrator.walk.closing import postmortem_node
-from orchestrator.walk.communicating import communicator_node
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.investigating import (
@@ -51,17 +50,16 @@ TIER_GATE_NODE: Final = "tier_gate"
 MITIGATION_NODE: Final = "mitigation"
 NEXT_CANDIDATE_NODE: Final = "next_candidate"
 CODEFIX_NODE: Final = "codefix"
-COMMUNICATOR_NODE: Final = "communicator"
 POSTMORTEM_NODE: Final = "postmortem"
 
 
 # One attempt is four traversals - proposal, gate, mitigation, next_candidate -
-# and an incident nobody could fix ends in three more: codefix, communicator,
-# postmortem. Named constants rather than a number in the arithmetic below,
-# because they are facts about the graph a few lines further down, and the day
-# one of them changes is the day this stops being right silently.
+# and an incident nobody could fix ends in two more: codefix, postmortem. Named
+# constants rather than a number in the arithmetic below, because they are
+# facts about the graph a few lines further down, and the day one of them
+# changes is the day this stops being right silently.
 _NODES_PER_ATTEMPT = 4
-_NODES_ENDING_A_WALK = 3
+_NODES_ENDING_A_WALK = 2
 
 
 def recursion_limit(max_rounds: int, max_candidates: int) -> int:
@@ -104,7 +102,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         max_rounds=get_settings().investigation_max_rounds,
         transition_incident=collaborators.transition_incident,
         record_note=collaborators.record_note,
-        still_wanted=collaborators.still_wanted,
+        still_wanted=collaborators.still_wanted
     )
 
     graph.add_node(
@@ -116,7 +114,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     publisher=collaborators.publisher,
                     recorder=collaborators.recorder),
             Actor.INVESTIGATOR
-        ),
+        )
     )
     graph.add_node(
         MITIGATION_PROPOSAL_NODE,
@@ -125,14 +123,14 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     fetch_flag_changes=collaborators.fetch_flag_changes,
                     publisher=collaborators.publisher),
             Actor.MITIGATION
-        ),
+        )
     )
     graph.add_node(
         TIER_GATE_NODE,
         deciding_status(
             partial(tier_gate_node, record_outcome=collaborators.record_outcome),
             Actor.MITIGATION
-        ),
+        )
     )
     graph.add_node(
         MITIGATION_NODE,
@@ -148,22 +146,16 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     still_wanted=collaborators.still_wanted,
                     publisher=collaborators.publisher),
             Actor.MITIGATION
-        ),
+        )
     )
     graph.add_node(
         NEXT_CANDIDATE_NODE,
         deciding_status(
-            partial(next_candidate_node, post_update=collaborators.post_update),
+            next_candidate_node,
             Actor.MITIGATION
-        ),
+        )
     )
     graph.add_node(CODEFIX_NODE, deciding_status(codefix_node, Actor.CODEFIX))
-    graph.add_node(
-        COMMUNICATOR_NODE,
-        deciding_status(
-            partial(communicator_node, page=collaborators.page), Actor.COMMUNICATOR
-        ),
-    )
     graph.add_node(
         POSTMORTEM_NODE,
         deciding_status(
@@ -171,7 +163,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     write=collaborators.write_postmortem,
                     record=collaborators.record_postmortem),
             Actor.POSTMORTEM
-        ),
+        )
     )
 
     graph.add_edge(START, INVESTIGATOR_NODE)
@@ -184,9 +176,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         stopping_when_withdrawn(route_after_investigation),
         {
             MITIGATING_ROUTE: MITIGATION_PROPOSAL_NODE,
-            ESCALATED_ROUTE: COMMUNICATOR_NODE,
-            WITHDRAWN_ROUTE: END,
-        },
+            ESCALATED_ROUTE: POSTMORTEM_NODE,
+            WITHDRAWN_ROUTE: END
+        }
     )
     # The gate stands between the proposal and the call that performs it
     # (spec §13) - not at the start of the graph, where it would guard nothing
@@ -198,8 +190,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         {
             MITIGATING_ROUTE: MITIGATION_NODE,
             NEXT_CANDIDATE_ROUTE: NEXT_CANDIDATE_NODE,
-            WITHDRAWN_ROUTE: END,
-        },
+            WITHDRAWN_ROUTE: END
+        }
     )
     graph.add_conditional_edges(
         MITIGATION_NODE,
@@ -207,9 +199,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         {
             RESOLVED_ROUTE: POSTMORTEM_NODE,
             NEXT_CANDIDATE_ROUTE: NEXT_CANDIDATE_NODE,
-            ESCALATED_ROUTE: COMMUNICATOR_NODE,
-            WITHDRAWN_ROUTE: END,
-        },
+            ESCALATED_ROUTE: POSTMORTEM_NODE,
+            WITHDRAWN_ROUTE: END
+        }
     )
     # The loop. An attempt that settled nothing goes back to the proposal node
     # for the next explanation, or back to the Investigator for a wider look -
@@ -222,19 +214,18 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
             MITIGATING_ROUTE: MITIGATION_PROPOSAL_NODE,
             INVESTIGATING_ROUTE: INVESTIGATOR_NODE,
             FIXING_ROUTE: CODEFIX_NODE,
-            WITHDRAWN_ROUTE: END,
-        },
+            WITHDRAWN_ROUTE: END
+        }
     )
     graph.add_conditional_edges(
         CODEFIX_NODE,
         stopping_when_withdrawn(route_after_codefix),
         {
             RESOLVED_ROUTE: POSTMORTEM_NODE,
-            ESCALATED_ROUTE: COMMUNICATOR_NODE,
-            WITHDRAWN_ROUTE: END,
-        },
+            ESCALATED_ROUTE: POSTMORTEM_NODE,
+            WITHDRAWN_ROUTE: END
+        }
     )
-    graph.add_edge(COMMUNICATOR_NODE, POSTMORTEM_NODE)
     graph.add_edge(POSTMORTEM_NODE, END)
 
     return graph.compile(checkpointer=checkpointer)

@@ -27,7 +27,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 - Root-cause hypothesis generation and testing (ReAct loop)
 - Reversible mitigation (flag toggle, deployment rollback)
 - Code-level root cause search + PR generation (RAG over the Target Service codebase)
-- Slack integration: reading hints, posting updates, creating war-room channels
+- Slack integration: reading hints, and reporting an incident as it happens - a thread per incident in a war-room channel
 - Persistent memory: per-incident state + cross-incident knowledge base
 - Postmortem + executive summary generation (with cost estimation)
 - Escalation to a human on low confidence or exhausted actions
@@ -90,6 +90,7 @@ flowchart LR
         ORCH[Orchestrator - LangGraph]
         AGENTS[Sub-agents]
         MCPS[MCP tool servers]
+        RELAY[Relay - follows the event log]
         PG[(Postgres)]
         CHROMA[(Chroma)]
         VAULT[(HashiCorp Vault)]
@@ -104,10 +105,12 @@ flowchart LR
     MCPS <--> FLAGS
     MCPS <--> METRICS
     MCPS <--> GH
-    MCPS <--> SLK
-    MCPS -->|postmortem, exec summary| MAIL
+    MCPS -->|reads hints| SLK
+    RELAY -->|posts what a human hears| SLK
+    RELAY -->|postmortem, exec summary| MAIL
     MCPS <--> CHROMA
     ORCH <--> PG
+    RELAY -->|reads the event log| PG
     MCPS -.->|read secrets| VAULT
     WEB <--> PG
     BO -.->|register config| WEB
@@ -154,7 +157,15 @@ Invoked when mitigation fails, or the scenario is bug/config-drift from the star
 
 ### 7.5 Communicator agent
 
-Owns all Slack writes (creates the incident channel, posts structured status updates) and all outbound email (postmortem, exec summary) via `argus-write-mcp`, and is the only agent that reads Slack for human hints (via `argus-read-mcp`), converting them into a structured hint returned to the Orchestrator, which writes it as a `TIMELINE_EVENT` (§7.1).
+Nothing in the walk tells anybody anything. Every agent publishes what it does as it does it (§10, §11.1), and the Communicator follows that record: a relay reads the events in the order they were published, decides which of them a human hears, and says them where that human is. A step is reported because it happened rather than because whoever handled it remembered to report it, and an agent added later is heard from on the day it publishes its first event.
+
+The event log is a transactional outbox. Every event is written on the connection its decision is written on, inside a savepoint, so an event exists exactly when the thing it describes does - and the relay is the polling publisher over it, keeping a durable cursor of its own. Delivery is at-least-once: the cursor moves only past a line that landed, so a relay restarted mid-incident repeats at most one message and loses none. It runs as its own process, because a worker walking an incident is busy for minutes at a time and a relay sharing that process would go quiet exactly while an incident was most worth hearing about.
+
+Which lines reach a person is a policy over event kinds, stated in registers a destination translates rather than in any destination's own vocabulary. What Argus found, changed and concluded is *followed* - it reaches whoever chose to follow that incident. How an incident opened and how it ended is *announced*, addressed to everyone including the people who never opened it. The write-up it leaves behind is *filed*, where write-ups are kept. The reading it did to get there is unsaid: forty log lines read is a fact about method, and a channel carrying it would bury the four lines that matter. Slack reads those as a channel message, a reply in the incident's own thread, and a message in the postmortem channel; email reads the same three as a send, a digest and an attachment. An incident's thread is whatever Slack called its first message, remembered against the incident so that a conversation can be found again twenty minutes later by another process.
+
+Slack refusing is an ordinary outcome of talking to Slack rather than an error in the walk, and no refusal can fail an incident. A throttle or a workspace that did not answer says nothing about the message, so the line keeps its place and is said on a later pass. Any other refusal - a renamed channel, a revoked token - will say the same thing on every pass, so the line is recorded on the incident's own timeline as one that never arrived, and passed over: a relay waiting for a channel to come back would go silent about everything behind it.
+
+Reading is the other direction, and stays in the read tier: the Communicator is the only agent that reads Slack for human hints (via `argus-read-mcp`), converting one into a structured hint returned to the Orchestrator, which writes it as a `TIMELINE_EVENT` (§7.1).
 
 ### 7.6 Postmortem agent
 
@@ -209,7 +220,7 @@ Several patterns, applied to different sub-problems:
 
 - **ReAct** - the Investigator's core loop: observe (query logs/metrics/diff) → reason (form hypothesis) → act (query more, or hand off to Mitigation) → observe result. Detailed in §9.
 - **RAG** - two uses: (1) Code-Fix (§7.4) retrieves relevant code/config to localize a bug; (2) the Investigator (§7.2) retrieves similar past incidents from long-term memory (§11.2) as the first step of its ReAct loop (§9), to seed hypotheses faster.
-- **Multi-agent orchestration** - the Orchestrator (§7.1) delegates to specialized agents (Investigator, Mitigation, Code-Fix, Communicator, Postmortem), each with a narrow tool set and prompt, coordinated through shared incident state (§11.1).
+- **Multi-agent orchestration** - the Orchestrator (§7.1) delegates to specialized agents (Investigator, Mitigation, Code-Fix, Postmortem), each with a narrow tool set and prompt, coordinated through shared incident state (§11.1). The Communicator (§7.5) is coordinated through that same state without being delegated to at all: it follows what the others published rather than waiting to be called, which is what keeps an incident reported even when the walk is too busy to say so.
 - **Self-critique / reflection** - before any mitigation or escalation, the agent scores its own confidence against a threshold (§10); after a mitigation, it re-observes state and judges whether its hypothesis was confirmed or refuted (§7.3).
 
 ## 9. The Investigation Loop
@@ -309,6 +320,7 @@ erDiagram
     INCIDENT ||--o| POSTMORTEM : produces
     INCIDENT ||--o{ REPLAY_LOG : logs
     INCIDENT ||--o{ INCIDENT_RUN : is_walked_by
+    INCIDENT ||--o| SLACK_THREAD : is_talked_about_in
 
     INCIDENT {
         uuid id PK
@@ -316,7 +328,6 @@ erDiagram
         timestamp created_at
         timestamp ended_at
         enum status
-        text slack_channel_id
         text pr_url
     }
     HYPOTHESIS {
@@ -372,6 +383,17 @@ erDiagram
         timestamp at
         jsonb payload
     }
+    SLACK_THREAD {
+        uuid incident_id PK
+        text channel PK
+        text ts
+        timestamp created_at
+    }
+    EVENT_CURSOR {
+        text reader PK
+        bigint seq
+        timestamp updated_at
+    }
     POSTMORTEM {
         uuid id PK
         uuid incident_id FK
@@ -421,6 +443,8 @@ An `ACTION` row is written *before* its action is taken, and one incident has at
 
 `INCIDENT_EVENT` is the account of the work rather than a record of its conclusions (§4 principle 8): one append-only row per thing that happened, in the order it was published, carrying the whole payload it is about - every bucket a metrics read returned, every log line, every recorded flag change. The payload is stored rather than a reference to fetch again, because the log store moves on and a page that re-fetched would show something Argus never saw. `kind` names the event and `payload` is that event's own shape, so a new kind costs a model rather than a migration; `seq` orders two events that share a timestamp. Rows are appended by the single subscriber that listens to the publishers (§4 principle 8) and are never updated, which is what leaves the single-writer rule intact - the four domain tables keep the Orchestrator as their one writer, and this table has one of its own.
 
+`SLACK_THREAD` and `EVENT_CURSOR` belong to the Communicator (§7.5) rather than to the incident record, because their invariants are its own: where an incident's conversation is, and how far the relay has read. Keeping the correlation in a table of its own is what lets `INCIDENT` stay ignorant that Slack exists - a second destination adds a row rather than a column, and a deployment with no workspace configured writes neither table. The module that owns a table is the module whose rules it holds.
+
 `EXCHANGE_RATE` belongs to no incident, and is the only table here that does not - which is why it hangs off nothing in the diagram. It is a cache of what a currency was worth on a day, read when an incident's loss is reported in a currency the takings were not measured in. Keyed by the day rather than the moment: a published rate is a fact about a date, so two incidents on the same day are priced identically however far apart they ran, and a rate already fetched is never fetched twice. `fetched_at` records when Argus asked, which is a different question from when the rate was published and the one to ask when a figure looks stale.
 
 `REPLAY_LOG` serves a different purpose again: it's Argus's own eval infrastructure (Design Principle 6, §4), not incident-domain state, written at a different granularity - one row per LLM completion or MCP call. It's written inside the Orchestrator's process, from whichever agent node makes the call, via a shared instrumented client in `argus_core` - never by the MCP servers themselves, keeping them as pure as §13's MCP-server-boundary guardrail requires.
@@ -449,8 +473,8 @@ INTEGRATION_CONFIG {
     jsonb flag_config          -- flag tools: adapter-specific (e.g. base URL)
     jsonb metrics_config       -- metrics tools: adapter-specific (e.g. base URL)
     jsonb log_config           -- log tools: adapter-specific (e.g. URL, shared path, or bucket/key)
-    text slack_workspace_id
-    text slack_default_channel_prefix
+    text slack_war_room_channel      -- where an incident is reported (§7.5)
+    text slack_postmortem_channel    -- where its write-up is filed (§7.5)
     jsonb postmortem_recipients      -- array of email addresses
     jsonb exec_summary_recipients    -- array of email addresses
     jsonb vault_secret_paths         -- references only, never secret values; see §14
@@ -485,7 +509,7 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 | Deployment state / rollback | No | No - GitOps tools (Argo CD, Flux) reconcile from Git with their own rollback commands; CI tools (GitHub Actions, CircleCI) each have their own trigger API; nothing shared | **Git revert + push**, GitOps-style, via `argus-write-mcp`. "Currently deployed" = current HEAD of a designated branch. Reuses the git tooling Code-Fix needs, at a different tool/tier (§13) |
 | Logs | No - format and storage both vary per team, no interop standard | N/A - Argus never writes to Target Service logs | Target Service HTTP log endpoint (`GET /logs`, no params - returns full log), windowing/filtering done in `argus-read-mcp` itself (§16) |
 | Metrics | **De facto - Prometheus-compatible query API** (PromQL); emission standardized via **OTLP**, but OTel isn't a backend itself | N/A - Argus only reads metrics | Target Service → OTel SDK → local **OTel Collector** → **Prometheus**; `argus-read-mcp` queries Prometheus's HTTP API |
-| Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API - reads via `argus-read-mcp`, writes via `argus-write-mcp` |
+| Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API - reads via `argus-read-mcp`; the Communicator posts through its own adapter (§7.5) |
 | Email | SMTP is already the standard | - | `argus-write-mcp` via configured SMTP relay |
 | Long-term memory | N/A - internal to Argus | - | Chroma directly - queries via `argus-read-mcp`, writes via `argus-write-mcp` |
 
@@ -496,9 +520,11 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 | Server | Exposes |
 |---|---|
 | `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); flag evaluation against the flag provider's evaluation API; Chroma memory query; Slack channel/thread reads |
-| `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**; Slack post/create-channel; email send via SMTP relay; Chroma memory write |
+| `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**; Chroma memory write |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
+
+Telling a person something is not a write in this sense, which is why no outbound message goes through either server. A posted message changes nothing in the environment Argus is fixing, and the credential that sends it can only talk to a workspace - so routing it through the process that holds the GitHub PAT and the admin token would widen that process's blast radius to buy nothing. The Communicator holds its own destination adapters instead (§7.5), and the relay that drives them runs outside any walk, where no MCP session exists to call through.
 
 A single combined server would collapse that boundary; per-integration servers pay six extra processes for a partition that doesn't line up with any real risk difference. Two is the cut where the guardrail is real and the operational cost isn't.
 
@@ -626,7 +652,6 @@ Free-tier terms and rate limits for hosted LLM APIs change often - verify curren
 |---|---|---|---|
 | Investigator ReAct loop | Fast, cheap, large context | High call volume; digesting windowed excerpts, not deep reasoning | Gemini 2.5 Flash / Flash-Lite (no card required, large context) |
 | Slack hint parsing | Fast, cheap | Short inputs, simple structured extraction, high volume | Groq free tier, open-weight model (e.g. Llama 3.3 70B) - low latency, generous cap |
-| Slack/email writing | Mid-tier, strong instruction-following | Must fill a fixed template reliably | Gemini 2.5 Flash or Groq Llama 3.3 70B |
 | Code-Fix (RAG + patch drafting) | Strongest free reasoning/code model | Patch is graded directly against the repo's test; low call volume, tighter cap tolerable | Gemini 2.5 Pro free tier |
 | Postmortem + executive summary | Strong long-form writing | Graded against a completeness checklist; low call volume | Gemini 2.5 Pro free tier |
 
@@ -695,6 +720,7 @@ flowchart TB
     subgraph ArgusDeploy["Argus - Docker Compose / Railway"]
         WEB[argus_web service<br/>HTTP + Orchestrator + sub-agents, in-process]
         MCPS[argus-read-mcp,<br/>argus-write-mcp]
+        RELAY[relay<br/>follows the event log, posts what a human hears]
         PG[(Postgres)]
         CHROMA[(Chroma)]
         BO[Backoffice]
@@ -714,8 +740,9 @@ flowchart TB
     MCPS -->|evaluation + admin API| UNLEASH
     MCPS -->|PromQL| PROM
     MCPS -->|HTTP: fetch log| TS
-    MCPS -->|Slack Web API| ExternalSlack[Slack]
-    MCPS -->|SMTP| ExternalMail[Email]
+    RELAY -->|reads the event log| PG
+    RELAY -->|Slack Web API| ExternalSlack[Slack]
+    RELAY -->|SMTP| ExternalMail[Email]
     MCPS -->|Git ops| ExternalGH[GitHub]
     MCPS -.->|read secrets| VAULT
     BO -.->|write secrets| VAULT
@@ -756,15 +783,16 @@ argus/
 │   ├── argus_core/                  # shared Pydantic models, tool schemas, config/LLM client factory
 │   ├── argus_incidents/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
 │   ├── orchestrator/                # LangGraph graph, FSM, tier-gate node
+│   ├── argus_narration/             # the event-to-sentence renderer every destination reads
 │   ├── argus_web/                   # HTTP surface: alert webhook, incident read API, config API
 │   ├── agent_investigator/
 │   ├── agent_mitigation/
 │   ├── agent_codefix/
-│   ├── agent_communicator/
+│   ├── agent_communicator/          # the relay over the event log, its delivery policy and destination adapters
 │   ├── agent_postmortem/
 │   ├── read_mcp_server/             # argus-read-mcp: log, metrics, flag-eval, memory-query, Slack-read tools
 │   ├── read_mcp_client/             # typed client for argus-read-mcp, imported by consuming agents
-│   ├── write_mcp_server/            # argus-write-mcp: flag toggle, git revert/PR, Slack post, email, memory write
+│   ├── write_mcp_server/            # argus-write-mcp: flag toggle, git revert/PR, memory write
 │   ├── write_mcp_client/            # typed client for argus-write-mcp, imported by consuming agents
 │   └── backoffice/                  # admin UI only - no HTTP of its own, calls argus_web's config API
 └── benchmark/                       # scenario runner + evaluator harness, own pyproject.toml

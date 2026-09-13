@@ -24,7 +24,7 @@ import nox
 nox.options.default_venv_backend = "none"
 
 
-EXCLUDED_FROM_TESTS: set[str] = {"argus_testkit", "anthropic_double"}
+EXCLUDED_FROM_TESTS: set[str] = {"argus_testkit", "anthropic_double", "slack_double"}
 
 
 def _discover_modules() -> list[str]:
@@ -105,7 +105,7 @@ def test_module(session: nox.Session, module: str) -> None:
         "uv", "run", "--package", f"argus-{module}",
         "python", "-m", "pytest", f"modules/{module}/tests",
         "-m", "unit or component or integration", "-v",
-        external=True,
+        external=True
     )
 
 @nox.session
@@ -132,7 +132,7 @@ def test_all(session: nox.Session) -> None:
         try:
             session.run(
                 "uv", "run", "--package", f"argus-{module}",
-                "python", "-m", "pytest", f"modules/{module}/tests", "-v", external=True,
+                "python", "-m", "pytest", f"modules/{module}/tests", "-v", external=True
             )
         except Exception:
             if not ci_mode:
@@ -275,16 +275,55 @@ def guard_e2e_boundary(session: nox.Session) -> None:
 def contract(session: nox.Session) -> None:
     """
     Registers `contract` as a nox session, i.e., runnable via `uv run python -m nox -s contract`.
-    Runs the top-level contract tests, which check that a test double still
-    matches the third party it stands in for. Brings up the Anthropic double,
-    because half of each comparison is a replayed recording; the other half
-    talks to the real API and skips itself when no key is configured.
+    Runs the Anthropic contract tests, which check that the recording the
+    suites replay still matches what the real API answers. Brings up the
+    Anthropic double, because half of each comparison is a replayed recording;
+    the other half talks to the real API and skips itself when no key is
+    configured.
+
+    One party per session rather than the whole directory, because each party
+    is paid for separately: a workspace's contract has nothing to say about a
+    model's, and a run that wanted one should not have to spend on the other.
+    `contract_slack` is the other half.
     """
-    name, module_args, ready_url = _ANTHROPIC_DOUBLE
+    _contract_against(session, _ANTHROPIC_DOUBLE, "tests/contract/anthropic")
+
+
+@nox.session
+def contract_slack(session: nox.Session) -> None:
+    """
+    Registers `contract_slack` as a nox session, i.e., runnable via
+    `uv run python -m nox -s contract_slack`.
+    Runs the Slack contract tests, which check that the double the suites post
+    at still answers as the real workspace does. Brings up the Slack double for
+    the same reason `contract` brings up the Anthropic one: one half of each
+    comparison is the stand-in.
+
+    Reaches a **real workspace**, so it needs `SLACK_BOT_TOKEN` and a channel to
+    post in, and it posts messages somebody can see. Kept out of `contract` so
+    that the Anthropic contract - which costs cents and needs no workspace - can
+    run without a Slack credential anywhere near it.
+    """
+    _contract_against(session, _SLACK_DOUBLE, "tests/contract/slack")
+
+
+def _contract_against(session: nox.Session,
+                      double: tuple[str, list[str], str],
+                      tests: str) -> None:
+    """Brings one double up, runs the tests that compare it with the real thing.
+
+    Shared by the two contract sessions so the only difference between them is
+    which party is being checked - the double, and the directory holding the
+    comparisons. Anything after `--` goes to pytest, as everywhere else here.
+    """
+    name, module_args, ready_url = double
     double_process = _start_service(module_args)
     try:
         _wait_for_http(name, ready_url)
-        session.run("uv", "run", "python", "-m", "pytest", "tests/contract", "-v", external=True)
+        session.run(
+            "uv", "run", "python", "-m", "pytest", tests, "-v",
+            *session.posargs, external=True
+        )
     finally:
         _stop_service(double_process)
 
@@ -687,10 +726,12 @@ def _start_service(
     Every service writes UTF-8 whatever the machine's codepage is. Argus
     narrates an incident in the model's own words, and a model writes arrows,
     dashes and quotation marks that a Windows ANSI codepage has no encoding
-    for - on a Hebrew-locale machine that is `cp1255`, and the `print` inside
-    the Communicator then raises `UnicodeEncodeError` in the middle of a node
-    and takes the whole walk down. The narration is not the place to negotiate
-    with the console: the console is set to accept what Argus says.
+    for - on a Hebrew-locale machine that is `cp1255`. Those words reach a
+    stream: the relay logs every line it delivers, and a walk logs what each
+    agent concluded. A log call that raises `UnicodeEncodeError` takes down
+    whatever was mid-sentence, and it does so on the incidents worth reading.
+    The narration is not the place to negotiate with the console: the console
+    is set to accept what Argus says.
     """
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
 
@@ -712,7 +753,7 @@ def _start_service(
         env={**os.environ,
              "PYTHONIOENCODING": "utf-8",
              "PYTHONUNBUFFERED": "1",
-             **(env or {})},
+             **(env or {})}
     )
     _kept_from_outliving_this_process(process.pid)
 
@@ -833,6 +874,7 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # than imported: this file is read by nox before anything is necessarily
 # installed, and a noxfile that fails to import takes every session with it.
 _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
+_SLACK_DOUBLE_BASE_URL = "http://localhost:8094"
 
 # Where the sessions that can run beside an e2e stack put the things that would
 # otherwise collide with it. Every collision is a port or a database: a second
@@ -926,24 +968,24 @@ def _a_database_for(module: str) -> dict[str, str]:
 # they disagreed, the suite would either give up before Argus did or wait long
 # after it had.
 #
-# Six minutes, where the configured default is three. Recovery is judged on
-# the first whole minute after an action, so the window has to outlast that
-# minute's bucket and the scrape that publishes it. Two minutes covers that on
-# an idle machine and does not on a loaded one - a build running beside the
-# stack, or a CI runner - and the failure it produces is the worst kind: Argus
-# reports a mitigation that worked as refuted, walks another round, and asks
-# the double for an answer nobody recorded. The suite then fails pointing at
-# the recording.
+# The configured default, said out loud rather than left implicit: the suite
+# computes its own timeouts from this number, and reading it from `.env` would
+# make how long a run takes depend on the machine it runs on.
 #
-# Four was measured to be too short on a GitHub runner, which is the slowest
-# machine this suite runs on and the only one nobody is watching.
+# It used to be double this, on the belief that a GitHub runner needed the
+# room. It never did. What made a working mitigation read as refuted was a
+# fixture that froze telemetry at the instant of the revert, so the first clean
+# minute could be dropped for having no elapsed seconds - fixed in the demo
+# app, and no width of window could have helped, since the evidence stopped
+# arriving a minute after the change either way.
 #
-# A walk pays this wait once per attempt, so the extra time lands only on the
-# cases that genuinely wait it out - a refuted action, an escalation with
-# nothing left to try. Wall-clock is the cheaper of the two things to spend
-# here; the other is trust in what a red run means.
+# Eight nightly runs since say the same thing: a mitigation that confirms is
+# confirmed within seconds of the first whole minute, and the whole case -
+# intake, investigation, revert, verdict - finishes in 22-81s. The window is
+# only ever paid in full where recovery never comes, which is why halving it
+# takes about six minutes off a run and nothing off what a green run means.
 _E2E_SETTINGS = {
-    "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "360",
+    "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "180",
     # What the shop took, read from the Target Service's own Stripe-shaped
     # endpoint instead of from Stripe - the arrangement `e2e_replay` has with
     # the Anthropic double, one address below the vendor's SDK, so the SDK's
@@ -971,13 +1013,49 @@ _E2E_SETTINGS = {
     # not answer, and the response cost would then be absent by configuration
     # rather than because a title had no band.
     "HR_API_KEY": "hr_test_argus_demo",
-    "HR_BASE_URL": "http://localhost:8080/bamboohr"
+    "HR_BASE_URL": "http://localhost:8080/bamboohr",
+    # Where Argus answers, which is what a message in a channel links back to.
+    # Set for every stack rather than only the suites: a demo whose postmortem
+    # linked nowhere would be a demo of the one thing a reader in a channel
+    # actually wants to click.
+    "ARGUS_BASE_URL": "http://localhost:8000"
+}
+
+# Where the relay posts when a suite is running, and where "Slack" is. The
+# double stands in for the workspace for the reason it does everywhere else: no
+# credential, no workspace to clutter, and the real adapter, the real client
+# and the real argument encoding still run. `e2e` shares this with
+# `e2e_replay` - what separates those two is which answers the *model* gives,
+# and Slack has nothing to do with that.
+#
+# Not shared with `stack`, which is a demo somebody is watching: that one posts
+# wherever `.env` says, because a demo of an incident reaching a human is not a
+# demo if the human is a test double.
+_SLACK_AT_THE_DOUBLE = {
+    # The channel is a fixture name the double accepts as it accepts any. What
+    # matters is that it is set: a relay with nowhere to post does not start,
+    # and an empty channel would make the whole stack silent by configuration.
+    "SLACK_BASE_URL": _SLACK_DOUBLE_BASE_URL,
+    "SLACK_WAR_ROOM_CHANNEL": "C-argus-incidents",
+    # A placeholder the double never reads; the SDK refuses to build a client
+    # without one.
+    "SLACK_BOT_TOKEN": "xoxb-the-double-never-reads-this",
+    # Short, because an e2e test waits on what a person would see: the pause is
+    # paid on every pass that found nothing, and a suite spending two seconds
+    # per look is a suite that reports a message as missing before it was sent.
+    "SLACK_RELAY_POLL_SECONDS": "0.5"
 }
 
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     "anthropic_double",
     ["-m", "anthropic_double.server"],
-    f"{_ANTHROPIC_DOUBLE_BASE_URL}/health",
+    f"{_ANTHROPIC_DOUBLE_BASE_URL}/health"
+)
+
+_SLACK_DOUBLE: tuple[str, list[str], str] = (
+    "slack_double",
+    ["-m", "slack_double.server"],
+    f"{_SLACK_DOUBLE_BASE_URL}/health"
 )
 
 _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
@@ -988,6 +1066,9 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
     # them would be testing the convention.
     ("write_mcp", ["-m", "write_mcp_server.server"], "http://localhost:8092/mcp"),
     _ANTHROPIC_DOUBLE,
+    # Slack, for a stack that has no workspace and wants none. Up before the
+    # relay, which posts to it from its first pass.
+    _SLACK_DOUBLE,
     (
         # Bound to every interface, not just loopback: the Target Environment's
         # monitoring posts its alerts from inside a container, and a server
@@ -995,7 +1076,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # container spells the host.
         "argus_web",
         ["-m", "uvicorn", "argus_web.app:app", "--host", "0.0.0.0", "--port", "8000"],
-        "http://localhost:8000/openapi.json",
+        "http://localhost:8000/openapi.json"
     ),
     (
         # What actually walks an incident. `argus_web` only writes the run down
@@ -1012,9 +1093,35 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # own first step rather than something to wait for here.
         "worker",
         ["-m", "orchestrator.worker"],
-        None,
+        None
     ),
+    (
+        # What tells a human anything. It follows the event log rather than
+        # being called by the walk, so a stack without it walks incidents that
+        # nobody outside the dashboard ever hears about.
+        #
+        # No readiness URL: it listens on nothing either. What it is ready for
+        # shows up in Slack, and a message arriving there is what a suite is
+        # asserting in the first place.
+        "relay",
+        ["-m", "agent_communicator.watching"],
+        None
+    )
 ]
+
+
+def _the_services_for(slack_stands_in: bool) -> list[tuple[str, list[str], str | None]]:
+    """The local services to start, minus the ones this run has no use for.
+
+    Only the Slack double moves. A run posting to the real workspace has
+    nothing to say to it, and starting it anyway leaves a process on 8094 that
+    nobody talks to - the kind of leftover somebody later mistakes for the
+    thing under test.
+    """
+    if slack_stands_in:
+        return _LOCAL_SERVICES
+
+    return [service for service in _LOCAL_SERVICES if service is not _SLACK_DOUBLE]
 
 
 def _run_against_the_stack(
@@ -1022,6 +1129,7 @@ def _run_against_the_stack(
     test_paths: list[str],
     service_env: dict[str, dict[str, str]] | None = None,
     command: list[str] | None = None,
+    slack_stands_in: bool = True
 ) -> None:
     """Brings the whole stack up, runs `test_paths` against it, tears it down.
 
@@ -1033,8 +1141,8 @@ def _run_against_the_stack(
     Brings up docker-compose's `postgres` service plus the whole Target
     Environment - the Target Service, the feature-flag provider and that
     provider's database, `include`d from the sibling repo's own compose file -
-    and the local `read_mcp`, `anthropic_double` and `argus_web` processes (none
-    containerized - design.md's decision). Everything, which is why no service
+    and every local process in `_LOCAL_SERVICES` that this run has a use for
+    (none containerized - design.md's decision). Everything, which is why no service
     is named: this is the one caller that wants the lot. A suite needing only
     the database names it instead - see `docker-compose.yml`. Teardown runs even
     if the tests fail, so nothing is left running.
@@ -1056,6 +1164,12 @@ def _run_against_the_stack(
     # pytest process that times them - which is the only way the two cannot
     # disagree about how long Argus waits.
     os.environ.update(_E2E_SETTINGS)
+    # A suite posts at the double; a demo posts wherever `.env` says. Set here
+    # rather than defaulted into `_E2E_SETTINGS`, so that a stack somebody is
+    # watching cannot be silently pointed away from the workspace they are
+    # watching it in.
+    if slack_stands_in:
+        os.environ.update(_SLACK_AT_THE_DOUBLE)
     try:
         # `--build` because the Target Service image is built from a sibling
         # working copy, not pulled: without it Compose reuses whatever was
@@ -1064,9 +1178,9 @@ def _run_against_the_stack(
         # is silent in the worst way - the run goes green against yesterday's
         # fixture, or 404s on an endpoint the source plainly has.
         session.run(
-            "docker", "compose", "up", "-d", "--wait", "--build", external=True,
+            "docker", "compose", "up", "-d", "--wait", "--build", external=True
         )
-        for name, module_args, ready_url in _LOCAL_SERVICES:
+        for name, module_args, ready_url in _the_services_for(slack_stands_in):
             started.append(_start_service(module_args, env=service_env.get(name)))
             # A service that listens on nothing is waited for by nothing: the
             # worker's readiness shows up in the queue it drains, not on a port.
@@ -1078,7 +1192,7 @@ def _run_against_the_stack(
         # cheap part of a debugging one.
         session.run(
             *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
-            *session.posargs, external=True,
+            *session.posargs, external=True
         )
     except Exception:
         # What the containers said, and only when something went wrong. The
@@ -1114,7 +1228,7 @@ def _the_containers_said_this(session: nox.Session) -> None:
     with contextlib.suppress(Exception):
         session.run(
             "docker", "compose", "logs", "--no-color", "--tail", "all",
-            external=True, success_codes=[0, 1],
+            external=True, success_codes=[0, 1]
         )
 
 
@@ -1174,7 +1288,7 @@ def e2e_replay(session: nox.Session) -> None:
     _run_against_the_stack(
         session,
         ["tests/e2e"],
-        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}}
     )
 
 
@@ -1212,7 +1326,7 @@ def record(session: nox.Session) -> None:
         # `-m`, not the path: the script reuses the e2e suite's own world-reset
         # rather than keeping a second copy of it, and only the module form puts
         # the repo root on the path for `tests.` to resolve.
-        command=["uv", "run", "python", "-m", "scripts.record_incident"],
+        command=["uv", "run", "python", "-m", "scripts.record_incident"]
     )
 
 
@@ -1236,4 +1350,8 @@ def stack(session: nox.Session) -> None:
         session,
         test_paths=[],
         command=["uv", "run", "python", "scripts/hold_the_stack.py"],
+        # Slack as configured, which for a demo means the real workspace: the
+        # thing being demonstrated is an incident reaching a person, and it
+        # reaches nobody at a double.
+        slack_stands_in=False
     )

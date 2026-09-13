@@ -47,7 +47,7 @@ def mitigation_node(
     still_wanted: IsStillWanted,
     take: TakeAction = take_action,
     change_landed: ChangeLanded = argus_changed_flag_since,
-    publisher: Publisher = nobody,
+    publisher: Publisher = nobody
 ) -> dict[str, Any]:
     """Performs the action the gate admitted, and records what came of it
     (spec §7.3, §11.1).
@@ -74,7 +74,7 @@ def mitigation_node(
     if not record_action(
         state.incident_id,
         hypothesis_id=state.hypothesis.id,
-        action_type=state.proposed_action.action_type,
+        action_type=state.proposed_action.action_type
     ):
         resumed = _what_the_earlier_attempt_left(
             state, already_taken, claimed_at, change_landed
@@ -97,9 +97,9 @@ def mitigation_node(
             hypothesis_id=state.hypothesis.id,
             action_type=state.proposed_action.action_type,
             subject=state.hypothesis.subject,
-            enabled=state.proposed_action.enabled,
+            enabled=state.proposed_action.enabled
         ),
-        publisher,
+        publisher
     )
 
     # The incident and the publisher travel with the action, so the wait for
@@ -112,7 +112,7 @@ def mitigation_node(
         state.proposed_action,
         still_wanted=partial(still_wanted, state.incident_id),
         incident_id=state.incident_id,
-        publisher=publisher,
+        publisher=publisher
     )
     outcome = str(result.verdict)
 
@@ -132,8 +132,10 @@ def mitigation_node(
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
-            outcome=outcome,
-        ),
+            # The verdict itself, not the spelling above: the row and the walk's
+            # own state travel as text, and the account travels as the value.
+            outcome=result.verdict
+        )
     )
     # This candidate was genuinely tested: an action was taken and the service
     # was measured afterwards. The verdict is the answer it was tested for, so
@@ -153,7 +155,7 @@ def mitigation_node(
         "action_outcome": outcome,
         "narration": Narration(
             action="mitigation attempted", result=result.detail, detail=result.detail
-        ),
+        )
     }
 
 
@@ -196,8 +198,8 @@ def _what_the_earlier_attempt_left(state: IncidentState,
             "narration": Narration(
                 action="mitigation resumed",
                 result=f"an earlier attempt already acted on this explanation: "
-                       f"{outcome}",
-            ),
+                       f"{outcome}"
+            )
         }
 
     # Both are needed to ask the question at all: which flag, and from when.
@@ -216,8 +218,8 @@ def _what_the_earlier_attempt_left(state: IncidentState,
         "status": IncidentStatus.ESCALATED,
         "narration": Narration(
             action="mitigation resumed",
-            result=_why_the_resumed_walk_stopped(landed),
-        ),
+            result=_why_the_resumed_walk_stopped(landed)
+        )
     }
 
 
@@ -249,7 +251,7 @@ def _nothing_to_act_on() -> dict[str, Any]:
         "action_outcome": str(Verdict.ESCALATED),
         "narration": Narration(
             action="mitigation attempted", result="no action reached the mitigation step"
-        ),
+        )
     }
 
 

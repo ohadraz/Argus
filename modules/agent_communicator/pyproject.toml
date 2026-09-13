@@ -5,18 +5,28 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-argus_core",
+    "argus-argus_incidents",
+    "argus-argus_narration",
+    "psycopg[binary]>=3.1",
+    "slack-sdk>=3.27",
 ]
 
 
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
+    "argus-slack_double",
+    "httpx",
+    "uvicorn[standard]>=0.30",
 ]
 
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-argus_incidents = { workspace = true }
+argus-argus_narration = { workspace = true }
 argus-argus_testkit = { workspace = true }
+argus-slack_double = { workspace = true }
 
 
 [build-system]

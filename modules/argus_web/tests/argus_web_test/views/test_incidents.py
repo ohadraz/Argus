@@ -275,7 +275,6 @@ def _an_incident(alert: Alert | None = None) -> Incident:
         alert_payload=(alert or Alert(service="io-shop", alert_name="HighErrorRate"))
         .model_dump(mode="json"),
         status=IncidentStatus.INVESTIGATING,
-        slack_channel_id=None,
         pr_url=None,
         created_at=_OPENED_AT,
         ended_at=None

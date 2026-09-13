@@ -247,7 +247,6 @@ def _an_incident(status: IncidentStatus, alert: Alert | None = None) -> Incident
         id=new_id(),
         alert_payload=(alert or _an_alert()).model_dump(mode="json"),
         status=status,
-        slack_channel_id=None,
         pr_url=None,
         created_at=_OPENED_AT,
         ended_at=None

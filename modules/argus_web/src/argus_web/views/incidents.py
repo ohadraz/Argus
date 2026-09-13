@@ -23,9 +23,8 @@ from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.taken_action import TakenAction
 from argus_core.models.timeline_event import TimelineEvent
+from argus_narration import said_as_a_state
 from pydantic import BaseModel
-
-from argus_web.views.flags import said_as_a_state
 
 # The verdict a reversible action gets when the service did not recover. The
 # walk undoes such an action before returning it - see `agent_mitigation` - so
@@ -119,7 +118,7 @@ def build_incident_summary(incident: Incident) -> IncidentSummary:
         id=incident.id,
         alert=Alert.model_validate(incident.alert_payload),
         status=incident.status,
-        created_at=incident.created_at,
+        created_at=incident.created_at
     )
 
 
@@ -127,7 +126,7 @@ def build_incident_detail(
     incident: Incident,
     candidates: list[Hypothesis],
     attempts: list[TakenAction],
-    timeline: list[TimelineEvent],
+    timeline: list[TimelineEvent]
 ) -> IncidentDetail:
     """Arranges an incident's rows into the walk a reader follows.
 
@@ -159,7 +158,7 @@ def build_incident_detail(
             for candidate in candidates
         ],
         unattributed_attempts=unattributed,
-        timeline=[_a_timeline_entry(event) for event in timeline],
+        timeline=[_a_timeline_entry(event) for event in timeline]
     )
 
 
@@ -175,7 +174,7 @@ def _an_attempt(taken_action: TakenAction) -> Attempt:
         action_type=taken_action.type,
         outcome=taken_action.outcome,
         undone=taken_action.outcome == _REFUTED,
-        taken_at=taken_action.taken_at,
+        taken_at=taken_action.taken_at
     )
 
 
@@ -197,7 +196,7 @@ def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
         evidence=hypothesis.supporting_evidence,
         tested=hypothesis.tested,
         result=hypothesis.result,
-        attempts=attempts,
+        attempts=attempts
     )
 
 
@@ -210,5 +209,5 @@ def _a_timeline_entry(event: TimelineEvent) -> TimelineEntry:
         actor=event.actor,
         action=event.action,
         result=event.result,
-        confidence=event.confidence,
+        confidence=event.confidence
     )

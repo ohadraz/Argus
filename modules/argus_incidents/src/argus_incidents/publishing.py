@@ -47,9 +47,9 @@ def events_into_connection(conn: psycopg.Connection) -> Publisher:
     return record_event
 
 
-def narrate(conn: psycopg.Connection,
-            event: IncidentEvent,
-            publisher: Publisher) -> None:
+def publish_beside(conn: psycopg.Connection,
+                   event: IncidentEvent,
+                   publisher: Publisher) -> None:
     """Writes the account of what was just done, and cannot fail the doing.
 
     Both halves at once, which is the whole point. The event is written on the

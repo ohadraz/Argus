@@ -24,13 +24,19 @@ from argus_core.models.change_event import ChangeEvent
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
+from argus_narration import (
+    BucketRow,
+    FlagToggleRow,
+    LogLine,
+    NarrationLine,
+    a_flag_history,
+    build_narration,
+    pointed_at,
+    the_minutes_logged,
+)
 from pydantic import BaseModel
 
-from argus_web.views.findings import pointed_at
-from argus_web.views.flags import FlagToggleRow, a_flag_history
-from argus_web.views.logs import LogLine, the_minutes_logged
-from argus_web.views.metrics import BucketRow
-from argus_web.views.narrating import NarrationLine, build_narration
+from argus_web.views.decorating import DecoratedLine, decorated
 
 
 class Story(BaseModel):
@@ -44,7 +50,10 @@ class Story(BaseModel):
     not.
     """
 
-    narration: list[NarrationLine]
+    # Dressed for this page rather than as the renderer handed them over: the
+    # class on a marked word and the link beside a line exist because this is a
+    # web page, and are worked out here for that reason.
+    narration: list[DecoratedLine]
     metrics: list[BucketRow]
     logs: list[LogLine]
     changes: list[ChangeEvent]
@@ -114,7 +123,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
 
     return Story(
         narration=[
-            _pointed_at(line, list(minutes), the_minutes_logged(lines.values()))
+            decorated(_pointed_at(line, list(minutes), the_minutes_logged(lines.values())))
             for line in narration
         ],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
@@ -123,7 +132,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
         flag_changes=a_flag_history(
             sorted(toggled.values(), key=lambda toggle: toggle.occurred_at)
         ),
-        read_changes=any(isinstance(event, ChangesRetrieved) for event in events),
+        read_changes=any(isinstance(event, ChangesRetrieved) for event in events)
     )
 
 
@@ -157,7 +166,7 @@ def build_live_incident(incident: Incident,
         finished_at=finished_at,
         elapsed_seconds=int(((finished_at or now()) - incident.created_at).total_seconds()),
         story=story,
-        version=_a_version_of(incident, finished_at, story),
+        version=_a_version_of(incident, finished_at, story)
     )
 
 

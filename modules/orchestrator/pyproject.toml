@@ -8,7 +8,6 @@ dependencies = [
     "argus-agent_investigator",
     "argus-agent_mitigation",
     "argus-agent_codefix",
-    "argus-agent_communicator",
     "argus-agent_postmortem",
     "argus-oncall_source",
     "argus-responder_rate_source",
@@ -36,7 +35,6 @@ argus-argus_testkit = { workspace = true }
 argus-agent_investigator = { workspace = true }
 argus-agent_mitigation = { workspace = true }
 argus-agent_codefix = { workspace = true }
-argus-agent_communicator = { workspace = true }
 argus-agent_postmortem = { workspace = true }
 
 [build-system]

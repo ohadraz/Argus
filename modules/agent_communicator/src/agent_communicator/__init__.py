@@ -1,43 +1,35 @@
-from __future__ import annotations
+"""How an incident reaches a human (spec §7.5).
 
-from collections.abc import Callable
+Nothing in the walk calls anything here. Argus publishes what it does as it
+does it, and `relaying` follows that log and says what is new somewhere a
+person is - so an incident is reported because it happened, not because
+whoever handled it remembered to say so.
 
-Emit = Callable[[str], None]
+Underneath that: `policy` decides which lines a human hears and how loudly,
+`delivering` turns that into a Slack message or a reply in the incident's
+thread, `slack` is the one module that knows Slack exists, and `following`
+plugs the relay into the event log. `watching` is the process that runs it.
+"""
 
+from agent_communicator.delivering import a_slack_delivery
+from agent_communicator.following import events_since, place_for
+from agent_communicator.policy import Register, how_it_is_said
+from agent_communicator.relaying import SLACK_RELAY, Backlog, Delivery, Place, relay_once
+from agent_communicator.slack import a_slack_client, post_message
+from agent_communicator.watching import watch_forever
 
-def _to_stdout(line: str) -> None:
-    print(line)
-
-
-def post_update(incident_id: str, message: str, emit: Emit = _to_stdout) -> None:
-    """Writes an update into the incident's war room (spec §7.5) - no Slack
-    post, no email yet.
-
-    Sent while Argus still has moves: an explanation was tried, it did not hold,
-    and another one is about to be. It wakes nobody. Its job is that a human
-    watching a walk can see it happening and step in, because a longer walk is
-    a longer silence, and an incident being worked looks from outside exactly
-    like an incident nobody is on.
-
-    `emit` is the seam a real Slack/email adapter replaces.
-    """
-    emit(f"argus[{incident_id}] update: {message}")
-
-
-def page(incident_id: str, message: str, emit: Emit = _to_stdout) -> None:
-    """Sends the page that ends an incident's autonomous phase (spec §7.5) -
-    no Slack post, no email yet.
-
-    Sent once, when the walk is out of moves and a person is required. It is a
-    separate function rather than a severity argument because the difference is
-    not one of wording: a page interrupts someone, and one raised per refuted
-    candidate would teach its readers to ignore pages, which costs more than
-    the pages are worth.
-
-    It used to be `notify`, which raised `NotImplementedError` on the grounds
-    that nothing routed here. That stopped being true the moment "Argus could
-    not determine the cause" became a real outcome: escalation routes through
-    the Communicator (§10), so a stub on that path has to *work*, even if all
-    it does is say what it would have sent.
-    """
-    emit(f"argus[{incident_id}] PAGE: {message}")
+__all__ = [
+    "SLACK_RELAY",
+    "Backlog",
+    "Delivery",
+    "Place",
+    "Register",
+    "a_slack_client",
+    "a_slack_delivery",
+    "events_since",
+    "how_it_is_said",
+    "place_for",
+    "post_message",
+    "relay_once",
+    "watch_forever"
+]

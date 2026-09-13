@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from argus_core.db import connect
 from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
+from argus_core.models.action import Verdict
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
@@ -118,7 +119,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
     # the incident stands. An outcome recorded and not yet narrated is a verdict
     # a reader would find with nothing beside it saying what reached it.
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
-    some_outcome = "confirmed"
+    some_outcome = Verdict.CONFIRMED
     dont_care_undo_descriptor = UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
     
     with connect() as conn:
@@ -174,7 +175,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
     # verdict is what says which - losing it to a sentence nobody could write
     # would make the account load-bearing (spec §4 principle 8).
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
-    some_outcome = "refuted"
+    some_outcome = Verdict.REFUTED
     dont_care_undo_descriptor = UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
 
     with connect() as conn:

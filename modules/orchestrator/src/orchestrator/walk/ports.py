@@ -45,7 +45,7 @@ class Investigate(Protocol):
         already_read: Sequence[Reading] | None = None,
         already_refuted: Sequence[Attempt] | None = None,
         publisher: Publisher = nobody,
-        recorder: Recorder = records_nothing,
+        recorder: Recorder = records_nothing
     ) -> Findings: ...
 
 
@@ -57,14 +57,6 @@ class RecordHypothesis(Protocol):
 
 class RecordOutcome(Protocol):
     def __call__(self, hypothesis_id: str, tested: bool, result: str) -> None: ...
-
-
-class PostUpdate(Protocol):
-    def __call__(self, incident_id: str, message: str) -> None: ...
-
-
-class Page(Protocol):
-    def __call__(self, incident_id: str, message: str) -> None: ...
 
 
 class FetchFlagChanges(Protocol):
@@ -85,7 +77,7 @@ class TakeAction(Protocol):
         *,
         still_wanted: StillWanted = ...,
         incident_id: str | None = None,
-        publisher: Publisher = nobody,
+        publisher: Publisher = nobody
     ) -> Outcome: ...
 
 
@@ -102,7 +94,7 @@ class RecordAction(Protocol):
         self,
         incident_id: str,
         hypothesis_id: str,
-        action_type: str,
+        action_type: str
     ) -> bool: ...
 
 
@@ -120,7 +112,7 @@ class CompleteAction(Protocol):
         hypothesis_id: str,
         outcome: str,
         undo_descriptor: UndoDescriptor | None,
-        narrating: IncidentEvent,
+        narrating: IncidentEvent
     ) -> None: ...
 
 
@@ -158,7 +150,7 @@ class ActionAlreadyTaken(Protocol):
     def __call__(
         self,
         incident_id: str,
-        hypothesis_id: str,
+        hypothesis_id: str
     ) -> str | None: ...
 
 
@@ -179,7 +171,7 @@ class TransitionIncident(Protocol):
         action: str,
         narrating: IncidentEvent,
         result: str | None = None,
-        confidence: float | None = None,
+        confidence: float | None = None
     ) -> None: ...
 
 
@@ -203,5 +195,5 @@ class RecordNote(Protocol):
         actor: Actor,
         action: str,
         result: str | None = None,
-        confidence: float | None = None,
+        confidence: float | None = None
     ) -> None: ...

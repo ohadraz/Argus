@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 PreToolUse hook: blocks Write/Edit/NotebookEdit against Argus's own tests/
-directories, and against the argus_testkit and anthropic_double modules.
+directories, and against the argus_testkit, anthropic_double and slack_double
+modules.
 
 argus_testkit is not test cases but the machinery every assertion runs
 through — an edit there could neuter every suite in the repo at once
@@ -12,6 +13,11 @@ anthropic_double stands in for the model itself. Its recordings are what
 the integration and contract suites judge the adapter against; an agent
 able to reshape a recording could make its own code pass without the
 adapter ever being right. Claude wrote it once, then the door closed.
+
+slack_double stands where Slack does, and is what the relay's own suite and
+the e2e stack post against. Same hazard, same door: an agent free to loosen
+what the double accepts could make its adapter pass against a Slack that
+never existed.
 
 The tests/ rule is scoped to this repository. It exists to enforce the TDD
 policy in AGENTS.md — the human writes the test, the agent writes the code —
@@ -37,6 +43,7 @@ TESTS_ANYWHERE = r"(^|[/\\])tests[/\\]"
 OFF_LIMITS_EVERYWHERE = (
     r"(^|[/\\])argus_testkit([/\\]|$)",
     r"(^|[/\\])anthropic_double([/\\]|$)",
+    r"(^|[/\\])slack_double([/\\]|$)"
 )
 
 
@@ -62,10 +69,10 @@ def main() -> None:
 
     if any(re.search(pattern, file_path) for pattern in OFF_LIMITS_EVERYWHERE):
         print(
-            "Blocked: modules/argus_testkit/ and modules/anthropic_double/ are "
-            "off-limits for Claude. Propose the change in chat/console instead - "
-            "the user applies it by hand.",
-            file=sys.stderr,
+            "Blocked: modules/argus_testkit/, modules/anthropic_double/ and "
+            "modules/slack_double/ are off-limits for Claude. Propose the "
+            "change in chat/console instead - the user applies it by hand.",
+            file=sys.stderr
         )
         sys.exit(2)
 
@@ -74,7 +81,7 @@ def main() -> None:
             "Blocked: tests/ is off-limits for Claude in the Argus repo - the "
             "human writes the test, Claude writes the code (AGENTS.md). Propose "
             "the whole file in chat/console instead.",
-            file=sys.stderr,
+            file=sys.stderr
         )
         sys.exit(2)
 

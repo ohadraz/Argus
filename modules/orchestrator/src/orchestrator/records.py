@@ -6,12 +6,12 @@ from datetime import datetime
 
 from agent_postmortem import PostmortemDocument
 from argus_core.db import Connections
-from argus_core.events import IncidentEvent
+from argus_core.events import IncidentEvent, PostmortemWritten
 from argus_core.models.actor import Actor
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.undo_descriptor import UndoDescriptor
-from argus_incidents.publishing import PublisherFor, narrate
+from argus_incidents.publishing import PublisherFor, publish_beside
 from argus_incidents.repository import (
     hypotheses,
     incidents,
@@ -54,7 +54,7 @@ class Records:
         action: str,
         narrating: IncidentEvent,
         result: str | None = None,
-        confidence: float | None = None,
+        confidence: float | None = None
     ) -> None:
         """Moves the incident, and says so, in one write.
 
@@ -70,9 +70,9 @@ class Records:
         with self._connections() as conn:
             incidents.transition(
                 conn, incident_id, to_status, actor=actor, action=action,
-                result=result, confidence=confidence,
+                result=result, confidence=confidence
             )
-            narrate(conn, narrating, self._publisher_for(conn))
+            publish_beside(conn, narrating, self._publisher_for(conn))
 
     def note(
         self,
@@ -80,26 +80,26 @@ class Records:
         actor: Actor,
         action: str,
         result: str | None = None,
-        confidence: float | None = None,
+        confidence: float | None = None
     ) -> None:
         with self._connections() as conn:
             incidents.record_note(
                 conn, incident_id, actor=actor, action=action,
-                result=result, confidence=confidence,
+                result=result, confidence=confidence
             )
 
     def claim_action(
         self,
         incident_id: str,
         hypothesis_id: str,
-        action_type: str,
+        action_type: str
     ) -> bool:
         with self._connections() as conn:
             return taken_actions.claim(
                 conn,
                 incident_id,
                 hypothesis_id=hypothesis_id,
-                action_type=action_type,
+                action_type=action_type
             )
 
     def complete_action(
@@ -108,7 +108,7 @@ class Records:
         hypothesis_id: str,
         outcome: str,
         undo_descriptor: UndoDescriptor | None,
-        narrating: IncidentEvent,
+        narrating: IncidentEvent
     ) -> None:
         """Records what came of the action, and says so, in one write.
 
@@ -124,9 +124,9 @@ class Records:
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 outcome=outcome,
-                undo_descriptor=undo_descriptor,
+                undo_descriptor=undo_descriptor
             )
-            narrate(conn, narrating, self._publisher_for(conn))
+            publish_beside(conn, narrating, self._publisher_for(conn))
 
     def action_outcome(self, incident_id: str, hypothesis_id: str) -> str | None:
         with self._connections() as conn:
@@ -145,5 +145,25 @@ class Records:
         return taken_action.taken_at if taken_action is not None else None
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /) -> None:
+        """Stores the write-up, and says that there is one, in one write.
+
+        The account needs the event for the reason every other step here does:
+        nothing in the walk tells anybody anything, so a postmortem nobody
+        published is a postmortem only somebody already looking at the page
+        would ever find.
+
+        The summary travels on the event rather than being read back from the
+        row, so that a destination says what the document said at the moment
+        it was written - and beside the row, inside a savepoint, so a
+        subscriber having a bad day cannot lose the document itself.
+        """
         with self._connections() as conn:
             postmortems.record(conn, incident_id, document)
+            publish_beside(conn, PostmortemWritten(
+                incident_id=incident_id,
+                root_cause=document.root_cause,
+                executive_summary=document.executive_summary,
+                customer_loss_estimate=document.customer_loss_estimate,
+                estimate_currency=document.estimate_currency,
+                engineer_minutes=document.engineer_minutes
+            ), self._publisher_for(conn))

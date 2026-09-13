@@ -16,6 +16,7 @@ members = [
     "argus-anthropic-double",
     "argus-argus-core",
     "argus-argus-incidents",
+    "argus-argus-narration",
     "argus-argus-testkit",
     "argus-argus-web",
     "argus-exchange-rate-source",
@@ -25,6 +26,7 @@ members = [
     "argus-read-mcp-server",
     "argus-responder-rate-source",
     "argus-revenue-source",
+    "argus-slack-double",
     "argus-workspace",
     "argus-write-mcp-client",
     "argus-write-mcp-server",
@@ -104,18 +106,36 @@ version = "0.1.0"
 source = { editable = "modules/agent_communicator" }
 dependencies = [
     { name = "argus-argus-core" },
+    { name = "argus-argus-incidents" },
+    { name = "argus-argus-narration" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "slack-sdk" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-slack-double" },
+    { name = "httpx" },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
+    { name = "argus-argus-narration", editable = "modules/argus_narration" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
+    { name = "slack-sdk", specifier = ">=3.27" },
+]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "argus-slack-double", editable = "modules/slack_double" },
+    { name = "httpx" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
 
 [[package]]
 name = "argus-agent-investigator"
@@ -256,6 +276,29 @@ requires-dist = [
 dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
+name = "argus-argus-narration"
+version = "0.1.0"
+source = { editable = "modules/argus_narration" }
+dependencies = [
+    { name = "argus-argus-core" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "pydantic", specifier = ">=2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+
+[[package]]
 name = "argus-argus-testkit"
 version = "0.1.0"
 source = { editable = "modules/argus_testkit" }
@@ -267,6 +310,7 @@ source = { editable = "modules/argus_web" }
 dependencies = [
     { name = "argus-argus-core" },
     { name = "argus-argus-incidents" },
+    { name = "argus-argus-narration" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "psycopg", extra = ["binary"] },
@@ -277,6 +321,7 @@ dependencies = [
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
+    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
@@ -335,7 +380,6 @@ version = "0.1.0"
 source = { editable = "modules/orchestrator" }
 dependencies = [
     { name = "argus-agent-codefix" },
-    { name = "argus-agent-communicator" },
     { name = "argus-agent-investigator" },
     { name = "argus-agent-mitigation" },
     { name = "argus-agent-postmortem" },
@@ -359,7 +403,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-agent-codefix", editable = "modules/agent_codefix" },
-    { name = "argus-agent-communicator", editable = "modules/agent_communicator" },
     { name = "argus-agent-investigator", editable = "modules/agent_investigator" },
     { name = "argus-agent-mitigation", editable = "modules/agent_mitigation" },
     { name = "argus-agent-postmortem", editable = "modules/agent_postmortem" },
@@ -471,6 +514,23 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+
+[[package]]
+name = "argus-slack-double"
+version = "0.1.0"
+source = { editable = "modules/slack_double" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "python-multipart" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
 
 [[package]]
 name = "argus-workspace"
@@ -2097,6 +2157,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b8/76/a7776f32048d991e16d4fa8ff91790b877342d3596cc3ed04acdbf1aaedc/ruff-0.16.2-py3-none-win32.whl", hash = "sha256:bf3a63d78fb39f4bf5ac8ae52051c5520505301abe19ba4e204c453b3f09bb0b", size = 10872850, upload-time = "2026-08-07T13:30:53.471Z" },
     { url = "https://files.pythonhosted.org/packages/00/0d/929c800d920e61397d82a01b60bffc68da3052c17d31de59efaad2e4ed75/ruff-0.16.2-py3-none-win_amd64.whl", hash = "sha256:bcabe2f6d0fc7819f1431793005af4e4de7371927d037345bf941252b195b9fa", size = 12023338, upload-time = "2026-08-07T13:30:56.193Z" },
     { url = "https://files.pythonhosted.org/packages/5b/6c/93e26c22c5f78ff87363e07da49c84955affbeb1098bd1936bf3b3f293bf/ruff-0.16.2-py3-none-win_arm64.whl", hash = "sha256:d614e95cedf38a2053fd351c55b103ba30d017d61688fdbfd40ee0412852a99f", size = 11374065, upload-time = "2026-08-07T13:30:58.775Z" },
+]
+
+[[package]]
+name = "slack-sdk"
+version = "3.44.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/4e/371068dd7281139307e60cd18553b96b9c8c391a4c3040617192713a3cc4/slack_sdk-3.44.1.tar.gz", hash = "sha256:ca19505423789fa2a3189ff486f989f02e49289f008d0a5813df7255b3fb93ea", size = 256661, upload-time = "2026-09-03T14:21:13.879Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/fc/67352b742fc6fa520a550581b0284f5757e4e31a32327c2a00276747fd30/slack_sdk-3.44.1-py2.py3-none-any.whl", hash = "sha256:d6f20a0fbe3fecf9cac955c99d686301b48a645b7045472c3a0cdd186d7c42b2", size = 319865, upload-time = "2026-09-03T14:21:12.405Z" },
 ]
 
 [[package]]

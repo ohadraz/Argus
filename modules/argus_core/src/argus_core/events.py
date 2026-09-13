@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, TypeAdapter
 
 from argus_core.ids import UuidStr, new_id
+from argus_core.models.action import Verdict
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
@@ -265,11 +267,65 @@ class RecoveryChecked(_Event):
 
 
 class VerdictReached(_Event):
-    """What the service said about an action once it had been measured."""
+    """What the service said about an action once it had been measured.
+
+    The verdict is carried as the value rather than as its spelling: the four
+    answers already have a name in this system, and an event typed `str` is
+    one every reader downstream has to recognise a word in - which is how a
+    page and a policy end up matching on different sets of four.
+    """
 
     kind: Literal["verdict-reached"] = "verdict-reached"
     hypothesis_id: UuidStr | None
-    outcome: str
+    outcome: Verdict
+
+
+class PostmortemWritten(_Event):
+    """The incident written up, in the few lines somebody would read first.
+
+    The summary rather than the document. The whole postmortem is a row of its
+    own and a page of its own; what an account needs is the sentence a reader
+    stops at - what caused it, what it cost, and how long people spent on it -
+    and a destination that wanted more has somewhere to send them.
+
+    Every field is optional because the document's are: a postmortem written
+    from an incident nobody recorded hours against is still a postmortem, and
+    a zero here would claim a figure that was never measured.
+    """
+
+    kind: Literal["postmortem-written"] = "postmortem-written"
+    root_cause: str | None = None
+    executive_summary: str | None = None
+    customer_loss_estimate: Decimal | None = None
+    # What that figure is in, carried rather than looked up, for the reason the
+    # document carries it: the reporting currency is configured, and an account
+    # that read it back from settings would relabel figures already published
+    # the day somebody changed it.
+    estimate_currency: str | None = None
+    engineer_minutes: int | None = None
+
+
+class CommunicationFailed(_Event):
+    """A line of the account that a destination would not carry, and why.
+
+    The account's own record of its gaps. Everything else here is something
+    Argus did to the incident; this is something that failed to reach a person
+    about it - and the timeline is the only place left to say so, the place it
+    was going to be said being the one that refused.
+
+    Written only where trying again would meet the same answer. A throttle
+    waits and is said a moment later, and an event for every one of those
+    would be a timeline about the messaging rather than about the incident.
+
+    `about_kind` is the kind of the line that was lost rather than the line
+    itself: the sentence is still on the timeline, a few rows up, and copying
+    it here would leave two versions of it to disagree.
+    """
+
+    kind: Literal["communication-failed"] = "communication-failed"
+    channel: str
+    refusal: str
+    about_kind: str
 
 
 type IncidentEvent = Annotated[
@@ -289,8 +345,10 @@ type IncidentEvent = Annotated[
         | HypothesisFormed
         | ActionTaken
         | VerdictReached
+        | PostmortemWritten
+        | CommunicationFailed
     ),
-    Field(discriminator="kind"),
+    Field(discriminator="kind")
 ]
 
 _events = TypeAdapter[IncidentEvent](IncidentEvent)
