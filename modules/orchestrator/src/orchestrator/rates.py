@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date
 
-from agent_postmortem.sources import RateTable
+from agent_postmortem import RateTable
 from argus_core.models import PublishedRates, RatesUnavailable
 
 # Where a table comes from when one has to be fetched. Injected, and without a

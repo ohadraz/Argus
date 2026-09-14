@@ -28,12 +28,12 @@ from datetime import datetime
 from decimal import Decimal
 from functools import partial
 
-from agent_postmortem import Sources
-from agent_postmortem.sources import (
+from agent_postmortem import (
     EngagedResponder,
     EngagementAnswer,
     PayBand,
     RateTable,
+    Sources,
 )
 from argus_core import Connections, ReadMcpEndpoint, Settings, to_iso
 from argus_core.models import MetricBucket

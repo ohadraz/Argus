@@ -22,7 +22,13 @@ from agent_postmortem.assumptions import (
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.evidence import IncidentEvidence
-from agent_postmortem.sources import Sources
+from agent_postmortem.sources import (
+    EngagedResponder,
+    EngagementAnswer,
+    PayBand,
+    RateTable,
+    Sources,
+)
 from agent_postmortem.writing import write_postmortem
 
 __all__ = [
@@ -37,7 +43,11 @@ __all__ = [
     "REVENUE_UNAVAILABLE_ASSUMPTION",
     "UNPRICED_TITLE_ASSUMPTION_LABEL",
     "WORKING_YEAR_ASSUMPTION_LABEL",
+    "EngagedResponder",
+    "EngagementAnswer",
     "IncidentEvidence",
+    "PayBand",
+    "RateTable",
     "Sources",
     "write_postmortem",
 ]

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
+from decimal import Decimal
 
 import psycopg
 import pytest
-from agent_postmortem import IncidentEvidence
+from agent_postmortem import IncidentEvidence, Sources
 from argus_core import connect_from_env, new_id, parse_iso
 from argus_core.events import (
     AlertAcknowledged,
@@ -12,12 +14,24 @@ from argus_core.events import (
     OnsetDetected,
     StatusChanged,
 )
-from argus_core.models import Alert, CauseType, Hypothesis, IncidentStatus
+from argus_core.llm import ClientFor, LLMClient
+from argus_core.models import (
+    Alert,
+    CauseType,
+    Hypothesis,
+    IncidentStatus,
+    PostmortemDocument,
+    ToolCall,
+    ToolDefinition,
+    Transcript,
+    Turn,
+)
+from argus_core.replay import Replay
 from argus_incidents.repository import events, hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
-from orchestrator.gathering import gather_evidence
+from orchestrator.gathering import gather_evidence, write_postmortem_for
 
 """Turning four tables back into one incident.
 
@@ -31,7 +45,20 @@ Nothing here is derived or judged. Every line comes from something that was
 recorded while it was happening - which is the point: what happened was
 decided then, and a postmortem re-deciding it from conclusions would be
 writing a different incident.
+
+The last case covers the other half of this module - writing the document
+rather than gathering what goes in it - and exists to hold a claim that would
+otherwise be only an assertion in a commit message: that this path can be
+driven with no payment provider, no on-call system, no HR source, no read tier
+and no model. Every one of those is a plain function here. Before the sources
+and the client factory arrived as arguments, this call could not be made at all
+without all five installed and reachable.
 """
+
+# How many hours a year the bands are divided by. Any number does: nothing here
+# publishes a cost, and the arithmetic that would use it is the agent's own
+# suite's business.
+DONT_CARE_WORKING_YEAR = 1800.0
 
 
 @pytest.mark.component
@@ -209,6 +236,187 @@ def test_an_incident_whose_onset_was_never_found_carries_none(a_clean_database: 
             )
 
 
+@pytest.mark.component
+def test_a_postmortem_is_written_from_the_sources_it_was_handed(
+    a_clean_database: None
+) -> None:
+    # The seam M4 bought, exercised. Every provider is a function written here
+    # and the model is a stand-in that submits one answer - so this runs with
+    # no vendor SDK, no credential and no network, which is the whole claim.
+    #
+    # Asserted three ways, because there are three things that could be wired
+    # wrongly and still return a document: the answer has to reach the page,
+    # the sources handed in have to be the ones measured against, and the
+    # client has to be asked for per incident rather than shared.
+    some_root_cause = "the checkout fallback flag was switched off"
+    windows_asked_about: list[tuple[datetime, datetime]] = []
+    clients_asked_for: list[Replay] = []
+
+    # Seeded on its own connection and committed by leaving the block: the call
+    # under test opens its own, and would not otherwise see any of this.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        incident = incidents.get(conn, incident_id)
+        assert incident is not None and incident.ended_at is not None
+        the_incidents_own_window = (incident.created_at, incident.ended_at)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: write_postmortem_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into(windows_asked_about),
+                client_for=_a_model_submitting(some_root_cause, clients_asked_for)
+            )
+        ) \
+        .then(all_of(
+            _it_reports_the_root_cause(some_root_cause),
+            _the_revenue_source_was_asked_about(the_incidents_own_window,
+                                                windows_asked_about),
+            _one_client_was_asked_for(clients_asked_for)
+        ))
+
+
+def _sources_recording_into(
+    windows_asked_about: list[tuple[datetime, datetime]]
+) -> Sources:
+    """Every port the document reads, answered without reaching anything.
+
+    All five say they could not answer, which is a real state and the one that
+    needs no arithmetic to be right: what is under test here is that the record
+    reaches the measurement at all, not what the figures come to. The revenue
+    port notes the window it was asked about on the way past, because that is
+    the evidence that it was this incident being measured.
+    """
+    def revenue(started_at: datetime,
+                ended_at: datetime) -> Mapping[str, Decimal] | None:
+        windows_asked_about.append((started_at, ended_at))
+
+        return None
+
+    return Sources(
+        revenue=revenue,
+        rates=lambda: None,
+        engagement=lambda dont_care_incident_id: None,
+        bands=lambda: None,
+        metrics=lambda dont_care_start, dont_care_end: [],
+        working_hours_a_year=DONT_CARE_WORKING_YEAR,
+        reporting_currency="USD"
+    )
+
+
+class _AModelSubmitting:
+    """A stand-in that answers with one submitted postmortem, first time.
+
+    The parameter names are the `LLMClient` protocol's own rather than this
+    file's `dont_care_` convention: a stand-in whose parameters are named
+    differently does not satisfy the protocol, and satisfying it is the point.
+
+    It names no tool of its own. Which tool to call comes from the list it is
+    offered, so this knows nothing about what the agent asks for - only that
+    whatever was offered is what an answer goes back as.
+    """
+
+    def __init__(self, answering: Mapping[str, str]) -> None:
+        self._answering = answering
+
+    def converse(self,
+                 transcript: Transcript,
+                 tools: list[ToolDefinition],
+                 max_tokens: int = 0) -> Turn:
+        return Turn(
+            text="",
+            tool_calls=[ToolCall(id=new_id(),
+                                 name=tools[0].name,
+                                 arguments=dict(self._answering))],
+            input_tokens=0,
+            output_tokens=0
+        )
+
+
+def _a_model_submitting(root_cause: str,
+                        clients_asked_for: list[Replay]) -> ClientFor:
+    """The factory the document asks for a client, noting each time it does.
+
+    A factory rather than a client because the receipt belongs to an incident,
+    and this is where that is checked: one document, one client asked for.
+
+    The summary carries no figure. A summary stating an amount is checked
+    against the one Argus computed, and with every source answering `None`
+    there is no computed figure for it to agree with - so a number here would
+    be sent back as invented and this stand-in would answer the same thing
+    twice.
+    """
+    def client_for(replay: Replay) -> LLMClient:
+        clients_asked_for.append(replay)
+
+        return _AModelSubmitting({
+            "root_cause": root_cause,
+            "executive_summary": "The fallback was off and checkout failed."
+        })
+
+    return client_for
+
+
+def _it_reports_the_root_cause(expected: str) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if document.root_cause != expected:
+            raise AssertionError(
+                f"Expected the document to report [{expected}], got "
+                f"[{document.root_cause}].")
+
+        return True
+
+    return assertion
+
+
+def _the_revenue_source_was_asked_about(
+    expected: tuple[datetime, datetime],
+    windows_asked_about: list[tuple[datetime, datetime]]
+) -> Assertion[PostmortemDocument]:
+    """The incident's own span, among the windows the source was asked about.
+
+    Among rather than alone: the document compares what the service took while
+    it was failing against a calm window before it, so the source is asked
+    twice and how the baseline is chosen is the agent's business. What this
+    holds is narrower and is the part that would be wrong silently - that the
+    incident measured was this one, and not some other window that would come
+    back looking exactly like it.
+    """
+    def assertion(dont_care_document: PostmortemDocument) -> bool:
+        if expected not in windows_asked_about:
+            raise AssertionError(
+                f"Expected the revenue source to be asked about {expected}, "
+                f"it was asked about {windows_asked_about}.")
+
+        return True
+
+    return assertion
+
+
+def _one_client_was_asked_for(
+    clients_asked_for: list[Replay]
+) -> Assertion[PostmortemDocument]:
+    """One document, one client.
+
+    A client is asked for per incident because the receipt it keeps is filed
+    under one - so a path that asked for none took a shared one from somewhere,
+    and one that asked twice would file one document's calls under two.
+    """
+    def assertion(dont_care_document: PostmortemDocument) -> bool:
+        if len(clients_asked_for) != 1:
+            raise AssertionError(
+                f"Expected exactly one client to be asked for, "
+                f"{len(clients_asked_for)} were.")
+
+        return True
+
+    return assertion
+
+
 def _the_evidence_after_publishing(conn: psycopg.Connection,
                                    incident_id: str,
                                    event: OnsetDetected) -> IncidentEvidence:
@@ -343,3 +551,5 @@ def _timeline_ends_with(expected: str) -> Assertion[IncidentEvidence]:
         return True
 
     return assertion
+
+

@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from agent_postmortem.sources import RateTable
+from agent_postmortem import RateTable
 from argus_core.models import PublishedRates, RatesUnavailable
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.collecting import Kept
