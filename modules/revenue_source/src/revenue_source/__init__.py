@@ -13,6 +13,7 @@ exercised only against a fake written by the same hand proves the fake.
 from revenue_source.takings import (
     Charge,
     Charges,
+    RevenueSettings,
     RevenueUnavailable,
     Takings,
     taken_between,
@@ -21,6 +22,7 @@ from revenue_source.takings import (
 __all__ = [
     "Charge",
     "Charges",
+    "RevenueSettings",
     "RevenueUnavailable",
     "Takings",
     "taken_between",

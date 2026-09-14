@@ -30,31 +30,13 @@ from decimal import Decimal
 from typing import Any, Final
 
 import httpx
-from argus_core import SettingsSlice
 
 from responder_rate_source.bands import (
     PayBand,
     PayBandsByTitle,
     PayBandsUnavailable,
+    ResponderRateSettings,
 )
-
-
-class ResponderRateSettings(SettingsSlice):
-    """What it takes to read the HR system's pay bands.
-
-    The credential only ever needs to read pay grades and bands. Compensation
-    per person is not read by anything here, so a deployment issuing this
-    credential should not grant it - what a *level* pays is all Argus asks.
-
-    The timeout is short on purpose: the bands are wanted while a postmortem is
-    being written, and a document that waits a minute for a figure it can
-    legitimately report as absent is worse than one without it.
-    """
-
-    hr_api_key: str
-    hr_base_url: str
-    hr_timeout_seconds: float
-
 
 # How the request is made. Injected rather than called outright so a test can
 # answer it without a network, and without monkeypatching a name this module

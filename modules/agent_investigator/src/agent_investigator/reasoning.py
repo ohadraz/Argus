@@ -3,16 +3,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import lru_cache
 
-from argus_core.llm import LLMClient
+from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import ToolDefinition, Transcript, Turn
 from argus_core.replay import Recorder, Replay
 
 Conversation = Callable[[Transcript, list[ToolDefinition]], Turn]
 
-# How a client is obtained for one investigation. A parameter rather than a
-# direct call, so a test of the wiring can see what was asked for without
-# configuration, an API key or the SDK - the real one needs all three.
-ClientFor = Callable[[Replay], LLMClient]
+# `ClientFor` - how a client is obtained for one investigation - is named in the
+# kernel rather than here. It was declared in this module while this was the
+# only loop that recorded its calls per incident; the postmortem's gathering
+# now asks for one the same way, and a type two modules both name is a contract.
 
 
 @lru_cache(maxsize=1)

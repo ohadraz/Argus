@@ -25,7 +25,31 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 
+from argus_core import SettingsSlice
 from pydantic import BaseModel
+
+
+class OnCallSettings(SettingsSlice):
+    """What it takes to read the on-call provider.
+
+    Empty by default in the environment, and empty means the source reports it
+    could not answer: a response time nobody can vouch for is worse than one
+    the document says it could not obtain, and a default credential would be
+    one nobody chose.
+
+    `pagerduty_verify_tls` is here because the demo's stand-in mints itself a
+    certificate nobody has reason to trust - and exists at all because the
+    vendor's SDK refuses a base URL that is not `https://`.
+
+    Here rather than beside the adapter that uses it, because naming what a
+    source needs must not cost the SDK that source talks to: a composition root
+    builds this slice to decide whether it can read the provider at all, and
+    importing it out of `pagerduty_adapter` would import `pagerduty` to ask.
+    """
+
+    pagerduty_api_key: str
+    pagerduty_base_url: str
+    pagerduty_verify_tls: bool
 
 # The unit the answer is stated in. Minutes rather than seconds because a
 # postmortem reporting a response to the second would be claiming an accuracy

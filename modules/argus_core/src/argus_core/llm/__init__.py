@@ -12,6 +12,7 @@ The vendor lives behind `adapters/` and is not exported. What a caller names is
 
 from argus_core.llm.client import (
     AnswerTruncated,
+    ClientFor,
     LLMClient,
     ModelDidNotAnswer,
     ModelRefused,
@@ -24,6 +25,7 @@ from argus_core.llm.recorded_client import RecordedLLMClient
 
 __all__ = [
     "AnswerTruncated",
+    "ClientFor",
     "LLMClient",
     "ModelDidNotAnswer",
     "ModelRefused",

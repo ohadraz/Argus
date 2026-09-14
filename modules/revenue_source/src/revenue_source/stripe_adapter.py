@@ -19,25 +19,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Final
 
-from argus_core import SettingsSlice
 from stripe import StripeClient, StripeError
 
-from revenue_source.takings import Charge, RevenueUnavailable
-
-
-class RevenueSettings(SettingsSlice):
-    """What it takes to read the payment provider, and nothing else.
-
-    Declared here rather than in the kernel because this is the only module
-    that reads either field: a slice with one consumer belongs to that
-    consumer, the way `Charge` does. What travels upwards is money with a
-    currency, and a caller that never learns the credential's name cannot
-    leak it into a postmortem.
-    """
-
-    stripe_api_key: str
-    stripe_base_url: str
-
+from revenue_source.takings import Charge, RevenueSettings, RevenueUnavailable
 
 # How a client is built. Injected rather than constructed outright so that a
 # test can assert the case that matters most here - that a deployment holding

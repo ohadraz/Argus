@@ -28,12 +28,14 @@ from agent_mitigation.undoing import undo_change
 from argus_core import Connections, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import Publisher
+from argus_core.llm import get_llm_client
 from argus_core.replay import Recorder
 from argus_incidents.publishing import calls_into, events_into, events_into_connection
 from argus_incidents.withdrawal import IsStillWanted, wanted_via
 
 from orchestrator.gathering import write_postmortem_for
 from orchestrator.records import Records
+from orchestrator.sources import the_real_sources
 from orchestrator.walk.ports import (
     ActionAlreadyTaken,
     ActionClaimedAt,
@@ -107,6 +109,10 @@ def against(connections: Connections) -> Collaborators:
     )
     records = Records(connections, events_into_connection)
     recorder = calls_into(connections)
+    # Built once rather than per postmortem: which provider answers which
+    # question is a fact about the deployment, and the only thing that differs
+    # between two incidents is which incident is being written up.
+    sources = the_real_sources(settings, connections)
 
     return Collaborators(
         # Bound here because this is where a deployment's configuration meets
@@ -150,7 +156,11 @@ def against(connections: Connections) -> Collaborators:
         claimed_at=records.action_claimed_at,
         change_landed=partial(argus_changed_flag_since, settings=mitigation),
         write_postmortem=lambda incident_id: write_postmortem_for(
-            incident_id, connections=connections, recorder=recorder),
+            incident_id,
+            connections=connections,
+            sources=sources,
+            client_for=get_llm_client,
+            recorder=recorder),
         record_postmortem=records.postmortem,
         transition_incident=records.transition,
         publisher=events_into(connections),

@@ -14,207 +14,55 @@ would be describing a different incident.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
-from decimal import Decimal
-from functools import partial
 
 import psycopg
 from agent_postmortem import IncidentEvidence, Sources, write_postmortem
-from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
-from argus_core import (
-    Connections,
-    ReadMcpEndpoint,
-    Settings,
-    get_settings,
-    parse_iso,
-    to_iso,
-)
+from argus_core import Connections, parse_iso, to_iso
 from argus_core.events import LogsRetrieved, OnsetDetected
-from argus_core.llm import LLMClient
-from argus_core.models import MetricBucket, PostmortemDocument
+from argus_core.llm import ClientFor
+from argus_core.models import PostmortemDocument
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from argus_incidents.repository import (
     events,
-    exchange_rates,
     hypotheses,
     incidents,
     replay,
     taken_actions,
 )
 from argus_narration import build_narration
-from exchange_rate_source.frankfurter import (
-    ExchangeRateSettings,
-    rates_published_for,
-)
-
-from orchestrator.rates import todays_rates
 
 
 def write_postmortem_for(incident_id: str,
                          connections: Connections,
+                         sources: Sources,
+                         client_for: ClientFor,
                          recorder: Recorder = records_nothing) -> PostmortemDocument:
     """The real postmortem for one incident: gather, then write.
 
-    Every port is answered by a real source. Each of them says so when it
-    cannot answer, rather than reporting a zero: "this incident cost nothing"
-    in front of a reader looks measured, and the document is built to tell the
-    two apart.
-    """
-    # Read once, here. This is the local root of the postmortem path - it is
-    # what holds the connection and builds every source below - and a function
-    # that asked the environment again for each of them would be the ambient
-    # read this change exists to end. `Sources` arriving as a parameter is the
-    # last step (V7c / M4); until it does, this is where the parts are made.
-    settings = get_settings()
+    `sources` and `client_for` arrive as arguments rather than being built
+    here. What this function does is read an incident's rows and hand them to
+    the agent; which payment provider answers the revenue question, and which
+    model writes the prose, are decisions belonging to whoever started the
+    process - and building them here is what made this the one production path
+    in the repo that could not be tested without a vendor SDK installed.
 
+    Every port is answered by a source that says so when it cannot answer,
+    rather than reporting a zero: "this incident cost nothing" in front of a
+    reader looks measured, and the document is built to tell the two apart.
+
+    `client_for` is a factory rather than a client, because the receipt is per
+    incident: the wrapper holds the incident it records for, and one client
+    shared across a process would file every incident's calls under whichever
+    was written up first.
+    """
     with connections() as conn:
         evidence = gather_evidence(conn, incident_id)
-        # The connection is bound in here rather than passed down: reaching the
-        # rates table takes one, and deciding which rates to use does not.
-        rates = todays_rates(
-            settings.reporting_currency,
-            held_rates=partial(exchange_rates.get_latest_for, conn),
-            hold_rates=partial(exchange_rates.record, conn),
-            published=partial(
-                rates_published_for, settings=ExchangeRateSettings.of(settings)
-            )
-        )
 
     return write_postmortem(
-        evidence,
-        Sources(revenue=partial(_the_services_takings, settings=settings),
-                rates=lambda: rates,
-                engagement=partial(_who_responded, settings=settings),
-                bands=partial(_what_a_title_is_worth, settings=settings),
-                metrics=partial(_metrics_between,
-                                endpoint=ReadMcpEndpoint.of(settings)),
-                working_hours_a_year=settings.working_hours_a_year,
-                reporting_currency=settings.reporting_currency),
-        _a_recording_client(Replay(incident_id, recorder))
+        evidence, sources, client_for(Replay(incident_id, recorder))
     )
-
-
-def _the_services_takings(started_at: datetime,
-                          ended_at: datetime,
-                          *,
-                          settings: Settings) -> Mapping[str, Decimal] | None:
-    """What the service took over the incident, read from the payment provider.
-
-    Imported inside for the same reason the metrics channel is: choosing this
-    pulls in a vendor's SDK, and a unit test of the gathering above should not
-    have to have one installed.
-
-    A provider that cannot be read - or a deployment holding no credential -
-    answers `None` rather than zero. The agent already knows what to do with an
-    unanswered question, and "the incident cost nothing" is not it.
-    """
-    from revenue_source import taken_between
-    from revenue_source.stripe_adapter import RevenueSettings, charges_between
-
-    takings = taken_between(
-        started_at,
-        ended_at,
-        charges=partial(charges_between, settings=RevenueSettings.of(settings))
-    )
-
-    return takings.amounts if takings is not None else None
-
-
-def _who_responded(incident_id: str,
-                   *,
-                   settings: Settings) -> EngagementAnswer | None:
-    """What human attention the incident took, read from the on-call provider.
-
-    Imported inside for the same reason the takings are: choosing this pulls in
-    a vendor's SDK, and a unit test of the gathering above should not have to
-    have one installed.
-
-    A provider that cannot be read - or a deployment holding no credential -
-    answers `None` rather than zero. An incident nobody acknowledged answers
-    zero, which is a different thing and is the source's to say.
-
-    The minutes are person-minutes, already summed across the people who
-    responded, and the titles say what those people were rather than who. Both
-    cross as the source answered them; nothing here reinterprets either.
-    """
-    from oncall_source import engagement_with
-    from oncall_source.pagerduty_adapter import OnCallSettings, reported_incident
-
-    engaged = engagement_with(
-        incident_id,
-        reported=partial(reported_incident, settings=OnCallSettings.of(settings))
-    )
-
-    if engaged is None:
-        return None
-
-    return EngagementAnswer(minutes=engaged.minutes,
-                            responders=engaged.responders,
-                            titles=engaged.titles,
-                            engaged=[EngagedResponder(minutes=responder.minutes,
-                                                      job_title=responder.job_title)
-                                     for responder in engaged.engaged])
-
-
-def _what_a_title_is_worth(*,
-                           settings: Settings) -> Mapping[str, PayBand] | None:
-    """What each job title the HR source prices is worth a year.
-
-    Bands rather than anybody's pay: a band belongs to a level that titles are
-    assigned to, so the response is priced without any person's compensation
-    being read, and this deployment's credential never needs to be able to.
-
-    Imported inside for the same reason the takings are, and answers `None`
-    where the source could not be read - including a deployment holding no HR
-    credential at all. A postmortem is written either way; it simply publishes
-    no cost and says why.
-    """
-    from responder_rate_source import PayBandsUnavailable
-    from responder_rate_source.bamboohr_adapter import (
-        ResponderRateSettings,
-        pay_bands,
-    )
-
-    try:
-        read = pay_bands(ResponderRateSettings.of(settings))
-    except PayBandsUnavailable:
-        return None
-
-    return {title: PayBand(minimum=band.minimum,
-                           midpoint=band.midpoint,
-                           maximum=band.maximum,
-                           currency=band.currency)
-            for title, band in read.items()}
-
-
-def _metrics_between(window_start: datetime,
-                     window_end: datetime,
-                     *,
-                     endpoint: ReadMcpEndpoint) -> list[MetricBucket]:
-    """The metrics channel, asked for a window spanning the whole incident.
-
-    Imported inside because the read tier is a running process: a unit test of
-    the gathering above should not pay for a client that expects one.
-    """
-    from read_mcp_client import get_metrics_summary
-
-    return get_metrics_summary(window_start=to_iso(window_start),
-                               window_end=to_iso(window_end),
-                               endpoint=endpoint)
-
-
-def _a_recording_client(replay: Replay) -> LLMClient:
-    """The configured model, wrapped so this call keeps a receipt too.
-
-    Deferred like the investigator's, and for the same reason: choosing a
-    client pulls in a vendor's SDK, which nothing testing the gathering should
-    have to import.
-    """
-    from argus_core.llm import get_llm_client
-
-    return get_llm_client(replay)
 
 
 def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvidence:

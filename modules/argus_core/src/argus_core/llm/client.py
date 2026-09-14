@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Transcript
 from argus_core.models.turn import Turn
+from argus_core.replay import Replay
 
 
 class ModelDidNotAnswer(Exception):
@@ -86,3 +88,16 @@ class LLMClient(Protocol):
                  transcript: Transcript,
                  tools: list[ToolDefinition],
                  max_tokens: int = ...) -> Turn: ...
+
+
+# How a caller that records its calls gets a client for one incident. A factory
+# rather than a client, because the receipt belongs to an incident while the
+# client does not: a wrapper holding one incident, shared across a process,
+# would file every later incident's calls under the first one.
+#
+# Here rather than beside either caller: the investigator's loop and the
+# postmortem's gathering both name this, which makes it a contract, and a
+# contract kept inside one of the parties is one the other reaches into.
+# `client.py` rather than `client_selection.py` so that naming the factory
+# costs nothing - selecting a client is what imports a vendor's SDK.
+type ClientFor = Callable[[Replay], LLMClient]

@@ -8,12 +8,12 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
 from responder_rate_source import PayBand
-from responder_rate_source.bamboohr_adapter import (
-    AskHrSource,
+from responder_rate_source.bamboohr_adapter import AskHrSource, pay_bands
+from responder_rate_source.bands import (
+    PayBandsByTitle,
+    PayBandsUnavailable,
     ResponderRateSettings,
-    pay_bands,
 )
-from responder_rate_source.bands import PayBandsByTitle, PayBandsUnavailable
 
 """Reading the HR source - one fetch of every level, inverted into titles.
 

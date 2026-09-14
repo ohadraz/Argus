@@ -14,7 +14,30 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from decimal import Decimal
 
+from argus_core import SettingsSlice
 from pydantic import BaseModel
+
+
+class ResponderRateSettings(SettingsSlice):
+    """What it takes to read the HR system's pay bands.
+
+    The credential only ever needs to read pay grades and bands. Compensation
+    per person is not read by anything here, so a deployment issuing this
+    credential should not grant it - what a *level* pays is all Argus asks.
+
+    The timeout is short on purpose: the bands are wanted while a postmortem is
+    being written, and a document that waits a minute for a figure it can
+    legitimately report as absent is worse than one without it.
+
+    Here rather than beside the adapter that uses it, because naming what a
+    source needs must not cost the library that source talks to - the same
+    reason `RevenueSettings` and `OnCallSettings` sit beside their own domain
+    types rather than their own adapters.
+    """
+
+    hr_api_key: str
+    hr_base_url: str
+    hr_timeout_seconds: float
 
 
 class PayBandsUnavailable(Exception):

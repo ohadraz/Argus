@@ -24,7 +24,8 @@ from unittest.mock import Mock
 import pytest
 from argus_testkit import Assertion, Kept, Scenario, all_of, attempting
 from revenue_source import Charge, RevenueUnavailable
-from revenue_source.stripe_adapter import RevenueSettings, charges_between
+from revenue_source.stripe_adapter import charges_between
+from revenue_source.takings import RevenueSettings
 
 # The provider's own words for what happened to a charge, spelled out here
 # rather than shared with the module under test: the assertion is that Argus
