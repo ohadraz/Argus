@@ -19,10 +19,25 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Final
 
-from argus_core import Settings, get_settings
+from argus_core import SettingsSlice
 from stripe import StripeClient, StripeError
 
 from revenue_source.takings import Charge, RevenueUnavailable
+
+
+class RevenueSettings(SettingsSlice):
+    """What it takes to read the payment provider, and nothing else.
+
+    Declared here rather than in the kernel because this is the only module
+    that reads either field: a slice with one consumer belongs to that
+    consumer, the way `Charge` does. What travels upwards is money with a
+    currency, and a caller that never learns the credential's name cannot
+    leak it into a postmortem.
+    """
+
+    stripe_api_key: str
+    stripe_base_url: str
+
 
 # How a client is built. Injected rather than constructed outright so that a
 # test can assert the case that matters most here - that a deployment holding
@@ -65,7 +80,7 @@ _THE_API_ADDRESS: Final = "api"
 
 def charges_between(started_at: datetime,
                     ended_at: datetime,
-                    settings: Settings | None = None,
+                    settings: RevenueSettings,
                     client_of: ClientOf = StripeClient) -> Iterable[Charge]:
     """Every charge the provider recorded in the window, oldest page first.
 
@@ -83,8 +98,6 @@ def charges_between(started_at: datetime,
     needs is between "there were no charges" and "nobody could say", and an
     exception is the only way a listing can say the second.
     """
-    settings = settings or get_settings()
-
     if not settings.stripe_api_key:
         raise RevenueUnavailable(
             "no payment credential is configured, so what the shop took cannot "

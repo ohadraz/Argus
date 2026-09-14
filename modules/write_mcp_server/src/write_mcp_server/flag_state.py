@@ -25,15 +25,50 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
-from argus_core import Settings, get_settings
+from argus_core import SettingsSlice
 from argus_core.models import UndoDescriptor
+
+
+class FlagWriteSettings(SettingsSlice):
+    """What the write tier is allowed to know, which is both credentials.
+
+    The admin token changes a flag; the evaluation token confirms the change
+    became visible. A read credential inside a write process is harmless, and
+    the reverse is what the tier split exists to prevent - so this is the slice
+    that may name both, and the read server's is the one that cannot name
+    either (spec §13).
+
+    Declared here rather than beside the history reader, although both use it:
+    this is the module that performs the tier's one action, and the docstring
+    above is where the two credentials are already explained.
+    """
+
+    unleash_base_url: str
+    unleash_frontend_token: str
+    unleash_admin_token: str
+    unleash_project: str
+    unleash_environment: str
+
 
 HttpPost = Callable[..., httpx.Response]
 HttpGet = Callable[..., httpx.Response]
-EvaluateFlags = Callable[[], list[str]]
+
+
+class EvaluateFlags(Protocol):
+    """What `set_flag` needs in order to confirm its own write landed.
+
+    A `Protocol` rather than a `Callable` alias so that a test can stand it in
+    with `create_autospec`, which needs something introspectable. Specing
+    against `evaluated_flags` would be specing against the wrong shape - that
+    takes the credential it reads under, and confirming a write needs only the
+    answer.
+    """
+
+    def __call__(self) -> list[str]: ...
+
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -59,7 +94,7 @@ class FlagNotSet(Exception):
 
 
 def evaluated_flags(
-    settings: Settings | None = None,
+    settings: FlagWriteSettings,
     get: HttpGet = httpx.get,
 ) -> list[str]:
     """The flags currently evaluating true, read with the evaluation credential.
@@ -69,12 +104,11 @@ def evaluated_flags(
     is not a retrieval concern - and a write server that depended on the read
     server could not change a flag while the read server was down.
     """
-    resolved = settings if settings is not None else get_settings()
-    url = f"{resolved.unleash_base_url}{EVALUATION_PATH}"
+    url = f"{settings.unleash_base_url}{EVALUATION_PATH}"
 
     response = get(
         url,
-        headers={"Authorization": resolved.unleash_frontend_token},
+        headers={"Authorization": settings.unleash_frontend_token},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -90,9 +124,10 @@ def evaluated_flags(
 def set_flag(
     flag: str,
     enabled: bool,
-    settings: Settings | None = None,
+    settings: FlagWriteSettings,
     post: HttpPost = httpx.post,
-    evaluate: EvaluateFlags = evaluated_flags,
+    *,
+    evaluate: EvaluateFlags,
 ) -> UndoDescriptor:
     """Sets `flag` on or off in the configured environment and waits until it is.
 
@@ -106,13 +141,12 @@ def set_flag(
     Raises `FlagNotSet` unless the provider accepted the change *and* the change
     became visible to evaluation.
     """
-    resolved = settings if settings is not None else get_settings()
-    url = f"{resolved.unleash_base_url}{_environment_path(resolved, flag, enabled)}"
+    url = f"{settings.unleash_base_url}{_environment_path(settings, flag, enabled)}"
 
     try:
         response = post(
             url,
-            headers={"Authorization": resolved.unleash_admin_token},
+            headers={"Authorization": settings.unleash_admin_token},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -126,7 +160,7 @@ def set_flag(
     return UndoDescriptor(
         flag=flag,
         was_enabled=not enabled,
-        environment=resolved.unleash_environment,
+        environment=settings.unleash_environment,
         written_at=_when_the_provider_recorded(response)
     )
 
@@ -175,7 +209,7 @@ def _wait_until_evaluating(flag: str, enabled: bool, evaluate: EvaluateFlags) ->
     )
 
 
-def _environment_path(settings: Settings, flag: str, enabled: bool) -> str:
+def _environment_path(settings: FlagWriteSettings, flag: str, enabled: bool) -> str:
     return (
         f"/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}"

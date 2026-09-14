@@ -21,6 +21,10 @@ from argus_core.events import Publisher, nobody
 from argus_core.models import Alert, Attempt, ChangeEvent, MetricBucket
 
 from .budget import a_budget
+from .configuration import (
+    some_investigation_settings,
+    some_thresholds,
+)
 from .incident import an_alert
 
 NO_LOGS: list[str] = []
@@ -45,6 +49,8 @@ class Investigation(NamedTuple):
             fetch_metrics=self.metrics_fetcher,
             fetch_logs=self.log_fetcher,
             fetch_change_events=self.change_fetcher,
+            settings=some_investigation_settings(),
+            thresholds=some_thresholds(),
             converse=self.model,
             budget=self.budget,
             already_refuted=already_refuted,

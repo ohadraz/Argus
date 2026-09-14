@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from argus_core import get_settings
+from argus_core import ReadMcpEndpoint
 from argus_core.mcp_transport import call_mcp_tool
 from argus_core.models import ChangeEvent, MetricBucket
 
@@ -10,7 +10,9 @@ from argus_core.models import ChangeEvent, MetricBucket
 def get_log_lines(alert_time: str | None = None,
                   window_start: str | None = None,
                   window_end: str | None = None,
-                  filters: str | None = None) -> list[str]:
+                  filters: str | None = None,
+                  *,
+                  endpoint: ReadMcpEndpoint) -> list[str]:
     """Reads the Target Service's log lines for one window of an incident.
 
     Phase two of spec §16's two-phase retrieval - see `argus-read-mcp`'s
@@ -18,9 +20,8 @@ def get_log_lines(alert_time: str | None = None,
     ISO-8601 strings. Retrieval is by window only: a window anchored on the
     onset a `get_metrics_summary` result located, reaching back before it.
     """
-    settings = get_settings()
     result = call_mcp_tool(
-        f"{settings.read_mcp_url}/mcp",
+        f"{endpoint.read_mcp_url}/mcp",
         "get_log_lines",
         alert_time=alert_time,
         window_start=window_start,
@@ -32,16 +33,17 @@ def get_log_lines(alert_time: str | None = None,
 
 def get_metrics_summary(alert_time: str | None = None,
                         window_start: str | None = None,
-                        window_end: str | None = None) -> list[MetricBucket]:
+                        window_end: str | None = None,
+                        *,
+                        endpoint: ReadMcpEndpoint) -> list[MetricBucket]:
     """Reads per-minute aggregated metrics for one window of an incident.
 
     Phase one of spec §16's two-phase retrieval: the buckets it returns show
     which minutes are anomalous, and the earliest anomalous one gives the
     onset a follow-up `get_log_lines` window is anchored on.
     """
-    settings = get_settings()
     result = call_mcp_tool(
-        f"{settings.read_mcp_url}/mcp",
+        f"{endpoint.read_mcp_url}/mcp",
         "get_metrics_summary",
         alert_time=alert_time,
         window_start=window_start,
@@ -51,7 +53,9 @@ def get_metrics_summary(alert_time: str | None = None,
 
 def get_change_events(service: str,
                       window_start: str,
-                      window_end: str) -> list[ChangeEvent]:
+                      window_end: str,
+                      *,
+                      endpoint: ReadMcpEndpoint) -> list[ChangeEvent]:
     """Reads what changed on a service within one window of an incident.
 
     The third retrieval channel (spec §16). Its window is deliberately far
@@ -62,9 +66,8 @@ def get_change_events(service: str,
     Raises rather than returning an empty list when the change source cannot be
     reached, because "nothing changed" is a conclusion a caller will act on.
     """
-    settings = get_settings()
     result = call_mcp_tool(
-        f"{settings.read_mcp_url}/mcp",
+        f"{endpoint.read_mcp_url}/mcp",
         "get_change_events",
         service=service,
         window_start=window_start,
@@ -73,7 +76,7 @@ def get_change_events(service: str,
     return [ChangeEvent.model_validate(change) for change in cast(list[object], result)]
 
 
-def get_enabled_flags() -> list[str]:
+def get_enabled_flags(*, endpoint: ReadMcpEndpoint) -> list[str]:
     """Reads which feature flags are currently evaluating true.
 
     Evaluated per call rather than cached, so it reflects a change made by
@@ -85,9 +88,8 @@ def get_enabled_flags() -> list[str]:
     reached: an outage read as "no flag is on" would look like an environment
     with nothing to revert.
     """
-    settings = get_settings()
     result = call_mcp_tool(
-        f"{settings.read_mcp_url}/mcp",
+        f"{endpoint.read_mcp_url}/mcp",
         "get_enabled_flags",
     )
     return cast(list[str], result)

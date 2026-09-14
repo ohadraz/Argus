@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.schema import SchemaNotApplied, reset_schema
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from argus_web.app import app
@@ -51,13 +51,13 @@ def a_database_with_no_schema() -> Iterator[None]:
     what is in them. The suite's other tests share this database and expect its
     schema, so the restoration is not a courtesy.
     """
-    with connect() as conn:
+    with connect_from_env() as conn:
         _drop_everything(conn)
 
     try:
         yield
     finally:
-        with connect() as conn:
+        with connect_from_env() as conn:
             reset_schema(conn)
 
 

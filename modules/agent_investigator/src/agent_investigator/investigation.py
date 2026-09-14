@@ -21,7 +21,11 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from argus_core import to_iso
-from argus_core.anomaly import earliest_bucket_is_anomalous, find_onset
+from argus_core.anomaly import (
+    AnomalyThresholds,
+    earliest_bucket_is_anomalous,
+    find_onset,
+)
 from argus_core.events import (
     ChannelsUnread,
     HypothesisFormed,
@@ -56,7 +60,7 @@ from argus_core.replay import CallType, Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
 
-from agent_investigator.budget import Bound, Budget
+from agent_investigator.budget import Bound, Budget, InvestigationSettings
 from agent_investigator.reasoning import Conversation, a_conversation_recorded_for
 from agent_investigator.retrieval import (
     ChangeFetcher,
@@ -159,6 +163,9 @@ def investigate(
     fetch_metrics: MetricsFetcher = fetch_metrics,
     fetch_logs: LogFetcher = fetch_logs,
     fetch_change_events: ChangeFetcher = fetch_change_events,
+    *,
+    settings: InvestigationSettings,
+    thresholds: AnomalyThresholds,
     converse: Conversation | None = None,
     budget: Budget | None = None,
     already_read: Sequence[Reading] | None = None,
@@ -244,7 +251,7 @@ def investigate(
         latency_ms=int((time.monotonic() - started_reading_at) * _MILLISECONDS_PER_SECOND)
     )
 
-    onset = find_onset(metric_buckets)
+    onset = find_onset(metric_buckets, thresholds)
 
     if onset is None:
         # Nothing was read beyond the metrics, and nothing was spent. There is
@@ -258,6 +265,7 @@ def investigate(
         service=alert.service,
         onset=onset,
         alert_time=alert_time,
+        settings=settings,
         narrator=narrator,
         # The same `Replay` the metrics read above went through, so that every
         # call one investigation made reaches one place: what the model was
@@ -272,11 +280,21 @@ def investigate(
         fetch_logs=fetch_logs,
         fetch_change_events=fetch_change_events
     )
-    spend = budget if budget is not None else Budget.from_settings()
+    spend = budget if budget is not None else Budget.from_settings(settings)
     tools = investigator_tools()
     transcript: list[Exchange] = [
         Ask(text=_the_opening_message(
-            alert, onset, metric_buckets, already_refuted or [], already_read or []
+            alert,
+            onset,
+            metric_buckets,
+            already_refuted or [],
+            already_read or [],
+            # Asked once, here, where the thresholds are: the message says
+            # whether the window opened already elevated, and whether it did is
+            # a measurement rather than a thing prose can work out.
+            opened_already_elevated=earliest_bucket_is_anomalous(
+                metric_buckets, thresholds
+            )
         ))
     ]
 
@@ -550,7 +568,8 @@ def _the_opening_message(alert: Alert,
                          onset: str,
                          metric_buckets: list[MetricBucket],
                          already_refuted: Sequence[Attempt],
-                         already_read: Sequence[Reading]) -> str:
+                         already_read: Sequence[Reading],
+                         opened_already_elevated: bool) -> str:
     """Everything the model is told before it decides anything.
 
     The onset is stated as a fact rather than offered as a question, and where
@@ -574,7 +593,7 @@ def _the_opening_message(alert: Alert,
         f"stays departed."
     ]
 
-    if earliest_bucket_is_anomalous(metric_buckets):
+    if opened_already_elevated:
         said.append(
             "The metrics window opens already elevated, so that minute is a lower "
             "bound rather than the onset itself - the incident began before anything "

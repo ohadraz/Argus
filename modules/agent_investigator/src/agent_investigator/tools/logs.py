@@ -13,10 +13,11 @@ from collections.abc import Sequence
 from datetime import timedelta
 from typing import Final
 
-from argus_core import get_settings, parse_iso, to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.events import LogsRetrieved, Narrator, RetrievalRequested
 from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
 
+from agent_investigator.budget import InvestigationSettings
 from agent_investigator.retrieval import LogFetcher
 from agent_investigator.tools.results import Served, could_not_serve, served, was_already_read
 from agent_investigator.tools.windows import window_of, window_properties
@@ -47,7 +48,8 @@ def read_logs(call: ToolCall,
               alert_time: str | None,
               fetch_logs: LogFetcher,
               already_read: Sequence[Reading],
-              narrator: Narrator) -> Served:
+              narrator: Narrator,
+              settings: InvestigationSettings) -> Served:
     """The log lines for the window the model named, or the default one.
 
     The default starts before the onset because that is where a cause lands -
@@ -56,7 +58,6 @@ def read_logs(call: ToolCall,
     no alert time to end at it runs a short way past the onset instead, which
     is the same window the loop read before the model had any say.
     """
-    settings = get_settings()
     onset_at = parse_iso(onset)
     window = window_of(
         call,

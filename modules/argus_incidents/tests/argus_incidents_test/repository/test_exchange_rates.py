@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import PublishedRates
 from argus_incidents.repository import exchange_rates
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -38,7 +38,7 @@ def test_a_days_rates_come_back_as_they_were_written() -> None:
                                           "gbp": Decimal("0.79"),
                                           "jpy": Decimal("147.20")})
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(calling(lambda: exchange_rates.record(conn, what_was_published))) \
             .when(lambda: exchange_rates.get_latest_for(conn, SOME_BASE_CURRENCY)) \
@@ -49,7 +49,7 @@ def test_a_days_rates_come_back_as_they_were_written() -> None:
 def test_a_base_nothing_was_ever_held_for_answers_nothing() -> None:
     # The caller's cue that there is nothing to fall back on, which is a
     # different answer from a table with no rates in it.
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(SOME_BASE_CURRENCY) \
             .when(lambda: exchange_rates.get_latest_for(conn, SOME_BASE_CURRENCY)) \
@@ -64,7 +64,7 @@ def test_only_the_newest_day_is_answered() -> None:
     yesterday = today - timedelta(days=1)
     todays_rate = Decimal("0.87")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 calling(lambda: exchange_rates.record(
@@ -96,7 +96,7 @@ def test_the_same_day_arriving_twice_is_taken_as_already_known() -> None:
                                 on=some_day,
                                 per_unit={"eur": the_rate_published_that_day})
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 calling(lambda: exchange_rates.record(conn, what_was_published)),
@@ -118,7 +118,7 @@ def test_rates_held_for_one_base_are_not_answered_for_another() -> None:
                                on=some_day,
                                per_unit={"eur": Decimal("1.17")})
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 calling(lambda: exchange_rates.record(

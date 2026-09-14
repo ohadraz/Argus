@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.events import IncidentEvent, StatusChanged
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import incidents
@@ -25,7 +25,7 @@ leave that page polling an incident that had already ended.
 def test_a_withdrawal_that_took_effect_is_published(a_clean_database: None) -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     published: list[IncidentEvent] = []
@@ -35,7 +35,7 @@ def test_a_withdrawal_that_took_effect_is_published(a_clean_database: None) -> N
             incident_id
         ) \
         .when(
-            lambda: withdraw_incident(incident_id, connect, publisher=published.append)
+            lambda: withdraw_incident(incident_id, connect_from_env, publisher=published.append)
         ) \
         .then(all_of(
             _it_reports(True),
@@ -50,7 +50,7 @@ def test_a_withdrawal_that_changed_nothing_publishes_nothing(a_clean_database: N
     # ended twice, and would end one that never did.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         incidents.transition(
             conn,
@@ -65,7 +65,7 @@ def test_a_withdrawal_that_changed_nothing_publishes_nothing(a_clean_database: N
             incident_id
         ) \
         .when(
-            lambda: withdraw_incident(incident_id, connect, publisher=published.append)
+            lambda: withdraw_incident(incident_id, connect_from_env, publisher=published.append)
         ) \
         .then(all_of(
             _it_reports(False),
@@ -79,7 +79,7 @@ def test_a_withdrawal_reaches_the_incident_itself(a_clean_database: None) -> Non
     # walk asks the incident, not the event stream, whether it is still wanted.
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     Scenario() \
@@ -87,7 +87,7 @@ def test_a_withdrawal_reaches_the_incident_itself(a_clean_database: None) -> Non
             incident_id
         ) \
         .when(
-            lambda: withdraw_incident(incident_id, connect, publisher=_nobody_is_listening)
+            lambda: withdraw_incident(incident_id, connect_from_env, publisher=_nobody_is_listening)
         ) \
         .then(
             _the_incident_is(incident_id, IncidentStatus.WITHDRAWN)
@@ -102,7 +102,7 @@ def test_an_incident_argus_resolved_is_still_wanted(a_clean_database: None) -> N
     # is skipped before it can write up the incident that reached it.
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         incidents.transition(
             conn,
@@ -115,7 +115,7 @@ def test_an_incident_argus_resolved_is_still_wanted(a_clean_database: None) -> N
             incident_id
         ) \
         .when(
-            lambda: wanted_via(connect)(incident_id)
+            lambda: wanted_via(connect_from_env)(incident_id)
         ) \
         .then(
             _it_reports(True)
@@ -126,7 +126,7 @@ def test_an_incident_argus_resolved_is_still_wanted(a_clean_database: None) -> N
 def test_an_incident_somebody_withdrew_is_not_wanted(a_clean_database: None) -> None:
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         incidents.withdraw(conn, incident_id)
 
@@ -135,7 +135,7 @@ def test_an_incident_somebody_withdrew_is_not_wanted(a_clean_database: None) -> 
             incident_id
         ) \
         .when(
-            lambda: wanted_via(connect)(incident_id)
+            lambda: wanted_via(connect_from_env)(incident_id)
         ) \
         .then(
             _it_reports(False)
@@ -154,7 +154,7 @@ def test_an_incident_with_no_row_at_all_is_not_wanted(a_clean_database: None) ->
             some_incident_id_nobody_created
         ) \
         .when(
-            lambda: wanted_via(connect)(some_incident_id_nobody_created)
+            lambda: wanted_via(connect_from_env)(some_incident_id_nobody_created)
         ) \
         .then(
             _it_reports(False)
@@ -221,7 +221,7 @@ def _nothing_was_published(published: list[IncidentEvent]) -> Assertion[bool]:
 
 def _the_incident_is(incident_id: str, status: IncidentStatus) -> Assertion[bool]:
     def assertion(_withdrawn: bool) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             incident = incidents.get(conn, incident_id)
 
         if incident is None:

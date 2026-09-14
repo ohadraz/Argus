@@ -5,7 +5,7 @@ import pytest
 from agent_communicator.following import events_since, place_for
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Outcome, relay_once
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.events import (
     ActionTaken,
     IncidentEvent,
@@ -58,9 +58,9 @@ def test_the_log_hands_back_what_was_published_after_a_place(
     # reading the real log rather than an empty one.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
-        the_log = events_since(connect)
+        the_log = events_since(connect_from_env)
 
         Scenario() \
             .given(
@@ -78,13 +78,13 @@ def test_a_place_moved_on_is_where_the_next_process_starts(
     # The reason the place is a seam over a row rather than an attribute: the
     # relay that reads it next is a different process from the one that moved
     # it, and usually a different machine.
-    a_place = place_for(connect, A_READER)
+    a_place = place_for(connect_from_env, A_READER)
 
     Scenario() \
         .given(
             calling(lambda: a_place.move_to(SOME_PLACE))
         ) \
-        .when(lambda: place_for(connect, A_READER).where()) \
+        .when(lambda: place_for(connect_from_env, A_READER).where()) \
         .then(_the_place_is(SOME_PLACE))
 
 
@@ -96,9 +96,9 @@ def test_two_readers_of_one_log_keep_their_own_places(
     # already said something it never said.
     Scenario() \
         .given(
-            calling(lambda: place_for(connect, A_READER).move_to(SOME_PLACE))
+            calling(lambda: place_for(connect_from_env, A_READER).move_to(SOME_PLACE))
         ) \
-        .when(lambda: place_for(connect, ANOTHER_READER).where()) \
+        .when(lambda: place_for(connect_from_env, ANOTHER_READER).where()) \
         .then(_the_place_is(THE_BEGINNING))
 
 
@@ -110,19 +110,19 @@ def test_a_relay_over_the_real_log_says_what_was_published_and_then_stops(
     # nothing new to say says nothing.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         a_relay = _a_recording_relay()
 
         Scenario() \
             .given(
                 calling(lambda: _publish(conn, *_three_steps_of(incident_id))),
-                calling(lambda: relay_once(events_since(connect),
-                                           place_for(connect, A_READER),
+                calling(lambda: relay_once(events_since(connect_from_env),
+                                           place_for(connect_from_env, A_READER),
                                            a_relay))
             ) \
-            .when(lambda: relay_once(events_since(connect),
-                                     place_for(connect, A_READER),
+            .when(lambda: relay_once(events_since(connect_from_env),
+                                     place_for(connect_from_env, A_READER),
                                      a_relay)) \
             .then(all_of(
                 _it_delivered(0),

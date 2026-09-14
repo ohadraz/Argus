@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Final
+from typing import Final, Self
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The longest single wait inside a walk: Mitigation standing by for the service
@@ -337,8 +337,8 @@ class Settings(BaseSettings):
     def _windows_must_be_consistent(self) -> Settings:
         """Rejects a configuration whose windows contradict each other.
 
-        Two relationships have to hold for retrieval to make sense, and
-        neither is enforced by the individual fields:
+        Three relationships have to hold for retrieval to make sense, and
+        none of them is enforced by the individual fields:
 
         - The log ceiling must admit the window the server derives itself.
           Otherwise `get_log_lines` hands out a 40-minute derived window while
@@ -381,3 +381,97 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+class SettingsSlice(BaseModel):
+    """What one consumer is allowed to know about how Argus is configured.
+
+    A view over `Settings`, not a part of it: the environment stays one flat
+    surface, and the relationships stated across it - the windows that have to
+    admit each other - are still checked in one place by one validator. A
+    consumer declares the fields it reads and receives those, so a process that
+    cannot change anything does not name the credential that could.
+
+    The narrowing is the point rather than the packaging. `read_mcp_server`
+    holding a `Settings` names `unleash_admin_token` whether or not the
+    environment ever supplies one - and the day somebody wires it in, nothing
+    objects. Holding a slice, it cannot name it at all.
+
+    Frozen, because configuration is read at the top of a process and a value
+    that could be edited on the way down would be a second way to configure
+    Argus that nothing declares.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    @classmethod
+    def of(cls, settings: Settings) -> Self:
+        """Narrows the whole configuration to this slice of it.
+
+        Called at a composition root, which is the one place that holds both
+        the whole and the parts. Fields are taken by name, so a slice naming
+        something `Settings` does not have fails here, as a missing field,
+        rather than at the moment the value was going to be used.
+
+        `from_attributes` so that a slice may name a derived property as
+        readily as a stored field - `database_url` is one, and is what every
+        holder of it actually wants.
+        """
+        return cls.model_validate(settings, from_attributes=True)
+
+
+class DatabaseSettings(SettingsSlice):
+    """Where Argus's database is - the one string that says so.
+
+    The URL alone, and not the four fields it is composed from. Those four are
+    the recipe rather than the ingredient: `db.py` reads the URL and nothing
+    else, and a slice restating the parts would be handing over a second way to
+    say the same thing for somebody to compose differently.
+
+    Not a narrower credential, to be clear - the URL carries the password, as
+    every connection string does. It is narrower in what it is *for*.
+    """
+
+    database_url: str
+
+
+class ReadMcpEndpoint(SettingsSlice):
+    """Where `argus-read-mcp` listens, and where a caller reaches it.
+
+    Both sides of one fact, which is why it is a contract rather than the
+    server's own: the server binds the host and port, and `read_mcp_client`
+    dials the URL they compose into.
+    """
+
+    read_mcp_host: str
+    read_mcp_port: int
+    read_mcp_url: str
+
+
+class WriteMcpEndpoint(SettingsSlice):
+    """Where `argus-write-mcp` listens, and where a caller reaches it.
+
+    Separate from the read tier's endpoint, as the servers are. Two addresses
+    rather than one, though - not two tiers: what makes the write tier the
+    write tier is that it holds the admin credential and the read server is
+    issued none, and that no irreversible tool has a function on either
+    (spec §12.1, §13). An address is how a caller finds a server, and finding
+    one authorizes nothing.
+    """
+
+    write_mcp_host: str
+    write_mcp_port: int
+    write_mcp_url: str
+
+
+class LLMSettings(SettingsSlice):
+    """What it takes to reach a model - the kernel's own, and nobody else's.
+
+    `argus_core.llm` is behind a front door narrowed to the modules that
+    declare the `llm` extra, and this is the configuration that door needs. An
+    agent asks a model something through an `LLMClient` it was handed; which
+    SDK answers, and with whose key, is the composition root's business.
+    """
+
+    anthropic_api_key: str
+    anthropic_base_url: str

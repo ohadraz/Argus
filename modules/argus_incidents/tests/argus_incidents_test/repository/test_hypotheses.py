@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import Alert, CauseType, Evidence, Hypothesis
 from argus_incidents.repository import hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -22,7 +22,7 @@ def test_a_recorded_hypothesis_comes_back_with_the_evidence_it_was_formed_from()
         "2026-08-20T11:06:00Z ERROR target-service: request failed"
     ]
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         some_hypothesis = _a_determined_hypothesis(incident_id, some_evidence)
@@ -42,7 +42,7 @@ def test_an_undetermined_hypothesis_comes_back_naming_no_cause() -> None:
     # Both nullable columns are null together. If either came back as a
     # default - 0.0, an empty string - the model's own validator would reject
     # the row on the way out, which is the failure this guards.
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         an_unexplained_hypothesis = _an_undetermined_hypothesis(incident_id)
@@ -69,7 +69,7 @@ def test_a_hypothesis_comes_back_naming_the_subject_it_blamed() -> None:
     # reasoning intact and the conclusion gone.
     some_flag = "monthly-spend-feature"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         some_hypothesis = _a_determined_hypothesis(
@@ -91,7 +91,7 @@ def test_a_hypothesis_comes_back_carrying_the_transition_it_blamed() -> None:
     # Two columns rather than one: a row keeping only the state it arrived at
     # records a position, and the page draws a change. Both have to survive the
     # table, or the model's own validator refuses the row on the way back out.
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         some_hypothesis = _a_determined_hypothesis(
@@ -121,7 +121,7 @@ def test_a_hypothesis_comes_back_at_the_rank_it_was_recorded_at() -> None:
     # like returning them.
     a_third_choice = 3
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         some_hypothesis = _a_determined_hypothesis(
@@ -146,7 +146,7 @@ def test_a_candidate_the_walk_reached_comes_back_carrying_what_happened_to_it() 
     # were tried is a list a human cannot read the incident from.
     some_result = "refuted"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         a_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
@@ -177,7 +177,7 @@ def test_a_candidate_that_was_never_tried_comes_back_saying_why() -> None:
     # one that was tested and failed.
     some_reason = "no reversible action was proposed for this cause"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         an_untried_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
@@ -206,7 +206,7 @@ def test_a_candidate_that_was_never_tried_comes_back_saying_why() -> None:
 def test_the_latest_hypothesis_for_an_incident_is_the_one_returned() -> None:
     # An incident can be investigated more than once; "latest" is what the
     # orchestrator reads back, so the order has to be the write order.
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         the_first_hypothesis = _a_determined_hypothesis(incident_id, ["an early guess"])
@@ -237,7 +237,7 @@ def test_the_best_candidate_of_a_verdict_is_the_one_returned() -> None:
     # nothing, by an investigation that determined something and acted on it.
     dont_care_evidence = ["2026-08-20T11:06:00Z ERROR target-service: request failed"]
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         incident_id = an_incident_created_for(_an_alert())
         the_best_candidate = _a_determined_hypothesis(incident_id, dont_care_evidence)
@@ -259,7 +259,7 @@ def test_the_best_candidate_of_a_verdict_is_the_one_returned() -> None:
 
 @pytest.mark.integration
 def test_an_incident_with_no_hypothesis_has_none_to_return() -> None:
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = _an_incident_created_for(conn, _an_alert())
 
         assert hypotheses.get_latest_by_incident(conn, incident_id) is None
@@ -270,7 +270,7 @@ def test_every_candidate_of_an_incident_comes_back_in_rank_order() -> None:
     # `get_latest_by_incident` answers with one hypothesis, which is exactly the
     # shape that hides a walk: an incident resolved on its second candidate
     # looks, through that lens, like an incident with one candidate.
-    with connect() as conn:
+    with connect_from_env() as conn:
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_candidates_read_back_are = partial(_the_candidates_read_back_are, conn)
 
@@ -295,7 +295,7 @@ def test_an_untried_candidate_comes_back_as_untried() -> None:
     # An incident resolved before its lowest-ranked candidates were reached
     # still has them, and the difference between "tried and refuted" and "never
     # reached" is the difference between a walk and a lucky guess.
-    with connect() as conn:
+    with connect_from_env() as conn:
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_candidate_ranked = partial(_the_candidate_ranked, conn)
 
@@ -319,7 +319,7 @@ def test_an_untried_candidate_comes_back_as_untried() -> None:
 def test_an_incident_with_no_candidates_reads_as_empty_rather_than_missing() -> None:
     # An incident that escalated before forming a hypothesis is a real incident
     # with nothing to show, which is not the same as an unknown incident.
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = _an_incident_created_for(conn, _an_alert())
 
         Scenario() \

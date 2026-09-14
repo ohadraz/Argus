@@ -6,10 +6,9 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from argus_core import Settings
 from argus_testkit import Assertion, Kept, Scenario, all_of, attempting
 from oncall_source import OnCallUnavailable
-from oncall_source.pagerduty_adapter import reported_incident
+from oncall_source.pagerduty_adapter import OnCallSettings, reported_incident
 from pagerduty import Error as PagerDutyError
 
 """Reading the on-call provider - one incident, two resources, one object.
@@ -141,8 +140,20 @@ def test_a_user_the_provider_will_not_answer_for_leaves_the_title_unknown() -> N
         )
 
 
-def _settings_with(api_key: str) -> Settings:
-    return Settings(pagerduty_api_key=api_key)
+def _settings_with(api_key: str) -> OnCallSettings:
+    """The slice this reader runs under.
+
+    Only the credential matters here; the client is injected, so no address is
+    ever dialled and no certificate is ever checked.
+    """
+    dont_care_base_url = ""
+    dont_care_verify_tls = True
+
+    return OnCallSettings(
+        pagerduty_api_key=api_key,
+        pagerduty_base_url=dont_care_base_url,
+        pagerduty_verify_tls=dont_care_verify_tls
+    )
 
 
 def _a_reported_incident(began_at: datetime,

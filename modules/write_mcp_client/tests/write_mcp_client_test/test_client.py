@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
+from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.models import FlagChange, UndoDescriptor
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
@@ -36,7 +37,11 @@ def test_switching_a_flag_off_reaches_the_provider_through_the_real_write_server
             calling(the_provider_has_enabled(running_write_mcp, some_flag))
         ) \
         .when(
-            lambda: set_feature_flag(some_flag, enabled=False)
+            lambda: set_feature_flag(
+                some_flag,
+                enabled=False,
+                endpoint=_the_server_the_fixture_started()
+            )
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=True),
@@ -57,7 +62,11 @@ def test_switching_a_flag_on_reaches_the_provider_through_the_real_write_server(
             calling(the_provider_has_enabled(running_write_mcp))
         ) \
         .when(
-            lambda: set_feature_flag(some_flag, enabled=True)
+            lambda: set_feature_flag(
+                some_flag,
+                enabled=True,
+                endpoint=_the_server_the_fixture_started()
+            )
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=False),
@@ -79,7 +88,9 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
             ))
         ) \
         .when(
-            lambda: get_recent_flag_changes(SINCE)
+            lambda: get_recent_flag_changes(
+                SINCE, endpoint=_the_server_the_fixture_started()
+            )
         ) \
         .then(
             the_changes_are([(some_flag, False)])
@@ -100,7 +111,14 @@ def test_a_change_the_client_made_can_be_undone_through_the_same_call(
             calling(the_provider_has_enabled(running_write_mcp, some_flag))
         ) \
         .when(
-            lambda: _undoing(set_feature_flag(some_flag, enabled=False), some_flag)
+            lambda: _undoing(
+                set_feature_flag(
+                    some_flag,
+                    enabled=False,
+                    endpoint=_the_server_the_fixture_started()
+                ),
+                some_flag
+            )
         ) \
         .then(
             the_provider_now_reports_enabled(running_write_mcp, [some_flag])
@@ -113,7 +131,21 @@ DONT_CARE_ACTOR = "dont-care-actor"
 
 
 def _undoing(undo_descriptor: UndoDescriptor, flag: str) -> UndoDescriptor:
-    return set_feature_flag(flag, enabled=undo_descriptor.was_enabled)
+    return set_feature_flag(
+        flag,
+        enabled=undo_descriptor.was_enabled,
+        endpoint=_the_server_the_fixture_started()
+    )
+
+
+def _the_server_the_fixture_started() -> WriteMcpEndpoint:
+    """Where the subprocess the fixture started is listening.
+
+    Read through `get_settings` rather than named here, because the fixture
+    is what decides the port - it sets the environment and clears the cache
+    before yielding, and this is the same answer the server resolved from.
+    """
+    return WriteMcpEndpoint.of(get_settings())
 
 
 def the_provider_has_enabled(handler: type[FakeUnleashHandler],

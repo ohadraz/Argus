@@ -16,21 +16,34 @@ import random
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import get_settings
 from argus_testkit import Assertion, Scenario, all_of
-from read_mcp_server.window import ResolvedWindow, resolve_log_window, resolve_metrics_window
+from read_mcp_server.window import (
+    ResolvedWindow,
+    RetrievalSettings,
+    resolve_log_window,
+    resolve_metrics_window,
+)
 
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 MINUTES_IN_A_DAY = 24 * 60
 
-settings = get_settings()
+# The windows these resolve against, stated here rather than read from the
+# environment. Every expectation below is arithmetic on these four numbers,
+# and a test that took them from the same configuration the resolver reads
+# would agree with itself whatever either said.
+CONFIGURED_WINDOWS = RetrievalSettings(
+    log_initial_lookback_minutes=30,
+    log_initial_lookahead_minutes=10,
+    log_max_window_minutes=180,
+    metrics_window_minutes=360
+)
 
 
 @pytest.mark.unit
 def test_no_alert_time_and_no_window_resolves_to_no_window() -> None:
     Scenario() \
         .when(
-            lambda: resolve_log_window()
+            lambda: resolve_log_window(settings=CONFIGURED_WINDOWS)
         ) \
         .then(
             _the_window_resolved_to(ResolvedWindow(start=None, end=None, clamped=False))
@@ -44,15 +57,18 @@ def test_a_log_window_spans_the_configured_lookback_and_lookahead() -> None:
             some_alert_time := _an_alert_time()
         ) \
         .when(
-            lambda: resolve_log_window(alert_time=_an_iso_minute(some_alert_time))
+            lambda: resolve_log_window(
+                alert_time=_an_iso_minute(some_alert_time),
+                settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(
             _the_window_resolved_to(ResolvedWindow(
                 start=some_alert_time - timedelta(
-                    minutes=settings.log_initial_lookback_minutes
+                    minutes=CONFIGURED_WINDOWS.log_initial_lookback_minutes
                 ),
                 end=some_alert_time + timedelta(
-                    minutes=settings.log_initial_lookahead_minutes
+                    minutes=CONFIGURED_WINDOWS.log_initial_lookahead_minutes
                 ),
                 clamped=False
             ))
@@ -61,9 +77,9 @@ def test_a_log_window_spans_the_configured_lookback_and_lookahead() -> None:
 
 @pytest.mark.unit
 def test_a_log_window_whose_lookahead_runs_past_now_ends_at_now() -> None:
-    too_recent_alert = _a_minute_ago(settings.log_initial_lookahead_minutes - 1)
+    too_recent_alert = _a_minute_ago(CONFIGURED_WINDOWS.log_initial_lookahead_minutes - 1)
     lookahead_in_the_future = too_recent_alert + timedelta(
-        minutes=settings.log_initial_lookahead_minutes
+        minutes=CONFIGURED_WINDOWS.log_initial_lookahead_minutes
     )
 
     # `now` advances while the test runs, so the assertions are on the bound
@@ -75,7 +91,10 @@ def test_a_log_window_whose_lookahead_runs_past_now_ends_at_now() -> None:
             too_recent_alert, lookahead_in_the_future
         ) \
         .when(
-            lambda: resolve_log_window(alert_time=_an_iso_minute(too_recent_alert))
+            lambda: resolve_log_window(
+                alert_time=_an_iso_minute(too_recent_alert),
+                settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(all_of(
             _the_window_ended_before(lookahead_in_the_future),
@@ -88,7 +107,7 @@ def test_a_log_window_whose_lookahead_runs_past_now_ends_at_now() -> None:
 def test_an_explicit_log_window_exactly_on_the_ceiling_is_used_as_given() -> None:
     some_window_start = _an_alert_time()
     window_end_exactly_on_the_ceiling = some_window_start + timedelta(
-        minutes=settings.log_max_window_minutes
+        minutes=CONFIGURED_WINDOWS.log_max_window_minutes
     )
 
     Scenario() \
@@ -98,7 +117,8 @@ def test_an_explicit_log_window_exactly_on_the_ceiling_is_used_as_given() -> Non
         .when(
             lambda: resolve_log_window(
                 window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_exactly_on_the_ceiling)
+                window_end=_an_iso_minute(window_end_exactly_on_the_ceiling),
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
@@ -124,7 +144,8 @@ def test_an_explicit_window_overrides_the_alert_time() -> None:
             lambda: resolve_log_window(
                 alert_time=_an_iso_minute(some_alert_time),
                 window_start=_an_iso_minute(some_unrelated_window_start),
-                window_end=_an_iso_minute(some_unrelated_window_end)
+                window_end=_an_iso_minute(some_unrelated_window_end),
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
@@ -140,7 +161,7 @@ def test_an_explicit_window_overrides_the_alert_time() -> None:
 def test_an_over_span_log_window_is_clamped_forward_from_its_start() -> None:
     some_window_start = _an_alert_time()
     window_end_past_the_ceiling = some_window_start + timedelta(
-        minutes=settings.log_max_window_minutes + 1
+        minutes=CONFIGURED_WINDOWS.log_max_window_minutes + 1
     )
 
     # Anchored at the start: the earliest minutes are the ones that explain
@@ -152,14 +173,15 @@ def test_an_over_span_log_window_is_clamped_forward_from_its_start() -> None:
         .when(
             lambda: resolve_log_window(
                 window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_past_the_ceiling)
+                window_end=_an_iso_minute(window_end_past_the_ceiling),
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
             _the_window_resolved_to(ResolvedWindow(
                 start=some_window_start,
                 end=some_window_start + timedelta(
-                    minutes=settings.log_max_window_minutes
+                    minutes=CONFIGURED_WINDOWS.log_max_window_minutes
                 ),
                 clamped=True
             ))
@@ -173,13 +195,16 @@ def test_a_log_window_with_only_a_start_is_clamped_forward_from_it() -> None:
             some_window_start := _an_alert_time()
         ) \
         .when(
-            lambda: resolve_log_window(window_start=_an_iso_minute(some_window_start))
+            lambda: resolve_log_window(
+                window_start=_an_iso_minute(some_window_start),
+                settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(
             _the_window_resolved_to(ResolvedWindow(
                 start=some_window_start,
                 end=some_window_start + timedelta(
-                    minutes=settings.log_max_window_minutes
+                    minutes=CONFIGURED_WINDOWS.log_max_window_minutes
                 ),
                 clamped=True
             ))
@@ -193,12 +218,15 @@ def test_a_log_window_with_only_an_end_is_clamped_back_from_it() -> None:
             some_window_end := _an_alert_time()
         ) \
         .when(
-            lambda: resolve_log_window(window_end=_an_iso_minute(some_window_end))
+            lambda: resolve_log_window(
+                window_end=_an_iso_minute(some_window_end),
+                settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(
             _the_window_resolved_to(ResolvedWindow(
                 start=some_window_end - timedelta(
-                    minutes=settings.log_max_window_minutes
+                    minutes=CONFIGURED_WINDOWS.log_max_window_minutes
                 ),
                 end=some_window_end,
                 clamped=True
@@ -209,14 +237,17 @@ def test_a_log_window_with_only_an_end_is_clamped_back_from_it() -> None:
 @pytest.mark.unit
 def test_a_metrics_window_spans_the_metrics_window_on_both_sides_of_the_alert() -> None:
     some_alert_time = _an_alert_time()
-    metrics_window = timedelta(minutes=settings.metrics_window_minutes)
+    metrics_window = timedelta(minutes=CONFIGURED_WINDOWS.metrics_window_minutes)
 
     Scenario() \
         .given(
             some_alert_time, metrics_window
         ) \
         .when(
-            lambda: resolve_metrics_window(alert_time=_an_iso_minute(some_alert_time))
+            lambda: resolve_metrics_window(
+                alert_time=_an_iso_minute(some_alert_time),
+                settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(
             _the_window_resolved_to(ResolvedWindow(
@@ -231,7 +262,7 @@ def test_a_metrics_window_spans_the_metrics_window_on_both_sides_of_the_alert() 
 def test_a_metrics_window_wider_than_the_log_ceiling_is_not_clamped() -> None:
     some_window_start = _an_alert_time()
     window_end_past_only_the_log_ceiling = some_window_start + timedelta(
-        minutes=settings.log_max_window_minutes + 1
+        minutes=CONFIGURED_WINDOWS.log_max_window_minutes + 1
     )
 
     # Metrics have their own, wider ceiling - a span the log phase would refuse
@@ -243,7 +274,8 @@ def test_a_metrics_window_wider_than_the_log_ceiling_is_not_clamped() -> None:
         .when(
             lambda: resolve_metrics_window(
                 window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_past_only_the_log_ceiling)
+                window_end=_an_iso_minute(window_end_past_only_the_log_ceiling),
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
@@ -259,7 +291,7 @@ def test_a_metrics_window_wider_than_the_log_ceiling_is_not_clamped() -> None:
 def test_an_over_span_metrics_window_is_clamped_to_the_metrics_span() -> None:
     some_window_start = _an_alert_time()
     window_end_past_the_metrics_span = some_window_start + timedelta(
-        minutes=settings.metrics_window_minutes + 1
+        minutes=CONFIGURED_WINDOWS.metrics_window_minutes + 1
     )
 
     Scenario() \
@@ -269,14 +301,15 @@ def test_an_over_span_metrics_window_is_clamped_to_the_metrics_span() -> None:
         .when(
             lambda: resolve_metrics_window(
                 window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_past_the_metrics_span)
+                window_end=_an_iso_minute(window_end_past_the_metrics_span),
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
             _the_window_resolved_to(ResolvedWindow(
                 start=some_window_start,
                 end=some_window_start + timedelta(
-                    minutes=settings.metrics_window_minutes
+                    minutes=CONFIGURED_WINDOWS.metrics_window_minutes
                 ),
                 clamped=True
             ))

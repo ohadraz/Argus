@@ -13,11 +13,20 @@ with only the agents and the repositories standing in for themselves.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 
 from agent_investigator import investigate as _investigate
+from agent_investigator.budget import InvestigationSettings
 from agent_mitigation import take_action
-from agent_mitigation.tools import argus_changed_flag_since, fetch_recent_flag_changes
-from argus_core import Connections
+from agent_mitigation.tools import (
+    MitigationSettings,
+    argus_changed_flag_since,
+    fetch_recent_flag_changes,
+    somebody_else_changed_flag_since,
+)
+from agent_mitigation.undoing import undo_change
+from argus_core import Connections, get_settings
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import Publisher
 from argus_core.replay import Recorder
 from argus_incidents.publishing import calls_into, events_into, events_into_connection
@@ -69,6 +78,11 @@ class Collaborators:
     publisher: Publisher
     recorder: Recorder
     still_wanted: IsStillWanted
+    # How many times one incident may be investigated. On the record
+    # rather than read by the graph, because it is a fact about the
+    # deployment and `build_graph` is where a walk is assembled, not
+    # where configuration is discovered (V7b).
+    max_rounds: int
 
 
 def against(connections: Connections) -> Collaborators:
@@ -78,25 +92,62 @@ def against(connections: Connections) -> Collaborators:
     is a closure over it rather than an open connection, so assembling a graph
     reaches nothing - a walk is what opens one, when a node actually runs.
     """
+    settings = get_settings()
+    mitigation = MitigationSettings.of(settings)
+    # Where the algorithm draws its lines, read from the deployment and
+    # handed to both agents that measure against them. A domain value
+    # rather than a slice: `argus_core.anomaly` decides what counts as an
+    # incident starting, and that rule has no business reading config.
+    thresholds = AnomalyThresholds(
+        deviations_from_baseline=settings.anomaly_deviations_from_baseline,
+        persistence_minutes=settings.anomaly_persistence_minutes,
+        recovery_fraction_of_the_rise=settings.recovery_fraction_of_the_rise
+    )
     records = Records(connections, events_into_connection)
     recorder = calls_into(connections)
 
     return Collaborators(
-        investigate=_investigate,
+        # Bound here because this is where a deployment's configuration meets
+        # the agents it configures. `Collaborators` says nothing is defaulted,
+        # and an investigation that read its own budget would be a default in
+        # everything but name.
+        investigate=partial(
+            _investigate,
+            settings=InvestigationSettings.of(settings),
+            thresholds=thresholds
+        ),
         record_hypothesis=records.hypothesis,
-        fetch_flag_changes=fetch_recent_flag_changes,
+        # Mitigation's three collaborators, each bound to the configuration
+        # this deployment holds. The lookback, the name Argus writes under and
+        # the wait for the service are read once, here, rather than by the
+        # agent every time it is asked a question.
+        fetch_flag_changes=partial(fetch_recent_flag_changes, mitigation),
         record_outcome=records.outcome,
-        take=take_action,
+        take=partial(
+            take_action,
+            settings=mitigation,
+            thresholds=thresholds,
+            changed_from_outside=partial(
+                somebody_else_changed_flag_since, settings=mitigation
+            ),
+            undo=partial(
+                undo_change,
+                changed_from_outside=partial(
+                    somebody_else_changed_flag_since, settings=mitigation
+                )
+            )
+        ),
         record_action=records.claim_action,
         complete_action=records.complete_action,
         already_taken=records.action_outcome,
         claimed_at=records.action_claimed_at,
-        change_landed=argus_changed_flag_since,
+        change_landed=partial(argus_changed_flag_since, settings=mitigation),
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id, connections=connections, recorder=recorder),
         record_postmortem=records.postmortem,
         transition_incident=records.transition,
         publisher=events_into(connections),
         recorder=recorder,
-        still_wanted=wanted_via(connections)
+        still_wanted=wanted_via(connections),
+        max_rounds=settings.investigation_max_rounds
     )

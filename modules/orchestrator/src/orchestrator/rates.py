@@ -26,10 +26,10 @@ from datetime import date
 
 from agent_postmortem.sources import RateTable
 from argus_core.models import PublishedRates, RatesUnavailable
-from exchange_rate_source import rates_published_for as from_the_provider
 
-# Where a table comes from when one has to be fetched. Injected so a test can
-# say what the provider did - answered, or refused - without a network.
+# Where a table comes from when one has to be fetched. Injected, and without a
+# default: reaching the provider takes the address it is read from, and this
+# module has no configuration to build one out of. The caller holds both.
 type Published = Callable[[str], PublishedRates]
 
 # The rates kept from an earlier reading, and how a fresh reading is kept. Two
@@ -45,7 +45,7 @@ def todays_rates(base: str,
                  *,
                  held_rates: HeldRates,
                  hold_rates: HoldRates,
-                 published: Published = from_the_provider,
+                 published: Published,
                  today: Callable[[], date] = date.today) -> RateTable | None:
     """The rates to convert with, or `None` if there are none to be had.
 

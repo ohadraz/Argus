@@ -3,9 +3,26 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from argus_core import get_settings, parse_iso
+from argus_core import SettingsSlice, parse_iso
 
-settings = get_settings()
+
+class RetrievalSettings(SettingsSlice):
+    """How wide a window retrieval may run against, and how wide it starts.
+
+    What the read tier is allowed to know about how Argus is configured. The
+    process that holds this cannot name a credential, because there is no
+    field here to hold one - which is what makes "read-only" a property of the
+    type and not only of the environment (spec §12.1, §13).
+
+    Declared beside the resolving rather than in the kernel: these four are
+    read by this server and by nothing else, and a window is the read tier's
+    own business.
+    """
+
+    log_initial_lookback_minutes: int
+    log_initial_lookahead_minutes: int
+    log_max_window_minutes: int
+    metrics_window_minutes: int
 
 
 class ResolvedWindow(NamedTuple):
@@ -74,7 +91,9 @@ def _resolve_window(alert_time: str | None,
 
 def resolve_log_window(alert_time: str | None = None,
                        window_start: str | None = None,
-                       window_end: str | None = None) -> ResolvedWindow:
+                       window_end: str | None = None,
+                       *,
+                       settings: RetrievalSettings) -> ResolvedWindow:
     """The window a `get_log_lines` call runs against.
 
     Log lines are the expensive phase, so the configured lookback/lookahead
@@ -94,7 +113,9 @@ def resolve_log_window(alert_time: str | None = None,
 
 def resolve_metrics_window(alert_time: str | None = None,
                            window_start: str | None = None,
-                           window_end: str | None = None) -> ResolvedWindow:
+                           window_end: str | None = None,
+                           *,
+                           settings: RetrievalSettings) -> ResolvedWindow:
     """The window a `get_metrics_summary` call runs against.
 
     One fixed, wide span rather than something that narrows and widens:

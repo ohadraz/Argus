@@ -5,7 +5,6 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import take_action
 from argus_core.events import (
     ActionTaken,
     IncidentEvent,
@@ -64,7 +63,7 @@ def complete_action() -> MagicMock:
 
 @pytest.fixture
 def take() -> MagicMock:
-    return cast(MagicMock, create_autospec(take_action))
+    return cast(MagicMock, create_autospec(ports.TakeAction, instance=True))
 
 
 @pytest.fixture
@@ -114,6 +113,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -142,6 +142,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -170,6 +171,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -201,6 +203,7 @@ def test_the_node_that_takes_the_action_decides_no_status(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -238,6 +241,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -272,6 +276,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -308,6 +313,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -344,6 +350,7 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -381,6 +388,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -420,6 +428,7 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -453,6 +462,7 @@ def test_a_walk_that_claimed_the_action_takes_it(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -633,6 +643,7 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -666,6 +677,7 @@ def test_the_graph_says_which_way_it_moved_the_flag(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -698,6 +710,7 @@ def test_the_graph_says_what_verdict_came_back(
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
+                                      change_landed=_nothing_landed(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -722,6 +735,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
         return mitigation_node(
             _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor()),
             take=take,
+            change_landed=_nothing_landed(),
             record_action=record_action,
             complete_action=complete_action,
             record_outcome=record_outcome,
@@ -1103,3 +1117,13 @@ def _the_resumption_published_was(candidate: Hypothesis,
         return True
 
     return assertion
+
+
+def _nothing_landed() -> ports.ChangeLanded:
+    """A provider that says Argus's own change never reached it.
+
+    Named rather than defaulted. The node used to reach the real write tier
+    when nobody said otherwise, which is what let a test pass while talking to
+    a client that was never running.
+    """
+    return lambda dont_care_flag, dont_care_since: False

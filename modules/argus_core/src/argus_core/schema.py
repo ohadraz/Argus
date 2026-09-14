@@ -7,7 +7,7 @@ from typing import Final
 
 import psycopg
 
-from argus_core.db import connect
+from argus_core.db import connect_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ def main() -> None:
     """
     logging.basicConfig(level=logging.INFO)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         reset_schema(conn)
         logger.info("schema applied to %s on %s:%s",
                     conn.info.dbname, conn.info.host, conn.info.port)

@@ -28,7 +28,7 @@ from anthropic.types import (
     ToolUseBlockParam,
 )
 
-from argus_core.config import Settings, get_settings
+from argus_core.config import LLMSettings
 from argus_core.llm.client import (
     AnswerTruncated,
     ModelDidNotAnswer,
@@ -294,7 +294,7 @@ class AnthropicLLMClient:
     """
 
     def __init__(self,
-                 settings: Settings | None = None,
+                 settings: LLMSettings,
                  client: anthropic.Anthropic | None = None) -> None:
         """Builds the SDK client this talks through, unless handed one.
 
@@ -303,10 +303,9 @@ class AnthropicLLMClient:
         answers from the other side. Configuration still decides everything
         about a real one; passing a client only says that this one is not.
         """
-        resolved = settings if settings is not None else get_settings()
-        base_url = resolved.anthropic_base_url or None
+        base_url = settings.anthropic_base_url or None
         self._client = client if client is not None else anthropic.Anthropic(
-            api_key=_api_key_for(resolved.anthropic_api_key, base_url),
+            api_key=_api_key_for(settings.anthropic_api_key, base_url),
             # An empty setting means the real API, which is what the SDK does
             # with `base_url=None`. Passing "" would point it at nothing.
             base_url=base_url,

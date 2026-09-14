@@ -6,7 +6,7 @@ from functools import partial
 from typing import NamedTuple
 
 import pytest
-from argus_core import get_settings, parse_iso
+from argus_core import ReadMcpEndpoint, get_settings, parse_iso
 from argus_core.models import ChangeEvent, MetricBucket
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
@@ -33,7 +33,7 @@ def test_get_log_lines_reaches_the_real_read_mcp_server(
             calling(the_target_service_has_logs(some_logs))
         ) \
         .when(
-            get_log_lines
+            lambda: get_log_lines(endpoint=_the_server_the_fixture_started())
         ) \
         .then(
             _the_returned_lines_are(some_logs)
@@ -102,7 +102,8 @@ def test_get_change_events_reaches_the_real_read_mcp_server(
             lambda: get_change_events(
                 "kukibuki-service",
                 window_start=an_iso_minute(some_deploy_time - timedelta(hours=1)),
-                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1))
+                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1)),
+                endpoint=_the_server_the_fixture_started()
             )
         ) \
         .then(
@@ -157,11 +158,23 @@ class _DrillDown(NamedTuple):
     lines: list[str]
 
 
+def _the_server_the_fixture_started() -> ReadMcpEndpoint:
+    """Where the subprocess the fixture started is listening.
+
+    Read through `get_settings` rather than named here, because the fixture is
+    what decides the port - it sets the environment and clears the cache before
+    yielding, and this is the same answer the server itself resolved from.
+    """
+    return ReadMcpEndpoint.of(get_settings())
+
+
 def _drilling_down_from_metrics_to_logs(alert_time: str,
                                         into: Callable[[MetricBucket], bool]
 ) -> Callable[[], _DrillDown]:
     def step() -> _DrillDown:
-        buckets = get_metrics_summary(alert_time=alert_time)
+        buckets = get_metrics_summary(
+            alert_time=alert_time, endpoint=_the_server_the_fixture_started()
+        )
         anomalous = [bucket for bucket in buckets if into(bucket)]
         onset = anomalous[0].bucket_id if anomalous else None
 
@@ -172,7 +185,11 @@ def _drilling_down_from_metrics_to_logs(alert_time: str,
 
         return _DrillDown(
             onset=onset,
-            lines=get_log_lines(window_start=window_start, window_end=window_end)
+            lines=get_log_lines(
+                window_start=window_start,
+                window_end=window_end,
+                endpoint=_the_server_the_fixture_started()
+            )
         )
 
     return step

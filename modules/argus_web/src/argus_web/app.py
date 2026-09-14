@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import psycopg
-from argus_core import Connections, open_pool
+from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.events import Publisher
 from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     everything else writes - it was also, while it did, the process every other
     one had to be started after.
     """
-    with open_pool() as pool:
+    with open_pool(DatabaseSettings.of(get_settings())) as pool:
         app.state.connections = pool.connection
         app.state.publisher = events_into(pool.connection)
 

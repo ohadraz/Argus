@@ -4,18 +4,29 @@ from collections.abc import Callable
 from datetime import datetime
 
 import httpx
-from argus_core import get_settings, parse_iso, to_iso
+from argus_core import SettingsSlice, parse_iso, to_iso
 from argus_core.models import ChangeEvent, MetricBucket
 
-from read_mcp_server.argocd import fetch_deploys
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.window import (
     ResolvedWindow,
+    RetrievalSettings,
     resolve_log_window,
     resolve_metrics_window,
 )
 
-settings = get_settings()
+
+class TargetServiceSettings(SettingsSlice):
+    """Where the service Argus is watching answers from.
+
+    One field, and separate from `RetrievalSettings` because it answers a
+    different question: that one says how much may be read, this says of
+    whom. A window is decided per call; an address is decided once, where the
+    process starts.
+    """
+
+    target_service_url: str
+
 
 FetchLogs = Callable[[], list[str]]
 FetchMetrics = Callable[[], list[MetricBucket]]
@@ -35,7 +46,7 @@ def _format_bound(moment: datetime | None) -> str:
     return to_iso(moment) if moment is not None else "unbounded"
 
 
-def _clamp_notice(window: ResolvedWindow) -> str:
+def _clamp_notice(window: ResolvedWindow, settings: RetrievalSettings) -> str:
     return (
         f"WARN argus-read-mcp: requested window exceeded the configured maximum of "
         f"{settings.log_max_window_minutes} minutes - clamped to "
@@ -50,24 +61,41 @@ def _in_window(moment: datetime, window: ResolvedWindow) -> bool:
     return not (window.end is not None and moment > window.end)
 
 
-def _fetch_target_service_logs() -> list[str]:
-    response = httpx.get(f"{settings.target_service_url}/logs", timeout=10.0)
-    response.raise_for_status()
-    logs: list[str] = response.json()
-    return logs
+def target_service_logs(settings: TargetServiceSettings) -> FetchLogs:
+    """The real log fetcher, aimed at the service this deployment watches.
+
+    A factory rather than a function taking the address, so that what the
+    tools are handed stays the no-argument `FetchLogs` a test can stand in for
+    with a lambda. The address is bound once, where the server is built.
+    """
+    def fetch() -> list[str]:
+        response = httpx.get(f"{settings.target_service_url}/logs", timeout=10.0)
+        response.raise_for_status()
+        logs: list[str] = response.json()
+
+        return logs
+
+    return fetch
 
 
-def _fetch_target_service_metrics() -> list[MetricBucket]:
-    response = httpx.get(f"{settings.target_service_url}/metrics", timeout=10.0)
-    response.raise_for_status()
-    return [MetricBucket.model_validate(bucket) for bucket in response.json()]
+def target_service_metrics(settings: TargetServiceSettings) -> FetchMetrics:
+    """The real metrics fetcher, bound the way the log fetcher above is."""
+    def fetch() -> list[MetricBucket]:
+        response = httpx.get(f"{settings.target_service_url}/metrics", timeout=10.0)
+        response.raise_for_status()
+
+        return [MetricBucket.model_validate(bucket) for bucket in response.json()]
+
+    return fetch
 
 
 def get_log_lines(alert_time: str | None = None,
                   window_start: str | None = None,
                   window_end: str | None = None,
                   filters: str | None = None,
-                  fetch: FetchLogs = _fetch_target_service_logs) -> list[str]:
+                  *,
+                  settings: RetrievalSettings,
+                  fetch: FetchLogs) -> list[str]:
     """Returns the Target Service's log lines for one window of an incident.
 
     Phase two of spec §16's two-phase retrieval: the metrics summary locates
@@ -91,7 +119,9 @@ def get_log_lines(alert_time: str | None = None,
     exists to drive it.
     """
     lines = fetch()
-    window = resolve_log_window(alert_time, window_start, window_end)
+    window = resolve_log_window(
+        alert_time, window_start, window_end, settings=settings
+    )
 
     if window.start is None and window.end is None:
         return lines
@@ -105,14 +135,17 @@ def get_log_lines(alert_time: str | None = None,
         and _in_window(moment, window)
     ]
 
-    return [_clamp_notice(window), *selected] if window.clamped else selected
+    return (
+        [_clamp_notice(window, settings), *selected] if window.clamped else selected
+    )
 
 
 def get_metrics_summary(alert_time: str | None = None,
                         window_start: str | None = None,
                         window_end: str | None = None,
-                        fetch: FetchMetrics = _fetch_target_service_metrics
-                        ) -> list[MetricBucket]:
+                        *,
+                        settings: RetrievalSettings,
+                        fetch: FetchMetrics) -> list[MetricBucket]:
     """Returns per-minute aggregated metrics for one window of an incident.
 
     Phase one of spec §16's two-phase retrieval: cheap enough to read whole,
@@ -122,7 +155,9 @@ def get_metrics_summary(alert_time: str | None = None,
     the `fetch` seam is here for the same reason as in `get_log_lines`.
     """
     buckets = fetch()
-    window = resolve_metrics_window(alert_time, window_start, window_end)
+    window = resolve_metrics_window(
+        alert_time, window_start, window_end, settings=settings
+    )
 
     if window.start is None and window.end is None:
         return buckets
@@ -135,8 +170,8 @@ def get_metrics_summary(alert_time: str | None = None,
 def get_change_events(service: str,
                       window_start: str,
                       window_end: str,
-                      source: ChangeSource = fetch_deploys
-                      ) -> list[ChangeEvent]:
+                      *,
+                      source: ChangeSource) -> list[ChangeEvent]:
     """Returns what changed on a service within one window (spec §16).
 
     The third retrieval channel, beside logs and metrics. Metrics say when an

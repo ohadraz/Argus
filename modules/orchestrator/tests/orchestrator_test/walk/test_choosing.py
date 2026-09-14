@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core import get_settings
 from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
     Action,
@@ -21,6 +20,11 @@ from orchestrator.walk.routes import FIXING_ROUTE, INVESTIGATING_ROUTE, MITIGATI
 from orchestrator.walk.state import IncidentState, status_after
 
 from ..framework.builders import a_determined_hypothesis, a_random_id, an_undetermined_hypothesis
+
+# How many times one incident may be investigated. Stated rather than read:
+# the node is told its budget now, and a test taking the number from the
+# same configuration would agree with itself whatever either said.
+SOME_ROUND_BUDGET = 3
 
 """Walking the candidates an investigation offered, one at a time.
 
@@ -64,7 +68,7 @@ def test_a_refuted_candidate_hands_over_to_the_next_one() -> None:
                 index=0
             )
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(
             _the_updates_carry("candidate_index", 1),
             _the_updates_carry("hypothesis", the_next_candidate),
@@ -89,7 +93,8 @@ def test_moving_to_the_next_candidate_is_published_rather_than_narrated() -> Non
                 index=0
             )
         ) \
-        .when(lambda: next_candidate_node(a_walk, publisher=published.append)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET,
+                                          publisher=published.append)) \
         .then(all_of(
             _the_candidate_selected_was(the_next_candidate, published),
             _nothing_was_narrated()))
@@ -109,7 +114,7 @@ def test_what_was_tried_is_remembered_for_the_round_after() -> None:
                                  index=0,
                                  acted_on=SOME_FLAG)
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_attempts_recorded_are([SOME_FLAG]))
 
 
@@ -126,7 +131,7 @@ def test_a_walk_with_a_candidate_left_carries_on() -> None:
                 index=0
             )
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_walk_goes_to(MITIGATING_ROUTE, a_walk))
 
 
@@ -148,7 +153,7 @@ def test_a_spent_list_buys_another_investigation() -> None:
                                  index=0,
                                  rounds=1)
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_walk_goes_to(INVESTIGATING_ROUTE, a_walk))
 
 
@@ -170,7 +175,7 @@ def test_a_walk_that_has_used_every_round_ends() -> None:
                                  index=0,
                                  rounds=_every_round())
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_walk_goes_to(FIXING_ROUTE, a_walk))
 
 
@@ -193,7 +198,7 @@ def test_a_doubtful_candidate_is_tried_like_any_other() -> None:
                 index=0
             )
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(_the_walk_goes_to(MITIGATING_ROUTE, a_walk),
                      _the_updates_carry("hypothesis", a_doubtful_candidate)))
 
@@ -218,7 +223,7 @@ def test_a_candidate_blaming_a_flag_already_tried_is_skipped() -> None:
                 acted_on=SOME_FLAG
             )
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(
             _the_updates_carry("hypothesis", a_candidate_blaming_something_else),
             _the_updates_carry("candidate_index", 2)))
@@ -242,13 +247,13 @@ def test_a_candidate_naming_no_cause_is_never_tried() -> None:
                 rounds=_every_round()
             )
         ) \
-        .when(lambda: next_candidate_node(a_walk)) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(_the_walk_goes_to(FIXING_ROUTE, a_walk),
                      _no_candidate_was_taken_up()))
 
 
 def _every_round() -> int:
-    return get_settings().investigation_max_rounds
+    return SOME_ROUND_BUDGET
 
 
 def _a_walk_at(incident_id: str,

@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-from unittest.mock import Mock, create_autospec
-
-import pytest
-from agent_investigator.retrieval import fetch_change_events
-from argus_core.models import ChangeEvent, ChangeKind, FlagChange
-from argus_testkit import Assertion, Scenario, all_of
-from read_mcp_client import get_change_events
-from write_mcp_client import get_recent_flag_changes
-
 """What changed on the service, from both systems that record a change.
 
 A deploy is not the only thing that changes what a service does - a feature
@@ -27,6 +16,19 @@ Merged here rather than by either server, so neither has to know the other
 exists. What reaches the model is one history in time order, because that is
 what it is: the things that happened to this service, whoever recorded them.
 """
+
+from __future__ import annotations
+
+from unittest.mock import Mock, call, create_autospec
+
+import pytest
+from agent_investigator.retrieval import (
+    DeployHistory,
+    FlagHistory,
+    fetch_change_events,
+)
+from argus_core.models import ChangeEvent, ChangeKind, FlagChange
+from argus_testkit import Assertion, Scenario, all_of
 
 A_SERVICE = "kukibuki-service"
 DONT_CARE_FLAG = "kukibuki"
@@ -171,7 +173,7 @@ def test_the_flag_history_is_asked_about_the_window_it_was_given() -> None:
     # it is told about - and getting it wrong is invisible in every other test
     # here, which asserts on what came back rather than on what was asked for.
     some_window_starting_at = SOME_WINDOW_START
-    asked = create_autospec(get_recent_flag_changes, return_value=[])
+    asked = create_autospec(FlagHistory, instance=True, return_value=[])
 
     Scenario() \
         .given(
@@ -237,16 +239,27 @@ def _the_changes_read(deploys: list[ChangeEvent] | None = None,
         A_SERVICE,
         SOME_WINDOW_START,
         SOME_WINDOW_END,
-        get_change_events=create_autospec(get_change_events, return_value=deploys or []),
+        get_change_events=create_autospec(DeployHistory, instance=True, return_value=deploys or []),
         get_recent_flag_changes=reads_flags or create_autospec(
-            get_recent_flag_changes, return_value=flags or []
+            FlagHistory, instance=True, return_value=flags or []
         )
     )
 
 
 def _the_flag_history_was_asked_since(asked: Mock, since: str) -> Assertion[object]:
+    """That the provider was asked once, about this moment.
+
+    Compared against `call_args` rather than through `assert_called_once_with`,
+    which does not survive a spec built from a `Protocol`: `self` is left on
+    the signature, so every comparison fails while printing identically.
+    """
     def assertion(_changes: object) -> bool:
-        asked.assert_called_once_with(since)
+        if asked.call_count != 1 or asked.call_args != call(since):
+            raise AssertionError(
+                f"expected the flag history to be asked once since [{since}], "
+                f"and it was called {asked.call_count} time(s) "
+                f"as {asked.call_args}"
+            )
 
         return True
 
@@ -276,9 +289,9 @@ def _what_was_raised_reading_changes(failure: Exception) -> Exception | None:
             A_SERVICE,
             SOME_WINDOW_START,
             SOME_WINDOW_END,
-            get_change_events=create_autospec(get_change_events, return_value=[]),
+            get_change_events=create_autospec(DeployHistory, instance=True, return_value=[]),
             get_recent_flag_changes=create_autospec(
-                get_recent_flag_changes, side_effect=failure
+                FlagHistory, instance=True, side_effect=failure
             )
         )
     except Exception as error:

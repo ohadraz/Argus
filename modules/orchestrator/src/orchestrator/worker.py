@@ -9,7 +9,12 @@ from functools import partial
 from os import getpid
 
 import psycopg
-from argus_core import Connections, get_settings, open_pool
+from agent_mitigation.tools import (
+    MitigationSettings,
+    somebody_else_changed_flag_since,
+)
+from agent_mitigation.undoing import undo_change
+from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.schema import require_schema
 from argus_incidents.publishing import events_into
 from argus_incidents.repository import runs
@@ -130,7 +135,9 @@ def main() -> None:
     """
     logging.basicConfig(level=logging.INFO)
 
-    with open_pool() as pool:
+    settings = get_settings()
+
+    with open_pool(DatabaseSettings.of(settings)) as pool:
         connections = pool.connection
 
         # Before anything is claimed. A worker that took a run and then found no
@@ -145,6 +152,13 @@ def main() -> None:
             connections,
             walk=partial(run_incident, connections=connections, graph_of=graph_of),
             unwind=partial(unwind_incident,
+                           undo=partial(
+                               undo_change,
+                               changed_from_outside=partial(
+                                   somebody_else_changed_flag_since,
+                                   settings=MitigationSettings.of(settings)
+                               )
+                           ),
                            taken_actions_of=taken_actions_from(connections),
                            publisher=events_into(connections)),
             still_wanted=wanted_via(connections),

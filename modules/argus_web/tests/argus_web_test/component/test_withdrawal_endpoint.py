@@ -4,7 +4,7 @@ from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of
@@ -24,7 +24,7 @@ incident, and the incident does not live in the web process.
 def test_withdrawing_a_running_incident_stops_it() -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     with TestClient(app) as client:
@@ -48,7 +48,7 @@ def test_withdrawing_an_incident_that_already_ended_is_refused() -> None:
     # this would have somebody believe they had stopped something.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         incidents.transition(
             conn,
@@ -100,7 +100,7 @@ def _the_answer_was(expected: HttpStatus) -> Assertion[httpx.Response]:
 def _the_incident_is(incident_id: str,
                      status: IncidentStatus) -> Assertion[httpx.Response]:
     def assertion(_response: httpx.Response) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             incident = incidents.get(conn, incident_id)
 
         if incident is None:

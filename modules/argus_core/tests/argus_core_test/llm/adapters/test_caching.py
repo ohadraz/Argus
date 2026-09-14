@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import anthropic
 import pytest
 from anthropic.types import Message, TextBlock, Usage
-from argus_core.config import Settings
+from argus_core.config import LLMSettings
 from argus_core.llm.adapters.anthropic_adapter import (
     ASSISTANT_ROLE,
     END_TURN_STOP_REASON,
@@ -88,14 +88,14 @@ def _a_tool() -> ToolDefinition:
     )
 
 
-def _settings_that_reach_no_api() -> Settings:
+def _settings_that_reach_no_api() -> LLMSettings:
     """Configuration for a client that has been handed its own API stand-in.
 
     The key is empty because nothing here authenticates: the SDK client is
     injected, so the one thing `Settings` is still read for is how many
     candidates a verdict may carry.
     """
-    return Settings(anthropic_api_key="")
+    return LLMSettings(anthropic_api_key="", anthropic_base_url="")
 
 
 def _an_api_that_answers(said: str = "dont care what it said") -> Mock:

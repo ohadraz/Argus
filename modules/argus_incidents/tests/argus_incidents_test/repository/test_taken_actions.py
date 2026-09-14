@@ -5,7 +5,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import Alert, CauseType, Hypothesis, UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
@@ -24,7 +24,7 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
         environment="production"
     )
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_says = partial(_the_action_row_says, conn)
@@ -63,7 +63,7 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
     some_service = "buki-service"
     some_alert = Alert(service=some_service, alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_carries = partial(_the_action_row_carries, conn)
@@ -100,7 +100,7 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
     # is that knowledge surviving.
     some_alert = Alert(service="kukibuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_names = partial(_the_action_row_names, conn)
@@ -137,7 +137,7 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     the_contested_flag = "monthly-spend-feature"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         each_action_names_its_own_candidate = partial(
@@ -174,7 +174,7 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
     # back in any other order they describe a different incident.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_actions_read_back_are = partial(_the_actions_read_back_are, conn)

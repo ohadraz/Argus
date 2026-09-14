@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 import time
 
-from argus_core import Connections, get_settings, open_pool
+from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 
 from agent_communicator.delivering import a_destination_per_register, a_slack_delivery
 from agent_communicator.following import events_since, place_for
 from agent_communicator.relaying import SLACK_RELAY, Backlog, Delivery, Place, relay_once
+from agent_communicator.slack import SlackSettings, a_slack_client
 
 """The process that watches the event log and keeps Slack up to date.
 
@@ -64,7 +65,7 @@ def main() -> None:
         logger.warning("no war-room channel configured, so nothing is relayed to Slack")
         return
 
-    with open_pool() as pool:
+    with open_pool(DatabaseSettings.of(settings)) as pool:
         connections: Connections = pool.connection
 
         logger.info("relaying to %s", settings.slack_war_room_channel)
@@ -76,13 +77,15 @@ def main() -> None:
         # nothing.
         war_room = settings.slack_war_room_channel
         archive = settings.slack_postmortem_channel or war_room
+        # One client for the whole relay, built where the process starts.
+        posting = a_slack_client(settings=SlackSettings.of(settings))
 
         watch_forever(
             events_since(connections),
             place_for(connections, SLACK_RELAY),
             a_destination_per_register(
-                a_slack_delivery(connections, channel=war_room),
-                a_slack_delivery(connections, channel=archive),
+                a_slack_delivery(connections, channel=war_room, slack=posting),
+                a_slack_delivery(connections, channel=archive, slack=posting),
                 argus_at=settings.argus_base_url,
                 # Named only where it is somewhere else. Where the two are the
                 # same channel the write-up is simply the next message, and a

@@ -5,7 +5,7 @@ from collections.abc import Iterator
 
 import httpx
 import pytest
-from argus_core import connect, get_settings
+from argus_core import connect_from_env, get_settings
 from argus_incidents.repository import incidents
 from argus_incidents.repository.runs import RunState
 from psycopg import sql
@@ -122,7 +122,7 @@ def _every_live_incident_was_withdrawn() -> None:
     withdraw an incident that cannot be is that the walk ended between the read
     and the call, which is the outcome being asked for anyway.
     """
-    with connect() as conn:
+    with connect_from_env() as conn:
         live = [
             incident
             for incident in incidents.get_recent(conn)
@@ -169,7 +169,7 @@ def _the_runs_still_going() -> list[str]:
     any moment, and one claimed after the tables were emptied would walk an
     incident that no longer exists.
     """
-    with connect() as conn, conn.cursor() as cursor:
+    with connect_from_env() as conn, conn.cursor() as cursor:
         cursor.execute(
             "SELECT id FROM incident_run WHERE state = ANY(%s)",
             ([RunState.QUEUED, RunState.RUNNING],)
@@ -220,7 +220,7 @@ def _the_lines_the_relay_has_not_reached() -> int:
     events and no cursor at all is fully behind: the relay has not filed
     anything yet, which is not the same as having nothing to file.
     """
-    with connect() as conn, conn.cursor() as cursor:
+    with connect_from_env() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT COALESCE(MAX(seq), 0) FROM incident_event")
         (published,) = cursor.fetchone() or (0,)
 
@@ -231,7 +231,7 @@ def _the_lines_the_relay_has_not_reached() -> int:
 
 
 def _every_table_was_emptied() -> None:
-    with connect() as conn, conn.cursor() as cursor:
+    with connect_from_env() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
         tables = [
             name for (name,) in cursor.fetchall() if name not in _KEPT_TABLES

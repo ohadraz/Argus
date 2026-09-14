@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.events import (
     AgentInvoked,
     IncidentEvent,
@@ -38,7 +38,7 @@ def test_a_recorded_event_comes_back_as_the_kind_it_was_published_as() -> None:
     # publisher already did.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(conn, some_alert),
@@ -61,7 +61,7 @@ def test_events_come_back_in_the_order_they_were_published() -> None:
     # investigation - one that read the logs before deciding where to look.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(conn, some_alert),
@@ -84,7 +84,7 @@ def test_a_payload_comes_back_whole() -> None:
         "2026-08-30T10:03:00Z WARN io-shop: retrying"
     ]
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(conn, some_alert),
@@ -108,7 +108,7 @@ def test_an_incident_that_published_nothing_reads_as_empty() -> None:
     # story, which is not an error and not a missing incident.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(conn, some_alert)
@@ -123,7 +123,7 @@ def test_only_one_incident_s_events_come_back() -> None:
     # them would read as one investigation contradicting itself.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(conn, some_alert),
@@ -146,7 +146,7 @@ def test_recording_an_event_writes_nothing_else() -> None:
     # writer it already had.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(conn, some_alert),
@@ -166,7 +166,7 @@ def test_only_what_was_published_after_the_cursor_comes_back() -> None:
     # human reads twice.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         _record(conn, AgentInvoked(incident_id=incident_id,
                                    agent=Actor.INVESTIGATOR))
@@ -192,7 +192,7 @@ def test_every_incident_s_events_come_back_in_the_one_order_they_happened() -> N
     # happened in and nothing downstream can reconstruct it.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         another_incident_id = incidents.create(conn, some_alert)
 
@@ -223,7 +223,7 @@ def test_an_event_comes_back_with_the_place_in_the_log_it_was_written_at() -> No
     # again. Without the place on the event there is nothing to keep.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
         Scenario() \
@@ -250,7 +250,7 @@ def test_a_batch_stops_at_the_limit_it_was_given_and_starts_at_the_oldest() -> N
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     room_for_two = 2
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
         Scenario() \
@@ -270,7 +270,7 @@ def test_a_cursor_at_the_end_of_the_log_reads_as_empty() -> None:
     # beginning.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         _record(conn, AgentInvoked(incident_id=incident_id,
                                    agent=Actor.INVESTIGATOR))
@@ -293,7 +293,7 @@ def test_an_event_still_being_written_holds_back_the_ones_behind_it() -> None:
     # that nobody ever sees.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn, connect() as an_unfinished_walk:
+    with connect_from_env() as conn, connect_from_env() as an_unfinished_walk:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 
@@ -323,7 +323,7 @@ def test_a_held_back_event_is_delivered_once_its_transaction_lands() -> None:
     # places were handed out, not the order the transactions finished.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn, connect() as an_unfinished_walk:
+    with connect_from_env() as conn, connect_from_env() as an_unfinished_walk:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import IncidentStatus
 from argus_incidents.repository import events, incidents, runs
 from argus_testkit import Assertion, Scenario, all_of
@@ -61,7 +61,7 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
 
 def _the_incident_is_acknowledged() -> Assertion[Any]:
     def assertion(response: Any) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             incident = incidents.get(conn, response.json()["incident_id"])
 
         if incident is None:
@@ -88,7 +88,7 @@ def _the_account_says_only_that_the_alert_arrived() -> Assertion[Any]:
     and any transition at all would mean the graph had already run.
     """
     def assertion(response: Any) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             recorded = events.get_by_incident(conn, response.json()["incident_id"])
 
         said = [event.kind for event in recorded]
@@ -125,7 +125,7 @@ def _the_alert_was_accepted() -> Assertion[Any]:
 
 def _an_incident_was_created_for(service: str) -> Assertion[Any]:
     def assertion(response: Any) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             incident = incidents.get(conn, response.json()["incident_id"])
 
         if incident is None:
@@ -146,7 +146,7 @@ def _an_incident_was_created_for(service: str) -> Assertion[Any]:
 
 def _a_run_is_queued_for_it() -> Assertion[Any]:
     def assertion(response: Any) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             run = runs.get_run_for_incident(
                 conn, response.json()["incident_id"])
 
@@ -169,7 +169,7 @@ def _a_run_is_queued_for_it() -> Assertion[Any]:
 
 def _the_graph_has_not_walked_it() -> Assertion[Any]:
     def assertion(response: Any) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             recorded = events.get_by_incident(conn, response.json()["incident_id"])
 
         if len(recorded) != 1:

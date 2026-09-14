@@ -49,7 +49,7 @@ SOME_FLAG = "monthly-spend-feature"
 
 @pytest.fixture
 def investigate() -> MagicMock:
-    return cast(MagicMock, create_autospec(agent_investigator.investigate))
+    return cast(MagicMock, create_autospec(ports.Investigate, instance=True))
 
 
 @pytest.fixture

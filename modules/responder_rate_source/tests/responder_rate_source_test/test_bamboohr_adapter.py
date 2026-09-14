@@ -5,11 +5,14 @@ from typing import Any, NamedTuple
 
 import httpx
 import pytest
-from argus_core import Settings
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
-from responder_rate_source import PayBand, pay_bands
-from responder_rate_source.bamboohr_adapter import AskHrSource
+from responder_rate_source import PayBand
+from responder_rate_source.bamboohr_adapter import (
+    AskHrSource,
+    ResponderRateSettings,
+    pay_bands,
+)
 from responder_rate_source.bands import PayBandsByTitle, PayBandsUnavailable
 
 """Reading the HR source - one fetch of every level, inverted into titles.
@@ -272,8 +275,18 @@ def _the_source_said_it_could_not_be_read() -> Assertion[Exception | None]:
     return assertion
 
 
-def _settings_with(api_key: str) -> Settings:
-    return Settings(hr_api_key=api_key, hr_base_url=DONT_CARE_URL)
+def _settings_with(api_key: str) -> ResponderRateSettings:
+    """The slice this reader runs under.
+
+    The request is injected, so how long it may take is never waited on.
+    """
+    dont_care_timeout_seconds = 10.0
+
+    return ResponderRateSettings(
+        hr_api_key=api_key,
+        hr_base_url=DONT_CARE_URL,
+        hr_timeout_seconds=dont_care_timeout_seconds
+    )
 
 
 def _a_source_recording_the_request_into(request: Kept[_AskedFor]) -> AskHrSource:

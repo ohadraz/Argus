@@ -24,7 +24,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Final
 
-from argus_core import Settings, get_settings, parse_iso
+from argus_core import SettingsSlice, parse_iso
 from pagerduty import Error as PagerDutyError
 from pagerduty import RestApiV2Client
 
@@ -33,6 +33,25 @@ from oncall_source.engagement import (
     OnCallUnavailable,
     ReportedIncident,
 )
+
+
+class OnCallSettings(SettingsSlice):
+    """What it takes to read the on-call provider.
+
+    Empty by default in the environment, and empty means the source reports it
+    could not answer: a response time nobody can vouch for is worse than one
+    the document says it could not obtain, and a default credential would be
+    one nobody chose.
+
+    `pagerduty_verify_tls` is here because the demo's stand-in mints itself a
+    certificate nobody has reason to trust - and exists at all because the
+    vendor's SDK refuses a base URL that is not `https://`.
+    """
+
+    pagerduty_api_key: str
+    pagerduty_base_url: str
+    pagerduty_verify_tls: bool
+
 
 # How a client is built. Injected rather than constructed outright so that a
 # test can assert the case that matters most here - that a deployment holding
@@ -69,7 +88,7 @@ _LAST_STATUS_CHANGE_AT: Final = "last_status_change_at"
 
 
 def reported_incident(incident_id: str,
-                      settings: Settings | None = None,
+                      settings: OnCallSettings,
                       client_of: ClientOf = RestApiV2Client) -> ReportedIncident:
     """One incident as the on-call provider holds it.
 
@@ -78,7 +97,6 @@ def reported_incident(incident_id: str,
     needs is between "nobody acknowledged it" and "nobody could say", and an
     exception is the only way a reading can say the second.
     """
-    settings = settings or get_settings()
 
     if not settings.pagerduty_api_key:
         raise OnCallUnavailable(

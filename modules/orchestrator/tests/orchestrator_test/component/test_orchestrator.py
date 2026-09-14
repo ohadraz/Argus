@@ -67,6 +67,7 @@ DONT_CARE_ALERT = Alert(service="kuki-service", alert_name="HighErrorRate")
 
 EVERY_ROUND = get_settings().investigation_max_rounds
 A_GENEROUS_BUDGET = recursion_limit(max_rounds=EVERY_ROUND, max_candidates=4)
+SOME_ROUND_BUDGET = 3
 
 
 @pytest.fixture
@@ -83,6 +84,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
     """
     return Collaborators(
         investigate=_an_investigation_offering(_a_candidate_blaming(SOME_FLAG)),
+        max_rounds=SOME_ROUND_BUDGET,
         record_hypothesis=lambda dont_care_hypothesis: None,
         fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG)),
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,

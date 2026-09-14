@@ -4,7 +4,7 @@ import subprocess
 from collections.abc import Iterator
 
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.schema import reset_schema
 from psycopg import sql
 
@@ -39,7 +39,7 @@ def postgres() -> Iterator[None]:
     """
     subprocess.run(["docker", "compose", "up", "-d", "--wait", "postgres"], check=True)
     try:
-        with connect() as conn:
+        with connect_from_env() as conn:
             reset_schema(conn)
         yield
     finally:
@@ -60,7 +60,7 @@ def a_clean_database(postgres: None) -> Iterator[None]:
     """
     yield
 
-    with connect() as conn, conn.cursor() as cursor:
+    with connect_from_env() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
         tables = [name for (name,) in cursor.fetchall()]
 

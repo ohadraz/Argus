@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -32,8 +32,8 @@ def test_a_queued_run_is_claimed_by_one_worker_and_not_by_a_second() -> None:
     another_worker = "worker-that-came-second"
 
     with (
-        connect() as conn,
-        connect() as another_conn
+        connect_from_env() as conn,
+        connect_from_env() as another_conn
     ):
         an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
 
@@ -62,7 +62,7 @@ def test_a_run_whose_lease_ran_out_is_taken_up_again() -> None:
     the_worker_that_stopped = "worker-that-was-killed-mid-walk"
     the_worker_that_came_after = "worker-that-started-next"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
 
         Scenario() \
@@ -90,7 +90,7 @@ def test_a_run_still_being_walked_is_not_taken_from_its_worker() -> None:
     the_worker_still_walking_it = "worker-that-is-still-working"
     dont_care_worker = "worker-looking-for-something-to-do"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
 
         Scenario() \

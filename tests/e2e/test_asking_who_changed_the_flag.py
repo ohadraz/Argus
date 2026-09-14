@@ -5,7 +5,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from agent_mitigation.tools import argus_changed_flag_since, set_flag
+from agent_mitigation.tools import (
+    MitigationSettings,
+    argus_changed_flag_since,
+    set_flag,
+)
+from argus_core import get_settings
 from argus_testkit import Assertion, Scenario, all_of, calling
 
 from .framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG
@@ -33,7 +38,9 @@ def test_argus_recognises_the_change_it_made_and_no_other() -> None:
             calling(_argus_changed(THE_DEMO_FLAG))
         ) \
         .when(
-            lambda: argus_changed_flag_since(THE_DEMO_FLAG, since)
+            lambda: argus_changed_flag_since(
+                THE_DEMO_FLAG, since, MitigationSettings.of(get_settings())
+            )
         ) \
         .then(all_of(
             _the_answer_is(True),
@@ -70,7 +77,9 @@ def _a_flag_argus_did_not_touch_answers(flag: str,
                                         since: datetime,
                                         expected: bool) -> Assertion[Any]:
     def assertion(_answered: Any) -> bool:
-        answered = argus_changed_flag_since(flag, since)
+        answered = argus_changed_flag_since(
+            flag, since, MitigationSettings.of(get_settings())
+        )
 
         if answered is not expected:
             raise AssertionError(

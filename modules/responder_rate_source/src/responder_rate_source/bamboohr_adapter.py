@@ -30,13 +30,31 @@ from decimal import Decimal
 from typing import Any, Final
 
 import httpx
-from argus_core import Settings, get_settings
+from argus_core import SettingsSlice
 
 from responder_rate_source.bands import (
     PayBand,
     PayBandsByTitle,
     PayBandsUnavailable,
 )
+
+
+class ResponderRateSettings(SettingsSlice):
+    """What it takes to read the HR system's pay bands.
+
+    The credential only ever needs to read pay grades and bands. Compensation
+    per person is not read by anything here, so a deployment issuing this
+    credential should not grant it - what a *level* pays is all Argus asks.
+
+    The timeout is short on purpose: the bands are wanted while a postmortem is
+    being written, and a document that waits a minute for a figure it can
+    legitimately report as absent is worse than one without it.
+    """
+
+    hr_api_key: str
+    hr_base_url: str
+    hr_timeout_seconds: float
+
 
 # How the request is made. Injected rather than called outright so a test can
 # answer it without a network, and without monkeypatching a name this module
@@ -68,7 +86,7 @@ _MAXIMUM: Final = "max"
 _CURRENCY_CODE: Final = "currencyCode"
 
 
-def pay_bands(settings: Settings | None = None,
+def pay_bands(settings: ResponderRateSettings,
               asking: AskHrSource = httpx.get) -> PayBandsByTitle:
     """Every job title the HR source prices, against its own level's band.
 
@@ -82,7 +100,6 @@ def pay_bands(settings: Settings | None = None,
     picking silently beats raising: an incident's cost should not fail on a
     duplicate that does not involve its responders.
     """
-    settings = settings or get_settings()
 
     if not settings.hr_api_key:
         raise PayBandsUnavailable(
@@ -93,7 +110,7 @@ def pay_bands(settings: Settings | None = None,
     return _as_bands_by_title(_read(settings, asking))
 
 
-def _read(settings: Settings, asking: AskHrSource) -> dict[str, Any]:
+def _read(settings: ResponderRateSettings, asking: AskHrSource) -> dict[str, Any]:
     try:
         answer = asking(f"{settings.hr_base_url}{_THE_PAY_BANDS}",
                         auth=(settings.hr_api_key, _ANY_PASSWORD),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import psycopg
 import pytest
 from agent_communicator.repository import threads
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import Alert
 from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -41,7 +41,7 @@ def test_the_thread_an_incident_was_given_is_the_one_that_comes_back(
     # conversation as the one that opened the incident.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
         Scenario() \
@@ -63,7 +63,7 @@ def test_an_incident_nobody_has_posted_about_has_no_thread(
     # would make the commonest path the exceptional one.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
         Scenario() \
@@ -86,7 +86,7 @@ def test_an_incident_keeps_the_first_thread_it_was_given(
     # scattering the rest of the incident after it is not.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
         Scenario() \
@@ -114,7 +114,7 @@ def test_one_incident_in_two_channels_has_a_thread_in_each(
     # second destination arrive without the incident record changing shape.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
         Scenario() \
@@ -146,7 +146,7 @@ def test_two_incidents_in_one_channel_keep_their_own_threads(
     # a line read as being about the wrong failure.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         another_incident_id = incidents.create(conn, some_alert)
 

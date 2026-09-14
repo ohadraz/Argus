@@ -6,9 +6,15 @@ from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action, undo_change
-from agent_mitigation.tools import fetch_recent_metrics, set_flag
+from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
+from agent_mitigation.tools import (
+    MitigationSettings,
+    fetch_recent_metrics,
+    set_flag,
+)
+from agent_mitigation.trying import UndoChange
 from argus_core import new_id
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
 from argus_core.models import MetricBucket, UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
@@ -50,6 +56,8 @@ def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -71,6 +79,8 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=_a_flag_setter_changing_from(
                     DONT_CARE_FLAG, was_enabled=some_old_state),
                 fetch_metrics=metrics_reading(the_service_recovers),
@@ -96,6 +106,8 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
         .when(
             lambda: take_action(
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=_a_flag_setter_changing_from(
                     DONT_CARE_FLAG, was_enabled=some_old_state),
                 fetch_metrics=metrics_reading(the_service_never_recovers),
@@ -122,6 +134,8 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=_a_flag_setter_changing_from(
                     DONT_CARE_FLAG, was_enabled=some_old_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
@@ -148,6 +162,8 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
         .when(
             lambda: take_action(
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=_a_flag_setter_changing_from(
                     DONT_CARE_FLAG, was_enabled=some_old_state),
                 fetch_metrics=fetch_metrics,
@@ -177,6 +193,8 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -203,6 +221,8 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=_a_flag_setter_changing_from(
                     DONT_CARE_FLAG, was_enabled=some_old_state),
                 fetch_metrics=fetch_metrics,
@@ -233,6 +253,8 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
         .when(
             lambda: take_action(
                 an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -256,6 +278,8 @@ def test_a_confirmed_action_is_left_in_place() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -283,6 +307,8 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(some_flag, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -312,6 +338,8 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -338,6 +366,8 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=_a_flag_setter_changing_from(
                     some_flag, was_enabled=some_old_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
@@ -367,6 +397,8 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
         .when(
             lambda: take_action(
                 an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -391,6 +423,8 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
         .when(
             lambda: take_action(
                 an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -418,6 +452,8 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
         ) \
         .when(lambda: take_action(
             an_action_setting(some_flag, enabled=(not some_old_state)),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
             set_state=_a_flag_setter_changing_from(some_flag, was_enabled=some_old_state),
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -560,6 +596,8 @@ def _an_action_is_taken(metrics: list[MetricBucket],
 
     return take_action(
         an_action_setting(DONT_CARE_FLAG, enabled=False),
+        settings=_some_mitigation_settings(),
+        thresholds=_some_thresholds(),
         incident_id=incident_id,
         set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
         fetch_metrics=metrics_reading(metrics),
@@ -595,7 +633,7 @@ def _a_flag_setter_that_cannot_put_it_back(flag: str, failure: str) -> MagicMock
 
 
 def _an_undo_that_restores(flag: str) -> MagicMock:
-    undo: MagicMock = create_autospec(undo_change)
+    undo: MagicMock = create_autospec(UndoChange, instance=True)
     undo.return_value = UndoAttempt(
         flag=flag, outcome=Undone.RESTORED, detail=f"flag [{flag}] was put back"
     )
@@ -775,3 +813,31 @@ def _nothing_was_narrated(published: list[IncidentEvent]) -> Assertion[Outcome]:
         return True
 
     return assertion
+
+
+# How long the verification waits. Short, because every test here would
+# otherwise sit through it - the clock and the sleeper are injected, so what
+# this bounds is the arithmetic rather than any real wait.
+A_SHORT_WAIT_IN_SECONDS = 180.0
+
+
+def _some_mitigation_settings() -> MitigationSettings:
+    """How Mitigation behaves, as this suite sets it.
+
+    The lookback and the actor are named because the attribution tests turn on
+    them; the wait is named because the expiry tests do.
+    """
+    return MitigationSettings(
+        flag_change_lookback_minutes=60,
+        unleash_actor="argus",
+        mitigation_verification_timeout_seconds=A_SHORT_WAIT_IN_SECONDS
+    )
+
+
+def _some_thresholds() -> AnomalyThresholds:
+    """Where recovery is judged from - the defaults, stated rather than read."""
+    return AnomalyThresholds(
+        deviations_from_baseline=3.0,
+        persistence_minutes=2,
+        recovery_fraction_of_the_rise=0.8
+    )

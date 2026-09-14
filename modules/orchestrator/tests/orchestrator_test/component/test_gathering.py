@@ -5,7 +5,7 @@ from datetime import datetime
 import psycopg
 import pytest
 from agent_postmortem import IncidentEvidence
-from argus_core import connect, new_id, parse_iso
+from argus_core import connect_from_env, new_id, parse_iso
 from argus_core.events import (
     AlertAcknowledged,
     LogsRetrieved,
@@ -39,7 +39,7 @@ def test_the_evidence_spans_the_incident_from_its_start_to_its_end(a_clean_datab
     # The window every figure in the document is measured over. Taken from the
     # incident's own row rather than from the last thing logged, so it does not
     # move when something is written late.
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)
@@ -63,7 +63,7 @@ def test_the_evidence_carries_the_candidates_the_investigation_ranked(
     some_cause_type = CauseType.FEATURE_FLAG_TOGGLE
     dont_care_confidence = 0.8
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn),
@@ -91,7 +91,7 @@ def test_the_evidence_carries_the_log_lines_the_incident_read(a_clean_database: 
     some_window_end = "2026-09-02T12:30:00Z"
     some_log_line = "12:04 ERROR checkout: fallback unavailable"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn),
@@ -115,7 +115,7 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_data
     # The narration the document is written from - the same lines, from the same
     # renderer, as the page shows. Out of order it is a different incident: a
     # mitigation before the investigation that proposed it explains nothing.
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)
@@ -134,7 +134,7 @@ def test_an_incident_that_has_not_ended_cannot_be_summarised(a_clean_database: N
     # A postmortem is written once, when the incident is over. Asked for one
     # earlier, this refuses rather than inventing an end - a duration measured
     # to "now" would be a different number every time it was asked for.
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := incidents.create(
@@ -152,7 +152,7 @@ def test_an_incident_that_has_not_ended_cannot_be_summarised(a_clean_database: N
 def test_an_incident_that_does_not_exist_cannot_be_summarised(a_clean_database: None) -> None:
     # Distinct from an incident still running: there is nothing to summarise
     # rather than nothing yet. Both refuse, and neither invents a document.
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .when(
                 attempting(lambda: gather_evidence(conn, new_id()))
@@ -175,7 +175,7 @@ def test_the_evidence_carries_the_onset_the_investigation_measured(a_clean_datab
     # same incident differently from the page that showed it.
     some_onset = "2026-09-02T11:50"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)
@@ -196,7 +196,7 @@ def test_an_incident_whose_onset_was_never_found_carries_none(a_clean_database: 
     # anchor on (spec §9), so the investigation exits without publishing one.
     # The gathering must report that rather than substituting the alert's own
     # time, because the document refuses to cost an incident it cannot date.
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn)

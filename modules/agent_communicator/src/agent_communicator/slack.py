@@ -20,9 +20,25 @@ from __future__ import annotations
 import logging
 from typing import Final, NamedTuple
 
-from argus_core import Settings, get_settings
+from argus_core import SettingsSlice
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+
+class SlackSettings(SettingsSlice):
+    """Where Argus posts, as whom, and where a reader is sent back to.
+
+    The token is empty by default and empty means nothing is said: a
+    workspace nobody configured is not a workspace to guess at, and an
+    incident is reported through a channel somebody chose.
+    """
+
+    slack_bot_token: str
+    slack_base_url: str
+    slack_war_room_channel: str
+    slack_postmortem_channel: str
+    slack_relay_poll_seconds: float
+    argus_base_url: str
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +69,14 @@ _SLACK_HAVING_TROUBLE: Final = 500
 _LONG_ENOUGH_TO_REACH_SLACK: Final = 5
 
 
+
+
+
 def a_slack_client(base_url: str | None = None,
                    token: str | None = None,
                    timeout: int = _LONG_ENOUGH_TO_REACH_SLACK,
-                   settings: Settings | None = None) -> WebClient:
+                   *,
+                   settings: SlackSettings) -> WebClient:
     """The client every post goes through, built from what was configured.
 
     Each argument overrides the configured value rather than replacing the
@@ -68,11 +88,10 @@ def a_slack_client(base_url: str | None = None,
     URL given with one is trimmed rather than refused: it is the same
     workspace, spelled the way a person writes a URL.
     """
-    resolved = settings if settings is not None else get_settings()
-    where = base_url if base_url is not None else resolved.slack_base_url
+    where = base_url if base_url is not None else settings.slack_base_url
 
     return WebClient(
-        token=token if token is not None else resolved.slack_bot_token,
+        token=token if token is not None else settings.slack_bot_token,
         base_url=f"{where.rstrip('/')}/api/" if where else WebClient.BASE_URL,
         timeout=timeout
     )
@@ -101,7 +120,8 @@ class Posted(NamedTuple):
 def post_message(channel: str,
                  text: str,
                  thread_ts: str | None = None,
-                 slack: WebClient | None = None) -> Posted:
+                 *,
+                 slack: WebClient) -> Posted:
     """Posts one message, answering with what came of it.
 
     The id is what makes an incident's war room a thread: a reply names its
@@ -114,7 +134,6 @@ def post_message(channel: str,
     reply reaches the people following that thread. Which of the two a message
     is decides whether it interrupts anybody, and nothing else does.
     """
-    posting = slack if slack is not None else a_slack_client()
 
     try:
         # `thread_ts=None` is not the same as a thread of `None`: the SDK drops
@@ -122,7 +141,7 @@ def post_message(channel: str,
         # that posts to the channel. Spelled as one call rather than two, since
         # branching here would put the channel-or-thread decision in the one
         # place that has no opinion about it.
-        answered = posting.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
+        answered = slack.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
     except SlackApiError as refused:
         # A no Slack understood and answered with. Whether it is worth another
         # go is the one thing the caller cannot work out for itself, so it is

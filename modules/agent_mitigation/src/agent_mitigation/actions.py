@@ -19,7 +19,8 @@ where a caller reasoning about mitigation looks for them.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
+from typing import Protocol
 
 from argus_core.models import (
     Action,
@@ -45,7 +46,16 @@ __all__ = [
     "state_name",
 ]
 
-ActionTaker = Callable[[Action], Outcome]
+class ActionTaker(Protocol):
+    """What `mitigate` needs from whatever performs an action.
+
+    A `Protocol` rather than a `Callable` alias so a test can stand it in with
+    `create_autospec`, which needs something introspectable. Specing against
+    `take_action` would be specing against the wrong shape: that one takes the
+    configuration it runs under, and what asks for an action holds none.
+    """
+
+    def __call__(self, action: Action) -> Outcome: ...
 
 
 def state_name(enabled: bool) -> str:

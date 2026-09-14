@@ -30,6 +30,7 @@ from argus_core.replay import CallType, Replay, ReplayEntry
 from argus_testkit import Assertion, Kept, Scenario, all_of, calling
 
 from ..framework.assertions.tool_results import the_result_answers, the_result_failed
+from ..framework.builders.configuration import some_investigation_settings
 from ..framework.builders.dispatcher import (
     A_SERVICE,
     AN_ALERT_TIME,
@@ -249,6 +250,7 @@ def _a_dispatcher_recording_to(recorded: Kept[ReplayEntry],
         service=A_SERVICE,
         onset=AN_ONSET,
         alert_time=AN_ALERT_TIME,
+        settings=some_investigation_settings(),
         replay=Replay(SOME_INCIDENT_ID, recorded.take),
         fetch_logs=reads_logs or create_autospec(fetch_logs, return_value=[])
     )

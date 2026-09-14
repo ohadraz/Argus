@@ -16,6 +16,7 @@ from argus_core.events import Narrator, nobody
 from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolResult
 from argus_core.replay import CallType, Replay
 
+from agent_investigator.budget import InvestigationSettings
 from agent_investigator.retrieval import (
     ChangeFetcher,
     LogFetcher,
@@ -88,6 +89,7 @@ class Dispatcher:
                  service: str,
                  onset: str,
                  alert_time: str | None,
+                 settings: InvestigationSettings,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
                  having_read: Sequence[Reading] = (),
@@ -97,6 +99,7 @@ class Dispatcher:
                  clock: Clock = time.monotonic) -> None:
         self._service = service
         self._onset = onset
+        self._settings = settings
         self._alert_time = alert_time
         self._narrator = narrator if narrator is not None else Narrator("", nobody)
         self._replay = replay if replay is not None else Replay("")
@@ -191,13 +194,13 @@ class Dispatcher:
         if call.name == LOGS_TOOL:
             return read_logs(
                 call, self._onset, self._alert_time, self._fetch_logs,
-                self._readings, self._narrator
+                self._readings, self._narrator, self._settings
             )
 
         if call.name == CHANGES_TOOL:
             return read_changes(
                 call, self._service, self._onset, self._fetch_change_events,
-                self._readings, self._narrator
+                self._readings, self._narrator, self._settings
             )
 
         return could_not_serve(

@@ -23,8 +23,19 @@ from decimal import Decimal
 from typing import Any, Final
 
 import httpx
-from argus_core import Settings, get_settings
+from argus_core import SettingsSlice
 from argus_core.models import PublishedRates, RatesUnavailable
+
+
+class ExchangeRateSettings(SettingsSlice):
+    """Where the day's rates are read from.
+
+    One field, and unlike every other provider here it has a working
+    default in the environment: Frankfurter needs no account and no key,
+    so a deployment that configures nothing still converts.
+    """
+
+    exchange_rate_base_url: str
 
 # How the request is made. Injected rather than called outright so a test can
 # answer with a real `httpx.Response` - the provider's own body, parsed by the
@@ -49,7 +60,7 @@ _A_PATIENT_WAIT: Final = 10.0
 
 
 def rates_published_for(base: str,
-                        settings: Settings | None = None,
+                        settings: ExchangeRateSettings,
                         asking: Asking = httpx.get) -> PublishedRates:
     """The most recent table the provider has, quoted against `base`.
 
@@ -61,7 +72,6 @@ def rates_published_for(base: str,
     caller's fallback is an earlier day's rates, and it can only reach for
     them if this says plainly that today's could not be had.
     """
-    settings = settings or get_settings()
 
     try:
         answered = asking(

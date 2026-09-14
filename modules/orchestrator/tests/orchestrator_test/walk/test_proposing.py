@@ -4,11 +4,11 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation.tools import fetch_recent_flag_changes
 from argus_core.events import FlagChangesRetrieved, IncidentEvent
 from argus_core.models import Alert, FlagChange, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk.deltas import StateDelta
+from orchestrator.walk.ports import FetchFlagChanges
 from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.state import IncidentState
 
@@ -32,7 +32,7 @@ DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
 
 @pytest.fixture
 def fetch_flag_changes() -> MagicMock:
-    return cast(MagicMock, create_autospec(fetch_recent_flag_changes))
+    return cast(MagicMock, create_autospec(FetchFlagChanges, instance=True))
 
 
 @pytest.mark.unit

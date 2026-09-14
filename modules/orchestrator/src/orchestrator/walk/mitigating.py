@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from functools import partial
 
-from agent_mitigation import Verdict, take_action
-from agent_mitigation.tools import argus_changed_flag_since
+from agent_mitigation import Verdict
 from argus_core.events import (
     ActionTaken,
     AgentInvoked,
@@ -44,8 +43,8 @@ def mitigation_node(
     claimed_at: ActionClaimedAt,
     record_outcome: RecordOutcome,
     still_wanted: IsStillWanted,
-    take: TakeAction = take_action,
-    change_landed: ChangeLanded = argus_changed_flag_since,
+    take: TakeAction,
+    change_landed: ChangeLanded,
     publisher: Publisher = nobody
 ) -> StateDelta:
     """Performs the action the gate admitted, and records what came of it

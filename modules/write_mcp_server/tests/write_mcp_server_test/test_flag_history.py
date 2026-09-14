@@ -5,10 +5,13 @@ from unittest.mock import create_autospec
 
 import httpx
 import pytest
-from argus_core import Settings
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
-from write_mcp_server.flag_history import FlagHistoryUnavailable, recent_flag_changes
+from write_mcp_server.flag_history import (
+    FlagHistoryUnavailable,
+    recent_flag_changes,
+)
+from write_mcp_server.flag_state import FlagWriteSettings
 
 
 @pytest.mark.unit
@@ -249,9 +252,20 @@ def an_event_of_type(event_type: str,
 
 
 def some_settings(environment: str = "production",
-                  admin_token: str = "*:*.dont-care-admin-token") -> Settings:
-    return Settings(
+                  admin_token: str = "*:*.dont-care-admin-token") -> FlagWriteSettings:
+    """The slice this reader runs under.
+
+    The same slice the writer takes, because the provider's history is served
+    to admin tokens only - reading it is a write-tier act performed by the
+    process that already holds the credential.
+    """
+    dont_care_frontend_token = "default:production.dont-care-frontend-token"
+    dont_care_project = "default"
+
+    return FlagWriteSettings(
         unleash_base_url="http://flags.invalid",
+        unleash_frontend_token=dont_care_frontend_token,
+        unleash_project=dont_care_project,
         unleash_environment=environment,
         unleash_admin_token=admin_token,
     )

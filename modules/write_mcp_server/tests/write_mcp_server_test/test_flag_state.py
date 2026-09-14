@@ -7,10 +7,14 @@ from unittest.mock import create_autospec
 
 import httpx
 import pytest
-from argus_core import Settings
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
-from write_mcp_server.flag_state import FlagNotSet, evaluated_flags, set_flag
+from write_mcp_server.flag_state import (
+    EvaluateFlags,
+    FlagNotSet,
+    FlagWriteSettings,
+    set_flag,
+)
 
 DONT_CARE_FLAG = "dont-care-flag"
 
@@ -248,7 +252,9 @@ def test_a_provider_that_dates_nothing_leaves_the_moment_absent() -> None:
 class _FlagProvider:
     def __init__(self) -> None:
         self.post: Any = create_autospec(httpx.post)
-        self.evaluate: Any = create_autospec(evaluated_flags)
+        # Spec'd against the port, not `evaluated_flags`: that reads under
+        # a credential, and confirming a write needs only the answer.
+        self.evaluate: Any = create_autospec(EvaluateFlags, instance=True)
 
 
 def a_flag_provider() -> _FlagProvider:
@@ -269,9 +275,18 @@ def a_flag_provider_reporting(enabled_flags: list[str]) -> _FlagProvider:
 
 def some_settings(project: str = "default",
                   environment: str = "production",
-                  admin_token: str = "*:*.dont-care-admin-token") -> Settings:
-    return Settings(
+                  admin_token: str = "*:*.dont-care-admin-token") -> FlagWriteSettings:
+    """The slice this tier writes under.
+
+    Each test names only the field it is about. The evaluation credential is
+    never one of them - what confirms the change is injected as `evaluate`, so
+    nothing here ever sends it.
+    """
+    dont_care_frontend_token = "default:production.dont-care-frontend-token"
+
+    return FlagWriteSettings(
         unleash_base_url="http://flags.invalid",
+        unleash_frontend_token=dont_care_frontend_token,
         unleash_project=project,
         unleash_environment=environment,
         unleash_admin_token=admin_token

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agent_mitigation.tools import utc_now
-from argus_core import get_settings, to_iso
+from argus_core import to_iso
 from argus_core.events import CandidateSelected, Publisher, nobody, publish
 from argus_core.models import Attempt, IncidentStatus
 
@@ -18,6 +18,7 @@ from orchestrator.walk.state import IncidentState
 
 
 def next_candidate_node(state: IncidentState,
+                        max_rounds: int,
                         publisher: Publisher = nobody) -> StateDelta:
     """Decides what happens after an attempt settled nothing (spec §7.3).
 
@@ -71,7 +72,7 @@ def next_candidate_node(state: IncidentState,
             confidence=next_candidate.confidence
         )
 
-    if state.rounds < get_settings().investigation_max_rounds:
+    if state.rounds < max_rounds:
         return StateDelta(
             attempts=attempts,
             candidate_index=next_index,

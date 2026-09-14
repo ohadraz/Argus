@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of
@@ -22,7 +22,7 @@ def test_create_writes_the_incident_acknowledged() -> None:
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         the_incident_is = partial(_the_incident_is, conn)
 
         Scenario() \
@@ -44,7 +44,7 @@ def test_transition_updates_the_status() -> None:
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
 
@@ -66,7 +66,7 @@ def test_transition_updates_the_status() -> None:
 def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
     # Not simply the newest. An incident that resolved after this one opened has
     # nothing left to watch; the one still running is what a reader came for.
-    with connect() as conn:
+    with connect_from_env() as conn:
         still_running = incidents.create(conn, Alert(service="running", alert_name="HighErrorRate"))
         already_finished = incidents.create(
             conn, Alert(service="finished", alert_name="HighErrorRate")
@@ -86,7 +86,7 @@ def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
 def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
     # A resolved incident vanishing the moment it resolves would take it off the
     # screen exactly when everyone is looking at it.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
         incidents.transition(
@@ -104,7 +104,7 @@ def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
 def test_get_current_is_none_when_there_has_never_been_an_incident() -> None:
     # The state Argus is in most of the time, and the one the front page has to
     # say out loud rather than render as an empty frame.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
 
         assert incidents.get_current(conn) is None
@@ -118,7 +118,7 @@ def test_an_incident_that_resolved_records_when_it_ended() -> None:
     # anything is logged late.
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
@@ -145,7 +145,7 @@ def test_an_incident_that_escalated_records_when_it_ended() -> None:
     # be missing the figure for exactly the incidents that ran longest.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
@@ -172,7 +172,7 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
     # it would report a duration for something still running.
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_no_end = partial(_the_incident_records_no_end, conn)
 
@@ -199,7 +199,7 @@ def test_incidents_come_back_newest_first() -> None:
     an_older_alert = Alert(service="older-service", alert_name="HighErrorRate")
     a_newer_alert = Alert(service="newer-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incidents_come_back = partial(_the_incidents_come_back, conn)
 
@@ -229,7 +229,7 @@ def test_a_running_incident_can_be_withdrawn() -> None:
     # walk itself; this is written by whoever pressed the button.
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
@@ -254,7 +254,7 @@ def test_withdrawing_says_that_it_took_effect() -> None:
     # not read the same as one that stopped an incident.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
 
         Scenario() \
@@ -275,7 +275,7 @@ def test_an_incident_that_already_ended_is_not_withdrawn() -> None:
     # service up. Withdrawing it would put the failure back.
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         a_resolved_incident_for = partial(_a_resolved_incident_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
 
@@ -299,7 +299,7 @@ def test_withdrawing_twice_changes_nothing_the_second_time() -> None:
     # move the end time the first one stamped.
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         a_withdrawn_incident_for = partial(_a_withdrawn_incident_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
         the_incident_still_ended_at = partial(_the_incident_still_ended_at, conn)
@@ -334,7 +334,7 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
 
 @pytest.mark.integration
 def test_get_returns_none_for_unknown_incident() -> None:
-    with connect() as conn:
+    with connect_from_env() as conn:
         assert incidents.get(conn, "00000000-0000-0000-0000-000000000000") is None
 
 

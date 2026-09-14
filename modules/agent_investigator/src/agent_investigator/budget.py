@@ -4,8 +4,32 @@ import time
 from collections.abc import Callable
 from enum import StrEnum
 
-from argus_core import get_settings
+from argus_core import SettingsSlice
 from argus_core.models import Turn
+
+
+class InvestigationSettings(SettingsSlice):
+    """What one investigation may spend, and how wide it may look.
+
+    Declared here rather than beside the windows because this is the lower of
+    the two modules that read it - `tools.windows` imports from here, never the
+    other way about.
+
+    The three bounds fail differently and none implies the others; the
+    reasoning is on `Budget` below, which enforces them. The window fields are
+    the defaults a channel reaches for when the model names none, and the
+    change lookback is deliberately unrelated to the log ones: how far back a
+    *cause* may lie is the operator's judgement, where a log window is what the
+    read tier can afford to serve.
+    """
+
+    investigation_max_tool_calls: int
+    investigation_max_tokens: int
+    investigation_max_seconds: float
+    log_initial_lookback_minutes: int
+    log_initial_lookahead_minutes: int
+    log_max_window_minutes: int
+    change_lookback_minutes: int
 
 
 class Bound(StrEnum):
@@ -56,15 +80,15 @@ class Budget:
         self._tokens = 0
 
     @classmethod
-    def from_settings(cls, now: Callable[[], float] = time.monotonic) -> Budget:
+    def from_settings(cls,
+                      settings: InvestigationSettings,
+                      now: Callable[[], float] = time.monotonic) -> Budget:
         """The budget one investigation gets, as this deployment configures it.
 
         Read once, here, rather than per check: how far an investigation may
         reach is a property of the deployment, and a budget that re-read its
         settings could change bound mid-incident.
         """
-        settings = get_settings()
-
         return cls(
             max_tool_calls=settings.investigation_max_tool_calls,
             max_tokens=settings.investigation_max_tokens,

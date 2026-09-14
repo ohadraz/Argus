@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 import pytest
-from agent_communicator.slack import Posted, a_slack_client, post_message
+from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
 from argus_testkit import Assertion, Scenario, all_of
 
 """What Argus says in Slack, said through the real adapter.
@@ -28,7 +28,10 @@ def test_a_message_arrives_with_the_channel_and_text_it_was_given(slack: str) ->
 
     Scenario() \
         .given(
-            a_client_pointed_at_the_double := a_slack_client(base_url=slack)
+            a_client_pointed_at_the_double := a_slack_client(
+                base_url=slack,
+                settings=_some_slack_settings()
+            )
         ) \
         .when(
             lambda: post_message(some_channel, some_text, slack=a_client_pointed_at_the_double)
@@ -51,7 +54,10 @@ def test_a_delivered_message_answers_with_the_id_slack_gave_it(slack: str) -> No
 
     Scenario() \
         .given(
-            a_client_pointed_at_the_double := a_slack_client(base_url=slack)
+            a_client_pointed_at_the_double := a_slack_client(
+                base_url=slack,
+                settings=_some_slack_settings()
+            )
         ) \
         .when(
             lambda: post_message(
@@ -118,3 +124,19 @@ def _it_is_the_id_of_the_message_slack_holds(base_url: str) -> Assertion[Posted]
         return True
 
     return assertion
+
+def _some_slack_settings(base_url: str = "", token: str = "") -> SlackSettings:
+    """Where this suite posts and as whom.
+
+    Both empty by default, because every call here overrides the one it is
+    about: the client takes an explicit `base_url` or `token` when a test has
+    an opinion, and the slice is what it falls back to.
+    """
+    return SlackSettings(
+        slack_bot_token=token,
+        slack_base_url=base_url,
+        slack_war_room_channel="",
+        slack_postmortem_channel="",
+        slack_relay_poll_seconds=2.0,
+        argus_base_url=""
+    )

@@ -4,7 +4,7 @@ import subprocess
 from collections.abc import Iterator
 
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.schema import reset_schema
 
 """Postgres, and nothing else.
@@ -27,7 +27,7 @@ def postgres() -> Iterator[None]:
     """
     subprocess.run(["docker", "compose", "up", "-d", "--wait", "postgres"], check=True)
     try:
-        with connect() as conn:
+        with connect_from_env() as conn:
             reset_schema(conn)
         yield
     finally:

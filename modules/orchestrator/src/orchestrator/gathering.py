@@ -22,7 +22,14 @@ from functools import partial
 import psycopg
 from agent_postmortem import IncidentEvidence, Sources, write_postmortem
 from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
-from argus_core import Connections, get_settings, parse_iso, to_iso
+from argus_core import (
+    Connections,
+    ReadMcpEndpoint,
+    Settings,
+    get_settings,
+    parse_iso,
+    to_iso,
+)
 from argus_core.events import LogsRetrieved, OnsetDetected
 from argus_core.llm import LLMClient
 from argus_core.models import MetricBucket, PostmortemDocument
@@ -37,6 +44,10 @@ from argus_incidents.repository import (
     taken_actions,
 )
 from argus_narration import build_narration
+from exchange_rate_source.frankfurter import (
+    ExchangeRateSettings,
+    rates_published_for,
+)
 
 from orchestrator.rates import todays_rates
 
@@ -51,31 +62,44 @@ def write_postmortem_for(incident_id: str,
     in front of a reader looks measured, and the document is built to tell the
     two apart.
     """
+    # Read once, here. This is the local root of the postmortem path - it is
+    # what holds the connection and builds every source below - and a function
+    # that asked the environment again for each of them would be the ambient
+    # read this change exists to end. `Sources` arriving as a parameter is the
+    # last step (V7c / M4); until it does, this is where the parts are made.
+    settings = get_settings()
+
     with connections() as conn:
         evidence = gather_evidence(conn, incident_id)
         # The connection is bound in here rather than passed down: reaching the
         # rates table takes one, and deciding which rates to use does not.
         rates = todays_rates(
-            get_settings().reporting_currency,
+            settings.reporting_currency,
             held_rates=partial(exchange_rates.get_latest_for, conn),
-            hold_rates=partial(exchange_rates.record, conn)
+            hold_rates=partial(exchange_rates.record, conn),
+            published=partial(
+                rates_published_for, settings=ExchangeRateSettings.of(settings)
+            )
         )
 
     return write_postmortem(
         evidence,
-        Sources(revenue=_the_services_takings,
+        Sources(revenue=partial(_the_services_takings, settings=settings),
                 rates=lambda: rates,
-                engagement=_who_responded,
-                bands=_what_a_title_is_worth,
-                metrics=_metrics_between,
-                working_hours_a_year=get_settings().working_hours_a_year,
-                reporting_currency=get_settings().reporting_currency),
+                engagement=partial(_who_responded, settings=settings),
+                bands=partial(_what_a_title_is_worth, settings=settings),
+                metrics=partial(_metrics_between,
+                                endpoint=ReadMcpEndpoint.of(settings)),
+                working_hours_a_year=settings.working_hours_a_year,
+                reporting_currency=settings.reporting_currency),
         _a_recording_client(Replay(incident_id, recorder))
     )
 
 
 def _the_services_takings(started_at: datetime,
-                          ended_at: datetime) -> Mapping[str, Decimal] | None:
+                          ended_at: datetime,
+                          *,
+                          settings: Settings) -> Mapping[str, Decimal] | None:
     """What the service took over the incident, read from the payment provider.
 
     Imported inside for the same reason the metrics channel is: choosing this
@@ -87,14 +111,20 @@ def _the_services_takings(started_at: datetime,
     unanswered question, and "the incident cost nothing" is not it.
     """
     from revenue_source import taken_between
-    from revenue_source.stripe_adapter import charges_between
+    from revenue_source.stripe_adapter import RevenueSettings, charges_between
 
-    takings = taken_between(started_at, ended_at, charges=charges_between)
+    takings = taken_between(
+        started_at,
+        ended_at,
+        charges=partial(charges_between, settings=RevenueSettings.of(settings))
+    )
 
     return takings.amounts if takings is not None else None
 
 
-def _who_responded(incident_id: str) -> EngagementAnswer | None:
+def _who_responded(incident_id: str,
+                   *,
+                   settings: Settings) -> EngagementAnswer | None:
     """What human attention the incident took, read from the on-call provider.
 
     Imported inside for the same reason the takings are: choosing this pulls in
@@ -110,9 +140,12 @@ def _who_responded(incident_id: str) -> EngagementAnswer | None:
     cross as the source answered them; nothing here reinterprets either.
     """
     from oncall_source import engagement_with
-    from oncall_source.pagerduty_adapter import reported_incident
+    from oncall_source.pagerduty_adapter import OnCallSettings, reported_incident
 
-    engaged = engagement_with(incident_id, reported=reported_incident)
+    engaged = engagement_with(
+        incident_id,
+        reported=partial(reported_incident, settings=OnCallSettings.of(settings))
+    )
 
     if engaged is None:
         return None
@@ -125,7 +158,8 @@ def _who_responded(incident_id: str) -> EngagementAnswer | None:
                                      for responder in engaged.engaged])
 
 
-def _what_a_title_is_worth() -> Mapping[str, PayBand] | None:
+def _what_a_title_is_worth(*,
+                           settings: Settings) -> Mapping[str, PayBand] | None:
     """What each job title the HR source prices is worth a year.
 
     Bands rather than anybody's pay: a band belongs to a level that titles are
@@ -137,10 +171,14 @@ def _what_a_title_is_worth() -> Mapping[str, PayBand] | None:
     credential at all. A postmortem is written either way; it simply publishes
     no cost and says why.
     """
-    from responder_rate_source import PayBandsUnavailable, pay_bands
+    from responder_rate_source import PayBandsUnavailable
+    from responder_rate_source.bamboohr_adapter import (
+        ResponderRateSettings,
+        pay_bands,
+    )
 
     try:
-        read = pay_bands()
+        read = pay_bands(ResponderRateSettings.of(settings))
     except PayBandsUnavailable:
         return None
 
@@ -151,7 +189,10 @@ def _what_a_title_is_worth() -> Mapping[str, PayBand] | None:
             for title, band in read.items()}
 
 
-def _metrics_between(window_start: datetime, window_end: datetime) -> list[MetricBucket]:
+def _metrics_between(window_start: datetime,
+                     window_end: datetime,
+                     *,
+                     endpoint: ReadMcpEndpoint) -> list[MetricBucket]:
     """The metrics channel, asked for a window spanning the whole incident.
 
     Imported inside because the read tier is a running process: a unit test of
@@ -160,7 +201,8 @@ def _metrics_between(window_start: datetime, window_end: datetime) -> list[Metri
     from read_mcp_client import get_metrics_summary
 
     return get_metrics_summary(window_start=to_iso(window_start),
-                               window_end=to_iso(window_end))
+                               window_end=to_iso(window_end),
+                               endpoint=endpoint)
 
 
 def _a_recording_client(replay: Replay) -> LLMClient:

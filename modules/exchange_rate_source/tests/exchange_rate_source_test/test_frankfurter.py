@@ -6,11 +6,13 @@ from typing import Any
 
 import httpx
 import pytest
-from argus_core import Settings
 from argus_core.models import PublishedRates, RatesUnavailable
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
-from exchange_rate_source import rates_published_for
+from exchange_rate_source.frankfurter import (
+    ExchangeRateSettings,
+    rates_published_for,
+)
 
 """Reading a day's rates from the provider that publishes them.
 
@@ -132,8 +134,8 @@ def test_a_body_in_a_shape_argus_cannot_read_is_no_rates_either() -> None:
         )
 
 
-def _pointed_at(base_url: str) -> Settings:
-    return Settings(exchange_rate_base_url=base_url)
+def _pointed_at(base_url: str) -> ExchangeRateSettings:
+    return ExchangeRateSettings(exchange_rate_base_url=base_url)
 
 
 def _the_provider_publishing(on: date,

@@ -4,8 +4,9 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import Outcome, Verdict, mitigate, take_action
-from agent_mitigation.tools import fetch_recent_flag_changes
+from agent_mitigation import Outcome, Verdict, mitigate
+from agent_mitigation.actions import ActionTaker
+from agent_mitigation.tools import FlagChangeFetcher
 from argus_core.models import CauseType, FlagChange
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -64,7 +65,7 @@ def test_mitigating_a_cause_with_no_action_escalates_without_touching_anything()
 
 def _a_record_of(*changes: FlagChange) -> MagicMock:
     """The provider's record of what changed, as the agent reads it."""
-    fetch_flag_changes: MagicMock = create_autospec(fetch_recent_flag_changes)
+    fetch_flag_changes: MagicMock = create_autospec(FlagChangeFetcher, instance=True)
     fetch_flag_changes.return_value = list(changes)
 
     return fetch_flag_changes
@@ -72,7 +73,7 @@ def _a_record_of(*changes: FlagChange) -> MagicMock:
 
 def _an_action_taker_reaching(verdict: Verdict) -> MagicMock:
     """Takes whatever action it is handed and comes back with `verdict`."""
-    take: MagicMock = create_autospec(take_action)
+    take: MagicMock = create_autospec(ActionTaker, instance=True)
     take.return_value = an_outcome_reaching(verdict)
 
     return take
@@ -80,7 +81,7 @@ def _an_action_taker_reaching(verdict: Verdict) -> MagicMock:
 
 def _an_untouched_action_taker() -> MagicMock:
     """No return value configured - a call would be the failure."""
-    return cast(MagicMock, create_autospec(take_action))
+    return cast(MagicMock, create_autospec(ActionTaker, instance=True))
 
 
 def _the_action_taken_sets(take: MagicMock, flag: str, enabled: bool) -> Assertion[Outcome]:

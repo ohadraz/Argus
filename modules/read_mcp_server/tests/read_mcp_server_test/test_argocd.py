@@ -8,11 +8,16 @@ from unittest.mock import create_autospec
 
 import httpx
 import pytest
-from argus_core import Settings, parse_iso, to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.models import ChangeEvent, ChangeKind
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
-from read_mcp_server.argocd import fetch_argocd_application, fetch_deploys
+from read_mcp_server.argocd import (
+    ArgocdSettings,
+    FetchApplication,
+    fetch_argocd_application,
+    fetch_deploys,
+)
 from read_mcp_server.change_source import ChangeSourceUnavailable
 
 
@@ -178,7 +183,7 @@ def test_a_configured_token_is_sent_as_a_bearer_credential() -> None:
         .when(
             lambda: fetch_argocd_application(
                 SOME_APPLICATION,
-                settings=Settings(argocd_auth_token=some_token),
+                settings=_some_argocd_settings(auth_token=some_token),
                 get=get
             )
         ) \
@@ -203,7 +208,7 @@ def test_no_configured_token_means_no_authorization_header() -> None:
         .when(
             lambda: fetch_argocd_application(
                 SOME_APPLICATION,
-                settings=Settings(argocd_auth_token=no_token),
+                settings=_some_argocd_settings(auth_token=no_token),
                 get=get
             )
         ) \
@@ -227,8 +232,8 @@ def test_the_request_goes_to_the_configured_application_path() -> None:
         .when(
             lambda: fetch_argocd_application(
                 SOME_APPLICATION,
-                settings=Settings(
-                    argocd_base_url=some_base_url, argocd_application_path=a_real_argocd_path
+                settings=_some_argocd_settings(
+                    base_url=some_base_url, application_path=a_real_argocd_path
                 ),
                 get=get
             )
@@ -253,9 +258,9 @@ def test_a_path_without_a_placeholder_is_used_as_written() -> None:
         .when(
             lambda: fetch_argocd_application(
                 SOME_APPLICATION,
-                settings=Settings(
-                    argocd_base_url=some_base_url,
-                    argocd_application_path=a_path_naming_no_application
+                settings=_some_argocd_settings(
+                    base_url=some_base_url,
+                    application_path=a_path_naming_no_application
                 ),
                 get=get
             )
@@ -279,7 +284,7 @@ def test_an_error_response_raises_rather_than_reporting_no_changes() -> None:
         .when(
             attempting(
                 lambda: fetch_argocd_application(
-                    SOME_APPLICATION, settings=Settings(), get=get
+                    SOME_APPLICATION, settings=_some_argocd_settings(), get=get
                 )
             )
         ) \
@@ -300,7 +305,7 @@ def test_an_unreachable_server_raises_rather_than_reporting_no_changes() -> None
         .when(
             attempting(
                 lambda: fetch_argocd_application(
-                    SOME_APPLICATION, settings=Settings(), get=get
+                    SOME_APPLICATION, settings=_some_argocd_settings(), get=get
                 )
             )
         ) \
@@ -323,11 +328,35 @@ def a_while_after(moment: str) -> str:
 
 
 def a_mock_argocd_server() -> Any:
-    return create_autospec(fetch_argocd_application)
+    """A stand-in for whatever asks Argo CD, spec'd against the port.
+
+    Not against `fetch_argocd_application`: that takes the settings it
+    reads under, and what `fetch_deploys` is handed only names an
+    application.
+    """
+    return create_autospec(FetchApplication, instance=True)
 
 
 def a_mock_http_get() -> Any:
     return create_autospec(httpx.get)
+
+
+def _some_argocd_settings(
+    base_url: str = "http://argocd.invalid",
+    application_path: str = "/argocd/{application}",
+    auth_token: str = ""
+) -> ArgocdSettings:
+    """The slice this reader runs under.
+
+    Each test names only the field it is about; the other two are whatever
+    a deployment might hold. Built directly rather than narrowed from the
+    environment, so that what a request carries is decided here.
+    """
+    return ArgocdSettings(
+        argocd_base_url=base_url,
+        argocd_application_path=application_path,
+        argocd_auth_token=auth_token
+    )
 
 
 def a_deploy_of(

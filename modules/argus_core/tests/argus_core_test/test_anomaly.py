@@ -4,12 +4,24 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core.anomaly import (
+    AnomalyThresholds,
     earliest_bucket_is_anomalous,
     find_onset,
     has_recovered_since,
 )
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso, to_iso_minute
+from argus_testkit import Assertion, Scenario
+
+# Where this suite draws the algorithm's lines - the same numbers the
+# environment carries by default, stated here because every expectation
+# below is arithmetic on them. A test reading them from the configuration
+# the code reads would agree with itself whatever either said.
+SOME_THRESHOLDS = AnomalyThresholds(
+    deviations_from_baseline=3.0,
+    persistence_minutes=2,
+    recovery_fraction_of_the_rise=0.8
+)
 
 
 @pytest.mark.unit
@@ -24,7 +36,16 @@ def test_find_onset_reports_the_first_minute_that_departs_from_a_steady_rate() -
 
     first_departing_bucket = some_window[len(some_calm_subwindow)]
 
-    assert find_onset(some_window) == first_departing_bucket.bucket_id
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_departing_bucket.bucket_id)
+        )
 
 
 @pytest.mark.unit
@@ -32,14 +53,32 @@ def test_find_onset_reports_nothing_when_the_whole_window_is_steady() -> None:
     some_steady_rate = 0.01
     some_window = a_window_of([some_steady_rate] * (CALM_MINUTES + 2))
 
-    assert find_onset(some_window) is None
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _no_onset_was_found()
+        )
 
 
 @pytest.mark.unit
 def test_find_onset_reports_nothing_for_an_empty_window() -> None:
     empty_window: list[MetricBucket] = []
 
-    assert find_onset(empty_window) is None
+    Scenario() \
+        .given(
+            empty_window
+        ) \
+        .when(
+            lambda: find_onset(empty_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _no_onset_was_found()
+        )
 
 
 @pytest.mark.unit
@@ -55,8 +94,26 @@ def test_find_onset_catches_the_same_shape_at_a_low_and_at_a_high_steady_rate() 
     first_departing_low_rate_bucket = some_low_rate_window[CALM_MINUTES]
     first_departing_high_rate_bucket = some_high_rate_window[CALM_MINUTES]
 
-    assert find_onset(some_low_rate_window) == first_departing_low_rate_bucket.bucket_id
-    assert find_onset(some_high_rate_window) == first_departing_high_rate_bucket.bucket_id
+    Scenario() \
+        .given(
+            some_low_rate_window
+        ) \
+        .when(
+            lambda: find_onset(some_low_rate_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_departing_low_rate_bucket.bucket_id)
+        )
+    Scenario() \
+        .given(
+            some_high_rate_window
+        ) \
+        .when(
+            lambda: find_onset(some_high_rate_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_departing_high_rate_bucket.bucket_id)
+        )
 
 
 @pytest.mark.unit
@@ -75,7 +132,16 @@ def test_find_onset_catches_a_latency_departure_at_a_steady_error_rate() -> None
 
     first_departing_bucket = some_window[len(some_calm_subwindow)]
 
-    assert find_onset(some_window) == first_departing_bucket.bucket_id
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_departing_bucket.bucket_id)
+        )
 
 
 @pytest.mark.unit
@@ -85,7 +151,16 @@ def test_the_earliest_bucket_is_anomalous_when_the_window_opens_at_its_worst_min
     some_declining_rates_from_a_peak = [0.30, 0.28, 0.25, 0.21, 0.20, 0.19]
     some_window_opening_mid_incident = a_window_of(some_declining_rates_from_a_peak)
 
-    assert earliest_bucket_is_anomalous(some_window_opening_mid_incident) is True
+    Scenario() \
+        .given(
+            some_window_opening_mid_incident
+        ) \
+        .when(
+            lambda: earliest_bucket_is_anomalous(some_window_opening_mid_incident, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
 
 
 @pytest.mark.unit
@@ -95,7 +170,16 @@ def test_the_earliest_bucket_is_not_anomalous_when_the_window_opens_calm() -> No
     some_calm_subwindow = [some_steady_rate] * CALM_MINUTES
     some_window = a_window_of(some_calm_subwindow + [some_degradation_rate])
 
-    assert earliest_bucket_is_anomalous(some_window) is False
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: earliest_bucket_is_anomalous(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
 
 
 @pytest.mark.unit
@@ -112,7 +196,16 @@ def test_find_onset_ignores_a_minute_that_departs_alone() -> None:
         + [some_steady_rate] * 4
     )
 
-    assert find_onset(some_window) is None
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _no_onset_was_found()
+        )
 
 
 @pytest.mark.unit
@@ -125,7 +218,16 @@ def test_find_onset_reports_a_departure_that_is_still_going_when_the_window_ends
 
     last_bucket = some_window[-1]
 
-    assert find_onset(some_window) == last_bucket.bucket_id
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(last_bucket.bucket_id)
+        )
 
 
 @pytest.mark.unit
@@ -146,7 +248,16 @@ def test_find_onset_is_not_fooled_by_a_baseline_whose_quiet_minutes_read_alike()
 
     first_incident_bucket = some_window[17]
 
-    assert find_onset(some_window) == first_incident_bucket.bucket_id
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_incident_bucket.bucket_id)
+        )
 
 
 
@@ -164,7 +275,16 @@ def test_a_window_that_returned_to_baseline_has_recovered() -> None:
 
     the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
 
-    assert has_recovered_since(some_window, the_minute_after_the_action) is True
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_recovered_since(some_window, the_minute_after_the_action, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
 
 
 @pytest.mark.unit
@@ -177,7 +297,16 @@ def test_a_window_still_departing_has_not_recovered() -> None:
 
     the_minute_after_the_action = some_window[CALM_MINUTES + 1].bucket_id
 
-    assert has_recovered_since(some_window, the_minute_after_the_action) is False
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_recovered_since(some_window, the_minute_after_the_action, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
 
 
 @pytest.mark.unit
@@ -193,7 +322,18 @@ def test_recovery_is_not_claimed_before_a_minute_has_been_measured() -> None:
 
     a_minute_after_the_window_ends = _the_minute_after(some_window[-1].bucket_id)
 
-    assert has_recovered_since(some_window, a_minute_after_the_window_ends) is False
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_recovered_since(
+                some_window, a_minute_after_the_window_ends, SOME_THRESHOLDS
+            )
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
 
 
 @pytest.mark.unit
@@ -217,7 +357,16 @@ def test_a_single_noisy_minute_after_the_action_is_not_a_relapse() -> None:
 
     the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
 
-    assert has_recovered_since(some_window, the_minute_after_the_action) is True
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_recovered_since(some_window, the_minute_after_the_action, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
 
 
 @pytest.mark.unit
@@ -235,7 +384,16 @@ def test_a_departure_that_holds_after_the_action_is_still_a_relapse() -> None:
 
     the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
 
-    assert has_recovered_since(some_window, the_minute_after_the_action) is False
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_recovered_since(some_window, the_minute_after_the_action, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
 
 
 @pytest.mark.unit
@@ -257,7 +415,16 @@ def test_a_minute_that_has_fallen_back_from_the_incident_is_recovery() -> None:
 
     the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
 
-    assert has_recovered_since(some_window, the_minute_after_the_action) is True
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_recovered_since(some_window, the_minute_after_the_action, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
 
 
 @pytest.mark.unit
@@ -277,7 +444,16 @@ def test_a_minute_still_near_the_incidents_own_level_is_not_recovery() -> None:
 
     the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
 
-    assert has_recovered_since(some_window, the_minute_after_the_action) is False
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_recovered_since(some_window, the_minute_after_the_action, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
 
 
 @pytest.mark.unit
@@ -299,7 +475,16 @@ def test_find_onset_ignores_an_earlier_departure_the_service_recovered_from() ->
 
     first_bucket_of_the_departure_still_going = some_window[2 * CALM_MINUTES + 2]
 
-    assert find_onset(some_window) == first_bucket_of_the_departure_still_going.bucket_id
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_bucket_of_the_departure_still_going.bucket_id)
+        )
 
 
 def _the_minute_after(bucket_id: str) -> str:
@@ -337,3 +522,47 @@ def a_window_of(error_rates: list[float],
             zip(error_rates, latencies, strict=True)
         )
     ]
+
+
+def _the_onset_is(expected: str) -> Assertion[str | None]:
+    """That the incident was measured as beginning at this minute."""
+    def the_onset_is(onset: str | None) -> bool:
+        if onset != expected:
+            raise AssertionError(
+                f"Expected the onset at [{expected}], and it was [{onset}]."
+            )
+
+        return True
+
+    return the_onset_is
+
+
+def _no_onset_was_found() -> Assertion[str | None]:
+    """That nothing in the window reads as the incident starting.
+
+    Separate from `_the_onset_is`, because "no minute departed" and "it
+    departed somewhere else" are different answers, and a reader of a failure
+    wants to be told which.
+    """
+    def no_onset_was_found(onset: str | None) -> bool:
+        if onset is not None:
+            raise AssertionError(
+                f"Expected no onset in this window, and [{onset}] was reported."
+            )
+
+        return True
+
+    return no_onset_was_found
+
+
+def _the_answer_is(expected: bool) -> Assertion[bool]:
+    """That the question the window was asked came back this way."""
+    def the_answer_is(answered: bool) -> bool:
+        if answered is not expected:
+            raise AssertionError(
+                f"Expected [{expected}], and it answered [{answered}]."
+            )
+
+        return True
+
+    return the_answer_is

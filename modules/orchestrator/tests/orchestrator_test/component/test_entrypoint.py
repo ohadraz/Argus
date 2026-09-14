@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import events, incidents
@@ -26,7 +26,7 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         conn.commit()  # the walk reads it back on a connection of its own
 
@@ -36,7 +36,7 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph
                 )
             ) \
             .then(all_of(
@@ -54,7 +54,7 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: 
     dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         conn.commit()  # the walk reads it back on a connection of its own
 
@@ -64,7 +64,7 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: 
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph
                 )
             ) \
             .then(all_of(

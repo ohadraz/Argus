@@ -18,10 +18,11 @@ from collections.abc import Sequence
 from datetime import timedelta
 from typing import Final
 
-from argus_core import get_settings, parse_iso, to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.events import ChangesRetrieved, Narrator, RetrievalRequested
 from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
 
+from agent_investigator.budget import InvestigationSettings
 from agent_investigator.retrieval import ChangeFetcher
 from agent_investigator.tools.results import Served, could_not_serve, served, was_already_read
 from agent_investigator.tools.windows import window_of, window_properties
@@ -51,7 +52,8 @@ def read_changes(call: ToolCall,
                  onset: str,
                  fetch_change_events: ChangeFetcher,
                  already_read: Sequence[Reading],
-                 narrator: Narrator) -> Served:
+                 narrator: Narrator,
+                 settings: InvestigationSettings) -> Served:
     """The changes on the service over the window the model named, or the
     default one.
 
@@ -62,7 +64,6 @@ def read_changes(call: ToolCall,
     the log window uses, because how far back a cause may plausibly lie is the
     operator's judgement, not something inferable from the metrics.
     """
-    settings = get_settings()
     onset_at = parse_iso(onset)
     window = window_of(
         call,

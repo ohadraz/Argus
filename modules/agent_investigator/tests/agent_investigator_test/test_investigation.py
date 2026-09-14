@@ -33,6 +33,10 @@ from .framework.builders.budget import (
     a_clock_that_runs_out_after,
     a_clock_that_runs_out_after_one_look,
 )
+from .framework.builders.configuration import (
+    some_investigation_settings,
+    some_thresholds,
+)
 from .framework.builders.incident import (
     a_steady_window,
     a_window_that_starts_calm,
@@ -1438,6 +1442,8 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
         fetch_metrics=create_autospec(fetch_metrics, return_value=saw),
         fetch_logs=create_autospec(fetch_logs, return_value=[]),
         fetch_change_events=create_autospec(fetch_change_events, return_value=[]),
+        settings=some_investigation_settings(),
+        thresholds=some_thresholds(),
         converse=a_model_that_says(a_turn_answering(an_explanation())),
         budget=a_budget(),
         recorder=recorded.take

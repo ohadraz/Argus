@@ -10,8 +10,8 @@ from agent_communicator.delivering import a_destination_per_register, a_slack_de
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Delivery, Outcome
 from agent_communicator.repository import threads
-from agent_communicator.slack import a_slack_client
-from argus_core import connect
+from agent_communicator.slack import SlackSettings, a_slack_client
+from argus_core import connect_from_env
 from argus_core.events import (
     ActionTaken,
     CommunicationFailed,
@@ -58,7 +58,7 @@ def test_an_announced_line_is_posted_to_the_channel(
     # A reply would reach only the people who already know.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 
@@ -85,7 +85,7 @@ def test_the_first_message_becomes_the_conversation_the_incident_is_told_in(
     # its own, which is a channel of loose sentences about several incidents.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
         deliver = _a_delivery_pointed_at(slack)
@@ -107,7 +107,7 @@ def test_a_followed_line_is_a_reply_in_the_incident_s_own_thread(
     # choice made once, rather than an interruption taken per line.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
         deliver = _a_delivery_pointed_at(slack)
@@ -136,7 +136,7 @@ def test_a_followed_line_with_no_thread_yet_goes_to_the_channel(
     # the incident joins.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 
@@ -163,7 +163,7 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
     # thing somebody scanning a channel needs to find without reading.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 
@@ -189,7 +189,7 @@ def test_a_message_refused_for_good_is_reported_as_never_landing(
     # for as long as the workspace stays the way it is.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 
@@ -218,7 +218,7 @@ def test_a_line_refused_for_good_is_written_down_on_the_incident(
     # different people to fix them.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 
@@ -247,7 +247,7 @@ def test_a_filed_line_goes_to_the_archive_and_everything_else_to_the_war_room(
     # incident is not interrupted by the record of it.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
 
@@ -282,7 +282,7 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
     # and both messages carry the link to the page that holds all of it.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         conn.commit()
         its_page = f"{ARGUS_AT}/incidents/{incident_id}/postmortem"
@@ -308,9 +308,12 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
 
 
 def _a_delivery_pointed_at(base_url: str, channel: str = A_WAR_ROOM) -> Delivery:
-    return a_slack_delivery(connect,
+    return a_slack_delivery(connect_from_env,
                             channel=channel,
-                            slack=a_slack_client(base_url=base_url))
+                            slack=a_slack_client(
+                                base_url=base_url,
+                                settings=_some_slack_settings())
+                            )
 
 
 def _the_onset_of(incident_id: str) -> IncidentEvent:
@@ -593,3 +596,19 @@ def _the_only_message_in(base_url: str, channel: str, mentions: str) -> Assertio
         return True
 
     return assertion
+
+def _some_slack_settings(base_url: str = "", token: str = "") -> SlackSettings:
+    """Where this suite posts and as whom.
+
+    Both empty by default, because every call here overrides the one it is
+    about: the client takes an explicit `base_url` or `token` when a test has
+    an opinion, and the slice is what it falls back to.
+    """
+    return SlackSettings(
+        slack_bot_token=token,
+        slack_base_url=base_url,
+        slack_war_room_channel="",
+        slack_postmortem_channel="",
+        slack_relay_poll_seconds=2.0,
+        argus_base_url=""
+    )

@@ -6,9 +6,11 @@ import httpx
 import psycopg
 import pytest
 from agent_investigator import investigate
+from agent_investigator.budget import InvestigationSettings
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core import connect, get_settings
+from argus_core import connect_from_env, get_settings
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.models import Alert, ChangeEvent, MetricBucket
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.publishing import calls_into
@@ -74,7 +76,9 @@ def test_an_investigations_calls_reach_the_replay_log(
                     fetch_metrics=_metrics_that_show_an_onset,
                     fetch_logs=_logs_that_say_little,
                     fetch_change_events=_no_changes,
-                    recorder=calls_into(connect)
+                    settings=InvestigationSettings.of(get_settings()),
+                    thresholds=_the_configured_thresholds(),
+                    recorder=calls_into(connect_from_env)
                 )
             ) \
             .then(
@@ -107,6 +111,8 @@ def test_an_investigation_that_records_nowhere_still_investigates(
                     fetch_metrics=_metrics_that_show_an_onset,
                     fetch_logs=_logs_that_say_little,
                     fetch_change_events=_no_changes,
+                    settings=InvestigationSettings.of(get_settings()),
+                    thresholds=_the_configured_thresholds(),
                 )
             ) \
             .then(
@@ -244,3 +250,17 @@ def _findings_were_reached() -> Assertion[object]:
         return True
 
     return assertion
+
+def _the_configured_thresholds() -> AnomalyThresholds:
+    """Where the algorithm draws its lines, read from this deployment.
+
+    Narrowed from the same configuration the worker would, rather than stated:
+    what is under test here is the run, not the arithmetic.
+    """
+    settings = get_settings()
+
+    return AnomalyThresholds(
+        deviations_from_baseline=settings.anomaly_deviations_from_baseline,
+        persistence_minutes=settings.anomaly_persistence_minutes,
+        recovery_fraction_of_the_rise=settings.recovery_fraction_of_the_rise
+    )

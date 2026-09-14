@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from agent_mitigation import propose_action
-from agent_mitigation.tools import fetch_recent_flag_changes
 from argus_core.events import FlagChangesRetrieved, Publisher, nobody, publish
 
 from orchestrator.walk.deltas import StateDelta
@@ -13,7 +12,7 @@ from orchestrator.walk.state import IncidentState
 
 def mitigation_proposal_node(
     state: IncidentState,
-    fetch_flag_changes: FetchFlagChanges = fetch_recent_flag_changes,
+    fetch_flag_changes: FetchFlagChanges,
     publisher: Publisher = nobody,
 ) -> StateDelta:
     """Chooses the reversible action that answers the hypothesis, and stops

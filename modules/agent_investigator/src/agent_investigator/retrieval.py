@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
+from argus_core import ReadMcpEndpoint, WriteMcpEndpoint, get_settings
 from argus_core.models import ChangeEvent, ChangeKind, FlagChange, MetricBucket
 from read_mcp_client import get_change_events, get_log_lines, get_metrics_summary
 from write_mcp_client import get_recent_flag_changes
@@ -11,11 +13,52 @@ LogFetcher = Callable[[str, str], list[str]]
 ChangeFetcher = Callable[[str, str, str], list[ChangeEvent]]
 
 # The two systems that record a change, as this module reaches them. Named
-# aliases rather than bare `Callable`s in the signature below, so that the
-# seams read as what they are - a deploy history and a flag history - where
-# two three-argument callables would be told apart only by position.
-DeployHistory = Callable[..., list[ChangeEvent]]
-FlagHistory = Callable[[str], list[FlagChange]]
+# types rather than bare `Callable`s in the signature below, so that the seams
+# read as what they are - a deploy history and a flag history - where two
+# three-argument callables would be told apart only by position.
+#
+# `Protocol` rather than a `Callable` alias because a test stands each of these
+# in with `create_autospec`, which needs something introspectable. Specing
+# against the client functions instead would be specing against the wrong
+# shape: those take the address they dial, and a history is asked about a
+# service and a window.
+
+
+class DeployHistory(Protocol):
+    def __call__(self,
+                 *,
+                 service: str,
+                 window_start: str,
+                 window_end: str) -> list[ChangeEvent]: ...
+
+
+class FlagHistory(Protocol):
+    def __call__(self, since: str, /) -> list[FlagChange]: ...
+
+
+def _deploys_between(service: str,
+                     window_start: str,
+                     window_end: str) -> list[ChangeEvent]:
+    """The read tier's change channel, at the address this deployment holds.
+
+    Named here because the client takes the address it dials, and these are
+    the defaults a caller gets when it names no source. Read from the
+    environment for now; it moves to the composition root with the rest of
+    `Collaborators` (V7b / M4).
+    """
+    return get_change_events(
+        service=service,
+        window_start=window_start,
+        window_end=window_end,
+        endpoint=ReadMcpEndpoint.of(get_settings())
+    )
+
+
+def _flag_changes_since(since: str) -> list[FlagChange]:
+    """The write tier's flag history, asked from one moment onwards."""
+    return get_recent_flag_changes(
+        since, endpoint=WriteMcpEndpoint.of(get_settings())
+    )
 
 
 def fetch_metrics(alert_time: str | None) -> list[MetricBucket]:
@@ -27,7 +70,9 @@ def fetch_metrics(alert_time: str | None) -> list[MetricBucket]:
     anchored on the alert - and a seam is only useful if a test can spec
     against the shape the caller actually uses.
     """
-    return get_metrics_summary(alert_time=alert_time)
+    return get_metrics_summary(
+        alert_time=alert_time, endpoint=ReadMcpEndpoint.of(get_settings())
+    )
 
 
 def fetch_logs(window_start: str, window_end: str) -> list[str]:
@@ -38,14 +83,18 @@ def fetch_logs(window_start: str, window_end: str) -> list[str]:
     to spend the expensive phase around that onset rather than around the
     moment somebody's alerting rule happened to fire.
     """
-    return get_log_lines(window_start=window_start, window_end=window_end)
+    return get_log_lines(
+        window_start=window_start,
+        window_end=window_end,
+        endpoint=ReadMcpEndpoint.of(get_settings())
+    )
 
 
 def fetch_change_events(service: str,
                         window_start: str,
                         window_end: str,
-                        get_change_events: DeployHistory = get_change_events,
-                        get_recent_flag_changes: FlagHistory = get_recent_flag_changes
+                        get_change_events: DeployHistory = _deploys_between,
+                        get_recent_flag_changes: FlagHistory = _flag_changes_since
                         ) -> list[ChangeEvent]:
     """The third channel: what changed on the service over one explicit window.
 

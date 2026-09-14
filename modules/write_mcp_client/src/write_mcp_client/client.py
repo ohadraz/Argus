@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import cast
 
-from argus_core import get_settings
+from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import call_mcp_tool
 from argus_core.models import FlagChange, UndoDescriptor
 
 
-def set_feature_flag(flag: str, enabled: bool) -> UndoDescriptor:
+def set_feature_flag(flag: str,
+                     enabled: bool,
+                     *,
+                     endpoint: WriteMcpEndpoint) -> UndoDescriptor:
     """Sets a feature flag on or off, returning the undo descriptor for the
     change.
 
@@ -26,9 +29,8 @@ def set_feature_flag(flag: str, enabled: bool) -> UndoDescriptor:
     that state. A verdict formed against a service nothing was done to would
     describe an experiment that never ran.
     """
-    settings = get_settings()
     result = call_mcp_tool(
-        f"{settings.write_mcp_url}/mcp",
+        f"{endpoint.write_mcp_url}/mcp",
         "set_feature_flag",
         flag=flag,
         enabled=enabled,
@@ -36,7 +38,9 @@ def set_feature_flag(flag: str, enabled: bool) -> UndoDescriptor:
     return UndoDescriptor.model_validate(result)
 
 
-def get_recent_flag_changes(since: str) -> list[FlagChange]:
+def get_recent_flag_changes(since: str,
+                            *,
+                            endpoint: WriteMcpEndpoint) -> list[FlagChange]:
     """Reads the flag toggles the provider recorded since `since`, oldest first.
 
     How Mitigation learns which flag an incident is about, and in which
@@ -52,9 +56,8 @@ def get_recent_flag_changes(since: str) -> list[FlagChange]:
     Raises rather than returning an empty list when the provider cannot be
     reached: "nothing changed" is a conclusion the caller escalates on.
     """
-    settings = get_settings()
     result = call_mcp_tool(
-        f"{settings.write_mcp_url}/mcp",
+        f"{endpoint.write_mcp_url}/mcp",
         "get_recent_flag_changes",
         since=since,
     )

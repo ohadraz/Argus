@@ -23,8 +23,10 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-from argus_core import Settings, get_settings, parse_iso, to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.models import FlagChange
+
+from write_mcp_server.flag_state import FlagWriteSettings
 
 HttpGet = Callable[..., httpx.Response]
 
@@ -51,7 +53,7 @@ class FlagHistoryUnavailable(Exception):
 
 def recent_flag_changes(
     since: str,
-    settings: Settings | None = None,
+    settings: FlagWriteSettings,
     get: HttpGet = httpx.get,
 ) -> list[FlagChange]:
     """The flag toggles recorded in the configured environment since `since`,
@@ -67,13 +69,12 @@ def recent_flag_changes(
     cheap at the scale this runs at; a real deployment would want the provider's
     own filtering, and this adapter is the one place that changes.
     """
-    resolved = settings if settings is not None else get_settings()
-    url = f"{resolved.unleash_base_url}{EVENTS_PATH}"
+    url = f"{settings.unleash_base_url}{EVENTS_PATH}"
 
     try:
         response = get(
             url,
-            headers={"Authorization": resolved.unleash_admin_token},
+            headers={"Authorization": settings.unleash_admin_token},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -87,7 +88,7 @@ def recent_flag_changes(
     toggles = [
         event
         for event in body.get("events", [])
-        if _is_a_toggle_of_this_environment(event, resolved.unleash_environment)
+        if _is_a_toggle_of_this_environment(event, settings.unleash_environment)
         and parse_iso(event["createdAt"]) >= window_start
     ]
 

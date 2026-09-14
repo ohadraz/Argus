@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from agent_mitigation import UndoAttempt, undo_change
+from agent_mitigation import UndoAttempt
 from argus_core import Connections
 from argus_core.events import ChangeUndone, Publisher, nobody, publish
 from argus_core.models import TakenAction, UndoDescriptor
@@ -48,8 +48,8 @@ def taken_actions_from(connections: Connections) -> TakenActionsOf:
 
 def unwind_incident(incident_id: str,
                     taken_actions_of: TakenActionsOf,
-                    publisher: Publisher = nobody,
-                    undo: UndoChange = undo_change) -> None:
+                    undo: UndoChange,
+                    publisher: Publisher = nobody) -> None:
     """Puts back every change the incident made, and says what became of each.
 
     Nothing is filtered by what the walk made of an action. A change the walk

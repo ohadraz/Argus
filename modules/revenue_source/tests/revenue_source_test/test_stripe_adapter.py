@@ -1,18 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from types import SimpleNamespace
-from typing import Any
-from unittest.mock import Mock
-
-import pytest
-from argus_core import Settings
-from argus_testkit import Assertion, Kept, Scenario, all_of, attempting
-from revenue_source import Charge, RevenueUnavailable
-from revenue_source.stripe_adapter import charges_between
-
 """Reading the provider - what a listing means once it arrives.
 
 Two things belong here. One a stack cannot show: a deployment holding no
@@ -26,6 +11,20 @@ What is injected is the client factory, so the SDK's request path stays real
 and only its answer is written. Whether that path reaches Stripe correctly -
 pagination, the base address, the credential - is proven in the e2e stack.
 """
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import Mock
+
+import pytest
+from argus_testkit import Assertion, Kept, Scenario, all_of, attempting
+from revenue_source import Charge, RevenueUnavailable
+from revenue_source.stripe_adapter import RevenueSettings, charges_between
 
 # The provider's own words for what happened to a charge, spelled out here
 # rather than shared with the module under test: the assertion is that Argus
@@ -158,8 +157,19 @@ def test_a_charge_nobody_refunded_is_reported_as_refunding_nothing() -> None:
         )
 
 
-def _settings_with(api_key: str) -> Settings:
-    return Settings(stripe_api_key=api_key)
+def _settings_with(api_key: str) -> RevenueSettings:
+    """The slice these tests hand the reader, built rather than narrowed.
+
+    Constructed directly instead of through `RevenueSettings.of(Settings())`,
+    so that a unit test of what a listing means does not also depend on what
+    the environment happens to hold. Where the provider is reached is the one
+    field these never care about: the client is injected, so no address is
+    ever dialled.
+    """
+    dont_care_base_url = ""
+
+    return RevenueSettings(stripe_api_key=api_key,
+                           stripe_base_url=dont_care_base_url)
 
 
 def _a_factory_recording_into(kept: Kept[bool]) -> Any:

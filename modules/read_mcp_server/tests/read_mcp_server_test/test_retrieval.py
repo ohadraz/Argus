@@ -23,12 +23,16 @@ from typing import Any, NamedTuple
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core import get_settings, parse_iso, to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.models import ChangeEvent, ChangeKind, MetricBucket
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting, calling
-from read_mcp_server.argocd import fetch_deploys
-from read_mcp_server.change_source import ChangeSourceUnavailable
-from read_mcp_server.retrieval import get_change_events, get_log_lines, get_metrics_summary
+from read_mcp_server.change_source import ChangeSource, ChangeSourceUnavailable
+from read_mcp_server.retrieval import (
+    get_change_events,
+    get_log_lines,
+    get_metrics_summary,
+)
+from read_mcp_server.window import RetrievalSettings
 
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 MINUTES_IN_A_DAY = 24 * 60
@@ -43,7 +47,16 @@ A_WHILE = timedelta(hours=1)
 # stopped being a sentence.
 A_CLAMP_WARNING = "WARN argus-read-mcp: requested window exceeded"
 
-settings = get_settings()
+# The windows these retrievals run against, stated rather than read from
+# the environment. The clamp tests are arithmetic on the ceiling, and a
+# test taking it from the same configuration the code reads would agree
+# with itself whatever either said.
+CONFIGURED_WINDOWS = RetrievalSettings(
+    log_initial_lookback_minutes=30,
+    log_initial_lookahead_minutes=10,
+    log_max_window_minutes=180,
+    metrics_window_minutes=360
+)
 
 
 @pytest.mark.unit
@@ -53,7 +66,9 @@ def test_get_log_lines_returns_whatever_fetch_returns() -> None:
             some_logs := ["INFO line one", "ERROR line two"]
         ) \
         .when(
-            lambda: get_log_lines(fetch=lambda: some_logs)
+            lambda: get_log_lines(
+                fetch=lambda: some_logs, settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(
             _the_lines_are(some_logs)
@@ -72,7 +87,9 @@ def test_get_log_lines_windows_around_the_alert_time() -> None:
         ) \
         .when(
             lambda: get_log_lines(
-                alert_time=_an_iso_minute(some_alert_time), fetch=lambda: some_lines
+                alert_time=_an_iso_minute(some_alert_time),
+                fetch=lambda: some_lines,
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
@@ -102,7 +119,8 @@ def test_get_log_lines_explicit_window_overrides_the_alert_time() -> None:
                 alert_time=_an_iso_minute(some_alert_time),
                 window_start=_an_iso_minute(a_window_start_around_the_too_late_minute),
                 window_end=_an_iso_minute(a_window_end_around_the_too_late_minute),
-                fetch=lambda: some_lines
+                fetch=lambda: some_lines,
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
@@ -116,7 +134,7 @@ def test_get_log_lines_clamps_an_over_span_window_and_reports_it() -> None:
     some_timeline = _a_log_timeline_around(some_alert_time)
     some_lines = _some_log_lines_at(some_timeline)
     an_over_span_window_end = some_timeline.too_early + timedelta(
-        minutes=settings.log_max_window_minutes + 1
+        minutes=CONFIGURED_WINDOWS.log_max_window_minutes + 1
     )
 
     Scenario() \
@@ -127,7 +145,8 @@ def test_get_log_lines_clamps_an_over_span_window_and_reports_it() -> None:
             lambda: get_log_lines(
                 window_start=_an_iso_minute(some_timeline.too_early),
                 window_end=_an_iso_minute(an_over_span_window_end),
-                fetch=lambda: some_lines
+                fetch=lambda: some_lines,
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(all_of(
@@ -152,7 +171,9 @@ def test_get_log_lines_drops_lines_with_no_timestamp_when_windowed() -> None:
         ) \
         .when(
             lambda: get_log_lines(
-                alert_time=_an_iso_minute(some_alert_time), fetch=lambda: some_lines
+                alert_time=_an_iso_minute(some_alert_time),
+                fetch=lambda: some_lines,
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
@@ -167,7 +188,7 @@ def test_get_log_lines_drops_lines_with_no_timestamp_when_windowed() -> None:
 def test_get_metrics_summary_returns_every_bucket_without_a_window() -> None:
     some_alert_time = _an_alert_time()
     some_buckets = [
-        _a_bucket(some_alert_time - timedelta(minutes=settings.metrics_window_minutes)),
+        _a_bucket(some_alert_time - timedelta(minutes=CONFIGURED_WINDOWS.metrics_window_minutes)),
         _a_bucket(some_alert_time)
     ]
 
@@ -176,7 +197,9 @@ def test_get_metrics_summary_returns_every_bucket_without_a_window() -> None:
             some_buckets
         ) \
         .when(
-            lambda: get_metrics_summary(fetch=lambda: some_buckets)
+            lambda: get_metrics_summary(
+                fetch=lambda: some_buckets, settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(
             _the_buckets_are(some_buckets)
@@ -186,7 +209,7 @@ def test_get_metrics_summary_returns_every_bucket_without_a_window() -> None:
 @pytest.mark.unit
 def test_get_metrics_summary_excludes_buckets_outside_the_window() -> None:
     some_alert_time = _an_alert_time()
-    a_metrics_window = timedelta(minutes=settings.metrics_window_minutes)
+    a_metrics_window = timedelta(minutes=CONFIGURED_WINDOWS.metrics_window_minutes)
     a_minute_past_the_window = a_metrics_window + timedelta(minutes=1)
     the_bucket_on_the_window_edge = _a_bucket(some_alert_time - a_metrics_window)
     some_buckets = [
@@ -201,7 +224,9 @@ def test_get_metrics_summary_excludes_buckets_outside_the_window() -> None:
         ) \
         .when(
             lambda: get_metrics_summary(
-                alert_time=_an_iso_minute(some_alert_time), fetch=lambda: some_buckets
+                alert_time=_an_iso_minute(some_alert_time),
+                fetch=lambda: some_buckets,
+                settings=CONFIGURED_WINDOWS
             )
         ) \
         .then(
@@ -216,7 +241,11 @@ def test_get_metrics_summary_with_no_active_scenario_returns_no_buckets() -> Non
             some_alert_time := _an_alert_time()
         ) \
         .when(
-            lambda: get_metrics_summary(alert_time=_an_iso_minute(some_alert_time), fetch=list)
+            lambda: get_metrics_summary(
+                alert_time=_an_iso_minute(some_alert_time),
+                fetch=list,
+                settings=CONFIGURED_WINDOWS
+            )
         ) \
         .then(
             _the_buckets_are([])
@@ -412,7 +441,7 @@ def _a_timeline_around(alert_time: datetime,
     lines to the ceiling rather than to the behavior it checks.
     """
     max_minutes_beyond_an_edge = (
-        settings.log_max_window_minutes - lookback_minutes - lookahead_minutes
+        CONFIGURED_WINDOWS.log_max_window_minutes - lookback_minutes - lookahead_minutes
     ) // 2
 
     def random_minutes_beyond_an_edge() -> int:
@@ -433,8 +462,8 @@ def _a_timeline_around(alert_time: datetime,
 def _a_log_timeline_around(alert_time: datetime) -> _Timeline:
     return _a_timeline_around(
         alert_time,
-        lookback_minutes=settings.log_initial_lookback_minutes,
-        lookahead_minutes=settings.log_initial_lookahead_minutes,
+        lookback_minutes=CONFIGURED_WINDOWS.log_initial_lookback_minutes,
+        lookahead_minutes=CONFIGURED_WINDOWS.log_initial_lookahead_minutes,
     )
 
 
@@ -483,7 +512,13 @@ def _a_while_after(moment: str) -> str:
 
 
 def _a_mock_change_source() -> Any:
-    return create_autospec(fetch_deploys)
+    """A stand-in for the change channel, spec'd against the port.
+
+    Not against `fetch_deploys`, which takes the reader it asks through:
+    what `get_change_events` is handed names a service and a window and
+    nothing else.
+    """
+    return create_autospec(ChangeSource, instance=True)
 
 
 def _a_deploy_of(revision: str, at: str) -> ChangeEvent:

@@ -14,23 +14,49 @@ verdict would then rest on evidence that never existed.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
-from argus_core import Settings, get_settings, parse_iso
+from argus_core import SettingsSlice, parse_iso
 from argus_core.models import ChangeEvent, ChangeKind
 
 from read_mcp_server.change_source import ChangeSourceUnavailable
 
+
+class ArgocdSettings(SettingsSlice):
+    """Where deploy history is read from, and under what credential.
+
+    The path is a template rather than a fixed route, so that the demo's
+    stand-in and a real server's `/api/v1/applications/{application}` are one
+    setting with two values. The token may be empty, which means no credential
+    is sent at all - see `_headers_for`.
+    """
+
+    argocd_base_url: str
+    argocd_application_path: str
+    argocd_auth_token: str
+
+
 HttpGet = Callable[..., httpx.Response]
-FetchApplication = Callable[[str], dict[str, Any]]
+
+
+class FetchApplication(Protocol):
+    """What `fetch_deploys` needs from whatever asks Argo CD.
+
+    A `Protocol` rather than a `Callable` alias for the reason `FetchToggles`
+    is one: a test stands it in with `create_autospec`, which needs something
+    introspectable. Naming an application is all this asks - where that server
+    is and under what credential was decided where the process started.
+    """
+
+    def __call__(self, application: str, /) -> dict[str, Any]: ...
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 def fetch_argocd_application(
     application: str,
-    settings: Settings | None = None,
+    settings: ArgocdSettings,
     get: HttpGet = httpx.get,
 ) -> dict[str, Any]:
     """Asks an Argo CD server for one application's current state.
@@ -43,13 +69,12 @@ def fetch_argocd_application(
     body - becomes `ChangeSourceUnavailable`. None of them may become "no
     changes".
     """
-    resolved = settings if settings is not None else get_settings()
-    url = f"{resolved.argocd_base_url}{_application_path(resolved, application)}"
+    url = f"{settings.argocd_base_url}{_application_path(settings, application)}"
 
     try:
         response = get(
             url,
-            headers=_headers_for(resolved.argocd_auth_token),
+            headers=_headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -67,7 +92,7 @@ def fetch_deploys(
     *,
     window_start: str,
     window_end: str,
-    fetch: FetchApplication = fetch_argocd_application,
+    fetch: FetchApplication,
 ) -> list[ChangeEvent]:
     """The deploys of one application within one window, as `ChangeEvent`s.
 
@@ -99,7 +124,7 @@ def fetch_deploys(
     ]
 
 
-def _application_path(settings: Settings, application: str) -> str:
+def _application_path(settings: ArgocdSettings, application: str) -> str:
     return settings.argocd_application_path.format(application=application)
 
 

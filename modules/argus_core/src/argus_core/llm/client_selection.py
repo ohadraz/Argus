@@ -9,6 +9,7 @@ handles - without the SDK arriving with it.
 
 from __future__ import annotations
 
+from argus_core.config import LLMSettings, get_settings
 from argus_core.llm.adapters.anthropic_adapter import MODEL, AnthropicLLMClient
 from argus_core.llm.client import LLMClient
 from argus_core.llm.recorded_client import RecordedLLMClient
@@ -31,7 +32,7 @@ def get_llm_client(replay: Replay | None = None) -> LLMClient:
     recorder that discards: an agent that is not recording should not be paying
     for a decorator, and the absence should be visible in a stack trace.
     """
-    client = AnthropicLLMClient()
+    client = AnthropicLLMClient(LLMSettings.of(get_settings()))
 
     if replay is None:
         return client

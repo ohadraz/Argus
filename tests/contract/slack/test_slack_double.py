@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from agent_communicator.slack import Posted, a_slack_client, post_message
+from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
 from argus_core import get_settings
 from argus_testkit import Assertion, Scenario, all_of
 from slack_double.server import DEFAULT_BASE_URL
@@ -58,7 +58,7 @@ def test_a_message_the_workspace_accepts_comes_back_with_an_id() -> None:
     Scenario() \
         .given(the_war_room := get_settings().slack_war_room_channel) \
         .when(lambda: post_message(
-            the_war_room, A_CONTRACT_CHECK, slack=a_slack_client()
+            the_war_room, A_CONTRACT_CHECK, slack=a_slack_client(settings=_some_slack_settings())
         )) \
         .then(all_of(_it_landed(), _it_reads_as(_the_double_asked_the_same_way())))
 
@@ -73,7 +73,7 @@ def test_a_channel_the_workspace_cannot_find_is_refused_by_name() -> None:
     Scenario() \
         .given(NO_SUCH_CHANNEL) \
         .when(lambda: post_message(
-            NO_SUCH_CHANNEL, A_CONTRACT_CHECK, slack=a_slack_client()
+            NO_SUCH_CHANNEL, A_CONTRACT_CHECK, slack=a_slack_client(settings=_some_slack_settings())
         )) \
         .then(all_of(
             _it_was_refused_for(CHANNEL_NOT_FOUND),
@@ -84,7 +84,10 @@ def test_a_channel_the_workspace_cannot_find_is_refused_by_name() -> None:
 
 def _at_the_double() -> Any:
     """A client pointed at the double, built the way the demo builds one."""
-    return a_slack_client(base_url=DEFAULT_BASE_URL, token="xoxb-the-double-never-reads-this")
+    return a_slack_client(
+        base_url=DEFAULT_BASE_URL, token="xoxb-the-double-never-reads-this",
+        settings=_some_slack_settings()
+    )
 
 
 def _the_double_asked_the_same_way() -> Posted:
@@ -178,3 +181,19 @@ def _it_reads_as(at_the_double: Posted) -> Assertion[Posted]:
         return True
 
     return assertion
+
+def _some_slack_settings(base_url: str = "", token: str = "") -> SlackSettings:
+    """Where this suite posts and as whom.
+
+    Both empty by default, because every call here overrides the one it is
+    about: the client takes an explicit `base_url` or `token` when a test has
+    an opinion, and the slice is what it falls back to.
+    """
+    return SlackSettings(
+        slack_bot_token=token,
+        slack_base_url=base_url,
+        slack_war_room_channel="",
+        slack_postmortem_channel="",
+        slack_relay_poll_seconds=2.0,
+        argus_base_url=""
+    )

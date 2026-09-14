@@ -132,7 +132,7 @@ def _where_to_read_it(line: NarrationLine,
 
 def a_slack_delivery(connections: Connections,
                      channel: str,
-                     slack: WebClient | None = None) -> Delivery:
+                     slack: WebClient) -> Delivery:
     """A destination: one Slack channel, and a thread per incident inside it.
 
     The channel is given rather than read here, so that the war room and the
@@ -151,7 +151,9 @@ def a_slack_delivery(connections: Connections,
         # silence about an incident being worked.
         replying_to = thread if register is Register.FOLLOWED else None
 
-        posted = post_message(channel, _as_slack_says_it(line), replying_to, slack)
+        posted = post_message(
+            channel, _as_slack_says_it(line), replying_to, slack=slack
+        )
 
         if posted.ts is None:
             # Slack's own answer, read for the only thing the relay can act on.

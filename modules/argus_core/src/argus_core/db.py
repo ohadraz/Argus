@@ -6,7 +6,7 @@ from contextlib import AbstractContextManager
 import psycopg
 from psycopg_pool import ConnectionPool
 
-from argus_core.config import get_settings
+from argus_core.config import DatabaseSettings, get_settings
 
 """Where a connection to Argus's own database comes from.
 
@@ -37,7 +37,7 @@ _MIN_CONNECTIONS = 1
 _MAX_CONNECTIONS = 10
 
 
-def open_pool() -> ConnectionPool:
+def open_pool(settings: DatabaseSettings) -> ConnectionPool:
     """A pool, open and ready, for a process that will own it.
 
     Returned open rather than left to the caller, so that a process holding one
@@ -49,18 +49,29 @@ def open_pool() -> ConnectionPool:
     worse than paying for a handshake is handing out a socket to a Postgres that
     is no longer on the other end of it.
     """
-    return ConnectionPool(get_settings().database_url,
+    return ConnectionPool(settings.database_url,
                           min_size=_MIN_CONNECTIONS,
                           max_size=_MAX_CONNECTIONS,
                           check=ConnectionPool.check_connection,
                           open=True)
 
 
-def connect() -> psycopg.Connection:
+def connect(settings: DatabaseSettings) -> psycopg.Connection:
     """One connection, opened now and closed by whoever asked for it.
 
     For a caller whose whole life is shorter than a pool would be worth: a
     migration script, a suite arranging a row, a one-shot command. A long-lived
     process wants `open_pool` instead.
     """
-    return psycopg.connect(get_settings().database_url)
+    return psycopg.connect(settings.database_url)
+
+
+def connect_from_env() -> psycopg.Connection:
+    """One connection, to whichever database the environment names.
+
+    The ambient read, spelled out. A script, a suite or a one-shot command has
+    no composition root to be handed a slice by, and pretending otherwise would
+    only hide the read inside `connect` where nothing could find it. Named so
+    that grepping for who reads the environment finds every one of them.
+    """
+    return connect(DatabaseSettings.of(get_settings()))

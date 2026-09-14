@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from statistics import median
+from typing import NamedTuple
 
-from argus_core.config import get_settings
 from argus_core.models.metrics import MetricBucket
 
 # The smallest wobble a baseline is credited with, as a fraction of the
@@ -24,7 +24,28 @@ _MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE = 0.1
 _QUIET_SPREAD_QUANTILE = 0.9
 
 
-def find_onset(buckets: Sequence[MetricBucket]) -> str | None:
+class AnomalyThresholds(NamedTuple):
+    """Where the algorithm draws its three lines.
+
+    A domain value, not a slice of `Settings`: this module decides what counts
+    as an incident starting and what counts as recovery, and a rule of that
+    kind has no business knowing how Argus is configured. The caller already
+    holds the numbers - the same arrangement `status_after(state, max_rounds)`
+    has, and for the same reason.
+
+    Required at every call, with no default. A default here would mean any
+    caller left unwired silently gets these numbers instead of the deployment's,
+    and the environment variable would stop taking effect without a single test
+    going red - the test environment runs on these values anyway.
+    """
+
+    deviations_from_baseline: float
+    persistence_minutes: int
+    recovery_fraction_of_the_rise: float
+
+
+def find_onset(buckets: Sequence[MetricBucket],
+               thresholds: AnomalyThresholds) -> str | None:
     """The `bucket_id` of the minute the incident started, or `None` when no
     minute in the window departs from the rest (spec §16).
 
@@ -52,8 +73,8 @@ def find_onset(buckets: Sequence[MetricBucket]) -> str | None:
     changes considered, the money counted - would cover mostly calm time. The
     state the service is in now began the last time it entered it.
     """
-    departures = _departures(buckets)
-    required = get_settings().anomaly_persistence_minutes
+    departures = _departures(buckets, thresholds)
+    required = thresholds.persistence_minutes
 
     for index in reversed(range(len(departures))):
         if not departures[index] or (index > 0 and departures[index - 1]):
@@ -67,7 +88,8 @@ def find_onset(buckets: Sequence[MetricBucket]) -> str | None:
     return None
 
 
-def earliest_bucket_is_anomalous(buckets: Sequence[MetricBucket]) -> bool:
+def earliest_bucket_is_anomalous(buckets: Sequence[MetricBucket],
+                                 thresholds: AnomalyThresholds) -> bool:
     """Whether the window opens already inside the incident - the structural
     trigger for widening the next iteration (spec §9).
 
@@ -79,10 +101,12 @@ def earliest_bucket_is_anomalous(buckets: Sequence[MetricBucket]) -> bool:
     if not buckets:
         return False
 
-    return find_onset(buckets) == buckets[0].bucket_id
+    return find_onset(buckets, thresholds) == buckets[0].bucket_id
 
 
-def has_recovered_since(buckets: Sequence[MetricBucket], moment: str) -> bool:
+def has_recovered_since(buckets: Sequence[MetricBucket],
+                        moment: str,
+                        thresholds: AnomalyThresholds) -> bool:
     """Whether the incident has subsided over the minutes from `moment` onwards
     (spec §7.3).
 
@@ -114,7 +138,7 @@ def has_recovered_since(buckets: Sequence[MetricBucket], moment: str) -> bool:
     would otherwise confirm a mitigation the instant it was taken, before the
     service had any chance to answer.
     """
-    still_the_incident = _minutes_still_at_the_incidents_level(buckets)
+    still_the_incident = _minutes_still_at_the_incidents_level(buckets, thresholds)
     since_moment = [
         elevated
         for bucket, elevated in zip(buckets, still_the_incident, strict=True)
@@ -124,11 +148,12 @@ def has_recovered_since(buckets: Sequence[MetricBucket], moment: str) -> bool:
     if not since_moment:
         return False
 
-    return not _departs_for_long_enough_to_be_the_incident(since_moment)
+    return not _departs_for_long_enough_to_be_the_incident(since_moment, thresholds)
 
 
 def _minutes_still_at_the_incidents_level(
-    buckets: Sequence[MetricBucket]
+    buckets: Sequence[MetricBucket],
+    thresholds: AnomalyThresholds
 ) -> list[bool]:
     """Whether each minute is still up at the incident's level, rather than
     merely above the quiet stretch.
@@ -140,8 +165,8 @@ def _minutes_still_at_the_incidents_level(
     """
     error_rates = [bucket.error_rate for bucket in buckets]
     latencies = [float(bucket.p95_ms) for bucket in buckets]
-    error_rate_ceiling = _subsided_threshold(error_rates)
-    latency_ceiling = _subsided_threshold(latencies)
+    error_rate_ceiling = _subsided_threshold(error_rates, thresholds)
+    latency_ceiling = _subsided_threshold(latencies, thresholds)
 
     return [
         bucket.error_rate > error_rate_ceiling or bucket.p95_ms > latency_ceiling
@@ -149,7 +174,8 @@ def _minutes_still_at_the_incidents_level(
     ]
 
 
-def _subsided_threshold(values: Sequence[float]) -> float:
+def _subsided_threshold(values: Sequence[float],
+                        thresholds: AnomalyThresholds) -> float:
     """What a minute has to have fallen below to count as no longer the
     incident.
 
@@ -158,14 +184,15 @@ def _subsided_threshold(values: Sequence[float]) -> float:
     a window with no incident in it the two are the same, and nothing is
     reported as still elevated.
     """
-    departed = _departure_threshold(values)
+    departed = _departure_threshold(values, thresholds)
     at_its_worst = max(values, default=departed)
-    subsided = get_settings().recovery_fraction_of_the_rise
+    subsided = thresholds.recovery_fraction_of_the_rise
 
     return max(departed, at_its_worst - subsided * (at_its_worst - departed))
 
 
-def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool]) -> bool:
+def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool],
+                                                thresholds: AnomalyThresholds) -> bool:
     """Whether any run of departed minutes is long enough to be a state rather
     than noise.
 
@@ -174,7 +201,7 @@ def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool]) -> b
     `anomaly_persistence_minutes`, or one still going when the window ends -
     which has not failed to persist, it has yet to be given the chance.
     """
-    required = get_settings().anomaly_persistence_minutes
+    required = thresholds.persistence_minutes
 
     for index, departed in enumerate(departures):
         if not departed or (index > 0 and departures[index - 1]):
@@ -188,7 +215,8 @@ def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool]) -> b
     return False
 
 
-def _departures(buckets: Sequence[MetricBucket]) -> list[bool]:
+def _departures(buckets: Sequence[MetricBucket],
+                thresholds: AnomalyThresholds) -> list[bool]:
     """Whether each minute, in window order, has left the baseline on error
     rate or p95 latency. Both are checked because different failures move
     different metrics - a bad flag spikes errors, a slow dependency does not.
@@ -196,8 +224,12 @@ def _departures(buckets: Sequence[MetricBucket]) -> list[bool]:
     if not buckets:
         return []
 
-    error_rate_ceiling = _departure_threshold([bucket.error_rate for bucket in buckets])
-    latency_ceiling = _departure_threshold([float(bucket.p95_ms) for bucket in buckets])
+    error_rate_ceiling = _departure_threshold(
+        [bucket.error_rate for bucket in buckets], thresholds
+    )
+    latency_ceiling = _departure_threshold(
+        [float(bucket.p95_ms) for bucket in buckets], thresholds
+    )
 
     return [
         bucket.error_rate > error_rate_ceiling or bucket.p95_ms > latency_ceiling
@@ -215,7 +247,8 @@ def _run_length_from(departures: Sequence[bool], start: int) -> int:
     return length
 
 
-def _departure_threshold(values: Sequence[float]) -> float:
+def _departure_threshold(values: Sequence[float],
+                         thresholds: AnomalyThresholds) -> float:
     """The value a minute has to exceed to count as the incident, derived
     from the window's own quiet half.
 
@@ -232,7 +265,7 @@ def _departure_threshold(values: Sequence[float]) -> float:
     is then zero, the threshold collapses onto the baseline, and every
     ordinary minute reads as the incident starting.
     """
-    deviations = get_settings().anomaly_deviations_from_baseline
+    deviations = thresholds.deviations_from_baseline
 
     quiet_half = sorted(values)[: max(1, len(values) // 2)]
     baseline = median(quiet_half)

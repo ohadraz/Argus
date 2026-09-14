@@ -7,8 +7,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from agent_investigator import Findings, investigate
-from agent_investigator.budget import Bound, Budget
+from agent_investigator.budget import Bound, Budget, InvestigationSettings
 from argus_core import get_settings, new_id, parse_iso
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import get_llm_client
 from argus_core.models import (
     Alert,
@@ -506,6 +507,8 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_metrics=_the_metrics_of(incident),
             fetch_logs=_the_logs_of(incident),
             fetch_change_events=_the_changes_of(incident),
+            settings=InvestigationSettings.of(get_settings()),
+            thresholds=_the_configured_thresholds(),
             converse=speak,
             budget=spend
         )
@@ -633,3 +636,17 @@ def _the_budget_was_not_exhausted() -> Assertion[Run]:
         return True
 
     return assertion
+
+def _the_configured_thresholds() -> AnomalyThresholds:
+    """Where the algorithm draws its lines, read from this deployment.
+
+    Narrowed from the same configuration the worker would, rather than stated:
+    what is under test here is the run, not the arithmetic.
+    """
+    settings = get_settings()
+
+    return AnomalyThresholds(
+        deviations_from_baseline=settings.anomaly_deviations_from_baseline,
+        persistence_minutes=settings.anomaly_persistence_minutes,
+        recovery_fraction_of_the_rise=settings.recovery_fraction_of_the_rise
+    )

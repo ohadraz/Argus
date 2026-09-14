@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 import pytest
-from agent_communicator.slack import Posted, a_slack_client, post_message
+from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
 from argus_testkit import Assertion, Scenario, all_of, attempting
 
 """Every way Slack declines to carry a message, and what Argus does about it.
@@ -33,7 +33,10 @@ def test_a_refusal_is_survived_and_nothing_is_delivered(slack: str) -> None:
     Scenario() \
         .given(
             _slack_will_answer(slack, error=some_refusal),
-            a_client_pointed_at_the_double := a_slack_client(base_url=slack)
+            a_client_pointed_at_the_double := a_slack_client(
+                base_url=slack,
+                settings=_some_slack_settings()
+            )
         ) \
         .when(
             attempting(
@@ -58,7 +61,10 @@ def test_a_throttled_call_is_survived_rather_than_retried(slack: str) -> None:
     Scenario() \
         .given(
             _slack_will_answer(slack, error="rate_limited", retry_after=some_wait),
-            a_client_pointed_at_the_double := a_slack_client(base_url=slack)
+            a_client_pointed_at_the_double := a_slack_client(
+                base_url=slack,
+                settings=_some_slack_settings()
+            )
         ) \
         .when(
             attempting(
@@ -82,7 +88,7 @@ def test_a_workspace_that_cannot_be_reached_is_survived(slack: str) -> None:
         .given(
             a_client_aimed_at_nothing := a_slack_client(
                 base_url=A_PORT_NOTHING_LISTENS_ON, timeout=1
-            )
+            , settings=_some_slack_settings())
         ) \
         .when(
             attempting(
@@ -104,7 +110,10 @@ def test_a_refusal_is_not_worth_another_go(slack: str) -> None:
     Scenario() \
         .given(
             _slack_will_answer(slack, error=some_refusal),
-            a_client_pointed_at_the_double := a_slack_client(base_url=slack)
+            a_client_pointed_at_the_double := a_slack_client(
+                base_url=slack,
+                settings=_some_slack_settings()
+            )
         ) \
         .when(
             lambda: post_message(
@@ -125,7 +134,10 @@ def test_a_throttle_is_worth_another_go(slack: str) -> None:
     Scenario() \
         .given(
             _slack_will_answer(slack, error="rate_limited", retry_after=dont_care_wait),
-            a_client_pointed_at_the_double := a_slack_client(base_url=slack)
+            a_client_pointed_at_the_double := a_slack_client(
+                base_url=slack,
+                settings=_some_slack_settings()
+            )
         ) \
         .when(
             lambda: post_message(
@@ -145,7 +157,7 @@ def test_a_workspace_that_cannot_be_reached_is_worth_another_go(slack: str) -> N
         .given(
             a_client_aimed_at_nothing := a_slack_client(
                 base_url=A_PORT_NOTHING_LISTENS_ON, timeout=1
-            )
+            , settings=_some_slack_settings())
         ) \
         .when(
             lambda: post_message(
@@ -233,3 +245,19 @@ def _it_is_worth_another_go(expected: bool) -> Assertion[Posted]:
         return True
 
     return assertion
+
+def _some_slack_settings(base_url: str = "", token: str = "") -> SlackSettings:
+    """Where this suite posts and as whom.
+
+    Both empty by default, because every call here overrides the one it is
+    about: the client takes an explicit `base_url` or `token` when a test has
+    an opinion, and the slice is what it falls back to.
+    """
+    return SlackSettings(
+        slack_bot_token=token,
+        slack_base_url=base_url,
+        slack_war_room_channel="",
+        slack_postmortem_channel="",
+        slack_relay_poll_seconds=2.0,
+        argus_base_url=""
+    )

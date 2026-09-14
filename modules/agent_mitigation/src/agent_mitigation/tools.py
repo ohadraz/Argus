@@ -4,14 +4,42 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from argus_core import get_settings, to_iso
+from argus_core import (
+    ReadMcpEndpoint,
+    SettingsSlice,
+    WriteMcpEndpoint,
+    get_settings,
+    to_iso,
+)
 from argus_core.models import FlagChange, MetricBucket, UndoDescriptor
 from read_mcp_client import get_metrics_summary
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
 
 from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
 
-FlagChangeFetcher = Callable[[], list[FlagChange]]
+
+def _flag_changes_since(since: str) -> list[FlagChange]:
+    """The write tier's flag history, asked from one moment onwards.
+
+    A named function rather than `get_recent_flag_changes` itself, because the
+    client takes the address it dials and this is the default a caller gets
+    when it names no fetcher. The address is read here for now; it moves to
+    the composition root with the rest of `Collaborators` (V7b / M4).
+    """
+    return get_recent_flag_changes(
+        since, endpoint=WriteMcpEndpoint.of(get_settings())
+    )
+
+
+class FlagChangeFetcher(Protocol):
+    """What `mitigate` needs from whatever reads recent flag changes.
+
+    A `Protocol` for the reason `ActionTaker` is one, and asking nothing for
+    the same reason: how far back the window reaches was decided where the
+    process started.
+    """
+
+    def __call__(self) -> list[FlagChange]: ...
 # The same tool asked for a window that starts where the caller says, rather
 # than where configuration says. Only the resumed walk needs that: it is asking
 # about one particular moment - when an action was claimed - and the configured
@@ -32,13 +60,23 @@ StillWanted = Callable[[], bool]
 # made after Argus's own is somebody's deliberate decision, and putting the flag
 # back would replace it with a state nobody chose.
 ChangedFromOutside = Callable[[str, datetime], bool | None]
-# The provider's user that Argus writes as, read when it is needed rather than
-# bound once: a name resolved at import would freeze whatever configuration was
-# loaded first, and this is the name every attribution question turns on.
-ArgusUser = Callable[[], str]
-# How far back "recently changed" reaches, read at the moment it is needed for
-# the same reason as the user above.
-Lookback = Callable[[], timedelta]
+
+
+class MitigationSettings(SettingsSlice):
+    """How Mitigation behaves against the provider and the service.
+
+    How far back a window of recent flag changes reaches, whose changes Argus
+    recognises as its own, and how long it waits for the service to answer an
+    action.
+
+    `unleash_actor` is empty where Argus and its operators share one
+    credential. That is a real deployment and not a misconfiguration - the
+    attribution rules answer `None` there rather than guessing.
+    """
+
+    flag_change_lookback_minutes: int
+    unleash_actor: str
+    mitigation_verification_timeout_seconds: float
 
 
 def utc_now() -> datetime:
@@ -47,26 +85,10 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def flag_change_lookback() -> timedelta:
-    """How far back a window of recent flag changes reaches."""
-    return timedelta(minutes=get_settings().flag_change_lookback_minutes)
-
-
-def argus_user() -> str:
-    """The provider's user Argus's own changes are recorded against.
-
-    Empty where Argus and its operators share one credential. That is a real
-    deployment and not a misconfiguration, and the attribution rules answer
-    `None` there rather than guessing.
-    """
-    return get_settings().unleash_actor
-
-
 def fetch_recent_flag_changes(
-    fetch: FlagChangesSince = get_recent_flag_changes,
+    settings: MitigationSettings,
+    fetch: FlagChangesSince = _flag_changes_since,
     now: Clock = utc_now,
-    lookback: Lookback = flag_change_lookback,
-    argus_user: ArgusUser = argus_user,
 ) -> list[FlagChange]:
     """The flag toggles recorded over the configured lookback, oldest first -
     excluding the ones Argus itself made.
@@ -83,17 +105,19 @@ def fetch_recent_flag_changes(
     a window carrying it makes the unambiguous case - one flag changed, so that
     is the one to put back - report two flags and refuse to act.
     """
+    lookback = timedelta(minutes=settings.flag_change_lookback_minutes)
+
     return changes_not_made_by(
-        argus_user(),
-        fetch(since=to_iso(now() - lookback())),
+        settings.unleash_actor,
+        fetch(since=to_iso(now() - lookback)),
     )
 
 
 def argus_changed_flag_since(
     flag: str,
     since: datetime,
-    fetch: FlagChangesSince = get_recent_flag_changes,
-    argus_user: ArgusUser = argus_user,
+    settings: MitigationSettings,
+    fetch: FlagChangesSince = _flag_changes_since,
 ) -> bool | None:
     """Whether Argus's own change to `flag` reached the provider after `since`.
 
@@ -119,14 +143,14 @@ def argus_changed_flag_since(
         # vocabulary turn "could not ask" into a crash inside a resumed walk.
         return None
 
-    return change_by_actor_to(flag, argus_user(), changes)
+    return change_by_actor_to(flag, settings.unleash_actor, changes)
 
 
 def somebody_else_changed_flag_since(
     flag: str,
     since: datetime,
-    fetch: FlagChangesSince = get_recent_flag_changes,
-    argus_user: ArgusUser = argus_user,
+    settings: MitigationSettings,
+    fetch: FlagChangesSince = _flag_changes_since,
 ) -> bool | None:
     """Whether anybody but Argus changed `flag` after `since`.
 
@@ -154,7 +178,7 @@ def somebody_else_changed_flag_since(
 
     return any(
         change.flag == flag
-        for change in changes_not_made_by(argus_user(), changes)
+        for change in changes_not_made_by(settings.unleash_actor, changes)
     )
 
 
@@ -167,7 +191,9 @@ def fetch_recent_metrics() -> list[MetricBucket]:
     have no departure to contrast with, and would read any steady rate as
     healthy however elevated it was.
     """
-    return get_metrics_summary()
+    return get_metrics_summary(
+        endpoint=ReadMcpEndpoint.of(get_settings())
+    )
 
 
 def set_flag(flag: str, enabled: bool) -> UndoDescriptor:
@@ -177,4 +203,6 @@ def set_flag(flag: str, enabled: bool) -> UndoDescriptor:
     with the state reversed. That is not a convenience - it is what lets a
     refuted mitigation be put back in whichever direction it went.
     """
-    return set_feature_flag(flag=flag, enabled=enabled)
+    return set_feature_flag(
+        flag, enabled, endpoint=WriteMcpEndpoint.of(get_settings())
+    )

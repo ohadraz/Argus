@@ -18,13 +18,44 @@ and is not readable from here.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
-from argus_core import Settings, get_settings
+from argus_core import SettingsSlice
+
+
+class FlagReadSettings(SettingsSlice):
+    """What it takes to ask the provider which flags are on.
+
+    The evaluation credential and where to send it, and deliberately nothing
+    more. The admin credential is absent because there is no field here to put
+    it in: the read tier is incapable of mutation rather than disinclined
+    (§13), and a type that cannot name that credential is how it stays true on
+    the day somebody puts one in the environment.
+
+    Named by description rather than by its setting, so that grepping this
+    package for the write tier's credentials answers nothing - a check whose
+    one permanent hit is a comment about not having them is not a check.
+    """
+
+    unleash_base_url: str
+    unleash_frontend_token: str
+
 
 HttpGet = Callable[..., httpx.Response]
-FetchToggles = Callable[[], list[dict[str, Any]]]
+
+
+class FetchToggles(Protocol):
+    """What `enabled_flags` needs from whatever asks the provider.
+
+    A `Protocol` rather than a `Callable` alias so that a test can stand it in
+    with `create_autospec`, which needs something introspectable and an alias
+    is not. Specing against the concrete fetcher below would be specing against
+    a different shape: it takes the credential it sends, and what reads its
+    answer has no business holding one.
+    """
+
+    def __call__(self) -> list[dict[str, Any]]: ...
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -42,7 +73,7 @@ class FlagProviderUnavailable(Exception):
 
 
 def fetch_evaluated_toggles(
-    settings: Settings | None = None,
+    settings: FlagReadSettings,
     get: HttpGet = httpx.get,
 ) -> list[dict[str, Any]]:
     """Asks the provider which flags evaluate true for this credential.
@@ -55,13 +86,12 @@ def fetch_evaluated_toggles(
     body - becomes `FlagProviderUnavailable`. None of them may become "nothing
     is enabled".
     """
-    resolved = settings if settings is not None else get_settings()
-    url = f"{resolved.unleash_base_url}{EVALUATION_PATH}"
+    url = f"{settings.unleash_base_url}{EVALUATION_PATH}"
 
     try:
         response = get(
             url,
-            headers={"Authorization": resolved.unleash_frontend_token},
+            headers={"Authorization": settings.unleash_frontend_token},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -76,7 +106,7 @@ def fetch_evaluated_toggles(
     return toggles
 
 
-def enabled_flags(fetch: FetchToggles = fetch_evaluated_toggles) -> list[str]:
+def enabled_flags(fetch: FetchToggles) -> list[str]:
     """The names of the flags currently on, in the order the provider lists them.
 
     A flag that is off is *absent* from the provider's answer rather than

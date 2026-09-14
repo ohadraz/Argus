@@ -16,16 +16,14 @@ from agent_mitigation.tools import (
     ChangedFromOutside,
     FlagSetter,
     set_flag,
-    somebody_else_changed_flag_since,
 )
 
 __all__ = ["undo_change"]
 
 
 def undo_change(undo_descriptor: UndoDescriptor,
-                set_state: FlagSetter = set_flag,
-                changed_from_outside: ChangedFromOutside =
-                    somebody_else_changed_flag_since) -> UndoAttempt:
+                changed_from_outside: ChangedFromOutside,
+                set_state: FlagSetter = set_flag) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,

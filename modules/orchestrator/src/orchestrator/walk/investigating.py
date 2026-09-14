@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from agent_investigator import investigate as _investigate
 from argus_core.events import AgentInvoked, Publisher, nobody, publish
 from argus_core.models import Actor, Hypothesis, IncidentStatus
 
@@ -22,7 +21,7 @@ from orchestrator.walk.state import IncidentState
 def investigator_node(
     state: IncidentState,
     record_hypothesis: RecordHypothesis,
-    investigate: Investigate = _investigate,
+    investigate: Investigate,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
 ) -> StateDelta:
@@ -33,7 +32,7 @@ def investigator_node(
     `nothing_worth_trying`, the candidate list, the index of the one to try - is
     what the status is derived from, one place further out.
 
-    `investigate`/`record_hypothesis` default to the real investigation call and
+    `record_hypothesis` defaults to the real recorder, and
     repository write, injectable so this node's logic can be unit tested without
     a live Target Service or database - mirroring the seams
     `agent_investigator.investigate()` establishes for its own retrieval and

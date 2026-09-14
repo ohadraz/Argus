@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
 from argus_core.models import Actor, Alert, IncidentStatus, UndoDescriptor, Verdict
 from argus_incidents.publishing import events_into_connection
@@ -39,10 +39,10 @@ def test_a_transition_survives_a_narration_that_could_not_be_written(
     # is written, and losing it loses the only record of how to put it back.
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    records = Records(connect, publisher_for=lambda dont_care_conn: _nobody_can_write)
+    records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
 
     Scenario() \
         .given(
@@ -72,13 +72,13 @@ def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
     # from which two writes and one write look different.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
 
     seen_mid_write: list[IncidentStatus] = []
 
     records = Records(
-        connect,
+        connect_from_env,
         publisher_for=lambda conn: _a_publisher_that_looks_from_outside(
             seen_mid_write, events_into_connection(conn)
         )
@@ -113,7 +113,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
     some_outcome = Verdict.CONFIRMED
     dont_care_undo_descriptor = UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
     
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
@@ -127,7 +127,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
     seen_mid_write: list[str | None] = []
 
     records = Records(
-        connect,
+        connect_from_env,
         publisher_for=lambda conn: _a_publisher_that_looks_at_the_action(
             seen_mid_write, incident_id, candidate.id, events_into_connection(conn)
         )
@@ -169,7 +169,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
     some_outcome = Verdict.REFUTED
     dont_care_undo_descriptor = UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
@@ -180,7 +180,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
             action_type=DONT_CARE_ACTION
         )
 
-    records = Records(connect, publisher_for=lambda dont_care_conn: _nobody_can_write)
+    records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
 
     Scenario() \
         .given(
@@ -222,7 +222,7 @@ def _a_status_change_for(incident_id: str,
 
 def _the_incident_is(incident_id: str, status: IncidentStatus) -> Assertion[None]:
     def assertion(_result: None) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             incident = incidents.get(conn, incident_id)
 
         if incident is None:
@@ -240,7 +240,7 @@ def _the_incident_is(incident_id: str, status: IncidentStatus) -> Assertion[None
 
 def _nothing_was_narrated(incident_id: str) -> Assertion[None]:
     def assertion(_result: None) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             narrated = events.get_by_incident(conn, incident_id)
 
         if narrated:
@@ -257,7 +257,7 @@ def _nothing_was_narrated(incident_id: str) -> Assertion[None]:
 def _the_narration_records(incident_id: str,
                            status: IncidentStatus) -> Assertion[None]:
     def assertion(_result: None) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             narrated = events.get_by_incident(conn, incident_id)
 
         told = [event.to_status
@@ -300,7 +300,7 @@ def _a_publisher_that_looks_from_outside(seen: list[IncidentStatus],
     """Reads the incident from a second connection while the first is still
     holding the transition open, then lets the real subscriber write."""
     def publisher(event: IncidentEvent) -> None:
-        with connect() as another_connection:
+        with connect_from_env() as another_connection:
             looking = incidents.get(another_connection, event.incident_id)
 
             if looking is None:
@@ -322,7 +322,7 @@ def _a_publisher_that_looks_at_the_action(seen: list[str | None],
     """Reads the action back from a second connection while the first still
     holds the outcome open, then lets the real subscriber write."""
     def publisher(event: IncidentEvent) -> None:
-        with connect() as another_connection:
+        with connect_from_env() as another_connection:
             taken = taken_actions.get_action_for_hypothesis(
                 another_connection, incident_id, hypothesis_id
             )
@@ -363,7 +363,7 @@ def _the_action_records_the_outcome(incident_id: str,
                                     hypothesis_id: str,
                                     outcome: str) -> Assertion[None]:
     def assertion(_result: None) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             taken = taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
 
         if taken is None:
@@ -382,7 +382,7 @@ def _the_action_records_the_outcome(incident_id: str,
 def _the_narration_reports_the_verdict(incident_id: str,
                                        outcome: str) -> Assertion[None]:
     def assertion(_result: None) -> bool:
-        with connect() as conn:
+        with connect_from_env() as conn:
             narrated = events.get_by_incident(conn, incident_id)
 
         reached = [event.outcome

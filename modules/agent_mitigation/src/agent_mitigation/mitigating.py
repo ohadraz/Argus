@@ -10,15 +10,14 @@ from __future__ import annotations
 from argus_core.models import Hypothesis
 
 from agent_mitigation.actions import ActionTaker, Outcome, Verdict, propose_action
-from agent_mitigation.tools import FlagChangeFetcher, fetch_recent_flag_changes
-from agent_mitigation.trying import take_action
+from agent_mitigation.tools import FlagChangeFetcher
 
 __all__ = ["mitigate"]
 
 
 def mitigate(hypothesis: Hypothesis,
-             fetch_flag_changes: FlagChangeFetcher = fetch_recent_flag_changes,
-             take: ActionTaker = take_action) -> Outcome:
+             fetch_flag_changes: FlagChangeFetcher,
+             take: ActionTaker) -> Outcome:
     """Answers `hypothesis` with a reversible action and a verdict (spec §7.3).
 
     Takes the whole `Hypothesis` rather than its summary text because

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation.tools import (
     FlagChangesSince,
+    MitigationSettings,
     argus_changed_flag_since,
     fetch_recent_flag_changes,
 )
@@ -36,7 +37,10 @@ def test_a_provider_that_cannot_be_reached_answers_nothing() -> None:
         ) \
         .when(
             lambda: argus_changed_flag_since(
-                SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, fetch=the_provider_is_down
+                SOME_FLAG,
+                THE_MOMENT_IT_WAS_CLAIMED,
+                _some_mitigation_settings(),
+                fetch=the_provider_is_down
             )
         ) \
         .then(
@@ -54,7 +58,10 @@ def test_the_provider_is_asked_from_the_moment_the_action_was_claimed() -> None:
         ) \
         .when(
             lambda: argus_changed_flag_since(
-                SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, fetch=fetch
+                SOME_FLAG,
+                THE_MOMENT_IT_WAS_CLAIMED,
+                _some_mitigation_settings(),
+                fetch=fetch
             )
         ) \
         .then(
@@ -71,10 +78,10 @@ def test_a_change_the_provider_attributes_to_argus_is_argus_own() -> None:
             argus_changed_it := _a_provider_reporting(_a_change_by(SOME_ARGUS_USER))
         ) \
         .when(
-            lambda: argus_changed_flag_since(SOME_FLAG, 
-                                             THE_MOMENT_IT_WAS_CLAIMED, 
-                                             fetch=argus_changed_it, 
-                                             argus_user=lambda: SOME_ARGUS_USER
+            lambda: argus_changed_flag_since(SOME_FLAG,
+                                             THE_MOMENT_IT_WAS_CLAIMED,
+                                             _some_mitigation_settings(),
+                                             fetch=argus_changed_it
             )
         ) \
         .then(
@@ -94,8 +101,8 @@ def test_a_change_the_provider_attributes_to_somebody_else_is_not_argus_own() ->
         .when(
             lambda: argus_changed_flag_since(SOME_FLAG,
                                              THE_MOMENT_IT_WAS_CLAIMED,
-                                             fetch=somebody_else_changed_it,
-                                             argus_user=lambda: SOME_ARGUS_USER
+                                             _some_mitigation_settings(),
+                                             fetch=somebody_else_changed_it
             )
         ) \
         .then(
@@ -116,10 +123,9 @@ def test_the_window_asked_for_reaches_back_one_lookback_from_now() -> None:
         ) \
         .when(
             lambda: fetch_recent_flag_changes(
+                _some_mitigation_settings(lookback=some_lookback),
                 fetch=fetch,
-                now=lambda: some_moment,
-                lookback=lambda: some_lookback,
-                argus_user=lambda: SOME_ARGUS_USER
+                now=lambda: some_moment
             )
         ) \
         .then(
@@ -142,10 +148,9 @@ def test_changes_argus_made_itself_are_left_out() -> None:
         ) \
         .when(
             lambda: fetch_recent_flag_changes(
+                _some_mitigation_settings(),
                 fetch=fetch,
-                now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
-                lookback=lambda: timedelta(minutes=30),
-                argus_user=lambda: SOME_ARGUS_USER
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED
             )
         ) \
         .then(
@@ -222,3 +227,22 @@ def _it_returned_only(*expected: FlagChange) -> Assertion[list[FlagChange]]:
         return True
 
     return assertion
+
+
+def _some_mitigation_settings(
+    actor: str = SOME_ARGUS_USER,
+    lookback: timedelta = timedelta(minutes=30)
+) -> MitigationSettings:
+    """How Mitigation behaves, as this suite sets it.
+
+    The actor and the lookback are what these tests are about - who a change is
+    attributed to, and how far back the window reaches. The wait is never
+    reached here, since nothing in this file takes an action.
+    """
+    a_wait_nothing_here_reaches = 180.0
+
+    return MitigationSettings(
+        flag_change_lookback_minutes=int(lookback.total_seconds() // 60),
+        unleash_actor=actor,
+        mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches
+    )

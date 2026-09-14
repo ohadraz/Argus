@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import incidents, runs
 from argus_incidents.withdrawal import wanted_via
@@ -31,7 +31,7 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker(a_clean_database: None
     def walk_recording_what_it_was_given(incident_id: str) -> None:
         walked.append(incident_id)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -46,7 +46,7 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker(a_clean_database: None
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect)
+                    still_wanted=wanted_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -69,7 +69,7 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking(a_clean_datab
             f"[{incident_id}]."
         )
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         Scenario() \
             .when(
                 lambda: worker.take_one_run(
@@ -78,7 +78,7 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking(a_clean_datab
                     A_GENEROUS_LEASE,
                     walk=walk_that_must_not_be_called,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect)
+                    still_wanted=wanted_via(connect_from_env)
                 )
             ) \
             .then(
@@ -102,7 +102,7 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
     def walk_that_fails(dont_care_incident_id: str) -> None:
         raise RuntimeError(what_went_wrong)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -117,7 +117,7 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect)
+                    still_wanted=wanted_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -139,7 +139,7 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: No
     def walk_recording_what_it_was_given(incident_id: str) -> None:
         walked.append(incident_id)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -153,7 +153,7 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: No
                     dont_care_worker,
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
-                    still_wanted=wanted_via(connect),
+                    still_wanted=wanted_via(connect_from_env),
                     unwind=_an_unwind_recording_what_it_was_given([])
                 )
             ) \
@@ -173,7 +173,7 @@ def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -
     dont_care_worker = "a-worker"
     unwound: list[str] = []
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -188,7 +188,7 @@ def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_must_not_be_called(),
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    still_wanted=wanted_via(connect)
+                    still_wanted=wanted_via(connect_from_env)
                 )
             ) \
             .then(
@@ -207,7 +207,7 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
     dont_care_worker = "a-worker"
     unwound: list[str] = []
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -225,7 +225,7 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_partway,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    still_wanted=wanted_via(connect)
+                    still_wanted=wanted_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -249,7 +249,7 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_data
     def walk_recording_what_it_was_given(incident_id: str) -> None:
         walked.append(incident_id)
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
         runs.enqueue(conn, incident_id)
 
@@ -264,7 +264,7 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_data
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
                     unwind=_an_unwind_that_must_not_be_called(),
-                    still_wanted=wanted_via(connect),
+                    still_wanted=wanted_via(connect_from_env),
                 )
             ) \
             .then(all_of(

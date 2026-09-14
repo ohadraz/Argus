@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import time
 from datetime import timedelta
+from functools import partial
 from typing import Protocol
 
-from argus_core import get_settings, to_iso_minute
-from argus_core.anomaly import has_recovered_since
+from argus_core import to_iso_minute
+from argus_core.anomaly import AnomalyThresholds, has_recovered_since
 from argus_core.events import (
     AwaitingRecovery,
     Publisher,
@@ -35,6 +36,7 @@ from agent_mitigation.tools import (
     Clock,
     FlagSetter,
     MetricsFetcher,
+    MitigationSettings,
     Sleeper,
     StillWanted,
     fetch_recent_metrics,
@@ -63,9 +65,12 @@ class UndoChange(Protocol):
 
     def __call__(self,
                  undo_descriptor: UndoDescriptor,
-                 set_state: FlagSetter = ...,
-                 changed_from_outside: ChangedFromOutside = ...) -> UndoAttempt:
+                 set_state: FlagSetter = ...) -> UndoAttempt:
         ...
+
+    # No `changed_from_outside` here any more. Whoever supplies the undo binds
+    # the provider check into it, because that check needs the configuration
+    # this module is handed rather than the one it used to read.
 
 
 def _nobody_stopped_this_walk() -> bool:
@@ -80,16 +85,18 @@ def _nobody_stopped_this_walk() -> bool:
 
 
 def take_action(action: Action,
+                settings: MitigationSettings,
+                thresholds: AnomalyThresholds,
                 set_state: FlagSetter = set_flag,
                 fetch_metrics: MetricsFetcher = fetch_recent_metrics,
                 now: Clock = utc_now,
                 sleep: Sleeper = time.sleep,
                 still_wanted: StillWanted = _nobody_stopped_this_walk,
-                changed_from_outside: ChangedFromOutside =
-                    somebody_else_changed_flag_since,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody,
-                undo: UndoChange = undo_change) -> Outcome:
+                *,
+                changed_from_outside: ChangedFromOutside | None = None,
+                undo: UndoChange | None = None) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
     Three things happen in order, and the order is the point. The flag is set,
@@ -120,8 +127,16 @@ def take_action(action: Action,
             detail=f"could not set flag [{action.flag}]: {error}",
         )
 
+    outside = changed_from_outside if changed_from_outside is not None else partial(
+        somebody_else_changed_flag_since, settings=settings
+    )
+    putting_back = undo if undo is not None else partial(
+        undo_change, changed_from_outside=outside
+    )
+
     settled = _what_watching_the_service_settled(
-        fetch_metrics, now, sleep, still_wanted, incident_id, publisher
+        fetch_metrics, now, sleep, still_wanted, settings, thresholds,
+        incident_id, publisher
     )
 
     if settled is Verdict.CONFIRMED:
@@ -148,13 +163,15 @@ def take_action(action: Action,
             undo_descriptor=undo_descriptor,
         )
 
-    return _undone(action, undo_descriptor, set_state, changed_from_outside, undo)
+    return _undone(action, undo_descriptor, set_state, outside, putting_back)
 
 
 def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
                                        now: Clock,
                                        sleep: Sleeper,
                                        still_wanted: StillWanted,
+                                       settings: MitigationSettings,
+                                       thresholds: AnomalyThresholds,
                                        incident_id: str | None = None,
                                        publisher: Publisher = nobody) -> Verdict:
     """What the service did after the action, within the time allowed.
@@ -173,7 +190,6 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     is doing something and has nothing to show for it yet, and a page that went
     quiet here would read as a page that had stopped.
     """
-    settings = get_settings()
     started_at = now()
     deadline = started_at + timedelta(
         seconds=settings.mitigation_verification_timeout_seconds
@@ -196,7 +212,9 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         ))
 
     while True:
-        recovered = has_recovered_since(fetch_metrics(), first_whole_minute)
+        recovered = has_recovered_since(
+            fetch_metrics(), first_whole_minute, thresholds
+        )
         if incident_id is not None:
             say(RecoveryChecked(
                 incident_id=incident_id,
@@ -239,7 +257,7 @@ def _undone(action: Action,
     """
     was_enabled = undo_descriptor.was_enabled
     taken = f"set flag [{action.flag}] {state_name(action.enabled)}"
-    attempt = undo(undo_descriptor, set_state, changed_from_outside)
+    attempt = undo(undo_descriptor, set_state=set_state)
 
     if attempt.outcome is Undone.NOT_ESTABLISHED:
         return Outcome(

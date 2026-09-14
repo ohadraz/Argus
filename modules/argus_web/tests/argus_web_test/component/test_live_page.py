@@ -14,7 +14,7 @@ from typing import Final
 
 import psycopg
 import pytest
-from argus_core import connect
+from argus_core import connect_from_env
 from argus_core.events import (
     AlertAcknowledged,
     HypothesisFormed,
@@ -39,7 +39,7 @@ _POLLS_FOR_MORE: Final = "hx-trigger"
 def test_the_front_page_says_when_nothing_is_happening() -> None:
     # Argus is idle most of the time, and a screen left open during a demo has
     # to say that rather than show an empty frame that reads as broken.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
 
     Scenario() \
@@ -56,7 +56,7 @@ def test_the_front_page_keeps_asking_so_an_incident_arrives_on_its_own() -> None
     # Somebody opens this screen before staging the scenario. If the page only
     # showed what existed when it was opened, the incident they are waiting for
     # would never appear.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
 
     Scenario() \
@@ -73,7 +73,7 @@ def test_the_front_page_shows_the_incident_that_has_not_finished() -> None:
     # Not simply the newest: an incident that resolved after this one opened
     # has nothing left to watch, and the one still running is the only thing
     # anybody came to this page for.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         still_running = incidents.create(conn, _an_alert("running-service"))
         already_finished = incidents.create(conn, _an_alert("finished-service"))
@@ -95,7 +95,7 @@ def test_the_front_page_shows_the_incident_that_has_not_finished() -> None:
 def test_with_nothing_running_the_front_page_shows_the_newest_one_as_finished() -> None:
     # A resolved incident vanishing the moment it resolves would take it off
     # the screen exactly when everyone in the room is looking at it.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
         _finished(conn, incident_id)
@@ -117,7 +117,7 @@ def test_with_nothing_running_the_front_page_shows_the_newest_one_as_finished() 
 def test_the_front_page_narrates_what_argus_did_in_the_order_it_did_it() -> None:
     # The account is a sequence. A page that reordered it would be telling a
     # different story from the one that was recorded.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
         _recorded(conn, AlertAcknowledged(incident_id=incident_id, alert=_an_alert("io-shop")))
@@ -142,7 +142,7 @@ def test_the_front_page_narrates_what_argus_did_in_the_order_it_did_it() -> None
 def test_a_metrics_retrieval_is_shown_as_a_table_with_the_bad_minutes_marked() -> None:
     # The shop's console reddens the same minutes. Two screens side by side in
     # a demo that mark different ones make a reader translate between them.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
         _recorded(
@@ -175,7 +175,7 @@ def test_a_metrics_retrieval_is_shown_as_a_table_with_the_bad_minutes_marked() -
 def test_a_log_retrieval_is_shown_with_its_levels_distinguished() -> None:
     # Warnings and errors apart from the rest, at a glance, in a page somebody
     # is scanning while the incident is still running.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
         _recorded(
@@ -210,7 +210,7 @@ def test_the_evidence_shown_is_the_evidence_that_was_read() -> None:
     # would show what the log store says now rather than what Argus saw.
     a_line_that_was_read = "2026-08-30T10:14Z ERROR io-shop: account page request failed"
 
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
         _recorded(
@@ -239,7 +239,7 @@ def test_the_evidence_shown_is_the_evidence_that_was_read() -> None:
 def test_the_front_page_reaches_the_history_and_the_incidents_own_page() -> None:
     # Both without knowing a URL: somebody watching the live page is one click
     # from an older incident, and one click from this one's whole walk.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
 
@@ -260,7 +260,7 @@ def test_the_front_page_reaches_the_history_and_the_incidents_own_page() -> None
 def test_the_polled_live_fragment_carries_the_incident_on_its_own() -> None:
     # What the poll swaps in. If it did not carry the incident, a page opened
     # before the alert arrived would refresh itself into an empty one forever.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
 
@@ -281,7 +281,7 @@ def test_an_incidents_own_page_narrates_it_too() -> None:
     # The account of a finished incident is the point of recording one. A
     # narration only reachable while the incident is still running would be a
     # replay log nobody can replay.
-    with connect() as conn:
+    with connect_from_env() as conn:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
         _recorded(conn, OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:14Z"))

@@ -3,8 +3,6 @@ from __future__ import annotations
 from functools import partial
 from typing import Any, Final
 
-from argus_core import get_settings
-
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
 # holds both.
@@ -98,7 +96,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
 
     deciding_status = partial(
         with_status,
-        max_rounds=get_settings().investigation_max_rounds,
+        max_rounds=collaborators.max_rounds,
         transition_incident=collaborators.transition_incident,
         still_wanted=collaborators.still_wanted
     )
@@ -147,7 +145,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     graph.add_node(
         NEXT_CANDIDATE_NODE,
         deciding_status(
-            partial(next_candidate_node, publisher=collaborators.publisher)
+            partial(next_candidate_node,
+                    publisher=collaborators.publisher,
+                    max_rounds=collaborators.max_rounds)
         )
     )
     graph.add_node(CODEFIX_NODE, deciding_status(codefix_node))
