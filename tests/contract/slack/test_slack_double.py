@@ -58,7 +58,11 @@ def test_a_message_the_workspace_accepts_comes_back_with_an_id() -> None:
     Scenario() \
         .given(the_war_room := get_settings().slack_war_room_channel) \
         .when(lambda: post_message(
-            the_war_room, A_CONTRACT_CHECK, slack=a_slack_client(settings=_some_slack_settings())
+            the_war_room,
+            A_CONTRACT_CHECK,
+            slack=a_slack_client(settings=_some_slack_settings(
+                token=get_settings().slack_bot_token
+            ))
         )) \
         .then(all_of(_it_landed(), _it_reads_as(_the_double_asked_the_same_way())))
 
@@ -73,7 +77,10 @@ def test_a_channel_the_workspace_cannot_find_is_refused_by_name() -> None:
     Scenario() \
         .given(NO_SUCH_CHANNEL) \
         .when(lambda: post_message(
-            NO_SUCH_CHANNEL, A_CONTRACT_CHECK, slack=a_slack_client(settings=_some_slack_settings())
+            NO_SUCH_CHANNEL, A_CONTRACT_CHECK,
+            slack=a_slack_client(settings=_some_slack_settings(
+                token=get_settings().slack_bot_token
+            ))
         )) \
         .then(all_of(
             _it_was_refused_for(CHANNEL_NOT_FOUND),
