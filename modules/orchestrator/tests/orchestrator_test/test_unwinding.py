@@ -9,7 +9,7 @@ import pytest
 from agent_mitigation import UndoAttempt
 from argus_core import new_id
 from argus_core.events import ChangeUndone, IncidentEvent
-from argus_core.models import TakenAction, UndoDescriptor, Undone
+from argus_core.models import FlagUndo, TakenAction, UndoDescriptor, Undone
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import unwinding
 from orchestrator.unwinding import unwind_incident
@@ -318,7 +318,7 @@ def _restored(flag: str) -> UndoAttempt:
 
 
 def _an_undo_descriptor_for(flag: str, was_enabled: bool = True) -> UndoDescriptor:
-    return UndoDescriptor(
+    return FlagUndo(
         flag=flag,
         was_enabled=was_enabled,
         environment="production"

@@ -6,15 +6,19 @@ model, no I/O. The Investigator already made the judgement; a model standing
 between a verdict and a write can only hallucinate, or pick a tool that exists
 anyway.
 
+*Which* action answers a given cause is not decided here: that is one thing per
+cause, and it lives with the strategy for it in `strategies.py`. What is here is
+the lookup, and the answer for a cause no strategy is registered for.
+
 Keeping the choice separate from the doing is what makes §13's gate more than a
 comment: the Orchestrator can reject an action before anything mutating is
 called, where a gate inside the function that also performs the write would
 guard nothing.
 
-`Action`, `Outcome` and `Verdict` themselves live in `argus_core.models.action`
-- they cross into the Orchestrator's graph state and into the `action` table,
-so they belong to no single agent - and are re-exported here because this is
-where a caller reasoning about mitigation looks for them.
+`Action`, `RevertFeatureFlag`, `Outcome` and `Verdict` themselves live in
+`argus_core.models.action` - they cross into the Orchestrator's graph state and
+into the `action` table, so they belong to no single agent - and are re-exported
+here because this is where a caller reasoning about mitigation looks for them.
 """
 
 from __future__ import annotations
@@ -23,22 +27,25 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
     Action,
-    CauseType,
     FlagChange,
     Hypothesis,
     Outcome,
-    UndoDescriptor,
+    RevertFeatureFlag,
     Undone,
     Verdict,
 )
 from pydantic import BaseModel
+
+from agent_mitigation.strategies import DEFAULT_STRATEGIES, Strategies
 
 __all__ = [
     "REVERT_FEATURE_FLAG",
     "Action",
     "ActionTaker",
     "Outcome",
+    "RevertFeatureFlag",
     "UndoAttempt",
     "Undone",
     "Verdict",
@@ -86,73 +93,36 @@ class UndoAttempt(BaseModel):
     detail: str
 
 
-REVERT_FEATURE_FLAG = "revert-feature-flag"
-
-
 def propose_action(hypothesis: Hypothesis,
-                   flag_changes: Sequence[FlagChange]) -> Action | None:
+                   flag_changes: Sequence[FlagChange],
+                   strategies: Strategies = DEFAULT_STRATEGIES) -> Action | None:
     """The reversible action that answers `hypothesis`, or `None` where none
     does (spec §7.3).
+
+    A lookup, and nothing else. What to do about a given cause is the
+    strategy's to say; what this adds is that a cause nobody registered one for
+    is answered with `None` rather than with an exception - the walk has a
+    place to go when Argus has nothing to offer, and it is the same place as
+    "there was a strategy and it found nothing to reverse". A candidate that
+    named no cause at all reaches that same answer: there is nothing to look a
+    strategy up by, which is not a different situation from having looked and
+    found none.
 
     Pure: `flag_changes` arrives as a value rather than being fetched here, so
     that choosing an action cannot depend on a provider being reachable, and
     the Orchestrator can gate the choice before any I/O happens on its behalf.
 
-    Which flag comes from the hypothesis, confirmed against what the provider
-    recorded as changing - never from Argus's configuration and never from
-    which flags are currently on. A configured flag name would hardcode the
-    demo's answer into the agent, and current state cannot see half the
-    problem: a flag switched off into an incident is off now, exactly like
-    every flag that has been off for a year.
-
-    Reading the Investigator's conclusion is not a second investigation. This
-    stays a pure function of the hypothesis and the changes handed to it: no
-    retrieval, no model, and no judgement of its own about what caused the
-    incident. Which way the flag moved still comes from the record, never from
-    the hypothesis, so prose that described the toggle backwards cannot turn a
-    flag the wrong way.
+    `strategies` is a parameter so a caller can ask what a different set of
+    them would propose. The default is the real registry rather than nothing,
+    because proposing is policy: a caller that had to supply the policy in
+    order to ask the question would be answering it.
     """
-    if hypothesis.cause_type is not CauseType.FEATURE_FLAG_TOGGLE:
+    if hypothesis.cause_type is None:
         return None
 
-    change = _the_change_to_undo(hypothesis.subject, flag_changes)
+    strategy = strategies.get(hypothesis.cause_type)
 
-    if change is None:
+    if strategy is None:
         return None
 
-    return Action(
-        action_type=REVERT_FEATURE_FLAG,
-        flag=change.flag,
-        enabled=not change.enabled,
-        undo_descriptor=UndoDescriptor(
-            flag=change.flag,
-            was_enabled=change.enabled
-        )
-    )
-
-
-def _the_change_to_undo(subject: str | None,
-                        flag_changes: Sequence[FlagChange]) -> FlagChange | None:
-    """The recorded change this action should reverse, or `None` where the
-    evidence does not identify one.
-
-    A flag toggled more than once counts once, and it is its *latest* change
-    that is undone: the incident is happening now, so the state to put back is
-    the one the service is in now, not whatever it was at the far edge of the
-    window. `flag_changes` arrives oldest first, so the last mention of a flag
-    is the current one.
-
-    A hypothesis that named a flag selects it from among these; a hypothesis
-    that named none falls back to the window being unambiguous by itself.
-    """
-    latest_per_flag: dict[str, FlagChange] = {
-        change.flag: change for change in flag_changes
-    }
-
-    if subject is not None:
-        return latest_per_flag.get(subject)
-
-    if len(latest_per_flag) != 1:
-        return None
-
-    return next(iter(latest_per_flag.values()))
+    return strategy.propose(hypothesis, flag_changes)

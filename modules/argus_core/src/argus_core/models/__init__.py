@@ -10,7 +10,14 @@ Argus says about an incident, said once, so that every module saying it is
 saying the same thing.
 """
 
-from argus_core.models.action import Action, Outcome, Verdict
+from argus_core.models.action import (
+    REVERT_FEATURE_FLAG,
+    Action,
+    ActionType,
+    Outcome,
+    RevertFeatureFlag,
+    Verdict,
+)
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
@@ -36,12 +43,19 @@ from argus_core.models.transcript import (
     Transcript,
 )
 from argus_core.models.turn import ToolCall, Turn
-from argus_core.models.undo_descriptor import SET_FEATURE_FLAG_TOOL, UndoDescriptor
+from argus_core.models.undo_descriptor import (
+    SET_FEATURE_FLAG_TOOL,
+    FlagUndo,
+    UndoDescriptor,
+    parse_undo_descriptor,
+)
 from argus_core.models.undone import Undone
 
 __all__ = [
+    "REVERT_FEATURE_FLAG",
     "SET_FEATURE_FLAG_TOOL",
     "Action",
+    "ActionType",
     "Actor",
     "Alert",
     "Ask",
@@ -52,6 +66,7 @@ __all__ = [
     "Evidence",
     "Exchange",
     "FlagChange",
+    "FlagUndo",
     "Hypothesis",
     "Incident",
     "IncidentStatus",
@@ -64,6 +79,7 @@ __all__ = [
     "Reading",
     "Refusal",
     "RetrievalChannel",
+    "RevertFeatureFlag",
     "TakenAction",
     "ToolCall",
     "ToolDefinition",
@@ -73,5 +89,6 @@ __all__ = [
     "Turn",
     "UndoDescriptor",
     "Undone",
-    "Verdict"
+    "Verdict",
+    "parse_undo_descriptor"
 ]

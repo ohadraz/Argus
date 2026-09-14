@@ -103,10 +103,16 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     An action the gate refused never ran, so there is nothing to remember and
     nothing a later round could learn from it. Only a change that was made -
     and undone - is evidence about the cause it was made on.
+
+    A cleared action is the whole of that test. It used to ask after the undo
+    descriptor as well, back when an action could carry none; an action of a
+    reversible kind cannot be built without one now, so that half of the
+    condition could only ever be false - and nothing would have said so, since
+    mypy is not asked to warn about unreachable code.
     """
     action = state.proposed_action
 
-    if action is None or action.undo_descriptor is None:
+    if action is None:
         return []
 
     return [

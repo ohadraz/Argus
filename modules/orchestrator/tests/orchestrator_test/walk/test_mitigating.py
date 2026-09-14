@@ -16,9 +16,11 @@ from argus_core.events import (
 from argus_core.models import (
     Action,
     Alert,
+    FlagUndo,
     Hypothesis,
     IncidentStatus,
     Outcome,
+    RevertFeatureFlag,
     UndoDescriptor,
     Verdict,
 )
@@ -226,7 +228,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
     # The descriptor the write tier returned, not the one proposed: it is the
     # record of what actually changed, and it is what a human reading the
     # incident afterwards would have to act on.
-    some_undo_descriptor = UndoDescriptor(flag=SOME_FLAG_THE_CANDIDATE_BLAMES,
+    some_undo_descriptor = FlagUndo(flag=SOME_FLAG_THE_CANDIDATE_BLAMES,
                                           was_enabled=False,
                                           environment="production")
 
@@ -299,7 +301,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
     # The candidate learns nothing, but the action row must: the flag is still
     # changed, and the undo descriptor is the only record of what would restore
     # it. Without it the withdrawal has nothing to unwind.
-    some_undo_descriptor = UndoDescriptor(flag=DONT_CARE_FLAG, was_enabled=True)
+    some_undo_descriptor = FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
 
     Scenario() \
         .given(
@@ -784,10 +786,11 @@ def _a_candidate_blaming(flag: str) -> Hypothesis:
 
 
 def _an_action_with_an_undo_descriptor() -> Action:
-    return Action(action_type="revert-feature-flag",
-                  flag=DONT_CARE_FLAG,
-                  enabled=False,
-                  undo_descriptor=UndoDescriptor(flag=DONT_CARE_FLAG, was_enabled=True))
+    return RevertFeatureFlag(
+        flag=DONT_CARE_FLAG,
+        enabled=False,
+        undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
+    )
 
 
 def _the_action_came_back(take: MagicMock,

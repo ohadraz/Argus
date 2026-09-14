@@ -29,7 +29,7 @@ from typing import Any, Protocol
 
 import httpx
 from argus_core import SettingsSlice
-from argus_core.models import UndoDescriptor
+from argus_core.models import FlagUndo
 
 
 class FlagWriteSettings(SettingsSlice):
@@ -128,7 +128,7 @@ def set_flag(
     post: HttpPost = httpx.post,
     *,
     evaluate: EvaluateFlags,
-) -> UndoDescriptor:
+) -> FlagUndo:
     """Sets `flag` on or off in the configured environment and waits until it is.
 
     Returns the undo descriptor: the state that existed before, which is what
@@ -157,7 +157,7 @@ def set_flag(
 
     _wait_until_evaluating(flag, enabled, evaluate)
 
-    return UndoDescriptor(
+    return FlagUndo(
         flag=flag,
         was_enabled=not enabled,
         environment=settings.unleash_environment,

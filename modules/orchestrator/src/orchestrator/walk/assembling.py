@@ -17,7 +17,7 @@ from functools import partial
 
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
-from agent_mitigation import take_action
+from agent_mitigation import can_be_undone, take_action
 from agent_mitigation.tools import (
     MitigationSettings,
     argus_changed_flag_since,
@@ -45,6 +45,7 @@ from orchestrator.walk.ports import (
     RecordHypothesis,
     RecordOutcome,
     RecordPostmortem,
+    Reversible,
     TakeAction,
     TransitionIncident,
     WritePostmortem,
@@ -66,6 +67,7 @@ class Collaborators:
     record_hypothesis: RecordHypothesis
     fetch_flag_changes: FetchFlagChanges
     record_outcome: RecordOutcome
+    reversible: Reversible
     take: TakeAction
     record_action: RecordAction
     complete_action: CompleteAction
@@ -123,6 +125,11 @@ def against(connections: Connections) -> Collaborators:
         # agent every time it is asked a question.
         fetch_flag_changes=partial(fetch_recent_flag_changes, mitigation),
         record_outcome=records.outcome,
+        # The gate's question, answered by the agent that would have to perform
+        # the undo. Bound here rather than imported by the gate, so that the one
+        # check standing between a proposal and production is asked of something
+        # a test can replace.
+        reversible=can_be_undone,
         take=partial(
             take_action,
             settings=mitigation,

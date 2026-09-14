@@ -1,0 +1,18 @@
+# Line endings are LF everywhere - in the repository and in the working tree,
+# on every platform.
+#
+# Without this file the tree's endings are whatever each developer's
+# `core.autocrlf` happens to say. On Windows that setting is normally `true`,
+# which checks every text file out as CRLF while storing it as LF: the commits
+# stay clean, but the bytes on disk differ between the machine that wrote a file
+# and the machine that reads it. A tool that compares file contents, hashes a
+# fixture, or counts bytes then answers differently on Windows than in CI or on
+# a mac, and the difference is invisible in every diff.
+#
+# `text=auto` leaves git to decide what is text: anything it detects as binary is
+# left exactly as it is, whatever the `eol` says.
+* text=auto eol=lf
+
+# Said outright rather than left to detection, because a mis-detected image is
+# an image with LF substituted into it - corruption that survives a commit.
+*.png binary

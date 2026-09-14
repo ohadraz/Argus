@@ -6,7 +6,7 @@ from argus_core.events import ActionRefused, Publisher, nobody, publish
 from argus_core.models import Action, Refusal
 
 from orchestrator.walk.deltas import StateDelta
-from orchestrator.walk.ports import RecordOutcome
+from orchestrator.walk.ports import RecordOutcome, Reversible
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -16,7 +16,7 @@ from orchestrator.walk.state import IncidentState
 # carries the value anything counting refusals reads.
 _WHAT_THE_ROW_SAYS = {
     Refusal.NO_REVERSIBLE_ACTION: "no reversible action was proposed for this cause",
-    Refusal.NOT_REVERSIBLE: "the proposed action carries no undo descriptor, so it "
+    Refusal.NOT_REVERSIBLE: "actions of this kind cannot be put back, so this one "
                             "is not reversible"
 }
 
@@ -24,6 +24,7 @@ _WHAT_THE_ROW_SAYS = {
 def tier_gate_node(
     state: IncidentState,
     record_outcome: RecordOutcome,
+    reversible: Reversible,
     publisher: Publisher = nobody
 ) -> StateDelta:
     """Refuses to let a reversible action reach its call without a way back
@@ -31,9 +32,9 @@ def tier_gate_node(
 
     The one check, and the reason it lives here rather than inside the agent
     that performs the write: a guarantee enforced by the code it constrains is
-    a convention, not a guarantee. An action with no undo descriptor is not
-    reversible however it is labelled, and an incident with no action at all
-    has nothing for this stage to admit.
+    a convention, not a guarantee. An action of a kind Argus has no way back
+    from is not reversible however it is labelled, and an incident with no
+    action at all has nothing for this stage to admit.
 
     A rejection is recorded and the walk moves on, rather than ending the
     incident. The gate is judging *this* action, and the explanations after it
@@ -52,7 +53,7 @@ def tier_gate_node(
     make impossible; silently dropping it would leave an incident that simply
     stopped.
     """
-    refusal = _why_the_action_cannot_proceed(state.proposed_action)
+    refusal = _why_the_action_cannot_proceed(state.proposed_action, reversible)
 
     if refusal is None:
         return StateDelta()
@@ -75,18 +76,25 @@ def tier_gate_node(
     return StateDelta(proposed_action=None)
 
 
-def _why_the_action_cannot_proceed(action: Action | None) -> Refusal | None:
+def _why_the_action_cannot_proceed(action: Action | None,
+                                   reversible: Reversible) -> Refusal | None:
     """Which refusal this is, or `None` when there is none to give.
 
     Two rejections reach the same status for different reasons, and a human
     reading the incident needs to know which: nothing to do at all, or
     something to do that could not be undone. Answered as the value, so that
     the sentence a reader sees is derived from it in one place rather than
-    written here and matched on somewhere else."""
+    written here and matched on somewhere else.
+
+    The second is asked of the strategy rather than read off the action. It
+    used to be a null check on the instance's undo descriptor, which stopped
+    being a question the day that field became required: what §13 refuses is a
+    *kind* of action Argus has no way back from, and only the thing that knows
+    how to undo one can say whether this is such a kind."""
     if action is None:
         return Refusal.NO_REVERSIBLE_ACTION
 
-    if action.undo_descriptor is None:
+    if not reversible(action):
         return Refusal.NOT_REVERSIBLE
 
     return None

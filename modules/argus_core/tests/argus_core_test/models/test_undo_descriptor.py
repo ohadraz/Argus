@@ -4,7 +4,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from argus_core.models.undo_descriptor import SET_FEATURE_FLAG_TOOL, UndoDescriptor
+from argus_core.models.undo_descriptor import (
+    SET_FEATURE_FLAG_TOOL,
+    UndoDescriptor,
+    parse_undo_descriptor,
+)
 from argus_core.timestamps import to_iso
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from pydantic import ValidationError
@@ -21,11 +25,18 @@ Read out of raw JSON by hand, a descriptor missing one of those surfaces as a
 `KeyError` inside the undo, at the one moment nothing can be done about it. It
 crosses an MCP boundary and a JSONB column on the way, so the shape holds only
 if something checks it.
+
+`kind` is what says which sort of change this is, and it is on the wire because
+a descriptor is read back by a process that holds nothing but the JSON. It is
+spelled out here rather than imported from the model: this file is what pins the
+wire shape, and a test that took the tag from the code it checks would agree
+with any change to it.
 """
 
 SOME_FLAG = "monthly-spend-feature"
 SOME_ENVIRONMENT = "production"
 THE_MOMENT_ARGUS_WROTE = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
+A_FLAG_CHANGE = "feature-flag"
 
 
 @pytest.mark.unit
@@ -35,7 +46,7 @@ def test_a_descriptor_says_which_flag_to_restore_and_to_what() -> None:
             a_write := _the_wire_shape_of_a_write(SOME_FLAG, was_enabled=True)
         ) \
         .when(
-            lambda: UndoDescriptor.model_validate(a_write)
+            lambda: parse_undo_descriptor(a_write)
         ) \
         .then(all_of(
             _it_restores(SOME_FLAG, to_state=True),
@@ -50,6 +61,7 @@ def test_a_descriptor_that_does_not_say_which_flag_is_rejected() -> None:
     # thing an incident does, and a descriptor that cannot name its flag turns
     # the tidying-up into the failure.
     a_write_naming_no_flag = {
+        "kind": A_FLAG_CHANGE,
         "tool": SET_FEATURE_FLAG_TOOL,
         "environment": SOME_ENVIRONMENT,
         "was_enabled": True,
@@ -61,7 +73,7 @@ def test_a_descriptor_that_does_not_say_which_flag_is_rejected() -> None:
             a_write_naming_no_flag
         ) \
         .when(
-            attempting(lambda: UndoDescriptor.model_validate(a_write_naming_no_flag))
+            attempting(lambda: parse_undo_descriptor(a_write_naming_no_flag))
         ) \
         .then(all_of(
             an_error_was_raised(ValidationError),
@@ -75,6 +87,7 @@ def test_a_descriptor_that_does_not_say_which_state_to_restore_is_rejected() -> 
     # on before Argus touched it, which is a change nobody asked for wearing the
     # word "restore".
     a_write_naming_no_state = {
+        "kind": A_FLAG_CHANGE,
         "tool": SET_FEATURE_FLAG_TOOL,
         "flag": SOME_FLAG,
         "environment": SOME_ENVIRONMENT,
@@ -86,11 +99,38 @@ def test_a_descriptor_that_does_not_say_which_state_to_restore_is_rejected() -> 
             a_write_naming_no_state
         ) \
         .when(
-            attempting(lambda: UndoDescriptor.model_validate(a_write_naming_no_state))
+            attempting(lambda: parse_undo_descriptor(a_write_naming_no_state))
         ) \
         .then(all_of(
             an_error_was_raised(ValidationError),
             _it_complains_about("was_enabled")
+        ))
+
+
+@pytest.mark.unit
+def test_a_descriptor_that_says_nothing_about_its_kind_is_rejected() -> None:
+    # The union decides which sort of change a stored descriptor describes, and
+    # it decides by the tag. An untagged one is refused rather than assumed to
+    # be the only kind there is today: the assumption would be right exactly
+    # until it was not, and it would be wrong inside an undo.
+    a_change_that_says_nothing_about_its_kind = {
+        "tool": SET_FEATURE_FLAG_TOOL,
+        "flag": SOME_FLAG,
+        "was_enabled": True
+    }
+
+    Scenario() \
+        .given(
+            a_change_that_says_nothing_about_its_kind
+        ) \
+        .when(
+            attempting(
+                lambda: parse_undo_descriptor(a_change_that_says_nothing_about_its_kind)
+            )
+        ) \
+        .then(all_of(
+            an_error_was_raised(ValidationError),
+            _it_complains_about("kind")
         ))
 
 
@@ -102,6 +142,7 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_still_a_descriptor()
     # could not be established - and it can only give it if the record admits
     # the moment is missing rather than refusing to exist.
     a_change_nobody_dated = {
+        "kind": A_FLAG_CHANGE,
         "tool": SET_FEATURE_FLAG_TOOL,
         "flag": SOME_FLAG,
         "was_enabled": True
@@ -112,7 +153,7 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_still_a_descriptor()
             a_change_nobody_dated
         ) \
         .when(
-            lambda: UndoDescriptor.model_validate(a_change_nobody_dated)
+            lambda: parse_undo_descriptor(a_change_nobody_dated)
         ) \
         .then(all_of(
             _it_restores(SOME_FLAG, to_state=True),
@@ -133,7 +174,7 @@ def test_a_descriptor_goes_back_to_the_wire_as_it_came_off_it() -> None:
             a_write
         ) \
         .when(
-            lambda: UndoDescriptor.model_validate(a_write).model_dump(mode="json")
+            lambda: parse_undo_descriptor(a_write).model_dump(mode="json")
         ) \
         .then(
             _it_is_the_wire_shape(a_write)
@@ -143,6 +184,7 @@ def test_a_descriptor_goes_back_to_the_wire_as_it_came_off_it() -> None:
 def _the_wire_shape_of_a_write(flag: str, was_enabled: bool) -> dict[str, Any]:
     """One write as the write tier reports it, before anything has read it."""
     return {
+        "kind": A_FLAG_CHANGE,
         "tool": SET_FEATURE_FLAG_TOOL,
         "flag": flag,
         "environment": SOME_ENVIRONMENT,

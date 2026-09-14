@@ -19,7 +19,7 @@ was in.
 from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
-from argus_core.models import FlagChange, UndoDescriptor
+from argus_core.models import FlagChange, FlagUndo
 from mcp.server.fastmcp import FastMCP
 
 from write_mcp_server import flag_history, flag_state
@@ -48,7 +48,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         return flag_state.evaluated_flags(flag_settings)
 
     @mcp.tool()
-    def set_feature_flag(flag: str, enabled: bool) -> UndoDescriptor:
+    def set_feature_flag(flag: str, enabled: bool) -> FlagUndo:
         """Sets a feature flag on or off in the configured environment.
 
         A reversible action (§13): it changes production state, and the state

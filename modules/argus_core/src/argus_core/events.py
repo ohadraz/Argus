@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, Field, TypeAdapter
 
 from argus_core.ids import UuidStr, new_id
-from argus_core.models.action import Verdict
+from argus_core.models.action import ActionType, Verdict
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
@@ -210,7 +210,10 @@ class ActionTaken(_Event):
 
     kind: Literal["action-taken"] = "action-taken"
     hypothesis_id: UuidStr | None
-    action_type: str
+    # The tag, not a free string: every renderer of this event matches on it
+    # exhaustively, so a second kind of action is a type error where the words
+    # for it are written rather than a row that renders as its own identifier.
+    action_type: ActionType
     subject: str | None
     # Which way the subject was moved. Carried because "a flag was changed" is
     # the half of the sentence a reader cannot act on: whether the shop is now

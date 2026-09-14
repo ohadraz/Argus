@@ -7,6 +7,7 @@ from datetime import datetime
 from argus_core import Connections
 from argus_core.events import IncidentEvent, PostmortemWritten
 from argus_core.models import (
+    ActionType,
     Hypothesis,
     IncidentStatus,
     PostmortemDocument,
@@ -78,7 +79,7 @@ class Records:
         self,
         incident_id: str,
         hypothesis_id: str,
-        action_type: str
+        action_type: ActionType
     ) -> bool:
         with self._connections() as conn:
             return taken_actions.claim(

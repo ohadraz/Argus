@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.models import TakenAction, UndoDescriptor
+from argus_core.models import ActionType, TakenAction, UndoDescriptor
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 
@@ -10,7 +10,7 @@ def claim(
     conn: psycopg.Connection,
     incident_id: str,
     hypothesis_id: str,
-    action_type: str,
+    action_type: ActionType,
 ) -> bool:
     """Takes the right to act on one candidate, and says whether it got it
     (spec §11.1, §13).
@@ -31,6 +31,12 @@ def claim(
     does not know which candidate it is acting for compile, and the row it wrote
     would be indistinguishable from one where the association genuinely does not
     apply.
+
+    `action_type` is the tag going in and a bare `str` coming back out, on
+    `TakenAction`. That asymmetry is deliberate: every caller here is holding an
+    action Argus is about to take, so nothing is lost by refusing a kind that
+    does not exist - while a row already written is history, and one recorded
+    before a tag was renamed still has to come back out of the table.
     """
     with conn.cursor() as cursor:
         cursor.execute(
@@ -84,7 +90,7 @@ def record(
     conn: psycopg.Connection,
     incident_id: str,
     hypothesis_id: str,
-    action_type: str,
+    action_type: ActionType,
     outcome: str,
     undo_descriptor: UndoDescriptor | None,
 ) -> None:

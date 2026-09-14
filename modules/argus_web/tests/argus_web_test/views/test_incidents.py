@@ -8,11 +8,11 @@ from argus_core.models import (
     Alert,
     CauseType,
     Evidence,
+    FlagUndo,
     Hypothesis,
     Incident,
     IncidentStatus,
     TakenAction,
-    UndoDescriptor,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.incidents import (
@@ -274,7 +274,7 @@ def _an_attempt(incident_id: str,
         target=None,
         reversible=True,
         tier=None,
-        undo_descriptor=UndoDescriptor(flag="dont-care", was_enabled=True),
+        undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
         outcome=outcome,
         taken_at=_OPENED_AT + timedelta(minutes=1),
         approved_by=None

@@ -10,6 +10,9 @@
 #==============================================================================
 # Allow the .gitignore file
 !.gitignore
+# And the .gitattributes file, which is what makes line endings LF for everyone
+# rather than for whoever happens to have configured it that way.
+!.gitattributes
 
 
 #==============================================================================

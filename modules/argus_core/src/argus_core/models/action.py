@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models.undo_descriptor import FlagUndo, UndoDescriptor
 
 
 class Verdict(StrEnum):
@@ -31,8 +32,8 @@ class Verdict(StrEnum):
     WITHDRAWN = "withdrawn"
 
 
-class Action(BaseModel):
-    """A reversible action, chosen but not yet taken (spec §7.3, §13).
+class RevertFeatureFlag(BaseModel):
+    """Putting one feature flag back where it was (spec §7.3, §13).
 
     Here rather than in `agent_mitigation` for the same reason `Hypothesis` is
     here: it crosses agent boundaries. Mitigation proposes one, the
@@ -43,23 +44,41 @@ class Action(BaseModel):
     `enabled` is the state to leave the flag in, which is whatever undoes the
     change that caused the incident - off for a flag that was switched on, on
     for one that was switched off. Stating the target state rather than "revert
-    it" is what lets one action type serve both directions.
+    it" is what lets this one action serve both directions.
 
     `undo_descriptor` is populated at proposal time, before anything is called,
-    because the gate node's job is to reject an action that has none *before*
-    the write. A descriptor filled in by the write it exists to guard would
-    guard nothing.
-
-    It is optional for what the gate is *for*: an action type with no way back
-    is exactly what §13 refuses to take autonomously, and the gate can only
-    refuse one if such an action can be expressed. Today's one action type
-    always carries a descriptor; the check is about the next one.
+    and is *required*: this is an action type Argus can put back, and one of
+    these without a way back is not a thing that should be expressible. What
+    §13 refuses to take autonomously is an action of a kind that cannot be
+    undone at all - a per-type fact, which the gate asks the strategy that
+    proposed it rather than reading off an instance. An optional field here
+    would answer the wrong question and would reach a withdrawal hours later as
+    a `None` nobody can act on.
     """
 
-    action_type: str
+    action_type: Literal["revert-feature-flag"] = "revert-feature-flag"
     flag: str
     enabled: bool
-    undo_descriptor: UndoDescriptor | None
+    undo_descriptor: FlagUndo
+
+
+# One member today, spelled as the union it is. `action_type` is Argus's own
+# word for what was done - it is a column on the `action` table and a field on
+# the event a reader sees - so it tags the union, where the descriptor's `tool`
+# is the write tier's wire vocabulary and does not.
+type Action = Annotated[RevertFeatureFlag, Field(discriminator="action_type")]
+
+# What any action calls itself. Named separately from the union because the
+# things that render or store an action carry the tag alone: the event says
+# what was done without carrying the proposal, and the row keeps a column.
+type ActionType = Literal["revert-feature-flag"]
+
+# The tag as a value, for the row and the event that carry it without carrying
+# the action. Here beside the type rather than in the agent that proposes one:
+# the column, the published event and the model would otherwise be three
+# spellings of one word, and only two of them would fail to compile if they
+# disagreed.
+REVERT_FEATURE_FLAG: Final[ActionType] = "revert-feature-flag"
 
 
 class Outcome(BaseModel):

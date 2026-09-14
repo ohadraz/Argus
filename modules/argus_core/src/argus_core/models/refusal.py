@@ -29,5 +29,5 @@ class Refusal(StrEnum):
     NO_REVERSIBLE_ACTION = "no-reversible-action"
     # There is something to do and no way back from it. The one refusal that is
     # the autonomy boundary doing its job (spec §13), and the reason an action
-    # without an undo descriptor never reaches production.
+    # of a kind nothing knows how to put back never reaches production.
     NOT_REVERSIBLE = "not-reversible"

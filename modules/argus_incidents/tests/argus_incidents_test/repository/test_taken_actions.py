@@ -6,7 +6,7 @@ from typing import Any
 import psycopg
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, CauseType, Hypothesis, UndoDescriptor
+from argus_core.models import Alert, CauseType, FlagUndo, Hypothesis, UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -18,7 +18,7 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
     # knowing a flag was touched and not which state it had been in.
     some_service = "kuki-service"
     some_alert = Alert(service=some_service, alert_name="HighErrorRate")
-    some_undo_descriptor = UndoDescriptor(
+    some_undo_descriptor = FlagUndo(
         flag="monthly-spend-feature",
         was_enabled=True,
         environment="production"
@@ -119,7 +119,7 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
                     hypothesis_id=hypothesis_id,
                     action_type="revert-feature-flag",
                     outcome="refuted",
-                    undo_descriptor=UndoDescriptor(flag="monthly-spend-feature", was_enabled=False)
+                    undo_descriptor=FlagUndo(flag="monthly-spend-feature", was_enabled=False)
                 )
             ) \
             .then(
@@ -156,7 +156,7 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
                     hypothesis_id=candidate,
                     action_type="revert-feature-flag",
                     outcome=outcome,
-                    undo_descriptor=UndoDescriptor(flag=the_contested_flag, was_enabled=True)
+                    undo_descriptor=FlagUndo(flag=the_contested_flag, was_enabled=True)
                 )
 
         Scenario() \
@@ -191,7 +191,7 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
                     hypothesis_id=candidate,
                     action_type="revert-feature-flag",
                     outcome=outcome,
-                    undo_descriptor=UndoDescriptor(flag="dont-care", was_enabled=True)
+                    undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True)
                 )
 
         Scenario() \

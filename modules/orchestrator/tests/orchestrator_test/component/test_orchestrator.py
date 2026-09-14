@@ -88,6 +88,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         record_hypothesis=lambda dont_care_hypothesis: None,
         fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG)),
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
+        reversible=lambda dont_care_action: True,
         take=_an_action_that(Verdict.CONFIRMED),
         record_action=lambda *dont_care_args, **dont_care_keywords: True,
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,

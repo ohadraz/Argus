@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from argus_core import connect_from_env
 from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
-from argus_core.models import Actor, Alert, IncidentStatus, UndoDescriptor, Verdict
+from argus_core.models import REVERT_FEATURE_FLAG, Actor, Alert, FlagUndo, IncidentStatus, Verdict
 from argus_incidents.publishing import events_into_connection
 from argus_incidents.repository import events, hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
@@ -25,7 +25,7 @@ transition, and it fails alone.
 """
 
 DONT_CARE_ACTOR = Actor.MITIGATION
-DONT_CARE_ACTION = "kukibuki"
+DONT_CARE_ACTION = REVERT_FEATURE_FLAG
 SOME_STATUS = IncidentStatus.MITIGATING
 
 
@@ -111,8 +111,8 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
     # a reader would find with nothing beside it saying what reached it.
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
     some_outcome = Verdict.CONFIRMED
-    dont_care_undo_descriptor = UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
-    
+    dont_care_undo_descriptor = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
+
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         candidate = a_determined_hypothesis(incident_id)
@@ -167,7 +167,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
     # would make the account load-bearing (spec §4 principle 8).
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     some_outcome = Verdict.REFUTED
-    dont_care_undo_descriptor = UndoDescriptor(flag="monthly-spend-feature", was_enabled=True)
+    dont_care_undo_descriptor = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)

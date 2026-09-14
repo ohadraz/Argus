@@ -17,6 +17,7 @@ from agent_mitigation import Action, Outcome, Verdict
 from agent_mitigation.tools import StillWanted
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models import (
+    ActionType,
     Alert,
     Attempt,
     FlagChange,
@@ -95,7 +96,10 @@ class RecordAction(Protocol):
         self,
         incident_id: str,
         hypothesis_id: str,
-        action_type: str
+        # The tag, not a string. Every caller already holds one - the action it
+        # is about to take - so the wider type buys nothing except the ability
+        # to claim a row for a kind of action no renderer has words for.
+        action_type: ActionType
     ) -> bool: ...
 
 
@@ -115,6 +119,21 @@ class CompleteAction(Protocol):
         undo_descriptor: UndoDescriptor | None,
         narrating: IncidentEvent
     ) -> None: ...
+
+
+class Reversible(Protocol):
+    """Whether an action of this kind is one Argus can put back (spec §13).
+
+    A question about the kind, not the instance: the models no longer allow an
+    action of a reversible kind to exist without its way back, so what is left
+    for the gate to ask is whether Argus knows how to undo actions of this sort
+    at all. The real answer comes from the strategy that would have proposed
+    one; the gate names the question as a type so that it is asked of something
+    a test can replace with a strategy that says no.
+    """
+
+    # Positional-only: the action is the whole question.
+    def __call__(self, action: Action, /) -> bool: ...
 
 
 class ChangeLanded(Protocol):

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import cast
 
 from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import call_mcp_tool
-from argus_core.models import FlagChange, UndoDescriptor
+from argus_core.models import FlagChange, UndoDescriptor, parse_undo_descriptor
 
 
 def set_feature_flag(flag: str,
@@ -35,7 +36,7 @@ def set_feature_flag(flag: str,
         flag=flag,
         enabled=enabled,
     )
-    return UndoDescriptor.model_validate(result)
+    return parse_undo_descriptor(cast(Mapping[str, object], result))
 
 
 def get_recent_flag_changes(since: str,

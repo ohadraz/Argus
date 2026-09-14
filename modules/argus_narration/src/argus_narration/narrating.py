@@ -49,6 +49,7 @@ from argus_core.events import (
     VerdictReached,
 )
 from argus_core.models import (
+    ActionType,
     Actor,
     ChangeEvent,
     FlagChange,
@@ -110,11 +111,6 @@ _CHANNELS = {
     RetrievalChannel.LOGS: "the service's log lines",
     RetrievalChannel.CHANGES: "production change events - deploys and releases on the service"
 }
-
-# Action types said as a sentence. Falls back to the identifier itself for an
-# action nobody has written words for yet, which is wrong in the readable way:
-# a reader sees a name they can search the code for rather than nothing.
-_ACTIONS = {"revert-feature-flag": "Reverted the feature flag"}
 
 _HYPOTHESIS_FORMED = "hypothesis-formed"
 _RECOVERY_CHECKED = "recovery-checked"
@@ -528,6 +524,21 @@ def _an_agent(agent: Actor) -> str:
     return _AGENTS[agent]
 
 
+def _an_action_said(action_type: ActionType) -> str:
+    """An action type as a sentence opens.
+
+    A `match` rather than the lookup table this was, and with no fallback: an
+    action nobody has written words for used to render as its own identifier,
+    which read as a bug in the page and compiled perfectly. Matching the tag
+    exhaustively puts the error where the words are missing instead.
+    """
+    match action_type:
+        case "revert-feature-flag":
+            return "Reverted the feature flag"
+
+    assert_never(action_type)
+
+
 def _an_action_taken(event: ActionTaken) -> str:
     """What was done to the service.
 
@@ -535,7 +546,7 @@ def _an_action_taken(event: ActionTaken) -> str:
     transition the flag table shows, because a change said the same way
     wherever it appears is one fact rather than two descriptions of one.
     """
-    said = _ACTIONS.get(event.action_type, event.action_type)
+    said = _an_action_said(event.action_type)
     subject = f" {event.subject}" if event.subject else ""
 
     return f"{said}{subject}{', moved ' if event.enabled is not None else ''}"

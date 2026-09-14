@@ -5,7 +5,15 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from argus_core.events import ActionRefused, IncidentEvent
-from argus_core.models import Action, Alert, Hypothesis, IncidentStatus, Refusal, UndoDescriptor
+from argus_core.models import (
+    Action,
+    Alert,
+    FlagUndo,
+    Hypothesis,
+    IncidentStatus,
+    Refusal,
+    RevertFeatureFlag,
+)
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
@@ -18,8 +26,13 @@ from ..framework.builders import a_determined_hypothesis, a_random_id, an_incide
 """The one thing standing between a proposed action and the call that performs it.
 
 A guarantee enforced by the code it constrains is a convention, not a guarantee,
-so the check lives here rather than inside the agent that does the write: an
-action with no undo descriptor is not reversible however it is labelled.
+so the check lives here rather than inside the agent that does the write.
+
+What it checks is a fact about the *kind* of action, asked of the thing that
+would have to perform the undo. An action of a reversible kind cannot reach this
+node without its way back - the models no longer allow one to be built - so the
+question left to ask is whether Argus knows how to put a change of this sort back
+at all. A kind it does not is what §13 refuses to take autonomously.
 
 A rejection is about *this* action, not about the incident. The explanations
 after it on the list may be perfectly reversible, so the gate clears the action,
@@ -37,38 +50,42 @@ def record_outcome() -> MagicMock:
 
 
 @pytest.mark.unit
-def test_the_gate_lets_an_action_carrying_an_undo_descriptor_through(
+def test_the_gate_lets_an_action_of_a_kind_it_can_put_back_through(
     record_outcome: MagicMock
 ) -> None:
     Scenario() \
         .given(
             a_gated_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor()
+                proposing=_a_proposed_action()
             )
         ) \
-        .when(lambda: tier_gate_node(a_gated_incident, record_outcome=record_outcome)) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     reversible=_a_kind_that_can_be_put_back())) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
 
 
 @pytest.mark.unit
-def test_the_gate_rejects_an_action_whose_undo_descriptor_is_empty(
+def test_the_gate_rejects_an_action_of_a_kind_that_cannot_be_put_back(
     record_outcome: MagicMock
 ) -> None:
     # The guarantee cannot rest on the agent that performs the write also
-    # policing itself: a reversible action is only reversible if something
-    # recorded how to reverse it, and this is the last point at which that can
-    # still be checked for free.
+    # policing itself. The action here is perfectly well formed and carries a
+    # descriptor - what refuses it is the strategy that would have to undo one,
+    # saying that it cannot, which is the last point at which that can still be
+    # heard for free.
     published: list[IncidentEvent] = []
 
     Scenario() \
         .given(
             a_gated_incident := _a_mitigating_incident(
-                proposing=_an_action_with_no_undo_descriptor()
+                proposing=_a_proposed_action()
             )
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
+                                     reversible=_a_kind_that_cannot_be_put_back(),
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
@@ -82,13 +99,16 @@ def test_the_gate_rejects_an_incident_with_no_proposed_action(
 ) -> None:
     # The walk reaches the gate whether or not a proposal was made: with no
     # candidate there is nothing to answer, and the refusal is still the only
-    # account of why this attempt ended.
+    # account of why this attempt ended. Reversibility is not what stops this
+    # one, so the stand-in admits everything - a refusal here has to come from
+    # the absence and nothing else.
     published: list[IncidentEvent] = []
 
     Scenario() \
         .given(a_gated_incident := _a_mitigating_incident()) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
+                                     reversible=_a_kind_that_can_be_put_back(),
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
@@ -109,10 +129,12 @@ def test_a_candidate_the_gate_refused_is_recorded_as_never_having_been_tried(
         .given(
             some_candidate := a_determined_hypothesis(a_random_id()),
             a_gated_incident := _a_mitigating_incident(
-                proposing=_an_action_with_no_undo_descriptor(), about=some_candidate
+                proposing=_a_proposed_action(), about=some_candidate
             )
         ) \
-        .when(lambda: tier_gate_node(a_gated_incident, record_outcome=record_outcome)) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     reversible=_a_kind_that_cannot_be_put_back())) \
         .then(_the_candidate_was_recorded_as_untried(some_candidate,
                                                      "not reversible",
                                                      record_outcome))
@@ -123,7 +145,7 @@ def test_an_admitted_action_is_routed_to_the_node_that_performs_it() -> None:
     Scenario() \
         .given(
             an_admitted_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor()
+                proposing=_a_proposed_action()
             )
         ) \
         .when(lambda: route_after_gate(an_admitted_incident)) \
@@ -156,18 +178,39 @@ def _a_mitigating_incident(proposing: Action | None = None,
     )
 
 
-def _an_action_with_an_undo_descriptor() -> Action:
-    return Action(action_type="revert-feature-flag",
-                  flag=DONT_CARE_FLAG,
-                  enabled=False,
-                  undo_descriptor=UndoDescriptor(flag=DONT_CARE_FLAG, was_enabled=True))
+def _a_proposed_action() -> Action:
+    """A well-formed action, of whatever kind the gate is told this one is.
+
+    One builder rather than the two this file used to carry. What the gate
+    admits or refuses is no longer readable off the action - both tests hand it
+    the same action and differ only in what the strategy says about its kind.
+    """
+    return RevertFeatureFlag(
+        flag=DONT_CARE_FLAG,
+        enabled=False,
+        undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
+    )
 
 
-def _an_action_with_no_undo_descriptor() -> Action:
-    return Action(action_type="revert-feature-flag",
-                  flag=DONT_CARE_FLAG,
-                  enabled=False,
-                  undo_descriptor=None)
+def _a_kind_that_can_be_put_back() -> ports.Reversible:
+    def reversible(dont_care_action: Action) -> bool:
+        return True
+
+    return reversible
+
+
+def _a_kind_that_cannot_be_put_back() -> ports.Reversible:
+    """A registered strategy that says it has no way back from what it proposes.
+
+    The one shape §13's gate exists for. It cannot be expressed as an action any
+    more - every action type Argus has carries its undo - so it is expressed
+    where the truth about it actually lives, which is the strategy that would
+    have to perform the undo.
+    """
+    def reversible(dont_care_action: Action) -> bool:
+        return False
+
+    return reversible
 
 
 def _the_gate_changed_nothing() -> Assertion[StateDelta]:

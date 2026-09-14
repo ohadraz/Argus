@@ -5,13 +5,13 @@ from typing import Any
 import pytest
 from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
-    Action,
     Alert,
     CauseType,
     Evidence,
+    FlagUndo,
     Hypothesis,
     IncidentStatus,
-    UndoDescriptor,
+    RevertFeatureFlag,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
@@ -278,11 +278,10 @@ def _a_walk_at(incident_id: str,
         candidate_index=index,
         hypothesis=candidates[index],
         rounds=rounds,
-        proposed_action=Action(
-            action_type="revert_feature_flag",
+        proposed_action=RevertFeatureFlag(
             flag=acted_on,
             enabled=False,
-            undo_descriptor=UndoDescriptor(flag=acted_on, was_enabled=True)
+            undo_descriptor=FlagUndo(flag=acted_on, was_enabled=True)
         )
     )
 

@@ -3,10 +3,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from agent_mitigation import Action, Outcome, Verdict
+from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
 from agent_mitigation.tools import ChangedFromOutside, StillWanted
 from argus_core import to_iso_minute
-from argus_core.models import CauseType, FlagChange, Hypothesis, MetricBucket, UndoDescriptor
+from argus_core.models import (
+    CauseType,
+    FlagChange,
+    FlagUndo,
+    Hypothesis,
+    MetricBucket,
+    UndoDescriptor,
+)
 
 DONT_CARE_FLAG = "dont-care-flag"
 DONT_CARE_INCIDENT_ID = "3f0c6a8e-6f1e-4a9a-8c3d-2b7f9d1e5a44"
@@ -29,7 +36,7 @@ CALM_P95_MS = 200
 def an_undo_descriptor_for(flag: str,
                            was_enabled: bool = True,
                            written_at: datetime = ACTION_TIME) -> UndoDescriptor:
-    return UndoDescriptor(
+    return FlagUndo(
         flag=flag,
         was_enabled=was_enabled,
         environment="production",
@@ -67,11 +74,10 @@ def a_disabling_of(flag: str, at: str = LATER_IN_THE_WINDOW) -> FlagChange:
 
 
 def an_action_setting(flag: str, enabled: bool) -> Action:
-    return Action(
-        action_type="revert-feature-flag",
+    return RevertFeatureFlag(
         flag=flag,
         enabled=enabled,
-        undo_descriptor=UndoDescriptor(flag=flag, was_enabled=not enabled)
+        undo_descriptor=FlagUndo(flag=flag, was_enabled=not enabled)
     )
 
 

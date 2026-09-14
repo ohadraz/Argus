@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Final
+from typing import Annotated, Any, Final, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, TypeAdapter
 
 # The write tool a descriptor is undone by. Named once and imported, rather than
 # spelled where each producer happens to build one: it is written into a JSONB
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 SET_FEATURE_FLAG_TOOL: Final = "set_feature_flag"
 
 
-class UndoDescriptor(BaseModel):
+class FlagUndo(BaseModel):
     """The record of one change, in the shape that puts it back (spec §7.3, §13).
 
     Here rather than in `agent_mitigation` for the reason `Action` is here: it
@@ -41,6 +42,12 @@ class UndoDescriptor(BaseModel):
     the moment is missing.
     """
 
+    # What kind of change this puts back, in Argus's own vocabulary. Not `tool`,
+    # though one tool performs it today: the tool name is the write tier's MCP
+    # wire word, and tagging stored descriptors by it would re-type every row
+    # already written the day a tool is renamed - and would promise one tool per
+    # kind of change for ever, in both directions.
+    kind: Literal["feature-flag"] = "feature-flag"
     flag: str
     was_enabled: bool
     tool: str = SET_FEATURE_FLAG_TOOL
@@ -49,3 +56,24 @@ class UndoDescriptor(BaseModel):
     # one and has no environment of its own to name.
     environment: str | None = None
     written_at: datetime | None = None
+
+
+# One member today, spelled as the union it is rather than as the class it
+# happens to contain. The second kind of change Argus can put back - a deploy
+# rolled forward, a pool scaled back - arrives as a member here and as a branch
+# everything that matches on `kind` is then required to grow, which is the whole
+# reason this is a tagged union while it still has nothing to choose between.
+type UndoDescriptor = Annotated[FlagUndo, Field(discriminator="kind")]
+
+_descriptors = TypeAdapter[UndoDescriptor](UndoDescriptor)
+
+
+def parse_undo_descriptor(stored: Mapping[str, Any]) -> UndoDescriptor:
+    """One descriptor, read back out of the JSONB column or off the wire.
+
+    Here rather than at each reader for the reason `parse_event` is: the union
+    decides which member a stored object is, and a caller that reached for a
+    member directly would be deciding that for itself - correctly today, and
+    silently wrongly the first time a second kind of change is stored.
+    """
+    return _descriptors.validate_python(stored)
