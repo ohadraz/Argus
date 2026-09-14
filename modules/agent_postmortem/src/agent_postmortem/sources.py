@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import MetricBucket
 from pydantic import BaseModel
 
 # What the service took between two instants, per currency, or `None` if

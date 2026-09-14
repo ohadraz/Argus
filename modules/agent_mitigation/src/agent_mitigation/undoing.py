@@ -9,7 +9,7 @@ holds the records.
 
 from __future__ import annotations
 
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import UndoDescriptor
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
 from agent_mitigation.tools import (

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import cast
 
-from argus_core.config import get_settings
+from argus_core import get_settings
 from argus_core.mcp_transport import call_mcp_tool
-from argus_core.models.change_event import ChangeEvent
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import ChangeEvent, MetricBucket
 
 
 def get_log_lines(alert_time: str | None = None,

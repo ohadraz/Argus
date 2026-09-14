@@ -4,8 +4,7 @@ from typing import cast
 
 import pytest
 from agent_mitigation import Action, propose_action
-from argus_core.models.cause import CauseType
-from argus_core.models.flag_change import FlagChange
+from argus_core.models import CauseType, FlagChange
 from argus_testkit import Assertion, Scenario
 
 from agent_mitigation_test.framework.builders import (

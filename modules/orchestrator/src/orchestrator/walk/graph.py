@@ -3,8 +3,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any, Final
 
-from argus_core.config import get_settings
-from argus_core.models.incident_state import IncidentState
+from argus_core import get_settings
 
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
@@ -37,6 +36,7 @@ from orchestrator.walk.routes import (
     RESOLVED_ROUTE,
     WITHDRAWN_ROUTE,
 )
+from orchestrator.walk.state import IncidentState
 from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
 # The names LangGraph knows each node by. Every one is stated twice - once

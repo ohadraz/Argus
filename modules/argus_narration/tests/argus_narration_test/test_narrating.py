@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from argus_core import new_id
 from argus_core.events import (
     ActionRefused,
     ActionTaken,
@@ -21,23 +22,25 @@ from argus_core.events import (
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
-    RetrievalChannel,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
 )
-from argus_core.ids import new_id
-from argus_core.models.action import Verdict
-from argus_core.models.actor import Actor
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.change_event import ChangeEvent, ChangeKind
-from argus_core.models.evidence import Evidence
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.metrics import MetricBucket
-from argus_core.models.refusal import Refusal
-from argus_core.models.undone import Undone
+from argus_core.models import (
+    Actor,
+    Alert,
+    CauseType,
+    ChangeEvent,
+    ChangeKind,
+    Evidence,
+    FlagChange,
+    IncidentStatus,
+    MetricBucket,
+    Refusal,
+    RetrievalChannel,
+    Undone,
+    Verdict,
+)
 from argus_narration.narrating import NarrationLine, build_narration
 from argus_testkit import Assertion, Scenario, all_of
 

@@ -5,9 +5,8 @@ from datetime import timedelta
 
 import psycopg
 import pytest
-from argus_core.db import connect
-from argus_core.models.alert import Alert
-from argus_core.models.incident_status import IncidentStatus
+from argus_core import connect
+from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import incidents, runs
 from argus_incidents.withdrawal import wanted_via
 from argus_testkit import Assertion, Scenario, all_of

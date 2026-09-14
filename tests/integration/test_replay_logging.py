@@ -8,11 +8,8 @@ import pytest
 from agent_investigator import investigate
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core.config import get_settings
-from argus_core.db import connect
-from argus_core.models.alert import Alert
-from argus_core.models.change_event import ChangeEvent
-from argus_core.models.metrics import MetricBucket
+from argus_core import connect, get_settings
+from argus_core.models import Alert, ChangeEvent, MetricBucket
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.publishing import calls_into
 from argus_incidents.repository import incidents, replay

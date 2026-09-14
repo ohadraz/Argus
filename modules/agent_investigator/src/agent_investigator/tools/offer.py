@@ -8,7 +8,7 @@ reason the offered set is asserted in a test rather than assumed.
 
 from __future__ import annotations
 
-from argus_core.models.tool_definition import ToolDefinition
+from argus_core.models import ToolDefinition
 
 from agent_investigator.tools.answer import answer_tool
 from agent_investigator.tools.changes import changes_tool

@@ -1,26 +1,3 @@
-from __future__ import annotations
-
-import re
-
-import psycopg
-import pytest
-from argus_core.db import connect
-from argus_core.events import (
-    AlertAcknowledged,
-    HypothesisFormed,
-    IncidentEvent,
-    LogsRetrieved,
-    MetricsRetrieved,
-    OnsetDetected,
-)
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.metrics import MetricBucket
-from argus_incidents.repository import events, incidents
-from argus_web.app import app
-from fastapi.testclient import TestClient
-
 """The front door: what is happening now, as a browser gets it.
 
 Nothing is stubbed. A request reaches the real app, reads the events the real
@@ -30,6 +7,32 @@ assertions are on data attributes the templates carry deliberately - a page
 contract - rather than on prose, which is free to change without any of these
 tests having an opinion.
 """
+from __future__ import annotations
+
+import re
+from typing import Final
+
+import psycopg
+import pytest
+from argus_core import connect
+from argus_core.events import (
+    AlertAcknowledged,
+    HypothesisFormed,
+    IncidentEvent,
+    LogsRetrieved,
+    MetricsRetrieved,
+    OnsetDetected,
+)
+from argus_core.models import Alert, CauseType, IncidentStatus, MetricBucket
+from argus_incidents.repository import events, incidents
+from argus_testkit import Assertion, Scenario, all_of
+from argus_web.app import app
+from fastapi.testclient import TestClient
+
+# What htmx's "ask again in a moment" looks like in the rendered page. Named
+# because the claim is about the page continuing to ask at all, and a spelling
+# repeated in each test is one that can drift in one of them.
+_POLLS_FOR_MORE: Final = "hx-trigger"
 
 
 @pytest.mark.component
@@ -39,7 +42,13 @@ def test_the_front_page_says_when_nothing_is_happening() -> None:
     with connect() as conn:
         _no_incidents_at_all(conn)
 
-    assert _attribute("idle", _get("/")) == ["true"]
+    Scenario() \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(
+            _the_page_shows("idle", "true")
+        )
 
 
 @pytest.mark.component
@@ -50,7 +59,13 @@ def test_the_front_page_keeps_asking_so_an_incident_arrives_on_its_own() -> None
     with connect() as conn:
         _no_incidents_at_all(conn)
 
-    assert "hx-trigger" in _get("/")
+    Scenario() \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(
+            _the_page_keeps_asking()
+        )
 
 
 @pytest.mark.component
@@ -64,7 +79,16 @@ def test_the_front_page_shows_the_incident_that_has_not_finished() -> None:
         already_finished = incidents.create(conn, _an_alert("finished-service"))
         _finished(conn, already_finished)
 
-    assert _attribute("live-incident", _get("/")) == [still_running]
+    Scenario() \
+        .given(
+            still_running, already_finished
+        ) \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(
+            _the_page_shows("live-incident", still_running)
+        )
 
 
 @pytest.mark.component
@@ -76,10 +100,17 @@ def test_with_nothing_running_the_front_page_shows_the_newest_one_as_finished() 
         incident_id = incidents.create(conn, _an_alert("io-shop"))
         _finished(conn, incident_id)
 
-    page = _get("/")
-
-    assert _attribute("live-incident", page) == [incident_id]
-    assert _attribute("running", page) == ["false"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(all_of(
+            _the_page_shows("live-incident", incident_id),
+            _the_page_shows("running", "false")
+        ))
 
 
 @pytest.mark.component
@@ -93,11 +124,18 @@ def test_the_front_page_narrates_what_argus_did_in_the_order_it_did_it() -> None
         _recorded(conn, OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:14Z"))
         _recorded(conn, _a_hypothesis_formed_for(incident_id))
 
-    assert _attribute("line", _get("/")) == [
-        "alert-acknowledged",
-        "onset-detected",
-        "hypothesis-formed"
-    ]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(
+            _the_page_shows(
+                "line", "alert-acknowledged", "onset-detected", "hypothesis-formed"
+            )
+        )
 
 
 @pytest.mark.component
@@ -120,10 +158,17 @@ def test_a_metrics_retrieval_is_shown_as_a_table_with_the_bad_minutes_marked() -
             )
         )
 
-    page = _get("/")
-
-    assert _attribute("bucket", page) == ["2026-08-30T10:12Z", "2026-08-30T10:14Z"]
-    assert _attribute("elevated", page) == ["false", "true"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(all_of(
+            _the_page_shows("bucket", "2026-08-30T10:12Z", "2026-08-30T10:14Z"),
+            _the_page_shows("elevated", "false", "true")
+        ))
 
 
 @pytest.mark.component
@@ -147,7 +192,16 @@ def test_a_log_retrieval_is_shown_with_its_levels_distinguished() -> None:
             )
         )
 
-    assert _attribute("level", _get("/")) == ["info", "warn", "error"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(
+            _the_page_shows("level", "info", "warn", "error")
+        )
 
 
 @pytest.mark.component
@@ -169,7 +223,16 @@ def test_the_evidence_shown_is_the_evidence_that_was_read() -> None:
             )
         )
 
-    assert a_line_that_was_read in _get("/")
+    Scenario() \
+        .given(
+            a_line_that_was_read
+        ) \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(
+            _the_page_says(a_line_that_was_read)
+        )
 
 
 @pytest.mark.component
@@ -180,10 +243,17 @@ def test_the_front_page_reaches_the_history_and_the_incidents_own_page() -> None
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
 
-    page = _get("/")
-
-    assert 'href="/history"' in page
-    assert f'href="/incidents/{incident_id}"' in page
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/")
+        ) \
+        .then(all_of(
+            _the_page_links_to("/history"),
+            _the_page_links_to(f"/incidents/{incident_id}")
+        ))
 
 
 @pytest.mark.component
@@ -194,7 +264,16 @@ def test_the_polled_live_fragment_carries_the_incident_on_its_own() -> None:
         _no_incidents_at_all(conn)
         incident_id = incidents.create(conn, _an_alert("io-shop"))
 
-    assert _attribute("live-incident", _get("/now")) == [incident_id]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/now")
+        ) \
+        .then(
+            _the_page_shows("live-incident", incident_id)
+        )
 
 
 @pytest.mark.component
@@ -208,7 +287,16 @@ def test_an_incidents_own_page_narrates_it_too() -> None:
         _recorded(conn, OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:14Z"))
         _finished(conn, incident_id)
 
-    assert _attribute("line", _get(f"/incidents/{incident_id}")) == ["onset-detected"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_shows("line", "onset-detected")
+        )
 
 
 def _get(path: str) -> str:
@@ -226,6 +314,51 @@ def _attribute(name: str, html: str) -> list[str]:
     """Every value of one `data-` attribute, in the order the document carries
     them - which is the order a reader sees."""
     return re.findall(rf'data-{name}="([^"]*)"', html)
+
+
+def _the_page_shows(attribute: str, *values: str) -> Assertion[str]:
+    """Exactly these values of one `data-` attribute, in this order."""
+    def assertion(page: str) -> bool:
+        shown = _attribute(attribute, page)
+
+        if shown != list(values):
+            raise AssertionError(
+                f"Expected [{attribute}] to be {list(values)}, got {shown}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_page_says(text: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if text not in page:
+            raise AssertionError(f"Expected the page to say [{text}], it did not.")
+
+        return True
+
+    return assertion
+
+
+def _the_page_links_to(href: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if f'href="{href}"' not in page:
+            raise AssertionError(f"Expected the page to link to [{href}], it did not.")
+
+        return True
+
+    return assertion
+
+
+def _the_page_keeps_asking() -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if _POLLS_FOR_MORE not in page:
+            raise AssertionError("Expected the page to keep asking for more, it did not.")
+
+        return True
+
+    return assertion
 
 
 def _no_incidents_at_all(conn: psycopg.Connection) -> None:

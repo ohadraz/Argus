@@ -3,16 +3,15 @@ from __future__ import annotations
 import pytest
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Outcome, relay_once
+from argus_core import new_id
 from argus_core.events import (
     ActionTaken,
     IncidentEvent,
     OnsetDetected,
-    RetrievalChannel,
     RetrievalRequested,
     StatusChanged,
 )
-from argus_core.ids import new_id
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus, RetrievalChannel
 from argus_incidents.repository import events
 from argus_narration import NarrationLine, a_narration_line
 from argus_testkit import Assertion, Scenario, all_of, calling

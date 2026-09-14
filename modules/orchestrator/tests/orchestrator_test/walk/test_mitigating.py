@@ -14,18 +14,22 @@ from argus_core.events import (
     VerdictReached,
     nobody,
 )
-from argus_core.models.action import Action, Outcome, Verdict
-from argus_core.models.alert import Alert
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import (
+    Action,
+    Alert,
+    Hypothesis,
+    IncidentStatus,
+    Outcome,
+    UndoDescriptor,
+    Verdict,
+)
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, NEXT_CANDIDATE_ROUTE, RESOLVED_ROUTE
+from orchestrator.walk.state import IncidentState
 
 from ..framework.builders import a_determined_hypothesis, a_random_id, an_incident_state
 

@@ -30,7 +30,7 @@ from decimal import Decimal
 from typing import Any, Final
 
 import httpx
-from argus_core.config import Settings, get_settings
+from argus_core import Settings, get_settings
 
 from responder_rate_source.bands import (
     PayBand,

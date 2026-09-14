@@ -8,7 +8,7 @@ the narration as the onset.
 
 from __future__ import annotations
 
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import MetricBucket
 from pydantic import BaseModel
 
 from argus_narration.clock import a_minute

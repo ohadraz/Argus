@@ -12,12 +12,12 @@ from collections.abc import Callable
 from typing import Any
 
 from argus_core.events import StatusChanged
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus, status_after
+from argus_core.models import IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import TransitionIncident
+from orchestrator.walk.state import IncidentState, status_after
 
 
 def with_status(

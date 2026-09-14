@@ -17,13 +17,9 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from hashlib import sha256
 
+from argus_core import UuidStr
 from argus_core.events import ChangesRetrieved, IncidentEvent, StatusChanged
-from argus_core.ids import UuidStr
-from argus_core.models.alert import Alert
-from argus_core.models.change_event import ChangeEvent
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.incident import Incident
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, ChangeEvent, FlagChange, Incident, IncidentStatus
 from argus_narration import (
     BucketRow,
     FlagToggleRow,

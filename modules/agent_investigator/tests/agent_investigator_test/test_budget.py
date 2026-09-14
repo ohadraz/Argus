@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import pytest
 from agent_investigator.budget import Bound, Budget
-from argus_core.models.turn import ToolCall, Turn
+from argus_core.models import ToolCall, Turn
 from argus_testkit import Assertion, Scenario, calling
 
 """What stops an investigation that the model would happily continue.

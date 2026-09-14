@@ -1,3 +1,15 @@
+"""That the double still stands for the API it stands in for.
+
+Two halves, and neither means much alone. One asks the real service whether it
+still behaves as Argus's adapter assumes - that a model given tools asks for
+one, that the schemas the loop offers are accepted, that a repeated prefix is
+served from cache. The other asks whether a body recorded months ago still
+parses into the same thing, since every offline suite replays one.
+
+Driven through the SDK rather than through Argus's adapter throughout. The
+third party here is Anthropic, and a check routed through Argus's own code
+would be checking Argus.
+"""
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -11,7 +23,7 @@ from agent_investigator.tools import investigator_tools
 from anthropic.types import ToolParam
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core.config import get_settings
+from argus_core import get_settings
 from argus_core.llm.adapters.anthropic_adapter import (
     EPHEMERAL_CACHE,
     MAX_TOKENS,
@@ -19,6 +31,7 @@ from argus_core.llm.adapters.anthropic_adapter import (
     TOOL_USE_STOP_REASON,
     TOOL_USE_TYPE,
 )
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 # These spend real tokens on every run. That is the point - a contract test
 # that never talks to the third party is not a contract test - but it is why
@@ -35,11 +48,20 @@ SOME_MODEL_THAT_DOES_NOT_EXIST = "claude-not-a-real-model"
 # validation, not the answer.
 ENOUGH_TO_SAY_ANYTHING = 8
 
+# Phrased so that answering without the tool is not available: the model is
+# asked for something only the log lines contain, over a window it was not
+# given. A question it could answer from its own knowledge would make a
+# `tool_use` turn the model's preference rather than the API's contract.
+SOME_QUESTION_ONLY_THE_TOOL_ANSWERS = (
+    "What did the service log between 2026-08-29T22:10:00Z and 2026-08-29T22:20:00Z? "
+    "Use the tool to find out; do not guess."
+)
+
 # A tool definition minimal enough to be free and specific enough that a model
 # given it has an obvious reason to call it. The contract being checked is the
 # shape of a tool-use turn, not the model's judgement about when to take one,
-# so the question below leaves it no other way to answer.
-TOOL_THE_MODEL_MUST_USE_TO_ANSWER: ToolParam  = {
+# so the question above leaves it no other way to answer.
+TOOL_THE_MODEL_MUST_USE_TO_ANSWER: ToolParam = {
     "name": "get_log_lines",
     "description": "Return the service's log lines for a time window.",
     "strict": True,
@@ -94,19 +116,24 @@ def test_the_real_api_still_answers_a_tool_call_with_a_tool_use_turn() -> None:
     # loop dispatches on. Which window it asks for is judgement, measured by
     # the eval suite, and asserting it here would fail for the one reason that
     # is not a contract break.
-    real = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
-
-    answer = real.messages.create(
-        model=MODEL,
-        max_tokens=MAX_TOKENS,
-        tools=[TOOL_THE_MODEL_MUST_USE_TO_ANSWER],
-        messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
-    )
-
-    assert answer.stop_reason == TOOL_USE_STOP_REASON
-    assert _the_tool_calls_in(answer)
-    assert all(call.name == "get_log_lines" for call in _the_tool_calls_in(answer))
-    assert all(isinstance(call.input, dict) for call in _the_tool_calls_in(answer))
+    Scenario() \
+        .given(
+            real := anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
+        ) \
+        .when(
+            lambda: real.messages.create(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                tools=[TOOL_THE_MODEL_MUST_USE_TO_ANSWER],
+                messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
+            )
+        ) \
+        .then(all_of(
+            _the_turn_stopped_for(TOOL_USE_STOP_REASON),
+            _a_tool_was_asked_for(),
+            _every_tool_asked_for_was("get_log_lines"),
+            _every_tool_call_carried_an_input()
+        ))
 
 
 @pytest.mark.contract
@@ -124,16 +151,21 @@ def test_the_real_api_accepts_every_tool_the_investigator_offers() -> None:
     # turn came back at all: the contract being checked is that the request was
     # accepted, and a rejection arrives as `BadRequestError` naming the tool and
     # the field, which is a better failure than any assertion could word.
-    real = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
-
-    answer = real.messages.create(
-        model=MODEL,
-        max_tokens=ENOUGH_TO_SAY_ANYTHING,
-        tools=[cast(ToolParam, tool.to_wire()) for tool in investigator_tools()],
-        messages=[{"role": "user", "content": "hi"}]
-    )
-
-    assert answer.stop_reason is not None
+    Scenario() \
+        .given(
+            real := anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
+        ) \
+        .when(
+            lambda: real.messages.create(
+                model=MODEL,
+                max_tokens=ENOUGH_TO_SAY_ANYTHING,
+                tools=[cast(ToolParam, tool.to_wire()) for tool in investigator_tools()],
+                messages=[{"role": "user", "content": "hi"}]
+            )
+        ) \
+        .then(
+            _the_request_was_accepted()
+        )
 
 
 @pytest.mark.contract
@@ -167,11 +199,16 @@ def test_the_real_api_still_serves_a_repeated_prefix_from_cache() -> None:
             messages=[{"role": "user", "content": asked_only_this_run}]
         )
 
-    wrote = ask()
-    read = ask()
-
-    assert wrote.usage.cache_creation_input_tokens
-    assert read.usage.cache_read_input_tokens
+    Scenario() \
+        .given(
+            asked_only_this_run
+        ) \
+        .when(
+            lambda: [ask(), ask()]
+        ) \
+        .then(
+            _the_prefix_was_written_then_read()
+        )
 
 
 @pytest.mark.contract
@@ -184,26 +221,26 @@ def test_a_stored_tool_use_recording_still_parses_as_a_tool_use_turn(
     # replays, and a body the SDK can no longer parse into tool calls would
     # leave every replayed investigation reading nothing while the suite stayed
     # green.
-    #
-    # Driven through the SDK rather than through Argus's own adapter,
-    # deliberately. The third party in this contract is Anthropic, and what is
-    # being checked is that a stored body still means to their client what it
-    # meant when it was recorded. An assertion routed through Argus's loop
-    # would be checking Argus.
-    double.post("/double-control/seed", json={"recording": recording})
     replaying = anthropic.Anthropic(api_key="not-used", base_url=DEFAULT_BASE_URL)
 
-    answer = replaying.messages.create(
-        model=MODEL,
-        max_tokens=MAX_TOKENS,
-        tools=[TOOL_THE_MODEL_MUST_USE_TO_ANSWER],
-        messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
-    )
-
-    assert answer.stop_reason == TOOL_USE_STOP_REASON
-    assert _the_tool_calls_in(answer)
-    assert all(call.id for call in _the_tool_calls_in(answer))
-    assert all(isinstance(call.input, dict) for call in _the_tool_calls_in(answer))
+    Scenario() \
+        .given(
+            calling(lambda: double.post("/double-control/seed", json={"recording": recording}))
+        ) \
+        .when(
+            lambda: replaying.messages.create(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                tools=[TOOL_THE_MODEL_MUST_USE_TO_ANSWER],
+                messages=[{"role": "user", "content": SOME_QUESTION_ONLY_THE_TOOL_ANSWERS}]
+            )
+        ) \
+        .then(all_of(
+            _the_turn_stopped_for(TOOL_USE_STOP_REASON),
+            _a_tool_was_asked_for(),
+            _every_tool_call_carried_an_id(),
+            _every_tool_call_carried_an_input()
+        ))
 
 
 @pytest.mark.contract
@@ -215,18 +252,141 @@ def test_a_rejected_request_raises_the_same_error_class_from_both(
     # reject a bad model on its own. What is compared is the rejection: given
     # an equivalent refusal, does the SDK raise the same class? That is what
     # a test seeding a status on the double is entitled to assume.
-    double.post("/double-control/seed", json={"status": 404})
-
-    error_from_the_real_api = _the_error_from(
-        anthropic.Anthropic(api_key=get_settings().anthropic_api_key, max_retries=0),
-        model=SOME_MODEL_THAT_DOES_NOT_EXIST
-    )
-    error_from_the_double = _the_error_from(
-        anthropic.Anthropic(api_key="not-used", base_url=DEFAULT_BASE_URL, max_retries=0),
-        model=MODEL
+    real = anthropic.Anthropic(api_key=get_settings().anthropic_api_key, max_retries=0)
+    replaying = anthropic.Anthropic(
+        api_key="not-used", base_url=DEFAULT_BASE_URL, max_retries=0
     )
 
-    assert type(error_from_the_double) is type(error_from_the_real_api)
+    Scenario() \
+        .given(
+            calling(lambda: double.post("/double-control/seed", json={"status": 404}))
+        ) \
+        .when(
+            lambda: [
+                _the_error_from(real, model=SOME_MODEL_THAT_DOES_NOT_EXIST),
+                _the_error_from(replaying, model=MODEL)
+            ]
+        ) \
+        .then(
+            _both_refusals_were_the_same_class()
+        )
+
+
+def _the_turn_stopped_for(reason: str) -> Assertion[anthropic.types.Message]:
+    def assertion(answer: anthropic.types.Message) -> bool:
+        if answer.stop_reason != reason:
+            raise AssertionError(f"Expected [{reason}], got [{answer.stop_reason}].")
+
+        return True
+
+    return assertion
+
+
+def _a_tool_was_asked_for() -> Assertion[anthropic.types.Message]:
+    def assertion(answer: anthropic.types.Message) -> bool:
+        if not _the_tool_calls_in(answer):
+            raise AssertionError(
+                f"Expected at least one tool call, the turn carried "
+                f"{[block.type for block in answer.content]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _every_tool_asked_for_was(name: str) -> Assertion[anthropic.types.Message]:
+    def assertion(answer: anthropic.types.Message) -> bool:
+        named = [call.name for call in _the_tool_calls_in(answer)]
+
+        if any(called != name for called in named):
+            raise AssertionError(f"Expected every call to be [{name}], got {named}.")
+
+        return True
+
+    return assertion
+
+
+def _every_tool_call_carried_an_id() -> Assertion[anthropic.types.Message]:
+    """That each call can be answered.
+
+    A result is returned against the id of the call it answers, so a block
+    without one is a call the loop cannot reply to - and the conversation stops
+    there rather than anywhere a reader would look.
+    """
+    def assertion(answer: anthropic.types.Message) -> bool:
+        unanswerable = [call.name for call in _the_tool_calls_in(answer) if not call.id]
+
+        if unanswerable:
+            raise AssertionError(f"Expected every call to carry an id, {unanswerable} did not.")
+
+        return True
+
+    return assertion
+
+
+def _every_tool_call_carried_an_input() -> Assertion[anthropic.types.Message]:
+    def assertion(answer: anthropic.types.Message) -> bool:
+        unparsed = [
+            call.name for call in _the_tool_calls_in(answer) if not isinstance(call.input, dict)
+        ]
+
+        if unparsed:
+            raise AssertionError(f"Expected every input to parse, {unparsed} did not.")
+
+        return True
+
+    return assertion
+
+
+def _the_request_was_accepted() -> Assertion[anthropic.types.Message]:
+    """That a turn came back at all.
+
+    The whole claim: a rejected schema arrives as a `BadRequestError` naming
+    the tool and the field, which says more than any assertion here could.
+    """
+    def assertion(answer: anthropic.types.Message) -> bool:
+        if answer.stop_reason is None:
+            raise AssertionError("Expected a finished turn, got one with no stop reason.")
+
+        return True
+
+    return assertion
+
+
+def _the_prefix_was_written_then_read() -> Assertion[list[anthropic.types.Message]]:
+    def assertion(asked_twice: list[anthropic.types.Message]) -> bool:
+        wrote, read = asked_twice
+
+        if not wrote.usage.cache_creation_input_tokens:
+            raise AssertionError(
+                f"Expected the first request to write the prefix to cache, its usage was "
+                f"{wrote.usage}."
+            )
+
+        if not read.usage.cache_read_input_tokens:
+            raise AssertionError(
+                f"Expected the second request to read it back, its usage was {read.usage}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _both_refusals_were_the_same_class() -> Assertion[list[Exception]]:
+    def assertion(refusals: list[Exception]) -> bool:
+        from_the_real_api, from_the_double = refusals
+
+        if type(from_the_double) is not type(from_the_real_api):
+            raise AssertionError(
+                f"Expected the double to raise [{type(from_the_real_api).__name__}], "
+                f"got [{type(from_the_double).__name__}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_error_from(client: anthropic.Anthropic, model: str) -> Exception:
@@ -248,13 +408,3 @@ def _the_tool_calls_in(answer: anthropic.types.Message) -> list[anthropic.types.
     tools in one turn, which is why this is a list and not the first match.
     """
     return [block for block in answer.content if block.type == TOOL_USE_TYPE]
-
-
-# Phrased so that answering without the tool is not available: the model is
-# asked for something only the log lines contain, over a window it was not
-# given. A question it could answer from its own knowledge would make a
-# `tool_use` turn the model's preference rather than the API's contract.
-SOME_QUESTION_ONLY_THE_TOOL_ANSWERS = (
-    "What did the service log between 2026-08-29T22:10:00Z and 2026-08-29T22:20:00Z? "
-    "Use the tool to find out; do not guess."
-)

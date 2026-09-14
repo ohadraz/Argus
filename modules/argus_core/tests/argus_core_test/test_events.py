@@ -10,7 +10,6 @@ from argus_core.events import (
     LogsRetrieved,
     MitigationResumed,
     Publisher,
-    RetrievalChannel,
     RetrievalRequested,
     VerdictReached,
     parse_event,
@@ -19,6 +18,7 @@ from argus_core.events import (
 from argus_core.ids import new_id
 from argus_core.models.action import Verdict
 from argus_core.models.actor import Actor
+from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
 from argus_testkit import Assertion, Scenario, all_of, attempting

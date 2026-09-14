@@ -4,10 +4,8 @@ from collections.abc import Callable
 from datetime import datetime
 
 import httpx
-from argus_core.config import get_settings
-from argus_core.models.change_event import ChangeEvent
-from argus_core.models.metrics import MetricBucket
-from argus_core.timestamps import parse_iso, to_iso
+from argus_core import get_settings, parse_iso, to_iso
+from argus_core.models import ChangeEvent, MetricBucket
 
 from read_mcp_server.argocd import fetch_deploys
 from read_mcp_server.change_source import ChangeSource

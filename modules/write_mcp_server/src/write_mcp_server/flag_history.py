@@ -23,9 +23,8 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-from argus_core.config import Settings, get_settings
-from argus_core.models.flag_change import FlagChange
-from argus_core.timestamps import parse_iso, to_iso
+from argus_core import Settings, get_settings, parse_iso, to_iso
+from argus_core.models import FlagChange
 
 HttpGet = Callable[..., httpx.Response]
 

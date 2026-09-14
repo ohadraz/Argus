@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from argus_core.models.flag_change import FlagChange
+from argus_core.models import FlagChange
 
 """Telling Argus's own changes from everybody else's.
 

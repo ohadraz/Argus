@@ -5,15 +5,14 @@ import pytest
 from agent_communicator.following import events_since, place_for
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Outcome, relay_once
-from argus_core.db import connect
+from argus_core import connect
 from argus_core.events import (
     ActionTaken,
     IncidentEvent,
     OnsetDetected,
     StatusChanged,
 )
-from argus_core.models.alert import Alert
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import events, incidents
 from argus_narration import NarrationLine
 from argus_testkit import Assertion, Scenario, all_of, calling

@@ -12,9 +12,7 @@ from agent_postmortem.prompting import (
     opening_ask_again,
     rejecting,
 )
-from argus_core.models.tool_definition import ToolDefinition
-from argus_core.models.transcript import Ask, ToolResults, Transcript
-from argus_core.models.turn import Turn
+from argus_core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (

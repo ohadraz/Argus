@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from argus_core.config import get_settings
-from argus_core.models.change_event import ChangeEvent
-from argus_core.models.metrics import MetricBucket
+from argus_core import get_settings
+from argus_core.models import ChangeEvent, MetricBucket
 from mcp.server.fastmcp import FastMCP
 
 from read_mcp_server import flags, retrieval

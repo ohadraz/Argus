@@ -3,12 +3,8 @@ from __future__ import annotations
 import random
 import string
 
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.evidence import Evidence
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, CauseType, Evidence, Hypothesis, IncidentStatus
+from orchestrator.walk.state import IncidentState
 
 
 def an_incident_state(

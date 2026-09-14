@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from argus_core.models.postmortem import PostmortemDocument
+from argus_core.models import PostmortemDocument
 from argus_testkit import Assertion
 
 """What a finished postmortem says, and what it is asked never to say.

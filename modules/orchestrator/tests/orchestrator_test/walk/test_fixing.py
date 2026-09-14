@@ -3,13 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.models.alert import Alert
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.routes import ESCALATED_ROUTE, RESOLVED_ROUTE
+from orchestrator.walk.state import IncidentState
 
 """Looking for a permanent fix, and admitting there isn't one.
 

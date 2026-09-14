@@ -8,9 +8,9 @@ import httpx
 import psycopg
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_core.config import get_settings
+from argus_core import get_settings
 from argus_core.events import StatusChanged
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus
 from argus_core.replay import CallType
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
 from argus_testkit import Assertion, all_of

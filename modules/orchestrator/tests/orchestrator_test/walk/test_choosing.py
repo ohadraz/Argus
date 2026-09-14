@@ -3,20 +3,22 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.config import get_settings
+from argus_core import get_settings
 from argus_core.events import CandidateSelected, IncidentEvent
-from argus_core.models.action import Action
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.evidence import Evidence
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus, status_after
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import (
+    Action,
+    Alert,
+    CauseType,
+    Evidence,
+    Hypothesis,
+    IncidentStatus,
+    UndoDescriptor,
+)
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.routes import FIXING_ROUTE, INVESTIGATING_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.state import IncidentState, status_after
 
 from ..framework.builders import a_determined_hypothesis, a_random_id, an_undetermined_hypothesis
 

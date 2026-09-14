@@ -13,9 +13,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from argus_core.llm.client import LLMClient
-from argus_core.models.transcript import Transcript
-from argus_core.models.turn import Turn
+from argus_core.llm import LLMClient
+from argus_core.models import Transcript, Turn
 
 from agent_postmortem.checking import faults_in
 from agent_postmortem.evidence import IncidentEvidence

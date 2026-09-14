@@ -9,8 +9,7 @@ from functools import partial
 from os import getpid
 
 import psycopg
-from argus_core.config import get_settings
-from argus_core.db import Connections, open_pool
+from argus_core import Connections, get_settings, open_pool
 from argus_core.schema import require_schema
 from argus_incidents.publishing import events_into
 from argus_incidents.repository import runs

@@ -21,11 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from argus_core.models.action import Action, Verdict
-from argus_core.models.attempt import Attempt
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.reading import Reading
+from argus_core.models import Action, Attempt, Hypothesis, IncidentStatus, Reading, Verdict
 from pydantic import BaseModel, ConfigDict
 
 

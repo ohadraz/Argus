@@ -6,9 +6,8 @@ from unittest.mock import Mock, create_autospec
 import pytest
 from agent_investigator.retrieval import fetch_change_events
 from agent_investigator.tools import CHANGES_TOOL
-from argus_core.config import get_settings
-from argus_core.models.transcript import ToolResult
-from argus_core.timestamps import parse_iso, to_iso
+from argus_core import get_settings, parse_iso, to_iso
+from argus_core.models import ToolResult
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 
 from ..framework.builders.dispatcher import A_SERVICE, AN_ONSET, a_call_to, a_dispatcher

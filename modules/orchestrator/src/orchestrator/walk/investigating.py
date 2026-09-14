@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from agent_investigator import investigate as _investigate
 from argus_core.events import AgentInvoked, Publisher, nobody, publish
-from argus_core.models.actor import Actor
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Actor, Hypothesis, IncidentStatus
 
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
@@ -19,6 +16,7 @@ from orchestrator.walk.candidates import the_next_worth_trying
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import Investigate, RecordHypothesis
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.state import IncidentState
 
 
 def investigator_node(

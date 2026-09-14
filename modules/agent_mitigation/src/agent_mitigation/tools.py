@@ -4,14 +4,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from argus_core.attribution import change_by_actor_to, changes_not_made_by
-from argus_core.config import get_settings
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.metrics import MetricBucket
-from argus_core.models.undo_descriptor import UndoDescriptor
-from argus_core.timestamps import to_iso
+from argus_core import get_settings, to_iso
+from argus_core.models import FlagChange, MetricBucket, UndoDescriptor
 from read_mcp_client import get_metrics_summary
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
+
+from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
 
 FlagChangeFetcher = Callable[[], list[FlagChange]]
 # The same tool asked for a window that starts where the caller says, rather

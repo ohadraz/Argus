@@ -6,8 +6,8 @@ from typing import Any
 
 import httpx
 import pytest
-from argus_core.config import get_settings
-from argus_core.models.incident_status import IncidentStatus
+from argus_core import get_settings
+from argus_core.models import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (

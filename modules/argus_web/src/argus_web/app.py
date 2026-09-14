@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import psycopg
-from argus_core.db import Connections, open_pool
+from argus_core import Connections, open_pool
 from argus_core.events import Publisher
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
 from argus_incidents.intake import start_incident
 from argus_incidents.publishing import events_into, events_into_connection

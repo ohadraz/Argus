@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import cast
 
-from argus_core.config import get_settings
+from argus_core import get_settings
 from argus_core.mcp_transport import call_mcp_tool
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import FlagChange, UndoDescriptor
 
 
 def set_feature_flag(flag: str, enabled: bool) -> UndoDescriptor:

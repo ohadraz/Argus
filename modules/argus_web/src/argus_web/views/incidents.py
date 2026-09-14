@@ -13,14 +13,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from argus_core.ids import UuidStr
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.evidence import Evidence
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident import Incident
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.taken_action import TakenAction
+from argus_core import UuidStr
+from argus_core.models import (
+    Alert,
+    CauseType,
+    Evidence,
+    Hypothesis,
+    Incident,
+    IncidentStatus,
+    TakenAction,
+)
 from argus_narration import said_as_a_state
 from pydantic import BaseModel
 

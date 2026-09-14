@@ -21,7 +21,7 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-from argus_core.config import Settings, get_settings
+from argus_core import Settings, get_settings
 
 HttpGet = Callable[..., httpx.Response]
 FetchToggles = Callable[[], list[dict[str, Any]]]

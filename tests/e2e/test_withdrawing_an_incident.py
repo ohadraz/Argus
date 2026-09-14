@@ -9,7 +9,7 @@ import psycopg
 import pytest
 from agent_mitigation import Undone
 from argus_core.events import ChangeUndone
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus
 from argus_incidents.repository import events, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 

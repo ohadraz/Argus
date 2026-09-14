@@ -11,9 +11,8 @@ from typing import Any, NamedTuple
 import httpx
 import psycopg
 from anthropic_double.recordings import RECORDINGS_DIR
-from argus_core.config import get_settings
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.timestamps import to_iso
+from argus_core import get_settings, to_iso
+from argus_core.models import IncidentStatus
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,

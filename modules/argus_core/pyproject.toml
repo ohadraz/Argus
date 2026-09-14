@@ -3,21 +3,43 @@ name = "argus-argus_core"
 version = "0.1.0"
 requires-python = ">=3.14"
 
+# What every module gets by depending on the kernel at all - and no more than
+# that. `psycopg` and `pydantic-settings` are here because the front doors reach
+# them: `argus_core` exports `connect` and `Settings`, so `import argus_core`
+# loads both whatever the importer wanted. The four modules that hold a
+# connection are also the four that import them.
 dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "psycopg[binary]>=3.1",
     "psycopg-pool>=3.2",
-    "mcp>=1.29.0",
-    "anthropic>=1.0",
-    "alembic>=1.20.0",
 ]
+
+# The heavy three, behind the doors they live at, taken by the modules that
+# actually go through them. Declared as hard dependencies they were transitive
+# to all twenty: `revenue_source` and `exchange_rate_source` installed the
+# Anthropic SDK to get a `UuidStr`, and nothing said otherwise because nothing
+# could - a dependency is not a thing a module can decline.
+#
+# Enforced rather than trusted: the front-door contract in the root
+# `pyproject.toml` names who may import `argus_core.llm` and
+# `argus_core.mcp_transport`, so a module reaching one without the extra fails
+# `guard_layering` rather than at runtime on the day that path is first walked.
+[project.optional-dependencies]
+llm = ["anthropic>=1.0"]
+mcp = ["mcp>=1.29.0"]
+migrations = ["alembic>=1.20.0"]
 
 # `test_module` resolves each module against its own dependencies alone, so a
 # test helper this module's suite imports has to be declared here or it is
 # simply absent on CI, however well-populated the local workspace venv is.
+#
+# All three extras, for the same reason: this module's own suite is the one that
+# exercises what is behind every door, so a suite resolved without them fails on
+# CI alone and looks like a code problem.
 [dependency-groups]
 dev = [
+    "argus-argus_core[llm,mcp,migrations]",
     "argus-argus_testkit",
 ]
 

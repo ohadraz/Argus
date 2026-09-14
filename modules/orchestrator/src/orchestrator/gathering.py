@@ -22,15 +22,12 @@ from functools import partial
 import psycopg
 from agent_postmortem import IncidentEvidence, Sources, write_postmortem
 from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
-from argus_core.config import get_settings
-from argus_core.db import Connections
+from argus_core import Connections, get_settings, parse_iso, to_iso
 from argus_core.events import LogsRetrieved, OnsetDetected
-from argus_core.llm.client import LLMClient
-from argus_core.models.metrics import MetricBucket
-from argus_core.models.postmortem import PostmortemDocument
+from argus_core.llm import LLMClient
+from argus_core.models import MetricBucket, PostmortemDocument
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
-from argus_core.timestamps import parse_iso, to_iso
 from argus_incidents.repository import (
     events,
     exchange_rates,
@@ -173,7 +170,7 @@ def _a_recording_client(replay: Replay) -> LLMClient:
     client pulls in a vendor's SDK, which nothing testing the gathering should
     have to import.
     """
-    from argus_core.llm.client_selection import get_llm_client
+    from argus_core.llm import get_llm_client
 
     return get_llm_client(replay)
 

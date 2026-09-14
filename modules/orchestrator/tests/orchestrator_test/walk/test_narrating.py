@@ -6,17 +6,13 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from argus_core.events import StatusChanged
-from argus_core.models.actor import Actor
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Actor, Alert, CauseType, Hypothesis, IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.narrating import with_status
+from orchestrator.walk.state import IncidentState
 
 """The one place a status is persisted, and the one place it is published.
 

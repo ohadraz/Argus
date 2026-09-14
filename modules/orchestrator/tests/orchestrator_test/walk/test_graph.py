@@ -5,7 +5,6 @@ from contextlib import contextmanager
 
 import psycopg
 import pytest
-from argus_core.models.incident_state import IncidentState
 from argus_testkit import Assertion, Scenario
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START
@@ -22,6 +21,7 @@ from orchestrator.walk.graph import (
     build_graph,
     recursion_limit,
 )
+from orchestrator.walk.state import IncidentState
 
 """The shape of the walk, and what a walk is allowed to cost.
 

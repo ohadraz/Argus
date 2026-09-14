@@ -16,12 +16,9 @@ from unittest.mock import Mock, create_autospec
 from agent_investigator import Findings, Reading, investigate
 from agent_investigator.budget import Budget
 from agent_investigator.retrieval import fetch_change_events, fetch_logs, fetch_metrics
+from argus_core import new_id
 from argus_core.events import Publisher, nobody
-from argus_core.ids import new_id
-from argus_core.models.alert import Alert
-from argus_core.models.attempt import Attempt
-from argus_core.models.change_event import ChangeEvent
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import Alert, Attempt, ChangeEvent, MetricBucket
 
 from .budget import a_budget
 from .incident import an_alert

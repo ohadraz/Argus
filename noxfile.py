@@ -285,8 +285,13 @@ def guard_layering(session: nox.Session) -> None:
     `uv run python -m nox -s guard_layering`.
     Fails if a module imports something its layer may not know about, per the
     import-linter contracts in the root `pyproject.toml`: the kernel depends on
-    nothing here, the incident record knows only the kernel, and the page serves
-    HTML without installing an agent.
+    nothing here, the incident record knows only the kernel, the page serves
+    HTML without installing an agent, and the kernel is reached through its
+    front doors rather than by module path.
+
+    It also holds the suites to that last rule, which the contracts cannot:
+    import-linter analyzes the packages named in `root_packages`, and a test
+    package is not one of them.
 
     A guard rather than a note in `CLAUDE.md`, because the note was there while
     `argus_incidents` depended on an agent - a documented invariant nothing

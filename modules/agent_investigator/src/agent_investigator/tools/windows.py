@@ -12,8 +12,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Final
 
-from argus_core.models.turn import ToolCall
-from argus_core.timestamps import parse_iso, to_iso
+from argus_core import parse_iso, to_iso
+from argus_core.models import ToolCall
 
 # The arguments a windowed tool takes. Named once because the schema offers
 # them and the dispatcher reads them back, and those two agreeing is the whole

@@ -21,12 +21,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from argus_core.models.action import Action, Outcome, Verdict
-from argus_core.models.cause import CauseType
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.undo_descriptor import UndoDescriptor
-from argus_core.models.undone import Undone
+from argus_core.models import (
+    Action,
+    CauseType,
+    FlagChange,
+    Hypothesis,
+    Outcome,
+    UndoDescriptor,
+    Undone,
+    Verdict,
+)
 from pydantic import BaseModel
 
 __all__ = [

@@ -13,9 +13,8 @@ caller could skip.
 
 from __future__ import annotations
 
-from argus_core.config import get_settings
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core import get_settings
+from argus_core.models import FlagChange, UndoDescriptor
 from mcp.server.fastmcp import FastMCP
 
 from write_mcp_server import flag_history, flag_state

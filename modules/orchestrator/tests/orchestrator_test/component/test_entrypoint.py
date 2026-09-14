@@ -5,10 +5,9 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
-from argus_core.db import connect
+from argus_core import connect
 from argus_core.events import StatusChanged
-from argus_core.models.alert import Alert
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import events, incidents
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario

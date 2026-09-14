@@ -17,9 +17,8 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-from argus_core.config import Settings, get_settings
-from argus_core.models.change_event import ChangeEvent, ChangeKind
-from argus_core.timestamps import parse_iso
+from argus_core import Settings, get_settings, parse_iso
+from argus_core.models import ChangeEvent, ChangeKind
 
 from read_mcp_server.change_source import ChangeSourceUnavailable
 

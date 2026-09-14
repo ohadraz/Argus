@@ -4,8 +4,7 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 from agent_investigator.retrieval import fetch_change_events
-from argus_core.models.change_event import ChangeEvent, ChangeKind
-from argus_core.models.flag_change import FlagChange
+from argus_core.models import ChangeEvent, ChangeKind, FlagChange
 from argus_testkit import Assertion, Scenario, all_of
 from read_mcp_client import get_change_events
 from write_mcp_client import get_recent_flag_changes

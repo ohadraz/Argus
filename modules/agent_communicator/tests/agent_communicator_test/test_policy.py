@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 from agent_communicator.policy import Register, how_it_is_said
+from argus_core import new_id
 from argus_core.events import (
     ActionRefused,
     ActionTaken,
@@ -24,19 +25,20 @@ from argus_core.events import (
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
-    RetrievalChannel,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
 )
-from argus_core.ids import new_id
-from argus_core.models.action import Verdict
-from argus_core.models.actor import Actor
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.refusal import Refusal
-from argus_core.models.undone import Undone
+from argus_core.models import (
+    Actor,
+    Alert,
+    CauseType,
+    IncidentStatus,
+    Refusal,
+    RetrievalChannel,
+    Undone,
+    Verdict,
+)
 from argus_testkit import Assertion, Scenario
 
 """Which of the things Argus publishes a human actually hears, and how loudly.

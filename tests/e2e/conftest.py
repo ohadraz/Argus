@@ -5,8 +5,7 @@ from collections.abc import Iterator
 
 import httpx
 import pytest
-from argus_core.config import get_settings
-from argus_core.db import connect
+from argus_core import connect, get_settings
 from argus_incidents.repository import incidents
 from argus_incidents.repository.runs import RunState
 from psycopg import sql

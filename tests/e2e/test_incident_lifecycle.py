@@ -3,7 +3,7 @@ from __future__ import annotations
 from http import HTTPStatus as HttpStatus
 
 import pytest
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (

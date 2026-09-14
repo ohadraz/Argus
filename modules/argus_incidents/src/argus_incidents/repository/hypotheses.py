@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import psycopg
-from argus_core.models.hypothesis import Hypothesis
+from argus_core.models import Hypothesis
 from psycopg.rows import class_row
 
 

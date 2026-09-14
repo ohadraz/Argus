@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import psycopg
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
-from argus_core.models.alert import Alert
+from argus_core.models import Alert
 from argus_core.replay import Recorder, ReplayEntry
 
 from argus_incidents.repository import events, replay

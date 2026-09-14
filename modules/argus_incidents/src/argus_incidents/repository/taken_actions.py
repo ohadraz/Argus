@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.models.taken_action import TakenAction
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import TakenAction, UndoDescriptor
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 

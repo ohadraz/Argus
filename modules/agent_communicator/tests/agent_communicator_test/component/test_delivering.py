@@ -11,7 +11,7 @@ from agent_communicator.policy import Register
 from agent_communicator.relaying import Delivery, Outcome
 from agent_communicator.repository import threads
 from agent_communicator.slack import a_slack_client
-from argus_core.db import connect
+from argus_core import connect
 from argus_core.events import (
     ActionTaken,
     CommunicationFailed,
@@ -20,8 +20,7 @@ from argus_core.events import (
     PostmortemWritten,
     StatusChanged,
 )
-from argus_core.models.alert import Alert
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import events, incidents
 from argus_narration import a_narration_line
 from argus_testkit import Assertion, Scenario, all_of, calling

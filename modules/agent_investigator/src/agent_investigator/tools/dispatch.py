@@ -12,10 +12,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 
-from argus_core.events import Narrator, RetrievalChannel, nobody
-from argus_core.models.reading import Reading
-from argus_core.models.transcript import ToolResult
-from argus_core.models.turn import ToolCall
+from argus_core.events import Narrator, nobody
+from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolResult
 from argus_core.replay import CallType, Replay
 
 from agent_investigator.retrieval import (

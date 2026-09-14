@@ -28,8 +28,8 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
-from argus_core.config import Settings, get_settings
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core import Settings, get_settings
+from argus_core.models import UndoDescriptor
 
 HttpPost = Callable[..., httpx.Response]
 HttpGet = Callable[..., httpx.Response]

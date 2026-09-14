@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 
 import httpx
 import pytest
-from argus_core.config import Settings
+from argus_core import Settings
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from read_mcp_server.flags import (

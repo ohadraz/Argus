@@ -7,7 +7,7 @@ Anything true of one channel alone stays private to the file that tests it.
 
 from __future__ import annotations
 
-from argus_core.models.transcript import ToolResult
+from argus_core.models import ToolResult
 from argus_testkit import Assertion
 
 

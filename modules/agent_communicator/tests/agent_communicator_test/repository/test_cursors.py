@@ -3,7 +3,7 @@ from __future__ import annotations
 import psycopg
 import pytest
 from agent_communicator.repository import cursors
-from argus_core.db import connect
+from argus_core import connect
 from argus_testkit import Assertion, Scenario, all_of, calling
 
 """Where a reader of the event log got to, kept so that a restart resumes.

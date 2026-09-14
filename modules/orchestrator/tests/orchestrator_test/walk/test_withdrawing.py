@@ -3,9 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from argus_core.models.alert import Alert
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.choosing import route_after_next_candidate
 from orchestrator.walk.fixing import route_after_codefix
@@ -13,6 +11,7 @@ from orchestrator.walk.gating import route_after_gate
 from orchestrator.walk.investigating import route_after_investigation
 from orchestrator.walk.mitigating import route_after_mitigation
 from orchestrator.walk.routes import RESOLVED_ROUTE, WITHDRAWN_ROUTE
+from orchestrator.walk.state import IncidentState
 from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
 """The one way out of the walk that is the same wherever it is asked.

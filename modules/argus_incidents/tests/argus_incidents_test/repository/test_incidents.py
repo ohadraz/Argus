@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
 from functools import partial
 from typing import Any
 
 import psycopg
 import pytest
-from argus_core.db import connect
-from argus_core.models.alert import Alert
-from argus_core.models.incident_status import IncidentStatus
+from argus_core import connect
+from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import incidents
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, all_of
 
 
 @pytest.mark.integration
@@ -192,6 +192,134 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
             )
 
 
+@pytest.mark.integration
+def test_incidents_come_back_newest_first() -> None:
+    # The history view opens on what just happened. Oldest-first would put the
+    # incident somebody is looking for at the bottom of the page.
+    an_older_alert = Alert(service="older-service", alert_name="HighErrorRate")
+    a_newer_alert = Alert(service="newer-service", alert_name="HighErrorRate")
+
+    with connect() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        the_incidents_come_back = partial(_the_incidents_come_back, conn)
+
+        older = an_incident_created_for(an_older_alert)
+        # `now()` is transaction time, so two incidents created in one
+        # transaction share a timestamp and the ordering has nothing left to
+        # break the tie - which is not how an incident is ever created.
+        conn.commit()
+        newer = an_incident_created_for(a_newer_alert)
+
+        Scenario() \
+            .given(
+                older, newer
+            ) \
+            .when(
+                lambda: incidents.get_recent(conn)
+            ) \
+            .then(
+                the_incidents_come_back(newest=newer, before=older)
+            )
+
+
+@pytest.mark.integration
+def test_a_running_incident_can_be_withdrawn() -> None:
+    # Withdrawal is the one status set from outside the walk. Everything else
+    # an incident becomes is derived from work the walk did and written by the
+    # walk itself; this is written by whoever pressed the button.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.withdraw(conn, incident_id)
+            ) \
+            .then(all_of(
+                the_incident_is(IncidentStatus.WITHDRAWN, incident_id=incident_id),
+                the_incident_records_an_end(incident_id)
+            ))
+
+
+@pytest.mark.integration
+def test_withdrawing_says_that_it_took_effect() -> None:
+    # The answer is what the endpoint reports back and what the walk's own
+    # unwind is conditioned on, so a withdrawal that silently did nothing must
+    # not read the same as one that stopped an incident.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.withdraw(conn, incident_id)
+            ) \
+            .then(
+                _it_reported(True)
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_that_already_ended_is_not_withdrawn() -> None:
+    # A resolved incident was resolved by a mitigation that is holding the
+    # service up. Withdrawing it would put the failure back.
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+
+    with connect() as conn:
+        a_resolved_incident_for = partial(_a_resolved_incident_for, conn)
+        the_incident_is = partial(_the_incident_is, conn)
+
+        Scenario() \
+            .given(
+                incident_id := a_resolved_incident_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.withdraw(conn, incident_id)
+            ) \
+            .then(all_of(
+                _it_reported(False),
+                the_incident_is(IncidentStatus.RESOLVED, incident_id=incident_id)
+            ))
+
+
+@pytest.mark.integration
+def test_withdrawing_twice_changes_nothing_the_second_time() -> None:
+    # The page can be double-clicked and a teardown can withdraw what a case
+    # already withdrew. Neither should write a second row, and neither should
+    # move the end time the first one stamped.
+    some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+    with connect() as conn:
+        a_withdrawn_incident_for = partial(_a_withdrawn_incident_for, conn)
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_still_ended_at = partial(_the_incident_still_ended_at, conn)
+
+        incident_id = a_withdrawn_incident_for(some_alert)
+
+        Scenario() \
+            .given(
+                first_ended_at := _when_it_ended(conn, incident_id)
+            ) \
+            .when(
+                lambda: incidents.withdraw(conn, incident_id)
+            ) \
+            .then(all_of(
+                _it_reported(False),
+                the_incident_is(IncidentStatus.WITHDRAWN, incident_id=incident_id),
+                the_incident_still_ended_at(incident_id, first_ended_at)
+            ))
+
+
 def _no_incidents_at_all(conn: psycopg.Connection) -> None:
     """An empty table, which is the one state "the newest incident" cannot be
     set up into by adding a row."""
@@ -268,6 +396,98 @@ def _the_incident_records_no_end(conn: psycopg.Connection, incident_id: str) -> 
             raise AssertionError(
                 f"Expected incident [{incident_id}] to record no end while it is still "
                 f"being worked, got [{incident.ended_at}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incidents_come_back(conn: psycopg.Connection,
+                             newest: str,
+                             before: str) -> Assertion[Any]:
+    """That one incident is listed before another, wherever the rest are.
+
+    Relative rather than positional: `get_recent` answers with every incident
+    there has ever been, so pinning the positions would be an assertion about
+    whatever the tests before it left behind.
+    """
+    def assertion(_result: Any) -> bool:
+        listed = [incident.id for incident in incidents.get_recent(conn)]
+
+        for incident_id in (newest, before):
+            if incident_id not in listed:
+                raise AssertionError(f"Expected [{incident_id}] to come back at all.")
+
+        if listed.index(newest) > listed.index(before):
+            raise AssertionError(
+                f"Expected [{newest}] before [{before}], the order was {listed}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_resolved_incident_for(conn: psycopg.Connection, alert: Alert) -> str:
+    incident_id = incidents.create(conn, alert)
+    incidents.transition(
+        conn,
+        incident_id,
+        IncidentStatus.RESOLVED,
+    )
+
+    return incident_id
+
+
+def _a_withdrawn_incident_for(conn: psycopg.Connection, alert: Alert) -> str:
+    incident_id = incidents.create(conn, alert)
+    incidents.withdraw(conn, incident_id)
+
+    return incident_id
+
+
+def _it_reported(expected: bool) -> Assertion[bool]:
+    def assertion(withdrawn: bool) -> bool:
+        if withdrawn != expected:
+            raise AssertionError(
+                f"Expected the withdrawal to report that it "
+                f"{"took effect" if expected else "changed nothing"}, "
+                f"got [{withdrawn!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _when_it_ended(conn: psycopg.Connection, incident_id: str) -> datetime:
+    incident = incidents.get(conn, incident_id)
+
+    assert incident is not None and incident.ended_at is not None
+
+    return incident.ended_at
+
+
+def _the_incident_still_ended_at(conn: psycopg.Connection,
+                                 incident_id: str,
+                                 moment: datetime) -> Assertion[bool]:
+    """The end an incident already had is not restamped by a second withdrawal.
+
+    How long an incident lasted is a figure Argus reports, and a withdrawal
+    that re-stamped it would stretch that figure by however long it took
+    somebody to press the button twice.
+    """
+    def assertion(_withdrawn: bool) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None:
+            raise AssertionError(f"No incident found with id [{incident_id}].")
+
+        if incident.ended_at != moment:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to still record its end at "
+                f"[{moment}], got [{incident.ended_at}]."
             )
 
         return True

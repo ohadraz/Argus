@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models.flag_change import FlagChange
+from argus_core.models import FlagChange
 from pydantic import BaseModel
 
 from argus_narration.clock import a_moment

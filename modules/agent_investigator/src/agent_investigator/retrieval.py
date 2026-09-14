@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from argus_core.models.change_event import ChangeEvent, ChangeKind
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import ChangeEvent, ChangeKind, FlagChange, MetricBucket
 from read_mcp_client import get_change_events, get_log_lines, get_metrics_summary
 from write_mcp_client import get_recent_flag_changes
 

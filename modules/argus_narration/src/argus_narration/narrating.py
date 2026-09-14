@@ -44,17 +44,19 @@ from argus_core.events import (
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
-    RetrievalChannel,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
 )
-from argus_core.models.actor import Actor
-from argus_core.models.change_event import ChangeEvent
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.refusal import Refusal
-from argus_core.models.undone import Undone
+from argus_core.models import (
+    Actor,
+    ChangeEvent,
+    FlagChange,
+    IncidentStatus,
+    Refusal,
+    RetrievalChannel,
+    Undone,
+)
 from pydantic import BaseModel
 
 from argus_narration.clock import a_minute, a_window

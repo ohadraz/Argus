@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from argus_core.llm.client import LLMClient
-from argus_core.models.postmortem import PostmortemDocument
+from argus_core.llm import LLMClient
+from argus_core.models import PostmortemDocument
 
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing

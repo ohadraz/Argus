@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 import psycopg
-from argus_core.ids import UuidStr
+from argus_core import UuidStr
 from psycopg.rows import class_row
 from pydantic import BaseModel
 

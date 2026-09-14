@@ -4,7 +4,6 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
-from enum import StrEnum
 from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, TypeAdapter
@@ -19,6 +18,7 @@ from argus_core.models.evidence import Evidence
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
 
@@ -36,20 +36,6 @@ each of them all the same - it is what a stored row is read back by.
 """
 
 _logger = logging.getLogger(__name__)
-
-
-class RetrievalChannel(StrEnum):
-    """The three ways Argus learns anything about the service (spec §16).
-
-    Named on the request so a reader can see what was asked for even where the
-    answer never arrived - a channel that failed is a fact about the
-    investigation, and one that is silent in the account looks like a channel
-    nobody thought to try.
-    """
-
-    METRICS = "metrics"
-    LOGS = "logs"
-    CHANGES = "changes"
 
 
 class _Event(BaseModel):

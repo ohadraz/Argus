@@ -12,7 +12,7 @@ from unittest.mock import Mock, create_autospec
 
 from agent_investigator.retrieval import fetch_change_events, fetch_logs, fetch_metrics
 from agent_investigator.tools import Dispatcher
-from argus_core.models.turn import ToolCall
+from argus_core.models import ToolCall
 
 # The incident every tool test is about. The onset sits five minutes before
 # the alert, which is the ordinary shape: something started, and a rule

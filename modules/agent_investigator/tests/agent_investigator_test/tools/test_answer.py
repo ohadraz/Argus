@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from agent_investigator.tools.answer import HYPOTHESES_ARG, answer_tool
-from argus_core.models.tool_definition import ToolDefinition
+from argus_core.models import ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
 
 type _Part = Callable[[ToolDefinition], dict[str, Any]]

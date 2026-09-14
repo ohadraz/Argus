@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    "argus-argus_core",
+    "argus-argus_core[llm]",
     "argus-read_mcp_client",
     # For the flag provider's audit log, which is the change channel's second
     # source. Read-only, and on the write client only because the provider

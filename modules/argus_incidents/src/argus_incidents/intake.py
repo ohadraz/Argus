@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from argus_core.db import Connections
-from argus_core.models.alert import Alert
+from argus_core import Connections
+from argus_core.models import Alert
 
 from argus_incidents.publishing import PublisherFor, acknowledge_alert
 from argus_incidents.repository import incidents, runs

@@ -34,23 +34,15 @@ argus-anthropic_double = { workspace = true }
 [tool.uv]
 package = false
 
-# mypy is shipped as a fully compiled wheel - every module a `.pyd` built by
-# mypyc, plus a `__mypyc` extension they all link against. Windows Smart App
-# Control blocks those locally-installed binaries, and `python -m mypy` does not
-# help the way it helps with a console-script shim: the block is inside the
-# package, not on a wrapper around it, so the import fails before mypy runs at
-# all (`mypy --version` fails too).
-#
-# Building from the sdist instead gives the pure-Python mypy, which is the same
-# type checker and several times slower. Slower type checking is a better trade
-# than none, and this is the whole fix - it survives `uv sync`, where clearing
-# the block by hand does not.
-#
-# `librt` is here for the same reason and by the same mechanism. mypy 2.x moved
-# part of its build machinery into that separate package, which ships compiled
-# too - so a pure-Python mypy still imports a blocked `.pyd` and fails
-# identically, one line further down the traceback.
-no-binary-package = ["mypy", "librt"]
+# No `no-binary-package` here, and that is a decision rather than an omission.
+# `mypy` and its `librt` are both shipped as compiled wheels, and Windows Smart
+# App Control takes no issue with either: what it judges is a binary built on
+# this machine, and a wheel downloaded from PyPI is not one. Naming a package
+# here says "never take the wheel", which for these two means "compile it here
+# instead" - and that is what produces the file SAC then blocks, on a machine
+# where the published one imports without complaint. See the
+# `smart-app-control-blocks` skill for the shapes that block and the fixes that
+# apply to each.
 
 [tool.uv.workspace]
 members = ["modules/*"]
@@ -100,6 +92,11 @@ markers = [
 # months, which is precisely the failure a documented invariant nobody checks
 # produces. These contracts are the check.
 #
+# The fourth says how the kernel is addressed rather than who may depend on it.
+# An empty `__init__.py` declares no surface, so twenty modules reached in by
+# module path and nothing in the kernel marked what was stable. The front doors
+# are now stated, and everything else under `argus_core` is internal by default.
+#
 # `forbidden_modules = ["*"]` rather than a deny-list naming every other package.
 # A list would be a nineteenth module's free pass: absent from all three
 # contracts, importing whatever it likes, in the one file whose job is catching a
@@ -144,11 +141,55 @@ name = "argus_incidents is the incident record and knows only the kernel"
 type = "forbidden"
 source_modules = ["argus_incidents"]
 forbidden_modules = ["*"]
-ignore_imports = ["argus_incidents.** -> argus_core.**"]
+ignore_imports = [
+    "argus_incidents.** -> argus_core",
+    "argus_incidents.** -> argus_core.**",
+]
 # A layer that stops importing something it was allowed to import is not a
 # failure, and an allowance is written for a package rather than for whichever
 # of its modules happens to be reached today - so an exception that matches
 # nothing says so and does not stop the build.
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "the kernel is reached through its front doors, not by module path"
+type = "forbidden"
+source_modules = ["*"]
+forbidden_modules = ["argus_core.**"]
+# Direct imports only. Without this the contract would fail on every chain that
+# merely passes through the kernel - a caller reaching `argus_core.events`,
+# which reaches `argus_core.models.reading` - and would be a rule about what the
+# kernel does internally rather than about how it is addressed from outside.
+allow_indirect_imports = true
+# The front doors, and the whole of what may be named. Everything else under
+# `argus_core` is internal by default, so a module added to the kernel tomorrow
+# is unreachable by path on the day it exists, and making it public is a line
+# somebody had to write here.
+#
+# The kernel reaching into itself is the first allowance: `events` names
+# `models.reading`, and a package that had to go through its own front door
+# would import itself while still importing.
+#
+# Two of the doors are narrower than the rest, and that is the other half of
+# `argus_core`'s extras. `anthropic` and `mcp` are optional dependencies, taken
+# by the modules that go through `argus_core.llm` and `argus_core.mcp_transport`
+# and by nobody else. A module reaching one without declaring the extra would
+# work in the workspace venv and fail wherever that module is resolved on its
+# own - so the allowance names the modules, and reaching past it is a broken
+# contract here rather than an ImportError in a walk.
+ignore_imports = [
+    "argus_core.** -> argus_core.**",
+    "** -> argus_core.models",
+    "** -> argus_core.events",
+    "** -> argus_core.replay",
+    "** -> argus_core.schema",
+    "** -> argus_core.anomaly",
+    "agent_investigator.** -> argus_core.llm",
+    "agent_postmortem.** -> argus_core.llm",
+    "orchestrator.** -> argus_core.llm",
+    "read_mcp_client.** -> argus_core.mcp_transport",
+    "write_mcp_client.** -> argus_core.mcp_transport",
+]
 unmatched_ignore_imports_alerting = "warn"
 
 [[tool.importlinter.contracts]]
@@ -162,6 +203,7 @@ forbidden_modules = ["*"]
 # both spellings of every allowance would warn about the unused half on every
 # run - and a build that always prints warnings is a build nobody reads.
 ignore_imports = [
+    "argus_web.** -> argus_core",
     "argus_web.** -> argus_core.**",
     "argus_web.** -> argus_incidents.**",
     "argus_web.** -> argus_narration",

@@ -5,11 +5,8 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core.db import connect
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core import connect
+from argus_core.models import Alert, CauseType, Hypothesis, UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -171,6 +168,41 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
             )
 
 
+@pytest.mark.integration
+def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> None:
+    # A walk's actions are a sequence - tried, undone, tried again - and read
+    # back in any other order they describe a different incident.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_actions_read_back_are = partial(_the_actions_read_back_are, conn)
+
+        incident_id = an_incident_created_for(some_alert)
+        first = a_hypothesis_recorded_for(incident_id, subject="first", rank=1)
+        second = a_hypothesis_recorded_for(incident_id, subject="second", rank=2)
+
+        def two_actions_are_taken() -> None:
+            for candidate, outcome in ((first, "refuted"), (second, "confirmed")):
+                taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=candidate,
+                    action_type="revert-feature-flag",
+                    outcome=outcome,
+                    undo_descriptor=UndoDescriptor(flag="dont-care", was_enabled=True)
+                )
+
+        Scenario() \
+            .when(
+                two_actions_are_taken
+            ) \
+            .then(
+                the_actions_read_back_are(incident_id, ["refuted", "confirmed"])
+            )
+
+
 def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
     return incidents.create(conn, alert)
 
@@ -285,3 +317,23 @@ def _the_only_action_row(conn: psycopg.Connection,
     assert len(rows) == 1, f"Expected exactly one action row, got {len(rows)}."
 
     return rows[0]
+
+
+def _the_actions_read_back_are(conn: psycopg.Connection,
+                               incident_id: str,
+                               outcomes: list[str]) -> Assertion[Any]:
+    """The outcomes of an incident's actions, in the order they come back.
+
+    Order is the claim: a walk's actions are a sequence - tried, undone, tried
+    again - and read back in any other order they describe a different
+    incident.
+    """
+    def assertion(_result: Any) -> bool:
+        found = [taken.outcome for taken in taken_actions.get_by_incident(conn, incident_id)]
+
+        if found != outcomes:
+            raise AssertionError(f"Expected outcomes {outcomes}, got {found}.")
+
+        return True
+
+    return assertion

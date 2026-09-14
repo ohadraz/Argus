@@ -6,7 +6,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from agent_communicator.slack import Posted, a_slack_client, post_message
-from argus_core.config import get_settings
+from argus_core import get_settings
 from argus_testkit import Assertion, Scenario, all_of
 from slack_double.server import DEFAULT_BASE_URL
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.timestamps import to_iso
+from argus_core import to_iso
 from argus_narration.clock import a_minute, a_moment, a_window, is_a_moment
 from argus_testkit import Assertion, Scenario
 

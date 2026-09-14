@@ -8,10 +8,9 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action, undo_change
 from agent_mitigation.tools import fetch_recent_metrics, set_flag
+from argus_core import new_id
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
-from argus_core.ids import new_id
-from argus_core.models.metrics import MetricBucket
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import MetricBucket, UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.assertions import the_verdict_is

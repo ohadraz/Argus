@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_incidents.repository import events
 from argus_incidents.repository.events import RecordedEvent
 

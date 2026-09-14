@@ -5,10 +5,10 @@ from __future__ import annotations
 from agent_mitigation import propose_action
 from agent_mitigation.tools import fetch_recent_flag_changes
 from argus_core.events import FlagChangesRetrieved, Publisher, nobody, publish
-from argus_core.models.incident_state import IncidentState
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import FetchFlagChanges
+from orchestrator.walk.state import IncidentState
 
 
 def mitigation_proposal_node(

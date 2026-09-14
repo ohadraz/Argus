@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from agent_investigator import investigate as _investigate
 from agent_mitigation import take_action
 from agent_mitigation.tools import argus_changed_flag_since, fetch_recent_flag_changes
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_core.events import Publisher
 from argus_core.replay import Recorder
 from argus_incidents.publishing import calls_into, events_into, events_into_connection

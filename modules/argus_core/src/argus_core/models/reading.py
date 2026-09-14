@@ -1,4 +1,10 @@
-"""What an investigation retrieved, as a fact it can hand on.
+"""What an investigation retrieved, as a fact it can hand on - and the channels
+it could have retrieved it from.
+
+The channel lives here rather than with the events because it is a domain value
+before it is anything a publisher says: a reading is a channel and a window, and
+an enum defined in the event vocabulary would make every model that names one
+import the event stream to do it.
 
 One entry per channel-and-window actually served. Two things read it, and
 neither is the model: the dispatcher, which refuses a window it has already
@@ -13,8 +19,21 @@ and they mean opposite things about the investigation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
-from argus_core.events import RetrievalChannel
+
+class RetrievalChannel(StrEnum):
+    """The three ways Argus learns anything about the service (spec §16).
+
+    Named on the request so a reader can see what was asked for even where the
+    answer never arrived - a channel that failed is a fact about the
+    investigation, and one that is silent in the account looks like a channel
+    nobody thought to try.
+    """
+
+    METRICS = "metrics"
+    LOGS = "logs"
+    CHANGES = "changes"
 
 
 @dataclass(frozen=True)

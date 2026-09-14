@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from argus_core.config import get_settings
-from argus_core.timestamps import parse_iso
+from argus_core import get_settings, parse_iso
 
 settings = get_settings()
 

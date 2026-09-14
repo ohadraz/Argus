@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from argus_core.ids import UuidStr
-from argus_core.models.cause import CauseType
-from argus_core.models.hypothesis import Hypothesis
+from argus_core import UuidStr
+from argus_core.models import CauseType, Hypothesis
 from argus_testkit.assertions import Assertion
 
 """Assertions about a `Hypothesis`, shared by every tier that produces one.

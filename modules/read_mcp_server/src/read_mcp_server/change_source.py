@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from argus_core.models.change_event import ChangeEvent
+from argus_core.models import ChangeEvent
 
 
 class ChangeSourceUnavailable(Exception):

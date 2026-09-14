@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from argus_core.models.attempt import Attempt
-from argus_core.models.cause import CauseType
-from argus_core.models.evidence import Evidence
-from argus_core.models.hypothesis import Hypothesis
+from argus_core.models import Attempt, CauseType, Evidence, Hypothesis
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.candidates import the_next_worth_trying
 

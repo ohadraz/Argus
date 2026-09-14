@@ -24,8 +24,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Final
 
-from argus_core.config import Settings, get_settings
-from argus_core.timestamps import parse_iso
+from argus_core import Settings, get_settings, parse_iso
 from pagerduty import Error as PagerDutyError
 from pagerduty import RestApiV2Client
 

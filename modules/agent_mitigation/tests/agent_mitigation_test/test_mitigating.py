@@ -6,8 +6,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, Verdict, mitigate, take_action
 from agent_mitigation.tools import fetch_recent_flag_changes
-from argus_core.models.cause import CauseType
-from argus_core.models.flag_change import FlagChange
+from argus_core.models import CauseType, FlagChange
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.assertions import the_verdict_is

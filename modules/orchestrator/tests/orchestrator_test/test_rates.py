@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 from agent_postmortem.sources import RateTable
-from argus_core.models.rates import PublishedRates, RatesUnavailable
+from argus_core.models import PublishedRates, RatesUnavailable
 from argus_testkit import Assertion, Scenario, all_of
 from argus_testkit.collecting import Kept
 from orchestrator.rates import HeldRates, Published, todays_rates

@@ -6,11 +6,8 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core.db import connect
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.evidence import Evidence
-from argus_core.models.hypothesis import Hypothesis
+from argus_core import connect
+from argus_core.models import Alert, CauseType, Evidence, Hypothesis
 from argus_incidents.repository import hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 
@@ -268,6 +265,75 @@ def test_an_incident_with_no_hypothesis_has_none_to_return() -> None:
         assert hypotheses.get_latest_by_incident(conn, incident_id) is None
 
 
+@pytest.mark.integration
+def test_every_candidate_of_an_incident_comes_back_in_rank_order() -> None:
+    # `get_latest_by_incident` answers with one hypothesis, which is exactly the
+    # shape that hides a walk: an incident resolved on its second candidate
+    # looks, through that lens, like an incident with one candidate.
+    with connect() as conn:
+        a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
+        the_candidates_read_back_are = partial(_the_candidates_read_back_are, conn)
+
+        incident_id = _an_incident_created_for(conn, _an_alert())
+
+        def three_candidates_are_recorded_out_of_order() -> None:
+            a_candidate_recorded_for(incident_id, subject="third", rank=3)
+            a_candidate_recorded_for(incident_id, subject="first", rank=1)
+            a_candidate_recorded_for(incident_id, subject="second", rank=2)
+
+        Scenario() \
+            .when(
+                three_candidates_are_recorded_out_of_order
+            ) \
+            .then(
+                the_candidates_read_back_are(incident_id, ["first", "second", "third"])
+            )
+
+
+@pytest.mark.integration
+def test_an_untried_candidate_comes_back_as_untried() -> None:
+    # An incident resolved before its lowest-ranked candidates were reached
+    # still has them, and the difference between "tried and refuted" and "never
+    # reached" is the difference between a walk and a lucky guess.
+    with connect() as conn:
+        a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
+        the_candidate_ranked = partial(_the_candidate_ranked, conn)
+
+        incident_id = _an_incident_created_for(conn, _an_alert())
+        tried = a_candidate_recorded_for(incident_id, subject="tried", rank=1)
+        a_candidate_recorded_for(incident_id, subject="never reached", rank=2)
+
+        Scenario() \
+            .when(
+                lambda: hypotheses.record_outcome(
+                    conn, tried, tested=True, result="refuted"
+                )
+            ) \
+            .then(all_of(
+                the_candidate_ranked(incident_id, 1, tested=True, result="refuted"),
+                the_candidate_ranked(incident_id, 2, tested=False, result=None)
+            ))
+
+
+@pytest.mark.integration
+def test_an_incident_with_no_candidates_reads_as_empty_rather_than_missing() -> None:
+    # An incident that escalated before forming a hypothesis is a real incident
+    # with nothing to show, which is not the same as an unknown incident.
+    with connect() as conn:
+        incident_id = _an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: hypotheses.get_all_by_incident(conn, incident_id)
+            ) \
+            .then(
+                _the_candidates_read_back_are(conn, incident_id, [])
+            )
+
+
 def _an_alert() -> Alert:
     return Alert(service="kuki-service", alert_name="HighErrorRate")
 
@@ -363,6 +429,67 @@ def _the_stored_hypothesis_names_no_cause(
             raise AssertionError(
                 f"Expected no cause and no confidence, got "
                 f"cause_type=[{stored.cause_type!r}], confidence=[{stored.confidence!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_candidate_recorded_for(conn: psycopg.Connection,
+                              incident_id: str,
+                              subject: str,
+                              rank: int) -> str:
+    """One candidate of a verdict, written down and identified by its id.
+
+    Built from the same hypothesis the rest of this file uses, with no evidence
+    and a subject of its own: what these tests are about is the rank a candidate
+    was recorded at and what became of it, and evidence would be a second thing
+    the assertions could accidentally be reading.
+    """
+    candidate = _a_determined_hypothesis(incident_id, evidence=[], subject=subject, rank=rank)
+    hypotheses.record(conn, candidate)
+
+    return candidate.id
+
+
+def _the_candidates_read_back_are(conn: psycopg.Connection,
+                                  incident_id: str,
+                                  subjects: list[str]) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        found = [
+            candidate.subject
+            for candidate in hypotheses.get_all_by_incident(conn, incident_id)
+        ]
+
+        if found != subjects:
+            raise AssertionError(f"Expected candidates {subjects}, got {found}.")
+
+        return True
+
+    return assertion
+
+
+def _the_candidate_ranked(conn: psycopg.Connection,
+                          incident_id: str,
+                          rank: int,
+                          tested: bool,
+                          result: str | None) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        candidate = next(
+            found
+            for found in hypotheses.get_all_by_incident(conn, incident_id)
+            if found.rank == rank
+        )
+
+        if candidate.tested is not tested:
+            raise AssertionError(
+                f"Expected rank {rank} tested={tested}, got {candidate.tested}."
+            )
+
+        if candidate.result != result:
+            raise AssertionError(
+                f"Expected rank {rank} result={result!r}, got {candidate.result!r}."
             )
 
         return True

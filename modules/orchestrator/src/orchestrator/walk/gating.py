@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from argus_core.events import ActionRefused, Publisher, nobody, publish
-from argus_core.models.action import Action
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.refusal import Refusal
+from argus_core.models import Action, Refusal
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import RecordOutcome
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
+from orchestrator.walk.state import IncidentState
 
 # What the candidate's own row says stopped it, one sentence per reason. The
 # row is read beside the other candidates rather than on the timeline, so it

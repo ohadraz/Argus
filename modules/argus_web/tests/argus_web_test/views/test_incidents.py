@@ -3,15 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.ids import new_id
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.evidence import Evidence
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident import Incident
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.taken_action import TakenAction
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core import new_id
+from argus_core.models import (
+    Alert,
+    CauseType,
+    Evidence,
+    Hypothesis,
+    Incident,
+    IncidentStatus,
+    TakenAction,
+    UndoDescriptor,
+)
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.incidents import (
     Candidate,

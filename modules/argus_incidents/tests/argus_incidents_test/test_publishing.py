@@ -6,7 +6,7 @@ from unittest.mock import create_autospec
 import psycopg
 import pytest
 from argus_core.events import AlertAcknowledged, IncidentEvent, nobody
-from argus_core.models.alert import Alert
+from argus_core.models import Alert
 from argus_incidents.publishing import acknowledge_alert
 from argus_testkit import Assertion, Scenario, all_of, calling
 

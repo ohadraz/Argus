@@ -6,7 +6,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from argus_core.config import Settings
+from argus_core import Settings
 from argus_testkit import Assertion, Kept, Scenario, all_of, attempting
 from oncall_source import OnCallUnavailable
 from oncall_source.pagerduty_adapter import reported_incident

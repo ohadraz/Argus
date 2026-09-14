@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from argus_core.models.flag_change import FlagChange
+from argus_core.models import FlagChange
 from argus_narration.flags import FlagToggleRow, a_flag_history, on_or_off, said_as_a_state
 from argus_testkit import Assertion, Scenario, all_of
 

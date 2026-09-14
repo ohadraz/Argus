@@ -8,7 +8,7 @@ a later round is told about the one before it.
 
 from __future__ import annotations
 
-from argus_core.models.reading import Reading
+from argus_core.models import Reading
 
 from agent_investigator.investigation import Findings, investigate
 

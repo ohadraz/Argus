@@ -6,8 +6,7 @@ from typing import Any
 import pytest
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.prompting import EXECUTIVE_SUMMARY_FIELD, ROOT_CAUSE_FIELD
-from argus_core.models.transcript import Ask, ToolResults, Transcript
-from argus_core.models.turn import Turn
+from argus_core.models import Ask, ToolResults, Transcript, Turn
 from argus_testkit import Assertion, Kept, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (

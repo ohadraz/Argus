@@ -20,9 +20,8 @@ from typing import Any, cast
 from unittest.mock import Mock, create_autospec
 
 from agent_investigator.reasoning import converse
-from argus_core.llm.client import AnswerTruncated, ModelDidNotAnswer, ModelRefused
-from argus_core.models.evidence import Evidence
-from argus_core.models.turn import ToolCall, Turn
+from argus_core.llm import AnswerTruncated, ModelDidNotAnswer, ModelRefused
+from argus_core.models import Evidence, ToolCall, Turn
 
 METRICS_TOOL = "get_metrics"
 LOGS_TOOL = "get_logs"

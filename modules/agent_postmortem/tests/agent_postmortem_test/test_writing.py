@@ -11,7 +11,7 @@ from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import EngagedResponder
-from argus_core.models.postmortem import PostmortemDocument
+from argus_core.models import PostmortemDocument
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (

@@ -7,7 +7,7 @@ directly, which is why this is a convenience rather than the way in.
 
 from __future__ import annotations
 
-from argus_core.models.hypothesis import Hypothesis
+from argus_core.models import Hypothesis
 
 from agent_mitigation.actions import ActionTaker, Outcome, Verdict, propose_action
 from agent_mitigation.tools import FlagChangeFetcher, fetch_recent_flag_changes

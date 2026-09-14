@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from argus_core import new_id
 from argus_core.events import ActionTaken, OnsetDetected, StatusChanged, VerdictReached
-from argus_core.ids import new_id
-from argus_core.models.action import Verdict
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus, Verdict
 from argus_narration import NarrationLine, a_narration_line
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.decorating import DecoratedLine, decorated

@@ -16,8 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from argus_core.models.cause import CauseType
-from argus_core.models.tool_definition import ToolDefinition
+from argus_core.models import CauseType, ToolDefinition
 
 ANSWER_TOOL: Final = "final_answer"
 

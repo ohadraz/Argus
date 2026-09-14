@@ -5,19 +5,14 @@ from datetime import datetime
 import psycopg
 import pytest
 from agent_postmortem import IncidentEvidence
-from argus_core.db import connect
+from argus_core import connect, new_id, parse_iso
 from argus_core.events import (
     AlertAcknowledged,
     LogsRetrieved,
     OnsetDetected,
     StatusChanged,
 )
-from argus_core.ids import new_id
-from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.timestamps import parse_iso
+from argus_core.models import Alert, CauseType, Hypothesis, IncidentStatus
 from argus_incidents.repository import events, hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import an_error_was_raised

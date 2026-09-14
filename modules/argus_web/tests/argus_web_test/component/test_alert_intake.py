@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.db import connect
-from argus_core.models.incident_status import IncidentStatus
+from argus_core import connect
+from argus_core.models import IncidentStatus
 from argus_incidents.repository import events, incidents, runs
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app

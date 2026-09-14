@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.models.alert import Alert
-from argus_core.models.incident import Incident
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, Incident, IncidentStatus
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_core.events import CommunicationFailed
 from argus_incidents.repository import events
 from argus_narration import NarrationLine

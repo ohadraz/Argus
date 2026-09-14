@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 import psycopg
 import pytest
-from argus_core.models.postmortem import Postmortem
-from argus_core.timestamps import parse_iso
+from argus_core import parse_iso
+from argus_core.models import Postmortem
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually

@@ -5,7 +5,7 @@ from typing import Any, NamedTuple
 
 import httpx
 import pytest
-from argus_core.config import Settings
+from argus_core import Settings
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
 from responder_rate_source import PayBand, pay_bands

@@ -16,9 +16,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models.tool_definition import ToolDefinition
-from argus_core.models.transcript import Ask, ToolResult, ToolResults, Transcript
-from argus_core.models.turn import Turn
+from argus_core.models import Ask, ToolDefinition, ToolResult, ToolResults, Transcript, Turn
 
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements

@@ -3,10 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import lru_cache
 
-from argus_core.llm.client import LLMClient
-from argus_core.models.tool_definition import ToolDefinition
-from argus_core.models.transcript import Transcript
-from argus_core.models.turn import Turn
+from argus_core.llm import LLMClient
+from argus_core.models import ToolDefinition, Transcript, Turn
 from argus_core.replay import Recorder, Replay
 
 Conversation = Callable[[Transcript, list[ToolDefinition]], Turn]
@@ -26,7 +24,7 @@ def _llm_client() -> LLMClient:
     injects a double - every unit test of the loop - must pay for neither the
     import nor the settings the client reads at construction.
     """
-    from argus_core.llm.client_selection import get_llm_client
+    from argus_core.llm import get_llm_client
 
     return get_llm_client()
 
@@ -54,7 +52,7 @@ def _a_recording_client(replay: Replay) -> LLMClient:
     which inject a scripted conversation and never reach here - should pay for
     neither the import nor the configuration it reads on the way up.
     """
-    from argus_core.llm.client_selection import get_llm_client
+    from argus_core.llm import get_llm_client
 
     return get_llm_client(replay)
 

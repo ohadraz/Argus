@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_core.events import Publisher, StatusChanged, publish
-from argus_core.models.actor import Actor
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Actor, IncidentStatus
 
 from argus_incidents.repository import incidents
 

@@ -25,7 +25,7 @@ from collections.abc import Callable
 from datetime import date
 
 from agent_postmortem.sources import RateTable
-from argus_core.models.rates import PublishedRates, RatesUnavailable
+from argus_core.models import PublishedRates, RatesUnavailable
 from exchange_rate_source import rates_published_for as from_the_provider
 
 # Where a table comes from when one has to be fetched. Injected so a test can

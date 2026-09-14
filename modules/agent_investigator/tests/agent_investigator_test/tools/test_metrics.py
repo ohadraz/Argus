@@ -6,9 +6,7 @@ import pytest
 from agent_investigator.retrieval import fetch_metrics
 from agent_investigator.tools import METRICS_TOOL
 from agent_investigator.tools.metrics import metrics_tool
-from argus_core.models.metrics import MetricBucket
-from argus_core.models.tool_definition import ToolDefinition
-from argus_core.models.transcript import ToolResult
+from argus_core.models import MetricBucket, ToolDefinition, ToolResult
 from argus_testkit import Assertion, Scenario
 
 from ..framework.builders.dispatcher import AN_ALERT_TIME, a_call_to, a_dispatcher

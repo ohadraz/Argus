@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Final, NamedTuple
 
-from argus_core.config import Settings, get_settings
+from argus_core import Settings, get_settings
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 

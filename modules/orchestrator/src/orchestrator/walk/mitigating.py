@@ -15,9 +15,7 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models.actor import Actor
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Actor, IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -35,6 +33,7 @@ from orchestrator.walk.routes import (
     NEXT_CANDIDATE_ROUTE,
     RESOLVED_ROUTE,
 )
+from orchestrator.walk.state import IncidentState
 
 
 def mitigation_node(

@@ -5,21 +5,24 @@ from unittest.mock import MagicMock, create_autospec
 
 import agent_investigator
 import pytest
-from argus_core.events import AgentInvoked, IncidentEvent, RetrievalChannel
-from argus_core.models.actor import Actor
-from argus_core.models.alert import Alert
-from argus_core.models.attempt import Attempt
-from argus_core.models.cause import CauseType
-from argus_core.models.evidence import Evidence
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.reading import Reading
+from argus_core.events import AgentInvoked, IncidentEvent
+from argus_core.models import (
+    Actor,
+    Alert,
+    Attempt,
+    CauseType,
+    Evidence,
+    Hypothesis,
+    IncidentStatus,
+    Reading,
+    RetrievalChannel,
+)
 from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.state import IncidentState
 
 from ..framework.assertions import assert_that, the_result_at, the_result_is
 from ..framework.builders import (

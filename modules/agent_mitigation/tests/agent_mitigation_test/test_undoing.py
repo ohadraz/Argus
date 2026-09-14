@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import UndoAttempt, Undone, undo_change
 from agent_mitigation.tools import FlagSetter
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.builders import (

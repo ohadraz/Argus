@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 import time
 
-from argus_core.config import get_settings
-from argus_core.db import Connections, open_pool
+from argus_core import Connections, get_settings, open_pool
 
 from agent_communicator.delivering import a_destination_per_register, a_slack_delivery
 from agent_communicator.following import events_since, place_for

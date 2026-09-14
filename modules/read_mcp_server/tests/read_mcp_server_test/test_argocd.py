@@ -8,9 +8,8 @@ from unittest.mock import create_autospec
 
 import httpx
 import pytest
-from argus_core.config import Settings
-from argus_core.models.change_event import ChangeEvent, ChangeKind
-from argus_core.timestamps import parse_iso, to_iso
+from argus_core import Settings, parse_iso, to_iso
+from argus_core.models import ChangeEvent, ChangeKind
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
 from read_mcp_server.argocd import fetch_argocd_application, fetch_deploys

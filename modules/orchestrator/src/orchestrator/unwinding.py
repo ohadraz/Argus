@@ -4,10 +4,9 @@ from collections.abc import Callable
 from typing import Protocol
 
 from agent_mitigation import UndoAttempt, undo_change
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_core.events import ChangeUndone, Publisher, nobody, publish
-from argus_core.models.taken_action import TakenAction
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import TakenAction, UndoDescriptor
 from argus_incidents.repository import taken_actions
 
 """Putting back everything an incident changed, once nobody wants it walked.

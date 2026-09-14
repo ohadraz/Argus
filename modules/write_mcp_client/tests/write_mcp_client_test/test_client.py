@@ -4,8 +4,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import FlagChange, UndoDescriptor
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from write_mcp_client import get_recent_flag_changes, set_feature_flag

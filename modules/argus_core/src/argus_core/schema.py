@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Final
 
 import psycopg
-from alembic import command
-from alembic.config import Config
 
 from argus_core.db import connect
 
@@ -39,7 +37,18 @@ def _upgrade_to_head() -> None:
     the chain is found by the package's own location. A deployment that
     installed `argus_core` and never checked this repo out still has its
     migrations; `alembic.ini` exists for the command line, which does not.
+
+    Alembic is imported here rather than at the top of the module, because it is
+    an extra: `argus-argus_core[migrations]`. Everything else in this file - and
+    `require_schema` in particular, which every service calls on the way up -
+    asks the database whether the tables are there, which needs no migration
+    tool. Imported at module level it would be `argus_web` and the worker each
+    declaring a dependency on Alembic in order to check that somebody else had
+    already run it.
     """
+    from alembic import command
+    from alembic.config import Config
+
     config = Config()
     config.set_main_option("script_location", str(_THE_MIGRATIONS))
     command.upgrade(config, _THE_LATEST_REVISION)

@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from argus_core.models.alert import Alert
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import Alert, MetricBucket
 
 # Long enough for the anomaly detector to have a baseline to depart from.
 CALM_MINUTES = 10

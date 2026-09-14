@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from argus_core.models.incident_state import IncidentState
-
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import RecordPostmortem, WritePostmortem
+from orchestrator.walk.state import IncidentState
 
 
 def postmortem_node(

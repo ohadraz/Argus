@@ -6,8 +6,8 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core.db import connect
-from argus_core.models.alert import Alert
+from argus_core import connect
+from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
 

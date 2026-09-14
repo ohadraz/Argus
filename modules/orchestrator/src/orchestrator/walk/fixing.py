@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from agent_codefix import propose_fix
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.routes import ESCALATED_ROUTE, RESOLVED_ROUTE
+from orchestrator.walk.state import IncidentState
 
 
 def codefix_node(state: IncidentState) -> StateDelta:

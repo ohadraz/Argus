@@ -11,12 +11,10 @@ import httpx
 import pytest
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core.config import Settings
+from argus_core import Settings
+from argus_core.llm import AnswerTruncated, ModelRefused, TurnPaused
 from argus_core.llm.adapters.anthropic_adapter import AnthropicLLMClient
-from argus_core.llm.client import AnswerTruncated, ModelRefused, TurnPaused
-from argus_core.models.tool_definition import ToolDefinition
-from argus_core.models.transcript import Ask, Transcript
-from argus_core.models.turn import Turn
+from argus_core.models import Ask, ToolDefinition, Transcript, Turn
 from argus_testkit.assertions import Assertion, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 

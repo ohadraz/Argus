@@ -22,8 +22,8 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from argus_core.models.metrics import MetricBucket
-from argus_core.timestamps import parse_iso
+from argus_core import parse_iso
+from argus_core.models import MetricBucket
 
 from agent_postmortem.sources import RateTable
 

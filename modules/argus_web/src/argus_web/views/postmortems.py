@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from argus_core.models.postmortem import Postmortem
+from argus_core.models import Postmortem
 from pydantic import BaseModel
 
 

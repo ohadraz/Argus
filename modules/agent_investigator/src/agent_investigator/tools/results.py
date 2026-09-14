@@ -16,9 +16,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import NamedTuple
 
-from argus_core.models.reading import Reading
-from argus_core.models.transcript import ToolResult
-from argus_core.models.turn import ToolCall
+from argus_core.models import Reading, ToolCall, ToolResult
 
 
 class Served(NamedTuple):

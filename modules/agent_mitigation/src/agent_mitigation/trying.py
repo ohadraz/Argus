@@ -11,8 +11,8 @@ import time
 from datetime import timedelta
 from typing import Protocol
 
+from argus_core import get_settings, to_iso_minute
 from argus_core.anomaly import has_recovered_since
-from argus_core.config import get_settings
 from argus_core.events import (
     AwaitingRecovery,
     Publisher,
@@ -20,8 +20,7 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models.undo_descriptor import UndoDescriptor
-from argus_core.timestamps import to_iso_minute
+from argus_core.models import UndoDescriptor
 
 from agent_mitigation.actions import (
     Action,

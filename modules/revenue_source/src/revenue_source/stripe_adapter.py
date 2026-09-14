@@ -19,7 +19,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Final
 
-from argus_core.config import Settings, get_settings
+from argus_core import Settings, get_settings
 from stripe import StripeClient, StripeError
 
 from revenue_source.takings import Charge, RevenueUnavailable

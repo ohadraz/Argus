@@ -762,6 +762,10 @@ Independent *versioning* is true of every module; independent *deployment* is no
 
 The benchmark harness sits outside the workspace entirely: its own `pyproject.toml`, not deployed as a service (§19) - a script/CLI run against an already-deployed Argus stack (§21.4), consuming `argus_core` schemas as a regular dependency.
 
+A module is reached through the names its package exports and through nothing else. This matters most for `argus_core`, which every other module installs: its surface is `argus_core` itself for the vocabulary nobody owns - configuration, connections, ids, timestamps - plus `argus_core.models` for the types two modules both name, `argus_core.llm` for asking a model something, and `events`, `replay`, `schema`, `anomaly` and `mcp_transport` under their own names. Everything else beneath the kernel is internal, so a module added to it is unreachable from outside on the day it exists and making it public is a deliberate act. The Anthropic adapter is the example of that being the point: it sits behind `argus_core.llm` and is not exported, so which SDK answers an `LLMClient` stays the composition root's business and no agent can reach past the interface to the vendor.
+
+This is enforced rather than asked. An import-linter contract forbids every path into `argus_core` but the doors, stated as the allowances they are, and `nox -s guard_layering` holds the suites and `scripts/` to the same rule - import-linter analyzes only the packages it is given, and the tests are not among them.
+
 ### 20.2 Repository tree
 
 ```

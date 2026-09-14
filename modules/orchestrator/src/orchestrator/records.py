@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_core.events import IncidentEvent, PostmortemWritten
-from argus_core.models.action import Verdict
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.postmortem import PostmortemDocument
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import (
+    Hypothesis,
+    IncidentStatus,
+    PostmortemDocument,
+    UndoDescriptor,
+    Verdict,
+)
 from argus_incidents.publishing import PublisherFor, publish_beside
 from argus_incidents.repository import (
     hypotheses,

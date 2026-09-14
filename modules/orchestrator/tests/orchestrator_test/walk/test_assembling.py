@@ -7,7 +7,7 @@ from dataclasses import MISSING
 
 import psycopg
 import pytest
-from argus_core.db import Connections
+from argus_core import Connections
 from argus_testkit import Assertion, Scenario
 from orchestrator.walk.assembling import Collaborators, against
 

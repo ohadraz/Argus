@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from argus_core.ids import new_id
-from argus_core.models.postmortem import Postmortem
+from argus_core import new_id
+from argus_core.models import Postmortem
 from argus_testkit import Assertion, Scenario
 from argus_web.views.postmortems import PostmortemView, build_postmortem_view
 

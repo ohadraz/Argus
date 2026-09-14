@@ -9,8 +9,7 @@ with.
 
 from __future__ import annotations
 
-from argus_core.models.attempt import Attempt
-from argus_core.models.hypothesis import Hypothesis
+from argus_core.models import Attempt, Hypothesis
 
 
 def the_next_worth_trying(

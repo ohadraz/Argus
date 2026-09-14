@@ -4,7 +4,7 @@ import subprocess
 from collections.abc import Iterator
 
 import pytest
-from argus_core.db import connect
+from argus_core import connect
 from argus_core.schema import reset_schema
 
 """Postgres, and nothing else.

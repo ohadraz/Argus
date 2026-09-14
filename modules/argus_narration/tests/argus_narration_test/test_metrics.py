@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import MetricBucket
 from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_testkit import Assertion, Scenario, all_of
 

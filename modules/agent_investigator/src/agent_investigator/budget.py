@@ -4,8 +4,8 @@ import time
 from collections.abc import Callable
 from enum import StrEnum
 
-from argus_core.config import get_settings
-from argus_core.models.turn import Turn
+from argus_core import get_settings
+from argus_core.models import Turn
 
 
 class Bound(StrEnum):

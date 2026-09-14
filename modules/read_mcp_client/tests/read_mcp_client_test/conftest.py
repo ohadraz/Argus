@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 
 import pytest
-from argus_core.config import get_settings
+from argus_core import get_settings
 
 FAKE_TARGET_SERVICE_PORT = 8180
 READ_MCP_TEST_PORT = 8190

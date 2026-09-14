@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from argus_core.db import connect
+from argus_core import connect
 from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
-from argus_core.models.action import Verdict
-from argus_core.models.actor import Actor
-from argus_core.models.alert import Alert
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models import Actor, Alert, IncidentStatus, UndoDescriptor, Verdict
 from argus_incidents.publishing import events_into_connection
 from argus_incidents.repository import events, hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of

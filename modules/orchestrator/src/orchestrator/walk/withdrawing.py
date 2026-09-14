@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import IncidentStatus
 
 from orchestrator.walk.routes import WITHDRAWN_ROUTE
+from orchestrator.walk.state import IncidentState
 
 
 def stopping_when_withdrawn(

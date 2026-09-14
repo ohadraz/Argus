@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core.db import connect
+from argus_core import connect
 from argus_core.events import (
     AgentInvoked,
     IncidentEvent,
     LogsRetrieved,
     OnsetDetected,
-    RetrievalChannel,
     RetrievalRequested,
 )
-from argus_core.models.actor import Actor
-from argus_core.models.alert import Alert
+from argus_core.models import Actor, Alert, RetrievalChannel
 from argus_incidents.repository import events, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 

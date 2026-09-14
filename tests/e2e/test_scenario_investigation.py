@@ -5,8 +5,7 @@ from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
-from argus_core.models.cause import CauseType
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import CauseType, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (

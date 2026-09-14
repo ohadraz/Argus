@@ -2,12 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from argus_core.config import get_settings
-from argus_core.db import Connections
+from argus_core import Connections, get_settings
 from argus_core.events import StatusChanged
-from argus_core.models.alert import Alert
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, IncidentStatus
 from argus_incidents.publishing import events_into_connection, publish_beside
 from argus_incidents.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -15,6 +12,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from orchestrator.walk.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
+from orchestrator.walk.state import IncidentState
 
 """How an incident is walked. Starting one is `argus_incidents.intake`.
 

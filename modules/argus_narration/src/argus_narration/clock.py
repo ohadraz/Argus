@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import UTC
 
-from argus_core.timestamps import parse_iso
+from argus_core import parse_iso
 
 
 def a_minute(value: str, beside: str | None = None) -> str:

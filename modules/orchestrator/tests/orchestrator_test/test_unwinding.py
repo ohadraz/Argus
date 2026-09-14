@@ -7,11 +7,9 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from agent_mitigation import UndoAttempt
+from argus_core import new_id
 from argus_core.events import ChangeUndone, IncidentEvent
-from argus_core.ids import new_id
-from argus_core.models.taken_action import TakenAction
-from argus_core.models.undo_descriptor import UndoDescriptor
-from argus_core.models.undone import Undone
+from argus_core.models import TakenAction, UndoDescriptor, Undone
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import unwinding
 from orchestrator.unwinding import unwind_incident

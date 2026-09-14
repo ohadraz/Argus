@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from argus_core.timestamps import to_iso
+from argus_core import to_iso
 
 
 def a_grafana_style_alert_with(service: str = "some-service",

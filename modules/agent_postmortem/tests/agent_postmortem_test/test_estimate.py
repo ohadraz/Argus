@@ -6,7 +6,7 @@ from math import isclose
 
 import pytest
 from agent_postmortem.estimate import error_rate_delta, loss_between
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import MetricBucket
 from argus_testkit import Assertion, Scenario
 
 """What the incident cost the business, term by term.

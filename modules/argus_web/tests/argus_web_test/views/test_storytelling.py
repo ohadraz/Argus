@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from argus_core import new_id
 from argus_core.events import (
     ChangesRetrieved,
     FlagChangesRetrieved,
@@ -11,12 +12,7 @@ from argus_core.events import (
     MetricsRetrieved,
     StatusChanged,
 )
-from argus_core.ids import new_id
-from argus_core.models.alert import Alert
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.incident import Incident
-from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.metrics import MetricBucket
+from argus_core.models import Alert, FlagChange, Incident, IncidentStatus, MetricBucket
 from argus_testkit import Assertion, Scenario
 from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
 

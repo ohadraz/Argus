@@ -5,12 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 from agent_mitigation import Action, Outcome, Verdict
 from agent_mitigation.tools import ChangedFromOutside, StillWanted
-from argus_core.models.cause import CauseType
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.hypothesis import Hypothesis
-from argus_core.models.metrics import MetricBucket
-from argus_core.models.undo_descriptor import UndoDescriptor
-from argus_core.timestamps import to_iso_minute
+from argus_core import to_iso_minute
+from argus_core.models import CauseType, FlagChange, Hypothesis, MetricBucket, UndoDescriptor
 
 DONT_CARE_FLAG = "dont-care-flag"
 DONT_CARE_INCIDENT_ID = "3f0c6a8e-6f1e-4a9a-8c3d-2b7f9d1e5a44"

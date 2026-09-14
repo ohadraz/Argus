@@ -6,13 +6,11 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation.tools import fetch_recent_flag_changes
 from argus_core.events import FlagChangesRetrieved, IncidentEvent
-from argus_core.models.alert import Alert
-from argus_core.models.flag_change import FlagChange
-from argus_core.models.incident_state import IncidentState
-from argus_core.models.incident_status import IncidentStatus
+from argus_core.models import Alert, FlagChange, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.proposing import mitigation_proposal_node
+from orchestrator.walk.state import IncidentState
 
 from ..framework.builders import a_determined_hypothesis, an_incident_state
 

@@ -8,8 +8,8 @@ import httpx
 import psycopg
 import pytest
 from agent_postmortem import PAY_BAND_ASSUMPTION_LABEL, WORKING_YEAR_ASSUMPTION_LABEL
-from argus_core.config import get_settings
-from argus_core.models.postmortem import Postmortem
+from argus_core import get_settings
+from argus_core.models import Postmortem
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually

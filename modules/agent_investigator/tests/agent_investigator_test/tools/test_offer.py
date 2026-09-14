@@ -8,7 +8,7 @@ from agent_investigator.tools import (
     METRICS_TOOL,
     investigator_tools,
 )
-from argus_core.models.tool_definition import ToolDefinition
+from argus_core.models import ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
 
 """What the Investigator is given, taken as a whole.

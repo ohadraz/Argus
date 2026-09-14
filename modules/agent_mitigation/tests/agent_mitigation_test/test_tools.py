@@ -9,8 +9,8 @@ from agent_mitigation.tools import (
     argus_changed_flag_since,
     fetch_recent_flag_changes,
 )
-from argus_core.models.flag_change import FlagChange
-from argus_core.timestamps import to_iso
+from argus_core import to_iso
+from argus_core.models import FlagChange
 from argus_testkit import Assertion, Scenario
 
 """Asking the flag provider whether a half-finished action actually landed.

@@ -4,10 +4,8 @@ from typing import Any
 
 import pytest
 from agent_investigator.reasoning import a_conversation_recorded_for
-from argus_core.llm.client import LLMClient
-from argus_core.models.tool_definition import ToolDefinition
-from argus_core.models.transcript import Ask, Transcript
-from argus_core.models.turn import Turn
+from argus_core.llm import LLMClient
+from argus_core.models import Ask, ToolDefinition, Transcript, Turn
 from argus_core.replay import CallType, Replay, ReplayEntry
 from argus_testkit import Assertion, Kept, Scenario, all_of
 

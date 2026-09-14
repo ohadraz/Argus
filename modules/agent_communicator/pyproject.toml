@@ -12,8 +12,14 @@ dependencies = [
 ]
 
 
+# `reset_schema` runs the migration chain, so this suite needs the extra the
+# kernel keeps it behind. Declared here rather than relied on from the
+# workspace venv: `test_module` resolves each module against its own
+# dependencies alone, and a suite that only passes locally is the failure that
+# arrangement exists to catch.
 [dependency-groups]
 dev = [
+    "argus-argus_core[migrations]",
     "argus-argus_testkit",
     "argus-slack_double",
     "httpx",
