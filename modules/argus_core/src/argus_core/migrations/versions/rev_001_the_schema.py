@@ -98,20 +98,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS action_once_per_candidate_idx
     ON action (incident_id, hypothesis_id)
     WHERE hypothesis_id IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS timeline_event (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    to_status TEXT NOT NULL,
-    actor TEXT,
-    action TEXT,
-    result TEXT,
-    confidence FLOAT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 -- What Argus did, as it did it (spec §4 principle 8) - the account beside the
--- conclusions the other tables hold. Append-only: a line of the story is never
--- amended, because an account that can be edited afterwards is not one.
+-- conclusions the other tables hold, and the only one there is. Append-only: a
+-- line of the story is never amended, because an account that can be edited
+-- afterwards is not one.
 --
 -- `seq` orders it rather than `at`. Two events can share a moment to the
 -- microsecond, and "the order they were published in" is a promise the

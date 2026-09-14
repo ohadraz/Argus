@@ -12,7 +12,7 @@ from argus_core.events import Publisher
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.schema import require_schema
 from argus_incidents.intake import start_incident
-from argus_incidents.publishing import events_into
+from argus_incidents.publishing import events_into, events_into_connection
 from argus_incidents.withdrawal import withdraw_incident
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -128,7 +128,7 @@ def receive_alert(payload: dict[str, Any],
     whole length, and a caller that gave up would leave it running with nobody
     to answer."""
     alert = parse_grafana_alert(payload)
-    incident_id = start_incident(alert, connections, publisher)
+    incident_id = start_incident(alert, connections, events_into_connection)
     return {"incident_id": incident_id}
 
 

@@ -63,6 +63,7 @@ def test_an_investigations_calls_reach_the_replay_log(
     # request is a row that satisfies a count and replays nothing.
     with psycopg.connect(DATABASE_URL) as conn:
         incident_id = incidents.create(conn, _an_alert())
+        conn.commit()  # the recorder writes on a connection of its own
         the_replay_log_holds = _the_replay_log_holds
 
         Scenario() \

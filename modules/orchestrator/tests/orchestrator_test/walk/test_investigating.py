@@ -80,11 +80,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     rounds=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
-                    narration=Narration(
-                        action="hypothesis formed",
-                        result=some_hypothesis.summary,
-                        confidence=some_hypothesis.confidence
-                    )
+                    narration=Narration(action="hypothesis formed")
                 )
             ),
             assert_that(record_hypothesis).was_called_with(some_hypothesis)
@@ -158,11 +154,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     rounds=1,
                     confidence=None,
                     nothing_worth_trying=True,
-                    narration=Narration(
-                        action="insufficient evidence",
-                        result=a_hypothesis_with_no_cause.summary,
-                        confidence=None
-                    )
+                    narration=Narration(action="insufficient evidence")
                 )
             ),
             assert_that(record_hypothesis).was_called_with(a_hypothesis_with_no_cause)

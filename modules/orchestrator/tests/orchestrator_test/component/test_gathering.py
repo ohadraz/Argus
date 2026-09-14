@@ -6,9 +6,13 @@ import psycopg
 import pytest
 from agent_postmortem import IncidentEvidence
 from argus_core.db import connect
-from argus_core.events import LogsRetrieved, OnsetDetected
+from argus_core.events import (
+    AlertAcknowledged,
+    LogsRetrieved,
+    OnsetDetected,
+    StatusChanged,
+)
 from argus_core.ids import new_id
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.hypothesis import Hypothesis
@@ -113,9 +117,9 @@ def test_the_evidence_carries_the_log_lines_the_incident_read(a_clean_database: 
 
 @pytest.mark.component
 def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_database: None) -> None:
-    # The narration the document is written from. Out of order it is a
-    # different incident: a mitigation before the investigation that proposed
-    # it explains nothing.
+    # The narration the document is written from - the same lines, from the same
+    # renderer, as the page shows. Out of order it is a different incident: a
+    # mitigation before the investigation that proposed it explains nothing.
     with connect() as conn:
         Scenario() \
             .given(
@@ -124,9 +128,10 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_data
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
-            .then(
-                _timeline_begins_with(IncidentStatus.ACKNOWLEDGED)
-            )
+            .then(all_of(
+                _timeline_begins_with("Received the alert"),
+                _timeline_ends_with(str(IncidentStatus.RESOLVED).upper())
+            ))
 
 
 @pytest.mark.component
@@ -242,13 +247,24 @@ def _carries_no_onset() -> Assertion[IncidentEvidence]:
 
 
 def _an_incident_that_ended(conn: psycopg.Connection) -> str:
-    incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+    """An incident with both a row and an account of itself.
+
+    The events as well as the rows, because the document is written from the
+    account now rather than from the status column: an incident whose rows
+    moved and whose story says nothing is one the postmortem has nothing to
+    read.
+    """
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    incident_id = incidents.create(conn, some_alert)
+    events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
     incidents.transition(
         conn,
         incident_id,
         IncidentStatus.RESOLVED,
-        actor=Actor.MITIGATION,
-        action="dont care",
+    )
+    events.record(
+        conn,
+        StatusChanged(incident_id=incident_id, to_status=IncidentStatus.RESOLVED)
     )
 
     return incident_id
@@ -272,7 +288,7 @@ def _starts_at(expected: object) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.started_at != expected:
             raise AssertionError(
-                f"expected the evidence to start at [{expected}], got [{evidence.started_at}]")
+                f"Expected the evidence to start at [{expected}], got [{evidence.started_at}].")
 
         return True
 
@@ -283,7 +299,7 @@ def _ends_at(expected: object) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.ended_at != expected:
             raise AssertionError(
-                f"expected the evidence to end at [{expected}], got [{evidence.ended_at}]")
+                f"Expected the evidence to end at [{expected}], got [{evidence.ended_at}].")
 
         return True
 
@@ -300,7 +316,7 @@ def _mentions_among(reading: object, expected: str) -> Assertion[IncidentEvidenc
         lines = reading(evidence)  # type: ignore[operator]
 
         if not any(expected in line for line in lines):
-            raise AssertionError(f"expected [{expected}] among {lines}")
+            raise AssertionError(f"Expected [{expected}] among {lines}.")
 
         return True
 
@@ -311,7 +327,23 @@ def _timeline_begins_with(expected: str) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if not evidence.timeline or expected not in evidence.timeline[0]:
             raise AssertionError(
-                f"expected the timeline to open on [{expected}], got {evidence.timeline}")
+                f"Expected the timeline to open on [{expected}], got {evidence.timeline}.")
+
+        return True
+
+    return assertion
+
+
+def _timeline_ends_with(expected: str) -> Assertion[IncidentEvidence]:
+    """Where the incident finished, in the account's own words.
+
+    Both ends rather than one: a timeline holding only its first line is in
+    order trivially, and the order is the whole claim.
+    """
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if not evidence.timeline or expected not in evidence.timeline[-1]:
+            raise AssertionError(
+                f"Expected the timeline to close on [{expected}], got {evidence.timeline}.")
 
         return True
 

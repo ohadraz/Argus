@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+from http import HTTPStatus as HttpStatus
+from typing import Final
 
+import httpx
 import psycopg
 import pytest
 from argus_core.db import connect
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.evidence import Evidence
@@ -14,6 +16,7 @@ from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.postmortem import PostmortemDocument
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.repository import hypotheses, incidents, postmortems, taken_actions
+from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
 
@@ -26,6 +29,12 @@ templates carry deliberately - a page contract, rather than on prose, which is
 free to change without any of these tests having an opinion.
 """
 
+# What htmx's "ask again in a moment" looks like in the rendered page. Named
+# because two assertions read it and they must read the same thing: one saying
+# the page polls and one saying it has stopped, disagreeing about the spelling,
+# would both pass on a page that does neither.
+_POLLS_FOR_MORE: Final = "hx-trigger"
+
 
 @pytest.mark.component
 def test_the_history_lists_incidents_newest_first() -> None:
@@ -36,13 +45,19 @@ def test_the_history_lists_incidents_newest_first() -> None:
 
     with connect() as conn:
         older = incidents.create(conn, an_older_alert)
+        conn.commit()  # `now()` is transaction time - one transaction, one timestamp
         newer = incidents.create(conn, a_newer_alert)
 
-    listed = _attribute("incident", _get("/history"))
-
-    assert listed.index(newer) < listed.index(older), (
-        "Expected the newer incident above the older one."
-    )
+    Scenario() \
+        .given(
+            older, newer
+        ) \
+        .when(
+            lambda: _get("/history")
+        ) \
+        .then(
+            _the_page_lists(newer, above=older)
+        )
 
 
 @pytest.mark.component
@@ -53,7 +68,16 @@ def test_the_history_links_to_each_incident() -> None:
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    assert f'href="/incidents/{incident_id}"' in _get("/history")
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/history")
+        ) \
+        .then(
+            _the_page_links_to(f"/incidents/{incident_id}")
+        )
 
 
 @pytest.mark.component
@@ -61,7 +85,13 @@ def test_the_history_keeps_asking_for_more() -> None:
     # The demo posture is somebody watching Argus's screen for it to react. A
     # history that only lists what existed when the page was opened means the
     # incident they are waiting for never arrives.
-    assert "hx-trigger" in _get("/history")
+    Scenario() \
+        .when(
+            lambda: _get("/history")
+        ) \
+        .then(
+            _the_page_keeps_asking()
+        )
 
 
 @pytest.mark.component
@@ -73,7 +103,16 @@ def test_the_polled_history_fragment_carries_the_incidents() -> None:
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    assert incident_id in _attribute("incident", _get("/history/list"))
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get("/history/list")
+        ) \
+        .then(
+            _the_page_lists_the_incident(incident_id)
+        )
 
 
 @pytest.mark.component
@@ -86,8 +125,16 @@ def test_a_time_is_shown_in_the_zone_it_is_written_in() -> None:
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    assert "UTC" in _get("/history")
-    assert "UTC" in _get(f"/incidents/{incident_id}")
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: [_get("/history"), _get(f"/incidents/{incident_id}")]
+        ) \
+        .then(
+            _every_page_says("UTC")
+        )
 
 
 @pytest.mark.component
@@ -101,9 +148,16 @@ def test_an_incident_page_shows_every_candidate_in_rank_order() -> None:
         _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
         _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
 
-    page = _get(f"/incidents/{incident_id}")
-
-    assert _attribute("subject", page) == ["first", "second"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_shows("subject", "first", "second")
+        )
 
 
 @pytest.mark.component
@@ -118,9 +172,16 @@ def test_an_incident_page_distinguishes_a_candidate_the_walk_never_reached() -> 
         _a_candidate_recorded_for(conn, incident_id, subject="never reached", rank=2)
         hypotheses.record_outcome(conn, tried, tested=True, result="confirmed")
 
-    page = _get(f"/incidents/{incident_id}")
-
-    assert _attribute("tested", page) == ["true", "false"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_shows("tested", "true", "false")
+        )
 
 
 @pytest.mark.component
@@ -128,6 +189,7 @@ def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> No
     # Evidence in a dump of its own makes a reader match claims to timestamps,
     # which is the reader investigating the incident again.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    a_cited_line = "error rate rose at 10:14"
 
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
@@ -136,12 +198,19 @@ def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> No
             incident_id,
             subject="a-flag",
             rank=1,
-            evidence=["error rate rose at 10:14"],
+            evidence=[a_cited_line]
         )
 
-    page = _get(f"/incidents/{incident_id}")
-
-    assert "error rate rose at 10:14" in page
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_says(a_cited_line)
+        )
 
 
 @pytest.mark.component
@@ -158,10 +227,17 @@ def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
         _an_attempt_taken_for(conn, incident_id, refuted, outcome="refuted")
         _an_attempt_taken_for(conn, incident_id, confirmed, outcome="confirmed")
 
-    page = _get(f"/incidents/{incident_id}")
-
-    assert _attribute("outcome", page) == ["refuted", "confirmed"]
-    assert _attribute("undone", page) == ["true", "false"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            _the_page_shows("outcome", "refuted", "confirmed"),
+            _the_page_shows("undone", "true", "false")
+        ))
 
 
 @pytest.mark.component
@@ -173,7 +249,16 @@ def test_a_running_incident_keeps_asking_for_more() -> None:
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    assert "hx-trigger" in _get(f"/incidents/{incident_id}")
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_keeps_asking()
+        )
 
 
 @pytest.mark.component
@@ -188,11 +273,18 @@ def test_a_finished_incident_stops_asking() -> None:
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
-            actor=Actor.MITIGATION,
-            action="mitigation attempted",
         )
 
-    assert "hx-trigger" not in _get(f"/incidents/{incident_id}")
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_has_stopped_asking()
+        )
 
 
 @pytest.mark.component
@@ -205,9 +297,16 @@ def test_the_polled_fragment_carries_the_walk_on_its_own() -> None:
         incident_id = incidents.create(conn, some_alert)
         _a_candidate_recorded_for(conn, incident_id, subject="a-flag", rank=1)
 
-    fragment = _get(f"/incidents/{incident_id}/walk")
-
-    assert _attribute("subject", fragment) == ["a-flag"]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}/walk")
+        ) \
+        .then(
+            _the_page_shows("subject", "a-flag")
+        )
 
 
 @pytest.mark.component
@@ -216,9 +315,16 @@ def test_an_unknown_incident_is_reported_as_unknown() -> None:
     a_nonexistent_id = "00000000-0000-0000-0000-000000000000"
 
     with TestClient(app) as client:
-        response = client.get(f"/incidents/{a_nonexistent_id}")
-
-    assert response.status_code == 404, f"Expected 404, got {response.status_code}."
+        Scenario() \
+            .given(
+                a_nonexistent_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{a_nonexistent_id}")
+            ) \
+            .then(
+                _the_answer_was(HttpStatus.NOT_FOUND)
+            )
 
 
 @pytest.mark.component
@@ -226,6 +332,7 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
     # Its own page because it is the largest body Argus writes, and the
     # incident page beside it polls every two seconds.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    a_root_cause = "a-flag was enabled"
 
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
@@ -233,7 +340,7 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
             conn,
             incident_id,
             PostmortemDocument(
-                root_cause="a-flag was enabled",
+                root_cause=a_root_cause,
                 executive_summary="dont care",
                 customer_loss_estimate=None,
                 estimate_currency="usd",
@@ -245,7 +352,16 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
             )
         )
 
-    assert "a-flag was enabled" in _get(f"/incidents/{incident_id}/postmortem")
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _the_page_says(a_root_cause)
+        )
 
 
 @pytest.mark.component
@@ -258,9 +374,16 @@ def test_an_incident_with_no_postmortem_says_so_rather_than_failing() -> None:
         incident_id = incidents.create(conn, some_alert)
 
     with TestClient(app) as client:
-        response = client.get(f"/incidents/{incident_id}/postmortem")
-
-    assert response.status_code == 200, f"Expected 200, got {response.status_code}."
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{incident_id}/postmortem")
+            ) \
+            .then(
+                _the_answer_was(HttpStatus.OK)
+            )
 
 
 @pytest.mark.component
@@ -272,10 +395,17 @@ def test_a_running_incident_can_be_withdrawn_from_its_page() -> None:
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
 
-    page = _get(f"/incidents/{incident_id}")
-
-    assert f'/incidents/{incident_id}/withdraw' in page
-    assert _attribute("withdraw", page) == [incident_id]
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            _the_page_says(f"/incidents/{incident_id}/withdraw"),
+            _the_page_shows("withdraw", incident_id)
+        ))
 
 
 @pytest.mark.component
@@ -291,11 +421,18 @@ def test_a_finished_incident_offers_no_way_to_withdraw_it() -> None:
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
-            actor=Actor.MITIGATION,
-            action="dont care",
         )
 
-    assert _attribute("withdraw", _get(f"/incidents/{incident_id}")) == []
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_shows_no("withdraw")
+        )
 
 
 @pytest.mark.component
@@ -329,12 +466,19 @@ def test_the_postmortem_page_says_how_many_responded_and_what_they_were() -> Non
             )
         )
 
-    page = _get(f"/incidents/{incident_id}/postmortem")
-
-    assert str(some_minutes) in page
-    assert str(some_responders) in page
-    assert some_title in page
-    assert some_other_title in page
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: _get(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            _the_page_says(str(some_minutes)),
+            _the_page_says(str(some_responders)),
+            _the_page_says(some_title),
+            _the_page_says(some_other_title)
+        ))
 
 
 def _get(path: str) -> str:
@@ -352,6 +496,148 @@ def _attribute(name: str, html: str) -> list[str]:
     """Every value of one `data-` attribute, in the order the document carries
     them - which is the order a reader sees."""
     return re.findall(rf'data-{name}="([^"]*)"', html)
+
+
+def _the_page_shows(attribute: str, *values: str) -> Assertion[str]:
+    """Exactly these values of one `data-` attribute, in this order."""
+    def assertion(page: str) -> bool:
+        shown = _attribute(attribute, page)
+
+        if shown != list(values):
+            raise AssertionError(
+                f"Expected [{attribute}] to be {list(values)}, got {shown}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_page_shows_no(attribute: str) -> Assertion[str]:
+    """That one `data-` attribute is absent altogether.
+
+    Its own assertion rather than an empty `_the_page_shows`, because "shows
+    nothing" is the claim being made, and a call with no values to show reads
+    as one somebody forgot to finish.
+    """
+    def assertion(page: str) -> bool:
+        shown = _attribute(attribute, page)
+
+        if shown:
+            raise AssertionError(f"Expected no [{attribute}] at all, got {shown}.")
+
+        return True
+
+    return assertion
+
+
+def _the_page_lists(this: str, above: str) -> Assertion[str]:
+    """That one incident is shown before another, wherever the rest of the
+    history put them.
+
+    Relative rather than positional: this page is every incident there has ever
+    been, so an assertion pinning the positions would be an assertion about
+    whatever the tests before it left behind.
+    """
+    def assertion(page: str) -> bool:
+        listed = _attribute("incident", page)
+
+        for incident_id in (this, above):
+            if incident_id not in listed:
+                raise AssertionError(
+                    f"Expected [{incident_id}] to be listed at all, got {listed}."
+                )
+
+        if listed.index(this) > listed.index(above):
+            raise AssertionError(
+                f"Expected [{this}] above [{above}], the order was {listed}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_page_lists_the_incident(incident_id: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        listed = _attribute("incident", page)
+
+        if incident_id not in listed:
+            raise AssertionError(f"Expected [{incident_id}] to be listed, got {listed}.")
+
+        return True
+
+    return assertion
+
+
+def _the_page_says(text: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if text not in page:
+            raise AssertionError(f"Expected the page to say [{text}], it did not.")
+
+        return True
+
+    return assertion
+
+
+def _every_page_says(text: str) -> Assertion[list[str]]:
+    """The same claim against more than one page, named rather than repeated.
+
+    A time is written in a zone on every screen that shows one, so the test is
+    about the pages together - and asserting it of one page at a time would
+    pass while the other read as local.
+    """
+    def assertion(pages: list[str]) -> bool:
+        silent = [number for number, page in enumerate(pages, start=1) if text not in page]
+
+        if silent:
+            raise AssertionError(f"Expected every page to say [{text}], {silent} did not.")
+
+        return True
+
+    return assertion
+
+
+def _the_page_links_to(href: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if f'href="{href}"' not in page:
+            raise AssertionError(f"Expected the page to link to [{href}], it did not.")
+
+        return True
+
+    return assertion
+
+
+def _the_page_keeps_asking() -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if _POLLS_FOR_MORE not in page:
+            raise AssertionError("Expected the page to keep asking for more, it did not.")
+
+        return True
+
+    return assertion
+
+
+def _the_page_has_stopped_asking() -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if _POLLS_FOR_MORE in page:
+            raise AssertionError("Expected the page to have stopped asking, it had not.")
+
+        return True
+
+    return assertion
+
+
+def _the_answer_was(expected: HttpStatus) -> Assertion[httpx.Response]:
+    def assertion(response: httpx.Response) -> bool:
+        if response.status_code != expected:
+            raise AssertionError(
+                f"Expected [{expected}], got [{response.status_code}]: {response.text}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_candidate_recorded_for(conn: psycopg.Connection,

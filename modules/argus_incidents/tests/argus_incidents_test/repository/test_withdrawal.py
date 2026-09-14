@@ -9,7 +9,7 @@ from argus_core.db import connect
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
-from argus_incidents.repository import incidents, timeline
+from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of
 
 """Taking an incident back from Argus.
@@ -28,16 +28,10 @@ service up, and "withdrawing" it would undo the fix.
 @pytest.mark.integration
 def test_a_running_incident_can_be_withdrawn() -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
-    # Who withdrew is the caller's to say - a person on the incident page, a
-    # test tearing down what it started - so the repository takes it and does
-    # not decide it.
-    some_actor = Actor.HUMAN
 
     with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
-        the_timeline_shows = partial(_the_timeline_shows, conn)
-        the_last_timeline_event_was = partial(_the_last_timeline_event_was, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
         Scenario() \
@@ -45,13 +39,10 @@ def test_a_running_incident_can_be_withdrawn() -> None:
                 incident_id := an_incident_created_for(some_alert)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id, actor=some_actor)
+                lambda: incidents.withdraw(conn, incident_id)
             ) \
             .then(all_of(
                 the_incident_is(incident_id, IncidentStatus.WITHDRAWN),
-                the_timeline_shows(
-                    incident_id, IncidentStatus.ACKNOWLEDGED, IncidentStatus.WITHDRAWN),
-                the_last_timeline_event_was(incident_id, some_actor),
                 the_incident_records_an_end(incident_id)
             ))
 
@@ -62,7 +53,6 @@ def test_withdrawing_says_that_it_took_effect() -> None:
     # unwind is conditioned on, so a withdrawal that silently did nothing must
     # not read the same as one that stopped an incident.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
-    dont_care_actor = Actor.ORCHESTRATOR
 
     with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
@@ -72,7 +62,7 @@ def test_withdrawing_says_that_it_took_effect() -> None:
                 incident_id := an_incident_created_for(some_alert)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id, actor=dont_care_actor)
+                lambda: incidents.withdraw(conn, incident_id)
             ) \
             .then(
                 _it_reported(True)
@@ -84,25 +74,21 @@ def test_an_incident_that_already_ended_is_not_withdrawn() -> None:
     # A resolved incident was resolved by a mitigation that is holding the
     # service up. Withdrawing it would put the failure back.
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
-    dont_care_actor = Actor.POSTMORTEM
 
     with connect() as conn:
         a_resolved_incident_for = partial(_a_resolved_incident_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
-        the_timeline_shows = partial(_the_timeline_shows, conn)
 
         Scenario() \
             .given(
                 incident_id := a_resolved_incident_for(some_alert)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id, actor=dont_care_actor)
+                lambda: incidents.withdraw(conn, incident_id)
             ) \
             .then(all_of(
                 _it_reported(False),
-                the_incident_is(incident_id, IncidentStatus.RESOLVED),
-                the_timeline_shows(
-                    incident_id, IncidentStatus.ACKNOWLEDGED, IncidentStatus.RESOLVED)
+                the_incident_is(incident_id, IncidentStatus.RESOLVED)
             ))
 
 
@@ -117,7 +103,6 @@ def test_withdrawing_twice_changes_nothing_the_second_time() -> None:
     with connect() as conn:
         a_withdrawn_incident_for = partial(_a_withdrawn_incident_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
-        the_timeline_shows = partial(_the_timeline_shows, conn)
         the_incident_still_ended_at = partial(_the_incident_still_ended_at, conn)
 
         incident_id = a_withdrawn_incident_for(some_alert, dont_care_actor)
@@ -127,13 +112,11 @@ def test_withdrawing_twice_changes_nothing_the_second_time() -> None:
                 first_ended_at := _when_it_ended(conn, incident_id)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id, actor=dont_care_actor)
+                lambda: incidents.withdraw(conn, incident_id)
             ) \
             .then(all_of(
                 _it_reported(False),
                 the_incident_is(incident_id, IncidentStatus.WITHDRAWN),
-                the_timeline_shows(
-                    incident_id, IncidentStatus.ACKNOWLEDGED, IncidentStatus.WITHDRAWN),
                 the_incident_still_ended_at(incident_id, first_ended_at)
             ))
 
@@ -148,8 +131,6 @@ def _a_resolved_incident_for(conn: psycopg.Connection, alert: Alert) -> str:
         conn,
         incident_id,
         IncidentStatus.RESOLVED,
-        actor=Actor.MITIGATION,
-        action="dont care"
     )
 
     return incident_id
@@ -159,7 +140,7 @@ def _a_withdrawn_incident_for(conn: psycopg.Connection,
                               alert: Alert,
                               actor: Actor) -> str:
     incident_id = incidents.create(conn, alert)
-    incidents.withdraw(conn, incident_id, actor=actor)
+    incidents.withdraw(conn, incident_id)
 
     return incident_id
 
@@ -191,43 +172,6 @@ def _the_incident_is(conn: psycopg.Connection,
             raise AssertionError(
                 f"Expected status [{status!r}], got [{incident.status!r}]."
             )
-
-        return True
-
-    return assertion
-
-
-def _the_timeline_shows(conn: psycopg.Connection,
-                        incident_id: str,
-                        *statuses: IncidentStatus) -> Assertion[bool]:
-    """The whole sequence a timeline recorded, in order.
-
-    The whole of it rather than a slice: a refused withdrawal that wrote a row
-    anyway would still leave the incident's status correct, and only the
-    sequence shows the row that should not be there.
-    """
-    def assertion(_result: bool) -> bool:
-        recorded = [event.to_status
-                    for event in timeline.get_timeline_events(conn, incident_id)]
-
-        if recorded != list(statuses):
-            raise AssertionError(
-                f"Expected the timeline to record {list(statuses)}, got {recorded}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_last_timeline_event_was(conn: psycopg.Connection,
-                                 incident_id: str,
-                                 actor: Actor) -> Assertion[bool]:
-    def assertion(_result: bool) -> bool:
-        last = timeline.get_timeline_events(conn, incident_id)[-1]
-
-        if last.actor != actor:
-            raise AssertionError(f"Expected actor [{actor!r}], got [{last.actor!r}].")
 
         return True
 

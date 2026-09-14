@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from argus_core.config import get_settings
+from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models.action import Action
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
@@ -66,6 +67,30 @@ def test_a_refuted_candidate_hands_over_to_the_next_one() -> None:
             _the_updates_carry("candidate_index", 1),
             _the_updates_carry("hypothesis", the_next_candidate),
             _the_walk_goes_to(MITIGATING_ROUTE, a_walk)))
+
+
+@pytest.mark.unit
+def test_moving_to_the_next_candidate_is_published_rather_than_narrated() -> None:
+    # This node's own comment says it: narration, and no transition behind it.
+    # Moving to the next candidate is progress through a phase rather than out
+    # of one, so the only account of it has to be an event - and which
+    # explanation is now under test is the thing the lines after this are about.
+    incident_id = a_random_id()
+    the_next_candidate = a_determined_hypothesis(incident_id)
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(
+                incident_id,
+                [a_determined_hypothesis(incident_id), the_next_candidate],
+                index=0
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, publisher=published.append)) \
+        .then(all_of(
+            _the_candidate_selected_was(the_next_candidate, published),
+            _nothing_was_narrated()))
 
 
 @pytest.mark.unit
@@ -337,6 +362,53 @@ def _the_attempts_recorded_are(expected: list[str]) -> Assertion[StateDelta]:
         if recorded != expected:
             raise AssertionError(
                 f"Expected the attempts to record {expected}, they record {recorded}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidate_selected_was(expected: Hypothesis,
+                                published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The explanation the next few lines are about, said out loud.
+
+    Published rather than left to be inferred from the ranked list: the walk
+    skips any candidate it cannot act on, so a reader given only the ranking
+    cannot tell which one an attempt belongs to.
+    """
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        selected = [event for event in published if isinstance(event, CandidateSelected)]
+
+        if not selected:
+            raise AssertionError(
+                f"Expected the candidate now under test to be published, got "
+                f"{[event.kind for event in published]}."
+            )
+
+        if selected[0].hypothesis_id != expected.id:
+            raise AssertionError(
+                f"Expected [{expected.id}] published, got "
+                f"[{selected[0].hypothesis_id}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_narrated() -> Assertion[StateDelta]:
+    """Moving on to the next candidate moves the incident nowhere.
+
+    It was mitigating before and is mitigating after, so there is no transition
+    for a narration to account for - and a sentence returned anyway is what
+    routed this into a second account of an event already published.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.narration is not None:
+            raise AssertionError(
+                f"Expected no narration where the incident moved nowhere, it "
+                f"said [{updates.narration.action}]."
             )
 
         return True

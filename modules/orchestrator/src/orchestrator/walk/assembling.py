@@ -34,7 +34,6 @@ from orchestrator.walk.ports import (
     Investigate,
     RecordAction,
     RecordHypothesis,
-    RecordNote,
     RecordOutcome,
     RecordPostmortem,
     TakeAction,
@@ -67,7 +66,6 @@ class Collaborators:
     write_postmortem: WritePostmortem
     record_postmortem: RecordPostmortem
     transition_incident: TransitionIncident
-    record_note: RecordNote
     publisher: Publisher
     recorder: Recorder
     still_wanted: IsStillWanted
@@ -98,7 +96,6 @@ def against(connections: Connections) -> Collaborators:
             incident_id, connections=connections, recorder=recorder),
         record_postmortem=records.postmortem,
         transition_incident=records.transition,
-        record_note=records.note,
         publisher=events_into(connections),
         recorder=recorder,
         still_wanted=wanted_via(connections)

@@ -118,16 +118,4 @@
   {% endfor %}
   </ul>
   {% endif %}
-
-  <h2>Timeline</h2>
-  <ul class="timeline">
-  {% for entry in incident.timeline %}
-    <li class="entry" data-to-status="{{ entry.to_status }}">
-      <span class="when">{{ entry.at | utc("%H:%M:%S") }}</span>
-      <span class="actor">{{ entry.actor }}</span>
-      {{ entry.action }}
-      {% if entry.result %}<span class="detail">{{ entry.result }}</span>{% endif %}
-    </li>
-  {% endfor %}
-  </ul>
 </section>

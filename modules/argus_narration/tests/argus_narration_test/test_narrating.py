@@ -5,15 +5,19 @@ from decimal import Decimal
 
 import pytest
 from argus_core.events import (
+    ActionRefused,
     ActionTaken,
     AgentInvoked,
     AlertAcknowledged,
+    CandidateSelected,
     ChangesRetrieved,
+    ChangeUndone,
     CommunicationFailed,
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
     MetricsRetrieved,
+    MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
@@ -32,6 +36,8 @@ from argus_core.models.evidence import Evidence
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.refusal import Refusal
+from argus_core.models.undone import Undone
 from argus_narration.narrating import NarrationLine, build_narration
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -348,6 +354,113 @@ def test_a_status_change_marks_the_status_it_moved_to() -> None:
         .given(some_move) \
         .when(lambda: build_narration([some_move])) \
         .then(_the_only_line_marks(str(IncidentStatus.MITIGATING).upper()))
+
+
+@pytest.mark.unit
+def test_a_refusal_marks_why_the_action_was_not_taken() -> None:
+    # The autonomy boundary holding, said as the one thing a reader can act on.
+    # Which candidate went untested is on the candidate's own row; what a person
+    # scanning the account needs is which of the two refusals this was - an
+    # investigation with nothing reversible to offer, or something to do that
+    # could not be undone. Marked for the reason a refused message marks its
+    # refusal: the reason is the actionable half.
+    some_refusal = ActionRefused(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        refusal=Refusal.NOT_REVERSIBLE
+    )
+
+    Scenario() \
+        .given(some_refusal) \
+        .when(lambda: build_narration([some_refusal])) \
+        .then(all_of(
+            _the_only_line_marks("cannot be undone"),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_moving_to_the_next_candidate_marks_the_explanation_now_under_test() -> None:
+    # The ranked list was published once, and the walk skips any candidate it
+    # cannot act on - so which explanation an attempt belongs to is not
+    # derivable from that list. The summary is marked because it is what the
+    # next few lines are about, and a reader who missed it reads an action on
+    # nothing in particular.
+    some_summary = "the checkout fallback flag was switched off"
+    some_move = CandidateSelected(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        summary=some_summary,
+        confidence=0.72
+    )
+
+    Scenario() \
+        .given(some_move) \
+        .when(lambda: build_narration([some_move])) \
+        .then(all_of(
+            _the_only_line_marks(some_summary),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_resumed_attempt_says_the_verdict_was_already_on_the_row() -> None:
+    # The gap in the account, filled. A walk that restarted after the verdict
+    # was written reads it back rather than acting again, and an incident whose
+    # story jumps from a taken action to a conclusion reads as one that lost a
+    # step - or worse, as one that acted twice. Said here and nowhere else: the
+    # thread already heard the verdict from the walk that reached it.
+    some_resumption = MitigationResumed(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        outcome=Verdict.REFUTED
+    )
+
+    Scenario() \
+        .given(some_resumption) \
+        .when(lambda: build_narration([some_resumption])) \
+        .then(all_of(
+            _the_only_line_marks(str(Verdict.REFUTED).upper()),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_change_put_back_marks_the_flag_it_was_about() -> None:
+    # One line per change rather than one per withdrawal: an incident that
+    # moved three flags and restored two of them is not a withdrawal that
+    # worked. The flag is marked the way an action marks it, because the
+    # restore and the change it reverses are the same subject a page apart.
+    some_restore = ChangeUndone(
+        incident_id=new_id(),
+        flag=SOME_FLAG,
+        outcome=Undone.RESTORED,
+        detail="put back the way Argus found it"
+    )
+
+    Scenario() \
+        .given(some_restore) \
+        .when(lambda: build_narration([some_restore])) \
+        .then(all_of(
+            _the_only_line_marks(SOME_FLAG),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_flag_somebody_else_touched_is_said_to_have_been_left_alone() -> None:
+    # The distinction the outcome exists for. "Nothing was written" means two
+    # things here, and only one of them is Argus declining to overwrite
+    # somebody else's change - the other is a flag nobody could read. A
+    # withdrawal reported as complete when a flag was left as found would
+    # promise a world Argus did not restore.
+    some_untouched = ChangeUndone(
+        incident_id=new_id(),
+        flag=SOME_FLAG,
+        outcome=Undone.LEFT_AS_FOUND,
+        detail="somebody else has changed it since Argus did"
+    )
+
+    Scenario() \
+        .given(some_untouched) \
+        .when(lambda: build_narration([some_untouched])) \
+        .then(_the_only_line_mentions("left as found"))
 
 
 @pytest.mark.unit

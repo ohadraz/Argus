@@ -5,10 +5,10 @@ from typing import Protocol
 
 from agent_mitigation import UndoAttempt, undo_change
 from argus_core.db import Connections
-from argus_core.models.actor import Actor
+from argus_core.events import ChangeUndone, Publisher, nobody, publish
 from argus_core.models.taken_action import TakenAction
 from argus_core.models.undo_descriptor import UndoDescriptor
-from argus_incidents.repository import incidents, taken_actions
+from argus_incidents.repository import taken_actions
 
 """Putting back everything an incident changed, once nobody wants it walked.
 
@@ -37,16 +37,6 @@ class UndoChange(Protocol):
     def __call__(self, undo_descriptor: UndoDescriptor, /) -> UndoAttempt: ...
 
 
-class RecordNote(Protocol):
-    def __call__(
-        self,
-        incident_id: str,
-        actor: Actor,
-        action: str,
-        result: str | None = None,
-    ) -> None: ...
-
-
 def taken_actions_from(connections: Connections) -> TakenActionsOf:
     """The incident's own changes, read through the connections given."""
 
@@ -57,24 +47,9 @@ def taken_actions_from(connections: Connections) -> TakenActionsOf:
     return the_taken_actions_of
 
 
-def notes_into(connections: Connections) -> RecordNote:
-    """What became of each change, written through the connections given."""
-
-    def record_note(incident_id: str,
-                    actor: Actor,
-                    action: str,
-                    result: str | None = None) -> None:
-        with connections() as conn:
-            incidents.record_note(
-                conn, incident_id, actor=actor, action=action, result=result
-            )
-
-    return record_note
-
-
 def unwind_incident(incident_id: str,
                     taken_actions_of: TakenActionsOf,
-                    record_note: RecordNote,
+                    publisher: Publisher = nobody,
                     undo: UndoChange = undo_change) -> None:
     """Puts back every change the incident made, and says what became of each.
 
@@ -98,9 +73,12 @@ def unwind_incident(incident_id: str,
             continue
 
         attempt = undo(taken_action.undo_descriptor)
-        record_note(
-            incident_id,
-            actor=Actor.ORCHESTRATOR,
-            action=f"withdrawn: {attempt.outcome}",
-            result=attempt.detail,
+        publish(
+            ChangeUndone(
+                incident_id=incident_id,
+                flag=attempt.flag,
+                outcome=attempt.outcome,
+                detail=attempt.detail
+            ),
+            publisher
         )

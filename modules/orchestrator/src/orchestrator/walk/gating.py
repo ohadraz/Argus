@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
+from argus_core.events import ActionRefused, Publisher, nobody, publish
 from argus_core.models.action import Action
 from argus_core.models.incident_state import IncidentState
+from argus_core.models.refusal import Refusal
 
-from orchestrator.walk.deltas import Narration, StateDelta
+from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import RecordOutcome
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
+
+# What the candidate's own row says stopped it, one sentence per reason. The
+# row is read beside the other candidates rather than on the timeline, so it
+# says what happened to *this* explanation in full - where the published event
+# carries the value anything counting refusals reads.
+_WHAT_THE_ROW_SAYS = {
+    Refusal.NO_REVERSIBLE_ACTION: "no reversible action was proposed for this cause",
+    Refusal.NOT_REVERSIBLE: "the proposed action carries no undo descriptor, so it "
+                            "is not reversible"
+}
 
 
 def tier_gate_node(
     state: IncidentState,
     record_outcome: RecordOutcome,
+    publisher: Publisher = nobody
 ) -> StateDelta:
     """Refuses to let a reversible action reach its call without a way back
     (spec §13).
@@ -31,42 +44,51 @@ def tier_gate_node(
 
     It moves the incident nowhere - a rejection is the end of this attempt, not
     of the incident, so the status is `mitigating` before and after. The
-    narration is the whole point of the return: this is the only place that
-    knows what was refused and why, and the rejection clears the action on the
-    way out.
+    refusal is published from here rather than returned as a sentence for
+    somebody else to write down: this is the only place that knows a refusal
+    happened, and the walk's narration accounts for a node that *moved* the
+    incident, which this one does not.
 
     Silently passing an ungated action would be the failure this node exists to
     make impossible; silently dropping it would leave an incident that simply
     stopped.
     """
-    reason = _why_the_action_cannot_proceed(state.proposed_action)
+    refusal = _why_the_action_cannot_proceed(state.proposed_action)
 
-    if reason is None:
+    if refusal is None:
         return StateDelta()
 
     # The candidate's own row says it was never put to the question, and why.
     if state.hypothesis is not None:
-        record_outcome(state.hypothesis.id, tested=False, result=reason)
+        record_outcome(state.hypothesis.id,
+                       tested=False,
+                       result=_WHAT_THE_ROW_SAYS[refusal])
 
-    return StateDelta(
-        proposed_action=None,
-        narration=Narration(action="action rejected at the tier gate", result=reason),
+    publish(
+        ActionRefused(
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id if state.hypothesis is not None else None,
+            refusal=refusal
+        ),
+        publisher
     )
 
+    return StateDelta(proposed_action=None)
 
-def _why_the_action_cannot_proceed(action: Action | None) -> str | None:
-    """The timeline's account of a rejection, or `None` when there is none to
-    give. Two rejections reach the same status for different reasons, and a
-    human reading the incident needs to know which: nothing to do at all, or
-    something to do that could not be undone."""
+
+def _why_the_action_cannot_proceed(action: Action | None) -> Refusal | None:
+    """Which refusal this is, or `None` when there is none to give.
+
+    Two rejections reach the same status for different reasons, and a human
+    reading the incident needs to know which: nothing to do at all, or
+    something to do that could not be undone. Answered as the value, so that
+    the sentence a reader sees is derived from it in one place rather than
+    written here and matched on somewhere else."""
     if action is None:
-        return "no reversible action was proposed for this cause"
+        return Refusal.NO_REVERSIBLE_ACTION
 
     if action.undo_descriptor is None:
-        return (
-            f"the proposed action [{action.action_type}] on [{action.flag}] "
-            f"carries no undo descriptor, so it is not reversible"
-        )
+        return Refusal.NOT_REVERSIBLE
 
     return None
 

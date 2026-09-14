@@ -12,21 +12,18 @@ from collections.abc import Callable
 from typing import Any
 
 from argus_core.events import StatusChanged
-from argus_core.models.actor import Actor
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus, status_after
 from argus_incidents.withdrawal import IsStillWanted
 
 from orchestrator.walk.deltas import StateDelta
-from orchestrator.walk.ports import RecordNote, TransitionIncident
+from orchestrator.walk.ports import TransitionIncident
 
 
 def with_status(
     node: Callable[[IncidentState], StateDelta],
-    actor: Actor,
     max_rounds: int,
     transition_incident: TransitionIncident,
-    record_note: RecordNote,
     still_wanted: IsStillWanted,
 ) -> Callable[..., dict[str, Any]]:
     """Wraps a node so that the status it implies is derived, written and
@@ -47,12 +44,21 @@ def with_status(
     twice: a refuted action wrote `fixing` and was overwritten one node later,
     and an exhausted walk wrote `escalated` on its way into Code-Fix.
 
-    The three inputs to a row come from three places that actually know them.
-    The status comes from `status_after`, which is the state machine. The words
-    come from the node, which is the only thing that knows what it just did. The
-    actor comes from this call, because which agent a node belongs to is fixed
-    when the graph is built and was being repeated inside every node as a
-    constant.
+    The two inputs come from the two places that know them. The status comes
+    from `status_after`, which is the state machine; the words come from the
+    node, which is the only thing that knows what it just did. Which agent a
+    node belongs to is no longer one of them: the account names its own
+    speaker, and a transition is Argus moving the incident whichever of its
+    agents did the work that moved it.
+
+    **Narration accompanies a transition and nothing else.** A node that moves
+    the incident must return one, and a node that does not may return one that
+    is then unused - which is the case for the two that move on some outcomes
+    and not others. Nothing is written for a node that stayed put: an account of
+    work that settled nothing is the node's own published event now, not a
+    sentence handed here to write into a second table. A new node with something
+    to say and no status to change publishes it itself; returning narration for
+    it would be returning something nobody reads.
 
     A node returns a `StateDelta` and this is the only place it becomes the
     mapping LangGraph merges. One boundary rather than seven: a key misspelt in
@@ -87,15 +93,6 @@ def with_status(
         next_status = status_after(state.model_copy(update=updates), max_rounds)
 
         if next_status == state.status:
-            if narration is not None:
-                record_note(
-                    state.incident_id,
-                    actor=actor,
-                    action=narration.action,
-                    result=narration.result,
-                    confidence=narration.confidence,
-                )
-
             return updates
 
         # A node that can move the incident has to say why: a transition with no
@@ -113,14 +110,10 @@ def with_status(
         transition_incident(
             state.incident_id,
             next_status,
-            actor=actor,
-            action=narration.action,
-            result=narration.result,
-            confidence=narration.confidence,
             narrating=StatusChanged(
                 incident_id=state.incident_id,
                 to_status=next_status,
-                detail=narration.published_detail(),
+                detail=narration.said(),
             ),
         )
 

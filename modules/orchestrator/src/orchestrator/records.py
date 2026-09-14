@@ -7,7 +7,6 @@ from datetime import datetime
 from argus_core.db import Connections
 from argus_core.events import IncidentEvent, PostmortemWritten
 from argus_core.models.action import Verdict
-from argus_core.models.actor import Actor
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.postmortem import PostmortemDocument
@@ -51,43 +50,27 @@ class Records:
         self,
         incident_id: str,
         to_status: IncidentStatus,
-        actor: Actor,
-        action: str,
-        narrating: IncidentEvent,
-        result: str | None = None,
-        confidence: float | None = None
+        narrating: IncidentEvent
     ) -> None:
         """Moves the incident, and says so, in one write.
 
         `narrating` is required rather than optional because there is no such
-        thing as a transition nobody accounts for: the timeline is what the
+        thing as a transition nobody accounts for: the account is what the
         incident is read from, and a status that arrived without a sentence
         about it is a row a human cannot act on.
+
+        The status is the whole of the write. What moved it, why, and how sure
+        it was live in the event rather than in columns beside the status -
+        there is one account of an incident now, and a second one shaped like a
+        table is how the two came to disagree.
 
         One connection for both, so the two commit together - and the account
         written last, inside a savepoint of its own, so it can fail without
         taking the transition with it.
         """
         with self._connections() as conn:
-            incidents.transition(
-                conn, incident_id, to_status, actor=actor, action=action,
-                result=result, confidence=confidence
-            )
+            incidents.transition(conn, incident_id, to_status)
             publish_beside(conn, narrating, self._publisher_for(conn))
-
-    def note(
-        self,
-        incident_id: str,
-        actor: Actor,
-        action: str,
-        result: str | None = None,
-        confidence: float | None = None
-    ) -> None:
-        with self._connections() as conn:
-            incidents.record_note(
-                conn, incident_id, actor=actor, action=action,
-                result=result, confidence=confidence
-            )
 
     def claim_action(
         self,

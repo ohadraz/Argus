@@ -9,7 +9,7 @@ from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_incidents.publishing import events_into_connection
-from argus_incidents.repository import events, hypotheses, incidents, taken_actions, timeline
+from argus_incidents.repository import events, hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.records import Records
 
@@ -56,14 +56,11 @@ def test_a_transition_survives_a_narration_that_could_not_be_written(
             lambda: records.transition(
                 incident_id,
                 SOME_STATUS,
-                actor=DONT_CARE_ACTOR,
-                action=DONT_CARE_ACTION,
                 narrating=_a_status_change_for(incident_id, SOME_STATUS)
             )
         ) \
         .then(all_of(
             _the_incident_is(incident_id, SOME_STATUS),
-            _the_timeline_records_a_transition_to(incident_id, SOME_STATUS),
             _nothing_was_narrated(incident_id)
         ))
 
@@ -99,8 +96,6 @@ def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
             lambda: records.transition(
                 incident_id,
                 SOME_STATUS,
-                actor=DONT_CARE_ACTOR,
-                action=DONT_CARE_ACTION,
                 narrating=_a_status_change_for(incident_id, SOME_STATUS)
             )
         ) \
@@ -240,24 +235,6 @@ def _the_incident_is(incident_id: str, status: IncidentStatus) -> Assertion[None
         if incident.status != status:
             raise AssertionError(
                 f"Expected the incident to be [{status}], got [{incident.status}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_timeline_records_a_transition_to(incident_id: str,
-                                          status: IncidentStatus) -> Assertion[None]:
-    def assertion(_result: None) -> bool:
-        with connect() as conn:
-            recorded = [event.to_status
-                        for event in timeline.get_timeline_events(conn, incident_id)]
-
-        if status not in recorded:
-            raise AssertionError(
-                f"Expected the timeline to record a transition to [{status}], "
-                f"got {recorded}."
             )
 
         return True

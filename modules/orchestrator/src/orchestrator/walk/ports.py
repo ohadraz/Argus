@@ -16,7 +16,6 @@ from agent_investigator import Findings
 from agent_mitigation import Action, Outcome, Verdict
 from agent_mitigation.tools import StillWanted
 from argus_core.events import IncidentEvent, Publisher, nobody
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
 from argus_core.models.flag_change import FlagChange
@@ -171,11 +170,7 @@ class TransitionIncident(Protocol):
         self,
         incident_id: str,
         to_status: IncidentStatus,
-        actor: Actor,
-        action: str,
-        narrating: IncidentEvent,
-        result: str | None = None,
-        confidence: float | None = None
+        narrating: IncidentEvent
     ) -> None: ...
 
 
@@ -187,17 +182,3 @@ class WritePostmortem(Protocol):
 
 class RecordPostmortem(Protocol):
     def __call__(self, incident_id: str, document: PostmortemDocument, /) -> None: ...
-
-
-class RecordNote(Protocol):
-    # The same narration a transition carries, minus the one thing that makes a
-    # transition one. A node that has something to say and moved nothing says it
-    # through here.
-    def __call__(
-        self,
-        incident_id: str,
-        actor: Actor,
-        action: str,
-        result: str | None = None,
-        confidence: float | None = None
-    ) -> None: ...

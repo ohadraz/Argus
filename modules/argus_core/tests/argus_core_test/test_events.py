@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import pytest
 from argus_core.events import (
+    ActionRefused,
     AgentInvoked,
+    CandidateSelected,
+    ChangeUndone,
     IncidentEvent,
     LogsRetrieved,
+    MitigationResumed,
     Publisher,
     RetrievalChannel,
     RetrievalRequested,
@@ -15,6 +19,8 @@ from argus_core.events import (
 from argus_core.ids import new_id
 from argus_core.models.action import Verdict
 from argus_core.models.actor import Actor
+from argus_core.models.refusal import Refusal
+from argus_core.models.undone import Undone
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from pydantic import ValidationError
 
@@ -146,6 +152,96 @@ def test_a_verdict_read_back_is_the_answer_it_was_published_as() -> None:
 
 
 @pytest.mark.unit
+def test_a_refusal_is_one_of_the_reasons_the_gate_gives() -> None:
+    # Two rejections reach the same status for different reasons - nothing to
+    # do at all, or something to do that could not be undone - and a reader has
+    # to know which. Carried as the value, a third reason nobody defined is
+    # refused here rather than reaching a page that matches no case.
+    some_word_that_is_not_a_refusal = "vibes"
+
+    Scenario() \
+        .given(some_word_that_is_not_a_refusal) \
+        .when(attempting(lambda: ActionRefused.model_validate({
+            "incident_id": new_id(),
+            "hypothesis_id": new_id(),
+            "refusal": some_word_that_is_not_a_refusal
+        }))) \
+        .then(_it_was_refused())
+
+
+@pytest.mark.unit
+def test_a_refusal_read_back_names_the_candidate_it_refused() -> None:
+    # The autonomy boundary holding is the single most important line Argus
+    # publishes, and a refusal loose of the candidate it refused cannot be read
+    # against the explanation it belonged to.
+    some_candidate = new_id()
+
+    Scenario() \
+        .given(
+            published := ActionRefused(
+                incident_id=new_id(),
+                hypothesis_id=some_candidate,
+                refusal=Refusal.NOT_REVERSIBLE
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_a_change_put_back_reads_back_as_what_became_of_it() -> None:
+    # Three answers, not two: restored, left as somebody else found it, or a
+    # flag nobody could read. A withdrawal is only honest while the account can
+    # tell them apart, so the outcome travels as the value.
+    Scenario() \
+        .given(
+            published := ChangeUndone(
+                incident_id=new_id(),
+                flag="some-flag",
+                outcome=Undone.LEFT_AS_FOUND,
+                detail="somebody else has changed it since"
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_a_resumed_attempt_reads_back_as_the_verdict_it_caught_up_with() -> None:
+    # A walk restarted after the verdict was written, reading it off the row.
+    # The account says so, because an incident whose story simply skips from a
+    # taken action to a conclusion reads as one that lost a step.
+    Scenario() \
+        .given(
+            published := MitigationResumed(
+                incident_id=new_id(),
+                hypothesis_id=new_id(),
+                outcome=Verdict.REFUTED
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(all_of(_it_is(published), _its_verdict_is(Verdict.REFUTED)))
+
+
+@pytest.mark.unit
+def test_a_candidate_selected_reads_back_as_the_one_now_under_test() -> None:
+    # Which explanation is being tested now is not derivable from the ranked
+    # list: the walk skips candidates it cannot act on, so a reader following
+    # along has no way to guess which one this attempt is about.
+    Scenario() \
+        .given(
+            published := CandidateSelected(
+                incident_id=new_id(),
+                hypothesis_id=new_id(),
+                summary="the checkout flag was toggled on",
+                confidence=0.72
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(_it_is(published))
+
+
+@pytest.mark.unit
 def test_an_event_reaches_the_publisher_it_was_given() -> None:
     everything_published: list[IncidentEvent] = []
     an_event = AgentInvoked(incident_id=new_id(), agent=Actor.MITIGATION)
@@ -191,15 +287,19 @@ def _a_publisher_having_a_bad_day() -> Publisher:
     return raise_on_everything
 
 
-def _a_verdict_in(read_back: object) -> VerdictReached:
+def _a_verdict_in(read_back: object) -> VerdictReached | MitigationResumed:
     """What came back, as the type it was published as - or the failure to be.
 
     Read here rather than asserted in three places: every claim below about a
     verdict starts by holding one, and a reader that got something else has
     already learned the only thing worth reporting.
+
+    Two kinds carry one. A verdict is reached once and a resumed walk reads the
+    same answer back off the row, so an assertion about the answer is the same
+    assertion either way.
     """
-    if not isinstance(read_back, VerdictReached):
-        raise AssertionError(f"expected a verdict, got [{type(read_back).__name__}]")
+    if not isinstance(read_back, VerdictReached | MitigationResumed):
+        raise AssertionError(f"Expected a verdict, got [{type(read_back).__name__}].")
 
     return read_back
 
@@ -208,7 +308,7 @@ def _it_belongs_to(incident_id: str) -> Assertion[IncidentEvent]:
     def assertion(event: IncidentEvent) -> bool:
         if event.incident_id != incident_id:
             raise AssertionError(
-                f"expected it about [{incident_id}], it is about [{event.incident_id}]"
+                f"Expected it about [{incident_id}], it is about [{event.incident_id}]."
             )
 
         return True
@@ -219,7 +319,7 @@ def _it_belongs_to(incident_id: str) -> Assertion[IncidentEvent]:
 def _it_is_stamped() -> Assertion[IncidentEvent]:
     def assertion(event: IncidentEvent) -> bool:
         if event.at is None:
-            raise AssertionError("expected the event to know when it happened, it has no moment")
+            raise AssertionError("Expected the event to know when it happened, it has no moment.")
 
         return True
 
@@ -230,7 +330,7 @@ def _it_asked_about(channel: RetrievalChannel) -> Assertion[RetrievalRequested]:
     def assertion(requested: RetrievalRequested) -> bool:
         if requested.channel is not channel:
             raise AssertionError(
-                f"expected it to ask about [{channel}], it asked about [{requested.channel}]"
+                f"Expected it to ask about [{channel}], it asked about [{requested.channel}]."
             )
 
         return True
@@ -242,7 +342,7 @@ def _it_asked_between(start: str, end: str) -> Assertion[RetrievalRequested]:
     def assertion(requested: RetrievalRequested) -> bool:
         asked = (requested.window_start, requested.window_end)
         if asked != (start, end):
-            raise AssertionError(f"expected the window {(start, end)}, got {asked}")
+            raise AssertionError(f"Expected the window {(start, end)}, got {asked}.")
 
         return True
 
@@ -252,7 +352,7 @@ def _it_asked_between(start: str, end: str) -> Assertion[RetrievalRequested]:
 def _it_carries(lines: list[str]) -> Assertion[LogsRetrieved]:
     def assertion(retrieved: LogsRetrieved) -> bool:
         if retrieved.lines != lines:
-            raise AssertionError(f"expected it to carry {lines}, it carries {retrieved.lines}")
+            raise AssertionError(f"Expected it to carry {lines}, it carries {retrieved.lines}.")
 
         return True
 
@@ -262,7 +362,7 @@ def _it_carries(lines: list[str]) -> Assertion[LogsRetrieved]:
 def _it_is(published: IncidentEvent) -> Assertion[object]:
     def assertion(read_back: object) -> bool:
         if read_back != published:
-            raise AssertionError(f"expected [{published}], got [{read_back}]")
+            raise AssertionError(f"Expected [{published}], got [{read_back}].")
 
         return True
 
@@ -273,7 +373,7 @@ def _its_verdict_is(expected: Verdict) -> Assertion[object]:
     def assertion(read_back: object) -> bool:
         outcome = _a_verdict_in(read_back).outcome
         if outcome is not expected:
-            raise AssertionError(f"expected [{expected!r}], got [{outcome!r}]")
+            raise AssertionError(f"Expected [{expected!r}], got [{outcome!r}].")
 
         return True
 
@@ -289,7 +389,7 @@ def _it_was_refused() -> Assertion[Exception | None]:
     """
     def assertion(raised: Exception | None) -> bool:
         if not isinstance(raised, ValidationError):
-            raise AssertionError(f"expected the verdict refused, got [{raised}]")
+            raise AssertionError(f"Expected the verdict refused, got [{raised}].")
 
         return True
 
@@ -300,7 +400,7 @@ def _what_was_published(published: list[IncidentEvent],
                         expected: list[IncidentEvent]) -> Assertion[object]:
     def assertion(_: object) -> bool:
         if published != expected:
-            raise AssertionError(f"expected {expected} published, got {published}")
+            raise AssertionError(f"Expected {expected} published, got {published}.")
 
         return True
 
@@ -312,7 +412,7 @@ def _nothing_was_raised() -> Assertion[Exception | None]:
     def assertion(raised: Exception | None) -> bool:
         if raised is not None:
             raise AssertionError(
-                f"expected the work to survive, got [{type(raised).__name__}]: {raised}"
+                f"Expected the work to survive, got [{type(raised).__name__}]: {raised}."
             )
 
         return True

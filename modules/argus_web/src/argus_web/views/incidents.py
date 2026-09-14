@@ -14,7 +14,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from argus_core.ids import UuidStr
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.evidence import Evidence
@@ -22,7 +21,6 @@ from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.taken_action import TakenAction
-from argus_core.models.timeline_event import TimelineEvent
 from argus_narration import said_as_a_state
 from pydantic import BaseModel
 
@@ -69,17 +67,6 @@ class Candidate(BaseModel):
     attempts: list[Attempt]
 
 
-class TimelineEntry(BaseModel):
-    """One status transition, and who made it."""
-
-    at: datetime
-    to_status: IncidentStatus
-    actor: Actor | None
-    action: str | None
-    result: str | None
-    confidence: float | None
-
-
 class IncidentSummary(BaseModel):
     """An incident as it appears in a list of them."""
 
@@ -104,7 +91,6 @@ class IncidentDetail(BaseModel):
     created_at: datetime
     candidates: list[Candidate]
     unattributed_attempts: list[Attempt]
-    timeline: list[TimelineEntry]
 
 
 def build_incident_summary(incident: Incident) -> IncidentSummary:
@@ -125,8 +111,7 @@ def build_incident_summary(incident: Incident) -> IncidentSummary:
 def build_incident_detail(
     incident: Incident,
     candidates: list[Hypothesis],
-    attempts: list[TakenAction],
-    timeline: list[TimelineEvent]
+    attempts: list[TakenAction]
 ) -> IncidentDetail:
     """Arranges an incident's rows into the walk a reader follows.
 
@@ -157,8 +142,7 @@ def build_incident_detail(
             _a_candidate(candidate, attached.get(candidate.id, []))
             for candidate in candidates
         ],
-        unattributed_attempts=unattributed,
-        timeline=[_a_timeline_entry(event) for event in timeline]
+        unattributed_attempts=unattributed
     )
 
 
@@ -197,17 +181,4 @@ def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
         tested=hypothesis.tested,
         result=hypothesis.result,
         attempts=attempts
-    )
-
-
-def _a_timeline_entry(event: TimelineEvent) -> TimelineEntry:
-    """One transition row. `created_at` is when it happened, and is named `at`
-    here because a reader is looking at an event, not at a record of one."""
-    return TimelineEntry(
-        at=event.created_at,
-        to_status=event.to_status,
-        actor=event.actor,
-        action=event.action,
-        result=event.result,
-        confidence=event.confidence
     )

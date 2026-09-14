@@ -169,6 +169,7 @@ def test_incidents_come_back_newest_first() -> None:
         an_incident_created_for = partial(_an_incident_created_for, conn)
 
         older = an_incident_created_for(an_older_alert)
+        conn.commit()  # `now()` is transaction time - one transaction, one timestamp
         newer = an_incident_created_for(a_newer_alert)
 
         recent = [incident.id for incident in incidents.get_recent(conn)]

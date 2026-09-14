@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from argus_core.db import connect
 from argus_core.models.incident_status import IncidentStatus
-from argus_incidents.repository import incidents, runs, timeline
+from argus_incidents.repository import events, incidents, runs
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
@@ -32,7 +32,7 @@ def test_an_accepted_alert_is_acknowledged_before_anyone_is_on_it() -> None:
             ) \
             .then(all_of(
                 _the_incident_is_acknowledged(),
-                _the_timeline_says_only_that_it_was_acknowledged(),
+                _the_account_says_only_that_the_alert_arrived(),
             ))
 
 
@@ -41,7 +41,7 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
     # The whole point of the handoff: the answer comes back while the
     # investigation has not started, so the connection that delivered the alert
     # is not what a run depends on. Proven by what the incident looks like at
-    # the moment of the answer - one timeline event, a queued run - because a
+    # the moment of the answer - one line of account, a queued run - because a
     # graph that had run would have left more of both.
     some_service = "kuki-service"
     some_payload = _a_grafana_payload(service=some_service)
@@ -78,18 +78,25 @@ def _the_incident_is_acknowledged() -> Assertion[Any]:
         return True
 
     return assertion
-def _the_timeline_says_only_that_it_was_acknowledged() -> Assertion[Any]:
+
+
+def _the_account_says_only_that_the_alert_arrived() -> Assertion[Any]:
+    """One line, and it is the alert being received.
+
+    Acknowledging is an event rather than a status - it adds nowhere for the
+    incident to go - so a queued incident's whole account is that first line,
+    and any transition at all would mean the graph had already run.
+    """
     def assertion(response: Any) -> bool:
         with connect() as conn:
-            events = timeline.get_timeline_events(
-                conn, response.json()["incident_id"])
+            recorded = events.get_by_incident(conn, response.json()["incident_id"])
 
-        recorded = [event.to_status for event in events]
+        said = [event.kind for event in recorded]
 
-        if recorded != [IncidentStatus.ACKNOWLEDGED]:
+        if said != ["alert-acknowledged"]:
             raise AssertionError(
-                f"Expected the timeline of a queued incident to record only "
-                f"[{IncidentStatus.ACKNOWLEDGED}], got {recorded}."
+                f"Expected the account of a queued incident to be the alert "
+                f"arriving and nothing else, got {said}."
             )
 
         return True
@@ -163,14 +170,13 @@ def _a_run_is_queued_for_it() -> Assertion[Any]:
 def _the_graph_has_not_walked_it() -> Assertion[Any]:
     def assertion(response: Any) -> bool:
         with connect() as conn:
-            events = timeline.get_timeline_events(
-                conn, response.json()["incident_id"])
+            recorded = events.get_by_incident(conn, response.json()["incident_id"])
 
-        if len(events) != 1:
+        if len(recorded) != 1:
             raise AssertionError(
                 f"Expected the answer to come back before the graph walked "
-                f"anything - one timeline event, the incident's creation - got "
-                f"{[event.action for event in events]}."
+                f"anything - one line, the alert arriving - got "
+                f"{[event.kind for event in recorded]}."
             )
 
         return True

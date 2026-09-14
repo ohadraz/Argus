@@ -4,7 +4,6 @@ from functools import partial
 from typing import Any, Final
 
 from argus_core.config import get_settings
-from argus_core.models.actor import Actor
 from argus_core.models.incident_state import IncidentState
 
 # `records_nothing` is aliased because `events` and `replay` each call their
@@ -101,7 +100,6 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         with_status,
         max_rounds=get_settings().investigation_max_rounds,
         transition_incident=collaborators.transition_incident,
-        record_note=collaborators.record_note,
         still_wanted=collaborators.still_wanted
     )
 
@@ -112,8 +110,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     investigate=collaborators.investigate,
                     record_hypothesis=collaborators.record_hypothesis,
                     publisher=collaborators.publisher,
-                    recorder=collaborators.recorder),
-            Actor.INVESTIGATOR
+                    recorder=collaborators.recorder)
         )
     )
     graph.add_node(
@@ -121,15 +118,15 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         deciding_status(
             partial(mitigation_proposal_node,
                     fetch_flag_changes=collaborators.fetch_flag_changes,
-                    publisher=collaborators.publisher),
-            Actor.MITIGATION
+                    publisher=collaborators.publisher)
         )
     )
     graph.add_node(
         TIER_GATE_NODE,
         deciding_status(
-            partial(tier_gate_node, record_outcome=collaborators.record_outcome),
-            Actor.MITIGATION
+            partial(tier_gate_node,
+                    record_outcome=collaborators.record_outcome,
+                    publisher=collaborators.publisher)
         )
     )
     graph.add_node(
@@ -144,25 +141,22 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     change_landed=collaborators.change_landed,
                     record_outcome=collaborators.record_outcome,
                     still_wanted=collaborators.still_wanted,
-                    publisher=collaborators.publisher),
-            Actor.MITIGATION
+                    publisher=collaborators.publisher)
         )
     )
     graph.add_node(
         NEXT_CANDIDATE_NODE,
         deciding_status(
-            next_candidate_node,
-            Actor.MITIGATION
+            partial(next_candidate_node, publisher=collaborators.publisher)
         )
     )
-    graph.add_node(CODEFIX_NODE, deciding_status(codefix_node, Actor.CODEFIX))
+    graph.add_node(CODEFIX_NODE, deciding_status(codefix_node))
     graph.add_node(
         POSTMORTEM_NODE,
         deciding_status(
             partial(postmortem_node,
                     write=collaborators.write_postmortem,
-                    record=collaborators.record_postmortem),
-            Actor.POSTMORTEM
+                    record=collaborators.record_postmortem)
         )
     )
 

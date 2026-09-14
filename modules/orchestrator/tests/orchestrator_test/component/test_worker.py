@@ -6,7 +6,6 @@ from datetime import timedelta
 import psycopg
 import pytest
 from argus_core.db import connect
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_incidents.repository import incidents, runs
@@ -136,7 +135,6 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: No
     # and put it back on the board.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     dont_care_worker = "a-worker"
-    dont_care_actor = Actor.HUMAN
     walked: list[str] = []
 
     def walk_recording_what_it_was_given(incident_id: str) -> None:
@@ -148,7 +146,7 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: No
 
         Scenario() \
             .given(
-                incidents.withdraw(conn, incident_id, dont_care_actor)
+                incidents.withdraw(conn, incident_id)
             ) \
             .when(
                 lambda: worker.take_one_run(
@@ -174,7 +172,6 @@ def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -
     # not finished until that is put back.
     dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
     dont_care_worker = "a-worker"
-    dont_care_actor = Actor.HUMAN
     unwound: list[str] = []
 
     with connect() as conn:
@@ -183,7 +180,7 @@ def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -
 
         Scenario() \
             .given(
-                incidents.withdraw(conn, incident_id, dont_care_actor)
+                incidents.withdraw(conn, incident_id)
             ) \
             .when(
                 lambda: worker.take_one_run(
@@ -209,7 +206,6 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
     # nothing before it started could have known.
     dont_care_alert = Alert(service="muki-service", alert_name="HighErrorRate")
     dont_care_worker = "a-worker"
-    dont_care_actor = Actor.HUMAN
     unwound: list[str] = []
 
     with connect() as conn:
@@ -217,7 +213,7 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_withdrawn_partway(withdrawn_id: str) -> None:
-            incidents.withdraw(conn, withdrawn_id, dont_care_actor)
+            incidents.withdraw(conn, withdrawn_id)
 
         Scenario() \
             .given(

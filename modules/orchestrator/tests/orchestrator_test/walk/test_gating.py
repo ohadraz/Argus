@@ -4,11 +4,13 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
+from argus_core.events import ActionRefused, IncidentEvent
 from argus_core.models.action import Action
 from argus_core.models.alert import Alert
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.refusal import Refusal
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
@@ -62,29 +64,42 @@ def test_the_gate_rejects_an_action_whose_undo_descriptor_is_empty(
     # policing itself: a reversible action is only reversible if something
     # recorded how to reverse it, and this is the last point at which that can
     # still be checked for free.
+    published: list[IncidentEvent] = []
+
     Scenario() \
         .given(
             a_gated_incident := _a_mitigating_incident(
                 proposing=_an_action_with_no_undo_descriptor()
             )
         ) \
-        .when(lambda: tier_gate_node(a_gated_incident, record_outcome=record_outcome)) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
-                     _the_rejection_was_narrated("not reversible")))
+                     _nothing_was_narrated(),
+                     _the_refusal_was_published(Refusal.NOT_REVERSIBLE, published)))
 
 
 @pytest.mark.unit
 def test_the_gate_rejects_an_incident_with_no_proposed_action(
     record_outcome: MagicMock
 ) -> None:
+    # The walk reaches the gate whether or not a proposal was made: with no
+    # candidate there is nothing to answer, and the refusal is still the only
+    # account of why this attempt ended.
+    published: list[IncidentEvent] = []
+
     Scenario() \
         .given(a_gated_incident := _a_mitigating_incident()) \
-        .when(lambda: tier_gate_node(a_gated_incident, record_outcome=record_outcome)) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
-                     _the_rejection_was_narrated(
-                         "no reversible action was proposed for this cause")))
+                     _nothing_was_narrated(),
+                     _the_refusal_was_published(Refusal.NO_REVERSIBLE_ACTION,
+                                                published)))
 
 
 @pytest.mark.unit
@@ -220,22 +235,46 @@ def _the_incident_was_moved_nowhere() -> Assertion[StateDelta]:
     return assertion
 
 
-def _the_rejection_was_narrated(reason: str) -> Assertion[StateDelta]:
-    def assertion(updates: StateDelta) -> bool:
-        narration = updates.narration
-        if narration is None:
-            raise AssertionError("Expected the rejection to be narrated, it was not.")
+def _the_refusal_was_published(expected: Refusal,
+                               published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The gate's own account of what it would not allow.
 
-        if narration.action != "action rejected at the tier gate":
+    Published by this node rather than returned for somebody else to write
+    down, the way the proposal publishes the history it rested on: the gate is
+    the only place that knows a refusal happened, and a refusal that travelled
+    as free text would reach the page as a sentence nobody can count.
+    """
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        refusals = [event for event in published if isinstance(event, ActionRefused)]
+
+        if not refusals:
             raise AssertionError(
-                f"Expected a rejection at the tier gate, the narration said "
-                f"[{narration.action}]."
+                f"Expected the refusal to be published, got "
+                f"{[event.kind for event in published]}."
             )
 
-        if reason not in (narration.result or ""):
+        if refusals[0].refusal is not expected:
             raise AssertionError(
-                f"Expected the reason to say [{reason}], it said "
-                f"[{narration.result}]."
+                f"Expected [{expected}] published, got [{refusals[0].refusal}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_narrated() -> Assertion[StateDelta]:
+    """The gate says nothing through the walk's narration.
+
+    Narration is how a node that *moved* the incident accounts for the move,
+    and this one moves it nowhere. Returning a sentence here is what used to
+    route the refusal into a second, untyped account of the same event.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.narration is not None:
+            raise AssertionError(
+                f"Expected the gate to narrate nothing, it said "
+                f"[{updates.narration.action}]."
             )
 
         return True

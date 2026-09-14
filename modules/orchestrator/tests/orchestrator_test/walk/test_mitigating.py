@@ -6,7 +6,14 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from agent_mitigation import take_action
-from argus_core.events import ActionTaken, IncidentEvent, Publisher, VerdictReached, nobody
+from argus_core.events import (
+    ActionTaken,
+    IncidentEvent,
+    MitigationResumed,
+    Publisher,
+    VerdictReached,
+    nobody,
+)
 from argus_core.models.action import Action, Outcome, Verdict
 from argus_core.models.alert import Alert
 from argus_core.models.hypothesis import Hypothesis
@@ -379,6 +386,45 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
         .then(all_of(_the_action_was_not_taken(take),
                      _nothing_was_completed(complete_action),
                      _the_verdict_reported_is(the_outcome_the_first_attempt_recorded)))
+
+
+@pytest.mark.unit
+def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    record_outcome: MagicMock,
+    claimed_at: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # An incident whose story runs from a taken action straight to a conclusion
+    # reads as one that lost a step - or as one that acted twice. This is the
+    # only place that knows a second walk picked the incident up and read the
+    # answer off the row, so it is the only place that can say so.
+    the_outcome_the_first_attempt_recorded = Verdict.REFUTED
+    some_candidate = _a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, the_outcome_the_first_attempt_recorded)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(), about=some_candidate
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      record_outcome=record_outcome,
+                                      claimed_at=claimed_at,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_resumption_published_was(
+            some_candidate, the_outcome_the_first_attempt_recorded, published))
 
 
 @pytest.mark.unit
@@ -1015,6 +1061,39 @@ def _both_runs_did_the_same_work() -> Assertion[tuple[StateDelta, StateDelta]]:
             raise AssertionError(
                 f"Expected the same work with nobody listening, got {unheard} "
                 f"instead of {listened_to}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_resumption_published_was(candidate: Hypothesis,
+                                  outcome: Verdict,
+                                  published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The gap in the account, filled by the walk that found it.
+
+    The verdict itself was published by the walk that reached it, in the same
+    transaction that recorded it - so this is not the verdict being announced
+    twice. It is the only account of a walk having stopped and another having
+    picked the incident up, which is otherwise a story that jumps from a taken
+    action to a conclusion with nothing in between.
+    """
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        resumptions = [event for event in published
+                       if isinstance(event, MitigationResumed)]
+
+        if not resumptions:
+            raise AssertionError(
+                f"Expected the resumption to be published, got "
+                f"{[event.kind for event in published]}."
+            )
+
+        said = resumptions[0]
+        if (said.hypothesis_id, said.outcome) != (candidate.id, outcome):
+            raise AssertionError(
+                f"Expected [{candidate.id}] read back as [{outcome}], got "
+                f"[{said.hypothesis_id}] as [{said.outcome}]."
             )
 
         return True

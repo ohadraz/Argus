@@ -32,22 +32,26 @@ from pydantic import BaseModel, ConfigDict
 class Narration(BaseModel):
     """What a node says it just did, on its way past.
 
-    Three of these are the `timeline_event` columns a human reads the incident
-    from. `detail` is what the published `StatusChanged` carries, which is not
-    always the same sentence: the Investigator's event names what the
-    investigation did, while Mitigation's names what came back from the action.
-    Defaulting it to `action` keeps the ordinary case to one field.
+    One sentence, carried to the `StatusChanged` that accounts for the move it
+    made. It used to be four fields, three of them the columns of a second
+    account kept in a table of its own; that table is gone and so is the copy.
 
-    A node returns this alongside its work and never writes it anywhere. Nothing
-    about narration is a node's to decide except the words.
+    Two fields for the one sentence, because the two are not always the same:
+    `action` is what the node did, and `detail` is what the account should say
+    where those differ - the Investigator's event names what the investigation
+    did, while Mitigation's names what came back from the action. Defaulting
+    `detail` to `action` keeps the ordinary case to one field.
+
+    A node returns this alongside its work and never writes it anywhere.
+    Nothing about narration is a node's to decide except the words - and a node
+    that moved the incident nowhere may return one that nothing reads.
     """
 
     action: str
-    result: str | None = None
-    confidence: float | None = None
     detail: str | None = None
 
-    def published_detail(self) -> str:
+    def said(self) -> str:
+        """The sentence the published account carries."""
         return self.detail if self.detail is not None else self.action
 
 

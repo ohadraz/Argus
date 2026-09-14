@@ -9,9 +9,10 @@ import psycopg
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core.config import get_settings
+from argus_core.events import StatusChanged
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.replay import CallType
-from argus_incidents.repository import hypotheses, incidents, postmortems, replay, timeline
+from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
 from argus_testkit import Assertion, all_of
 
 """Talking to a running Argus stack, and asserting on what it did.
@@ -165,13 +166,22 @@ def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx.
 
 
 def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx.Response]:
+    """Every status the incident entered, in order, as it published them.
+
+    Read from the account rather than from a table of transitions: the move and
+    the sentence about it are one write now, and the acknowledgement is not
+    among them - Argus having the alert adds nowhere for the incident to go, so
+    it is published as the alert arriving and the first transition is a worker
+    picking it up.
+    """
     def assertion(response: httpx.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
-            events = timeline.get_timeline_events(conn, incident_id)
+            recorded = events.get_by_incident(conn, incident_id)
 
-        actual = [event.to_status for event in events]
+        actual = [event.to_status for event in recorded
+                  if isinstance(event, StatusChanged)]
 
         if actual != list(expected):
             raise AssertionError(

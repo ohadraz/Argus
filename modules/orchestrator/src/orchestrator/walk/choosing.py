@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agent_mitigation.tools import utc_now
 from argus_core.config import get_settings
+from argus_core.events import CandidateSelected, Publisher, nobody, publish
 from argus_core.models.attempt import Attempt
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
@@ -18,7 +19,8 @@ from orchestrator.walk.routes import (
 )
 
 
-def next_candidate_node(state: IncidentState) -> StateDelta:
+def next_candidate_node(state: IncidentState,
+                        publisher: Publisher = nobody) -> StateDelta:
     """Decides what happens after an attempt settled nothing (spec §7.3).
 
     Reached two ways - the gate refusing an action, and the service refusing to
@@ -49,19 +51,26 @@ def next_candidate_node(state: IncidentState) -> StateDelta:
     next_candidate = next_up[1] if next_up is not None else None
 
     if next_candidate is not None:
-        # Narration, and no transition behind it: the incident was mitigating
+        # Published, and no transition behind it: the incident was mitigating
         # before this and is mitigating after. Moving to the next candidate is
-        # progress through a phase, not out of one.
+        # progress through a phase, not out of one - so there is no move for the
+        # walk's narration to account for, and this node's own event is the only
+        # account there is of which explanation the lines after it are about.
+        publish(
+            CandidateSelected(
+                incident_id=state.incident_id,
+                hypothesis_id=next_candidate.id,
+                summary=next_candidate.summary,
+                confidence=next_candidate.confidence
+            ),
+            publisher
+        )
+
         return StateDelta(
             attempts=attempts,
             candidate_index=next_index,
             hypothesis=next_candidate,
-            confidence=next_candidate.confidence,
-            narration=Narration(
-                action="moving on to the next candidate",
-                result=next_candidate.summary,
-                confidence=next_candidate.confidence
-            )
+            confidence=next_candidate.confidence
         )
 
     if state.rounds < get_settings().investigation_max_rounds:
@@ -81,9 +90,9 @@ def next_candidate_node(state: IncidentState) -> StateDelta:
         candidate_index=next_index,
         narration=Narration(
             action="no explanation left to try",
-            result=(
-                f"{len(attempts)} action(s) were taken and undone, and the evidence "
-                f"offers nothing further to try"
+            detail=(
+                f"no explanation left to try - {len(attempts)} action(s) were "
+                f"taken and undone, and the evidence offers nothing further"
             )
         )
     )

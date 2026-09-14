@@ -8,8 +8,9 @@ import httpx
 import psycopg
 import pytest
 from agent_mitigation import Undone
+from argus_core.events import ChangeUndone
 from argus_core.models.incident_status import IncidentStatus
-from argus_incidents.repository import postmortems, timeline
+from argus_incidents.repository import events, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -43,12 +44,6 @@ no response to write up.
 """
 
 _A_POLL = 0.5
-
-# How `unwind_incident` prefixes what it writes to the timeline. Spelled out
-# here rather than shared with it: the note is prose for a person to read, not
-# a protocol, and a test pinning the sentence is the thing that notices when it
-# silently stops being written.
-_WITHDRAWN_NOTE = "withdrawn: "
 
 
 @pytest.mark.e2e
@@ -257,19 +252,22 @@ def _the_incident_left_the_flag_as_found() -> Assertion[httpx.Response]:
     Asserted on the record rather than on the flag, and it has to be: the flag
     ends on either way, so the provider cannot tell a change Argus deliberately
     left alone from one it put back. What separates them is what the incident
-    says happened, which is also the only thing the person reading the timeline
-    will have.
+    says happened, which is also the only thing the person reading it will have.
+
+    The outcome as the value rather than a sentence it was spelled into: three
+    answers, and "left as found" is the one that means somebody else owns the
+    flag now.
     """
     def assertion(response: httpx.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
-            events = timeline.get_timeline_events(conn, incident_id)
+            recorded = events.get_by_incident(conn, incident_id)
 
-        unwound = [event.action for event in events
-                   if event.action and event.action.startswith(_WITHDRAWN_NOTE)]
+        unwound = [event.outcome for event in recorded
+                   if isinstance(event, ChangeUndone)]
 
-        if f"{_WITHDRAWN_NOTE}{Undone.LEFT_AS_FOUND}" not in unwound:
+        if Undone.LEFT_AS_FOUND not in unwound:
             raise AssertionError(
                 f"Incident [{incident_id}] was withdrawn after somebody else "
                 f"changed [{THE_DEMO_FLAG}], and its unwind recorded {unwound} "

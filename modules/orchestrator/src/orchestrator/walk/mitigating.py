@@ -9,6 +9,7 @@ from agent_mitigation.tools import argus_changed_flag_since
 from argus_core.events import (
     ActionTaken,
     AgentInvoked,
+    MitigationResumed,
     Publisher,
     VerdictReached,
     nobody,
@@ -76,7 +77,7 @@ def mitigation_node(
         action_type=state.proposed_action.action_type
     ):
         resumed = _what_the_earlier_attempt_left(
-            state, already_taken, claimed_at, change_landed
+            state, already_taken, claimed_at, change_landed, publisher
         )
 
         # `None` means the earlier attempt left nothing behind - the claim was
@@ -152,16 +153,15 @@ def mitigation_node(
 
     return StateDelta(
         action_outcome=outcome,
-        narration=Narration(
-            action="mitigation attempted", result=result.detail, detail=result.detail
-        )
+        narration=Narration(action="mitigation attempted", detail=result.detail)
     )
 
 
 def _what_the_earlier_attempt_left(state: IncidentState,
                                    already_taken: ActionAlreadyTaken,
                                    claimed_at: ActionClaimedAt,
-                                   change_landed: ChangeLanded
+                                   change_landed: ChangeLanded,
+                                   publisher: Publisher
                                    ) -> StateDelta | None:
     """What a walk resumed inside the mitigation node should answer with, or
     `None` where it should simply take the action itself.
@@ -192,11 +192,29 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     outcome = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
 
     if outcome is not None:
+        # The account of the gap, and not of the verdict: that was published by
+        # the walk that reached it, in the transaction that recorded it. This
+        # says a second walk picked the incident up and read the answer back,
+        # which is the difference between Argus having tried once and twice.
+        #
+        # Published rather than narrated because this branch moves the incident
+        # only for two of its three outcomes - a refuted attempt leaves it
+        # mitigating - and an account that appeared for some verdicts and not
+        # others is worse than none.
+        publish(
+            MitigationResumed(
+                incident_id=state.incident_id,
+                hypothesis_id=state.hypothesis.id,
+                outcome=outcome
+            ),
+            publisher
+        )
+
         return StateDelta(
             action_outcome=outcome,
             narration=Narration(
                 action="mitigation resumed",
-                result=f"an earlier attempt already acted on this explanation: "
+                detail=f"an earlier attempt already acted on this explanation: "
                        f"{outcome}"
             )
         )
@@ -217,7 +235,7 @@ def _what_the_earlier_attempt_left(state: IncidentState,
         status=IncidentStatus.ESCALATED,
         narration=Narration(
             action="mitigation resumed",
-            result=_why_the_resumed_walk_stopped(landed)
+            detail=_why_the_resumed_walk_stopped(landed)
         )
     )
 
@@ -249,7 +267,8 @@ def _nothing_to_act_on() -> StateDelta:
     return StateDelta(
         action_outcome=Verdict.ESCALATED,
         narration=Narration(
-            action="mitigation attempted", result="no action reached the mitigation step"
+            action="mitigation attempted",
+            detail="no action reached the mitigation step"
         )
     )
 

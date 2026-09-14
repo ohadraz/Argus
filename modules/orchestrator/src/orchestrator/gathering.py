@@ -38,8 +38,8 @@ from argus_incidents.repository import (
     incidents,
     replay,
     taken_actions,
-    timeline,
 )
+from argus_narration import build_narration
 
 from orchestrator.rates import todays_rates
 
@@ -234,11 +234,20 @@ def _what_was_alerted(alert_payload: dict[str, object]) -> str:
 
 
 def _what_happened(conn: psycopg.Connection, incident_id: str) -> list[str]:
-    """The narration, as the page shows it: who did what, in order."""
+    """The narration, as the page shows it: who did what, in order.
+
+    The page's own renderer rather than a second one written here. The
+    postmortem and the dashboard tell the same story, and two builders of it
+    are two stories - the one a reader was shown while the incident ran, and a
+    different one in the document written about it afterwards.
+
+    Flattened to a line of text because that is what the model is handed. The
+    structure a page uses to mark a flag or link a minute has no meaning in a
+    prompt, and the sentence is the part that carries the account.
+    """
     return [
-        f"{to_iso(event.created_at)} {event.to_status} - {event.actor}: {event.action}"
-        + (f" ({event.result})" if event.result else "")
-        for event in timeline.get_timeline_events(conn, incident_id)
+        f"{to_iso(line.at)} {line.who}: {line.text}"
+        for line in build_narration(events.get_by_incident(conn, incident_id))
     ]
 
 

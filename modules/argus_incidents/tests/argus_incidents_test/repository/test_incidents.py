@@ -6,47 +6,47 @@ from typing import Any
 import psycopg
 import pytest
 from argus_core.db import connect
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
-from argus_incidents.repository import incidents, timeline
-from argus_testkit import Assertion, Scenario, all_of
+from argus_incidents.repository import incidents
+from argus_testkit import Assertion, Scenario
 
 
 @pytest.mark.integration
-def test_create_writes_incident_and_initial_timeline_event() -> None:
+def test_create_writes_the_incident_acknowledged() -> None:
+    # `acknowledged`, not `investigating`: this runs where the alert is
+    # received, and the walk it queues belongs to a worker that has not taken
+    # it yet. The line saying the alert arrived is published by the intake
+    # beside this, and asserted there.
     some_service = "kuki-service"
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
 
     with connect() as conn:
         the_incident_is = partial(_the_incident_is, conn)
-        the_timeline_shows = partial(_the_timeline_shows, conn)
-        the_last_timeline_event_was = partial(_the_last_timeline_event_was, conn)
 
         Scenario() \
             .when(
                 lambda: incidents.create(conn, some_alert)
             ) \
-            .then(all_of(
-                the_incident_is("acknowledged"),
-                the_timeline_shows("acknowledged"),
-                the_last_timeline_event_was("orchestrator")
-            ))
+            .then(
+                the_incident_is("acknowledged")
+            )
 
 
 @pytest.mark.integration
-def test_transition_updates_status_and_appends_timeline_event() -> None:
+def test_transition_updates_the_status() -> None:
+    # The whole of what this writes. What moved the incident, why, and how sure
+    # it was are published as the `StatusChanged` beside it, on the same
+    # connection - asserted where that is published rather than here, because
+    # here there is nothing left to hold them.
     some_service = "buki-service"
     some_alert_name = "HighErrorRate"
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
-    some_confidence = 0.9
 
     with connect() as conn:
         an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
-        the_timeline_shows = partial(_the_timeline_shows, conn)
-        the_last_timeline_event_was = partial(_the_last_timeline_event_was, conn)
 
         Scenario() \
             .given(
@@ -54,21 +54,12 @@ def test_transition_updates_status_and_appends_timeline_event() -> None:
             ) \
             .when(
                 lambda: incidents.transition(
-                    conn,
-                    incident_id,
-                    IncidentStatus.MITIGATING,
-                    actor=Actor.INVESTIGATOR,
-                    action="hypothesis formed",
-                    result="some hypothesis",
-                    confidence=some_confidence
+                    conn, incident_id, IncidentStatus.MITIGATING
                 )
             ) \
-            .then(all_of(
-                the_incident_is("mitigating", incident_id=incident_id),
-                the_timeline_shows("acknowledged", "mitigating", incident_id=incident_id),
-                the_last_timeline_event_was(
-                    "investigator", confidence=some_confidence, incident_id=incident_id)
-            ))
+            .then(
+                the_incident_is("mitigating", incident_id=incident_id)
+            )
 
 
 @pytest.mark.integration
@@ -84,8 +75,6 @@ def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
             conn,
             already_finished,
             IncidentStatus.RESOLVED,
-            actor=Actor.MITIGATION,
-            action="dont care"
         )
 
         current = incidents.get_current(conn)
@@ -104,8 +93,6 @@ def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
-            actor=Actor.MITIGATION,
-            action="dont care"
         )
 
         current = incidents.get_current(conn)
@@ -144,8 +131,6 @@ def test_an_incident_that_resolved_records_when_it_ended() -> None:
                     conn,
                     incident_id,
                     IncidentStatus.RESOLVED,
-                    actor=Actor.MITIGATION,
-                    action="dont care"
                 )
             ) \
             .then(
@@ -173,8 +158,6 @@ def test_an_incident_that_escalated_records_when_it_ended() -> None:
                     conn,
                     incident_id,
                     IncidentStatus.ESCALATED,
-                    actor=Actor.ORCHESTRATOR,
-                    action="dont care"
                 )
             ) \
             .then(
@@ -202,8 +185,6 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
                     conn,
                     incident_id,
                     IncidentStatus.FIXING,
-                    actor=Actor.ORCHESTRATOR,
-                    action="dont care"
                 )
             ) \
             .then(
@@ -227,74 +208,6 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
 def test_get_returns_none_for_unknown_incident() -> None:
     with connect() as conn:
         assert incidents.get(conn, "00000000-0000-0000-0000-000000000000") is None
-
-
-@pytest.mark.integration
-def test_record_note_appends_to_the_timeline_without_moving_the_incident() -> None:
-    # An action refused at the tier gate is worth recording and moves nothing:
-    # the incident was already mitigating and still is. Narration and transition
-    # were one function only by accident, and this is the case that proves it -
-    # a rejection written through `transition` would claim the incident entered
-    # a status it had not left.
-    some_alert = Alert(service="gate-service", alert_name="HighErrorRate")
-
-    with connect() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.transition(
-            conn,
-            incident_id,
-            IncidentStatus.MITIGATING,
-            actor=Actor.INVESTIGATOR,
-            action="dont care"
-        )
-
-        incidents.record_note(
-            conn,
-            incident_id,
-            actor=Actor.MITIGATION,
-            action="action rejected at the tier gate",
-            result="the proposed action carries no undo descriptor"
-        )
-
-        incident = incidents.get(conn, incident_id)
-        events = timeline.get_timeline_events(conn, incident_id)
-
-    assert incident is not None and incident.status == "mitigating"
-    assert [event.to_status for event in events] == [
-        "acknowledged",
-        "mitigating",
-        "mitigating"
-    ]
-    assert events[-1].action == "action rejected at the tier gate"
-    assert events[-1].actor == "mitigation"
-
-
-def _the_timeline_shows(conn: psycopg.Connection,
-                        *statuses: str,
-                        incident_id: str | None = None) -> Assertion[Any]:
-    """The whole sequence a timeline recorded, in order.
-
-    The whole of it rather than a slice: a timeline is read as the account of
-    where an incident has been, and an assertion checking only its last entry
-    would pass just as happily on an account that skipped a status entirely.
-
-    `incident_id` is optional because a scenario whose `when` created the
-    incident has no id to give until it has run - so the default is to read the
-    one `when` produced. A test that already holds an id names it.
-    """
-    def assertion(result: Any) -> bool:
-        the_incident = incident_id if incident_id is not None else result
-        recorded = [event.to_status
-                    for event in timeline.get_timeline_events(conn, the_incident)]
-
-        if recorded != list(statuses):
-            raise AssertionError(
-                f"Expected the timeline to record {list(statuses)}, got {recorded}."
-            )
-
-        return True
-
-    return assertion
 
 
 def _the_incident_is(conn: psycopg.Connection,
@@ -355,35 +268,6 @@ def _the_incident_records_no_end(conn: psycopg.Connection, incident_id: str) -> 
             raise AssertionError(
                 f"Expected incident [{incident_id}] to record no end while it is still "
                 f"being worked, got [{incident.ended_at}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_last_timeline_event_was(conn: psycopg.Connection,
-                                 actor: str,
-                                 confidence: float | None = None,
-                                 incident_id: str | None = None) -> Assertion[Any]:
-    """Who moved the incident, and how sure they were.
-
-    Separate from the sequence above because it answers a different question:
-    that one says where the incident went, this says who took it there. A test
-    asking only one of the two calls only one of these.
-
-    `incident_id` is optional for the reason it is above.
-    """
-    def assertion(result: Any) -> bool:
-        the_incident = incident_id if incident_id is not None else result
-        last = timeline.get_timeline_events(conn, the_incident)[-1]
-
-        if last.actor != actor:
-            raise AssertionError(f"Expected actor [{actor!r}], got [{last.actor!r}].")
-
-        if confidence is not None and last.confidence != confidence:
-            raise AssertionError(
-                f"Expected confidence [{confidence}], got [{last.confidence!r}]."
             )
 
         return True

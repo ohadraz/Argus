@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from argus_core.db import connect
 from argus_core.events import IncidentEvent, StatusChanged
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_incidents.repository import incidents
@@ -58,8 +57,6 @@ def test_a_withdrawal_that_changed_nothing_publishes_nothing(a_clean_database: N
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
-            actor=Actor.MITIGATION,
-            action="dont care",
         )
 
     published: list[IncidentEvent] = []
@@ -112,8 +109,6 @@ def test_an_incident_argus_resolved_is_still_wanted(a_clean_database: None) -> N
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
-            actor=Actor.MITIGATION,
-            action="dont care",
         )
 
     Scenario() \
@@ -134,7 +129,7 @@ def test_an_incident_somebody_withdrew_is_not_wanted(a_clean_database: None) -> 
 
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id, Actor.HUMAN)
+        incidents.withdraw(conn, incident_id)
 
     Scenario() \
         .given(

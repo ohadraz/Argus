@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core.ids import new_id
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.evidence import Evidence
@@ -12,7 +11,6 @@ from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.taken_action import TakenAction
-from argus_core.models.timeline_event import TimelineEvent
 from argus_core.models.undo_descriptor import UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.incidents import (
@@ -40,7 +38,6 @@ _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 
 NOTHING_WAS_TRIED: list[TakenAction] = []
 NOTHING_WAS_FORMED: list[Hypothesis] = []
-NOTHING_MOVED: list[TimelineEvent] = []
 
 REFUTED = "refuted"
 CONFIRMED = "confirmed"
@@ -64,8 +61,7 @@ def test_an_attempt_is_shown_against_the_candidate_it_was_taken_for() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[the_first_candidate, the_second_candidate],
-            attempts=each_candidate_was_tried_once,
-            timeline=NOTHING_MOVED
+            attempts=each_candidate_was_tried_once
         )) \
         .then(_the_attempts_shown_per_candidate_are(
             [("first", [REFUTED]), ("second", [CONFIRMED])]
@@ -87,8 +83,7 @@ def test_a_candidate_the_walk_never_reached_is_shown_as_untried() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_never_reached],
-            attempts=NOTHING_WAS_TRIED,
-            timeline=NOTHING_MOVED
+            attempts=NOTHING_WAS_TRIED
         )) \
         .then(all_of(_the_first_candidate_was_tested(False),
                      _the_first_candidate_resulted_in(None),
@@ -114,8 +109,7 @@ def test_a_refuted_attempt_is_shown_as_having_been_put_back() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[the_refuted_candidate, the_confirmed_candidate],
-            attempts=one_of_each_verdict,
-            timeline=NOTHING_MOVED
+            attempts=one_of_each_verdict
         )) \
         .then(_the_attempts_were_undone([True, False]))
 
@@ -136,8 +130,7 @@ def test_an_attempt_with_no_verdict_yet_is_shown_as_undecided_rather_than_undone
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_being_acted_on],
-            attempts=an_attempt_the_service_has_not_answered,
-            timeline=NOTHING_MOVED
+            attempts=an_attempt_the_service_has_not_answered
         )) \
         .then(all_of(_the_attempts_shown_per_candidate_are([("in flight", [None])]),
                      _the_attempts_were_undone([False])))
@@ -160,8 +153,7 @@ def test_an_attempt_naming_no_candidate_is_still_shown() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[some_candidate],
-            attempts=an_attempt_attributed_to_nothing,
-            timeline=NOTHING_MOVED
+            attempts=an_attempt_attributed_to_nothing
         )) \
         .then(all_of(_the_attempts_shown_per_candidate_are([("a-flag", [])]),
                      _the_unattributed_attempts_are([CONFIRMED])))
@@ -183,8 +175,7 @@ def test_a_candidate_is_shown_with_the_move_it_blamed() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_blaming_a_toggle],
-            attempts=NOTHING_WAS_TRIED,
-            timeline=[]
+            attempts=NOTHING_WAS_TRIED
         )) \
         .then(_the_only_candidate_moved(was="OFF", now="ON"))
 
@@ -208,8 +199,7 @@ def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_that_cited_two_things],
-            attempts=NOTHING_WAS_TRIED,
-            timeline=NOTHING_MOVED
+            attempts=NOTHING_WAS_TRIED
         )) \
         .then(_the_first_candidate_cites(what_it_was_formed_from))
 
@@ -227,34 +217,6 @@ def test_an_incident_is_shown_with_the_alert_it_opened_on() -> None:
 
 
 @pytest.mark.unit
-def test_an_incident_is_shown_with_the_transitions_it_went_through() -> None:
-    # The status is where the incident ended. The transitions are how it got
-    # there, and they are the only record of an incident that moved twice.
-    an_incident = _an_incident()
-
-    Scenario() \
-        .given(
-            it_moved_twice := [
-                _a_transition(
-                    an_incident.id, IncidentStatus.INVESTIGATING, "incident created"
-                ),
-                _a_transition(
-                    an_incident.id, IncidentStatus.RESOLVED, "mitigation attempted"
-                )
-            ]
-        ) \
-        .when(lambda: build_incident_detail(
-            an_incident,
-            candidates=NOTHING_WAS_FORMED,
-            attempts=NOTHING_WAS_TRIED,
-            timeline=it_moved_twice
-        )) \
-        .then(_the_timeline_reads(
-            [IncidentStatus.INVESTIGATING, IncidentStatus.RESOLVED]
-        ))
-
-
-@pytest.mark.unit
 def test_an_incident_that_formed_no_candidate_is_shown_as_empty() -> None:
     # An incident that escalated before forming a hypothesis is a real incident
     # with nothing to show, which is not the same as an unknown one.
@@ -263,8 +225,7 @@ def test_an_incident_that_formed_no_candidate_is_shown_as_empty() -> None:
         .when(lambda: build_incident_detail(
             an_incident_that_explained_nothing,
             candidates=NOTHING_WAS_FORMED,
-            attempts=NOTHING_WAS_TRIED,
-            timeline=NOTHING_MOVED
+            attempts=NOTHING_WAS_TRIED
         )) \
         .then(_the_attempts_shown_per_candidate_are([]))
 
@@ -318,21 +279,6 @@ def _an_attempt(incident_id: str,
     )
 
 
-def _a_transition(incident_id: str,
-                  to_status: IncidentStatus,
-                  action: str) -> TimelineEvent:
-    return TimelineEvent(
-        id=new_id(),
-        incident_id=incident_id,
-        to_status=to_status,
-        actor=Actor.ORCHESTRATOR,
-        action=action,
-        result=None,
-        confidence=None,
-        created_at=_OPENED_AT + timedelta(minutes=1)
-    )
-
-
 def _the_attempts_shown_per_candidate_are(
     expected: list[tuple[str | None, list[str | None]]]
 ) -> Assertion[IncidentDetail]:
@@ -349,7 +295,7 @@ def _the_attempts_shown_per_candidate_are(
         ]
 
         if shown != expected:
-            raise AssertionError(f"expected {expected}, got {shown}")
+            raise AssertionError(f"Expected {expected}, got {shown}.")
 
         return True
 
@@ -365,7 +311,7 @@ def _the_attempts_were_undone(expected: list[bool]) -> Assertion[IncidentDetail]
         ]
 
         if undone != expected:
-            raise AssertionError(f"expected {expected} undone, got {undone}")
+            raise AssertionError(f"Expected {expected} undone, got {undone}.")
 
         return True
 
@@ -378,7 +324,7 @@ def _the_unattributed_attempts_are(expected: list[str | None]) -> Assertion[Inci
 
         if shown != expected:
             raise AssertionError(
-                f"expected {expected} attributed to nothing, got {shown}"
+                f"Expected {expected} attributed to nothing, got {shown}."
             )
 
         return True
@@ -391,7 +337,7 @@ def _the_first_candidate_was_tested(expected: bool) -> Assertion[IncidentDetail]
         tested = _the_first(detail).tested
 
         if tested is not expected:
-            raise AssertionError(f"expected tested [{expected}], got [{tested}]")
+            raise AssertionError(f"Expected tested [{expected}], got [{tested}].")
 
         return True
 
@@ -403,7 +349,7 @@ def _the_first_candidate_resulted_in(expected: str | None) -> Assertion[Incident
         result = _the_first(detail).result
 
         if result != expected:
-            raise AssertionError(f"expected the result [{expected}], got [{result}]")
+            raise AssertionError(f"Expected the result [{expected}], got [{result}].")
 
         return True
 
@@ -415,19 +361,7 @@ def _the_first_candidate_cites(expected: list[Evidence]) -> Assertion[IncidentDe
         cited = _the_first(detail).evidence
 
         if cited != expected:
-            raise AssertionError(f"expected the evidence {expected}, got {cited}")
-
-        return True
-
-    return assertion
-
-
-def _the_timeline_reads(expected: list[IncidentStatus]) -> Assertion[IncidentDetail]:
-    def assertion(detail: IncidentDetail) -> bool:
-        moved_to = [entry.to_status for entry in detail.timeline]
-
-        if moved_to != expected:
-            raise AssertionError(f"expected the timeline {expected}, got {moved_to}")
+            raise AssertionError(f"Expected the evidence {expected}, got {cited}.")
 
         return True
 
@@ -437,7 +371,7 @@ def _the_timeline_reads(expected: list[IncidentStatus]) -> Assertion[IncidentDet
 def _it_opened_on(expected: Alert) -> Assertion[IncidentSummary]:
     def assertion(summary: IncidentSummary) -> bool:
         if summary.alert != expected:
-            raise AssertionError(f"expected the alert [{expected}], got [{summary.alert}]")
+            raise AssertionError(f"Expected the alert [{expected}], got [{summary.alert}].")
 
         return True
 
@@ -452,7 +386,7 @@ def _the_first(detail: IncidentDetail) -> Candidate:
     whichever landed first.
     """
     if len(detail.candidates) != 1:
-        raise AssertionError(f"expected one candidate, got {len(detail.candidates)}")
+        raise AssertionError(f"Expected one candidate, got {len(detail.candidates)}.")
 
     return detail.candidates[0]
 
@@ -463,8 +397,8 @@ def _the_only_candidate_moved(was: str, now: str) -> Assertion[IncidentDetail]:
 
         if (candidate.moved_from, candidate.moved_to) != (was, now):
             raise AssertionError(
-                f"expected the candidate to have moved [{was}] to [{now}], "
-                f"got [{candidate.moved_from}] to [{candidate.moved_to}]"
+                f"Expected the candidate to have moved [{was}] to [{now}], "
+                f"got [{candidate.moved_from}] to [{candidate.moved_to}]."
             )
 
         return True

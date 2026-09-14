@@ -96,14 +96,21 @@ def withdraw_incident(incident_id: str,
     twice.
     """
     with connections() as conn:
-        withdrawn = incidents.withdraw(conn, incident_id, actor)
+        withdrawn = incidents.withdraw(conn, incident_id)
 
     if withdrawn:
         publish(
             StatusChanged(
                 incident_id=incident_id,
                 to_status=IncidentStatus.WITHDRAWN,
-                detail="withdrawn - somebody has the incident in hand"
+                # Who withdrew it lives in the sentence now rather than in a
+                # column of its own. The distinction the parameter exists for -
+                # a person, or something of Argus's own - is the whole of what
+                # a reader wants from it, and the account is where a reader
+                # looks.
+                detail=("withdrawn - somebody has the incident in hand"
+                        if actor is Actor.HUMAN
+                        else f"withdrawn by {actor}")
             ),
             publisher
         )

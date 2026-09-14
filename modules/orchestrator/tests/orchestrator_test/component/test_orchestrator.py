@@ -73,13 +73,7 @@ def transition_incident() -> MagicMock:
 
 
 @pytest.fixture
-def record_note() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.RecordNote, instance=True))
-
-
-@pytest.fixture
-def collaborators(transition_incident: MagicMock,
-                  record_note: MagicMock) -> Collaborators:
+def collaborators(transition_incident: MagicMock) -> Collaborators:
     """Every port answered by the least eventful thing that can answer it.
 
     A test then names only the ports its own case turns on, and what it does
@@ -99,7 +93,6 @@ def collaborators(transition_incident: MagicMock,
         write_postmortem=lambda dont_care_incident: _a_document(),
         record_postmortem=lambda dont_care_incident, dont_care_document: None,
         transition_incident=transition_incident,
-        record_note=record_note,
         publisher=nobody,
         recorder=records_nothing,
         still_wanted=_the_incident_is_still_wanted()
@@ -211,8 +204,7 @@ def test_a_walk_with_no_action_left_to_try_ends_at_code_fix_and_a_human(
 @pytest.mark.component
 def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
     collaborators: Collaborators,
-    transition_incident: MagicMock,
-    record_note: MagicMock
+    transition_incident: MagicMock
 ) -> None:
     # Asked before the node rather than after: a node that has already toggled
     # a flag cannot be stopped by anything done with its return value. Nothing
@@ -228,7 +220,7 @@ def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), an_incident_withdrawn)) \
         .then(all_of(_the_walk_went(INVESTIGATOR_NODE),
                      _the_incident_ended(IncidentStatus.WITHDRAWN),
-                     _nothing_was_written(transition_incident, record_note)))
+                     _nothing_was_written(transition_incident)))
 
 
 def _the_walk_of(incident: IncidentState, collaborators: Collaborators) -> Walked:
@@ -392,14 +384,12 @@ def _the_incident_ended(expected: IncidentStatus) -> Assertion[Walked]:
     return assertion
 
 
-def _nothing_was_written(transition_incident: MagicMock,
-                         record_note: MagicMock) -> Assertion[Walked]:
+def _nothing_was_written(transition_incident: MagicMock) -> Assertion[Walked]:
     def assertion(dont_care_walked: Walked) -> bool:
-        if transition_incident.called or record_note.called:
+        if transition_incident.called:
             raise AssertionError(
                 f"expected nothing to be written, got "
-                f"{transition_incident.call_args_list} and "
-                f"{record_note.call_args_list}"
+                f"{transition_incident.call_args_list}"
             )
 
         return True

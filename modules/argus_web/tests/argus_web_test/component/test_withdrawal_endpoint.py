@@ -5,7 +5,6 @@ from http import HTTPStatus as HttpStatus
 import httpx
 import pytest
 from argus_core.db import connect
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
 from argus_incidents.repository import incidents
@@ -49,7 +48,6 @@ def test_withdrawing_an_incident_that_already_ended_is_refused() -> None:
     # mitigation holding the service up, and a page that answered "done" to
     # this would have somebody believe they had stopped something.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
-    some_actor = Actor.MITIGATION
 
     with connect() as conn:
         incident_id = incidents.create(conn, some_alert)
@@ -57,8 +55,6 @@ def test_withdrawing_an_incident_that_already_ended_is_refused() -> None:
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
-            actor=some_actor,
-            action="dont care",
         )
 
     with TestClient(app) as client:

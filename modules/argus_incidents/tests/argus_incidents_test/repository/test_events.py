@@ -400,7 +400,7 @@ def _the_end_of_the_log(conn: psycopg.Connection) -> int:
 def _row_counts(conn: psycopg.Connection) -> dict[str, int]:
     counted = {}
     with conn.cursor() as cursor:
-        for table in ("incident", "hypothesis", "action", "timeline_event"):
+        for table in ("incident", "hypothesis", "action"):
             cursor.execute(f"SELECT count(*) FROM {table}")  # noqa: S608 - fixed names
             row = cursor.fetchone()
             assert row is not None

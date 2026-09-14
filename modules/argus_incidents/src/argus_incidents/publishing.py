@@ -110,13 +110,17 @@ def calls_into(connections: Connections) -> Recorder:
     return record_call
 
 
-def acknowledge_alert(incident_id: str, alert: Alert, publisher: Publisher) -> None:
+def acknowledge_alert(conn: psycopg.Connection,
+                      incident_id: str,
+                      alert: Alert,
+                      publisher_for: PublisherFor) -> None:
     """Says that Argus has the alert and has looked at nothing yet.
 
     The first line of every incident's story, and the only one the graph cannot
     write: by the time a node runs, the alert has already been received. It is
-    published from the entrypoint instead, right after the incident row exists
-    to hang it on.
+    published from the entrypoint instead, on the connection that created the
+    row and before that connection commits - so a crash between the two cannot
+    leave the incident without the sentence that opens its account.
 
     An event and not a status. The status machine (spec §10) says where an
     incident can go next, and acknowledging adds nowhere to go - so making it a
@@ -127,4 +131,8 @@ def acknowledge_alert(incident_id: str, alert: Alert, publisher: Publisher) -> N
     that function creates a row and queues a walk: the seam that makes this
     checkable is a function whose entire job is the sentence it publishes.
     """
-    publish(AlertAcknowledged(incident_id=incident_id, alert=alert), publisher)
+    publish_beside(
+        conn,
+        AlertAcknowledged(incident_id=incident_id, alert=alert),
+        publisher_for(conn)
+    )

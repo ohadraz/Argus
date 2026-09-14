@@ -19,6 +19,8 @@ from argus_core.models.evidence import Evidence
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.refusal import Refusal
+from argus_core.models.undone import Undone
 
 """What Argus says about its own work as it does it (spec §4 principle 6).
 
@@ -280,6 +282,77 @@ class VerdictReached(_Event):
     outcome: Verdict
 
 
+class CandidateSelected(_Event):
+    """The walk moved on to the next explanation worth testing.
+
+    Which candidate is under test now is not derivable from the ranked list the
+    investigation published: the walk skips any it cannot act on, so a reader
+    following along has no way to work out which explanation an attempt belongs
+    to. The summary and the confidence travel because they are what the reader
+    would otherwise go back to the list for, and a list read later is a list
+    that may have been added to since.
+    """
+
+    kind: Literal["candidate-selected"] = "candidate-selected"
+    hypothesis_id: UuidStr
+    summary: str
+    # Nullable because a hypothesis's is: a candidate that named no cause has
+    # no confidence to state, and `HypothesisFormed` carries it the same way.
+    confidence: float | None
+
+
+class ActionRefused(_Event):
+    """An action was proposed and the gate would not let it through.
+
+    The autonomy boundary holding is the most important thing Argus publishes
+    about itself (spec §13): every other event says what it did, and this says
+    what it declined to do and why. The reason is carried as the value for the
+    reason a verdict is - two refusals mean different things to whoever reads
+    them, and a page comparing sentences would eventually match neither.
+    """
+
+    kind: Literal["action-refused"] = "action-refused"
+    # Absent where the walk reached the gate with no candidate at all: the
+    # proposal answers a hypothesis it does not have with no action, and the
+    # gate then refuses an action nobody proposed. Nullable for the reason
+    # `ActionTaken` and `VerdictReached` are - a refusal with nothing to pin it
+    # to is still a refusal, and skipping it would leave the gap this event
+    # exists to close.
+    hypothesis_id: UuidStr | None
+    refusal: Refusal
+
+
+class MitigationResumed(_Event):
+    """A restarted walk found this candidate's verdict already recorded.
+
+    The account of a gap rather than of a decision. The verdict was reached and
+    published by the walk that took the action; this says that a second walk
+    picked the incident up and read that answer back rather than acting again -
+    which is how a reader tells "Argus tried once" from "Argus tried twice".
+    """
+
+    kind: Literal["mitigation-resumed"] = "mitigation-resumed"
+    hypothesis_id: UuidStr
+    outcome: Verdict
+
+
+class ChangeUndone(_Event):
+    """One change an incident made, put back - or found not to be Argus's to
+    put back.
+
+    Published per change rather than per withdrawal, because an incident that
+    changed three flags and restored two of them is not a withdrawal that
+    worked. The outcome is carried as the value: "nothing was written" has two
+    meanings here, and they are the difference between somebody else owning the
+    flag now and nobody being able to read it.
+    """
+
+    kind: Literal["change-undone"] = "change-undone"
+    flag: str
+    outcome: Undone
+    detail: str
+
+
 class PostmortemWritten(_Event):
     """The incident written up, in the few lines somebody would read first.
 
@@ -343,8 +416,12 @@ type IncidentEvent = Annotated[
         | FlagChangesRetrieved
         | OnsetDetected
         | HypothesisFormed
+        | CandidateSelected
+        | ActionRefused
         | ActionTaken
         | VerdictReached
+        | MitigationResumed
+        | ChangeUndone
         | PostmortemWritten
         | CommunicationFailed
     ),

@@ -4,11 +4,14 @@ from enum import StrEnum
 from typing import assert_never
 
 from argus_core.events import (
+    ActionRefused,
     ActionTaken,
     AgentInvoked,
     AlertAcknowledged,
     AwaitingRecovery,
+    CandidateSelected,
     ChangesRetrieved,
+    ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
     FlagChangesRetrieved,
@@ -16,6 +19,7 @@ from argus_core.events import (
     IncidentEvent,
     LogsRetrieved,
     MetricsRetrieved,
+    MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
@@ -80,7 +84,22 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # not one, and the state machine already knows the difference.
             return (Register.ANNOUNCED if event.to_status.is_terminal()
                     else Register.FOLLOWED)
-        case OnsetDetected() | HypothesisFormed() | ActionTaken() | VerdictReached():
+        case (OnsetDetected() | HypothesisFormed() | CandidateSelected()
+              | ActionTaken() | VerdictReached() | ChangeUndone()):
+            # `candidate-selected` earns its place beside the findings even
+            # though the list was already published: the walk skips any
+            # candidate it cannot act on, so which explanation the next few
+            # lines are about is not derivable from a ranking sent earlier.
+            #
+            # `change-undone` is what Argus changed, said backwards. A
+            # withdrawal that restored two flags of three is not a withdrawal
+            # that worked, and the one it left alone is somebody's to look at.
+            return Register.FOLLOWED
+        case ActionRefused():
+            # The most important line this system produces. Every other event
+            # says what Argus did; this says what it declined to do and why,
+            # which is the autonomy boundary (spec §13) visibly holding - and
+            # the one moment a person may need to finish the job by hand.
             return Register.FOLLOWED
         case AwaitingRecovery():
             # Said, unlike the looks that follow it: this is the longest
@@ -103,12 +122,18 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             return Register.UNSAID
         case (AgentInvoked() | RetrievalRequested() | MetricsRetrieved()
               | LogsRetrieved() | ChangesRetrieved() | FlagChangesRetrieved()
-              | ChannelsUnread() | RecoveryChecked()):
+              | ChannelsUnread() | RecoveryChecked() | MitigationResumed()):
             # Everything that reports a look rather than a finding. Forty log
             # lines read is a fact about the investigation's method, and a
             # channel reporting it would bury the four lines that matter.
             # `agent-invoked` is here for the same reason: which of Argus's
             # agents is working is a fact about how Argus is built.
+            #
+            # `mitigation-resumed` is here on exactly that reading. The verdict
+            # it carries was written and published in one transaction by the
+            # walk that reached it, so a follower already has this answer; what
+            # this adds is that Argus restarted and caught up, which is again a
+            # fact about how Argus is built. The page still shows it.
             return Register.UNSAID
         case _:
             assert_never(event)

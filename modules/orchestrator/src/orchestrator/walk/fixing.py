@@ -24,7 +24,7 @@ def codefix_node(state: IncidentState) -> StateDelta:
         fix_found=False,
         narration=Narration(
             action="no code-level fix found",
-            result="the incident is being handed to a human",
+            detail="no code-level fix found, so the incident goes to a human",
         ),
     )
 

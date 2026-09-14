@@ -15,7 +15,6 @@ from argus_web.views.incidents import (
     Candidate,
     IncidentDetail,
     IncidentSummary,
-    TimelineEntry,
     build_incident_detail,
     build_incident_summary,
 )
@@ -35,7 +34,6 @@ __all__ = [
     "LiveIncident",
     "PostmortemView",
     "Story",
-    "TimelineEntry",
     "build_incident_detail",
     "build_incident_summary",
     "build_live_incident",

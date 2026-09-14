@@ -137,11 +137,11 @@ Responsibilities:
 - Run the tier-gate node (§13) before any mutating tool call reaches an MCP server.
 - Own the escalation decision (the round budget, and whether the investigation named anything left to try).
 - Trigger the memory lookup that seeds an investigation (§9).
-- Sole writer of all incident-domain Postgres state (`Incident.status`, `HYPOTHESIS`, `ACTION`, `TIMELINE_EVENT`, §11.1) - agents propose changes, the Orchestrator persists them, pairing every state mutation with a `TIMELINE_EVENT` row (§10, §11.1).
+- Sole writer of all incident-domain Postgres state (`Incident.status`, `HYPOTHESIS`, `ACTION`, §11.1) - agents propose changes, the Orchestrator persists them, pairing every state mutation with the `INCIDENT_EVENT` that accounts for it, written on the same connection (§10, §11.1).
 
 ### 7.2 Investigator agent
 
-Runs the ReAct loop (§9, §8). Tools: memory read, metrics read, log read, and flag evaluation - all from `argus-read-mcp` (§12.1). Nothing from `argus-write-mcp` is bound to this node. Hints reach it as `TIMELINE_EVENT` rows (§11.1), written by the Orchestrator from hints the Communicator (§7.5) surfaces - not via direct Slack access.
+Runs the ReAct loop (§9, §8). Tools: memory read, metrics read, log read, and flag evaluation - all from `argus-read-mcp` (§12.1). Nothing from `argus-write-mcp` is bound to this node. Hints reach it as published `INCIDENT_EVENT` rows (§11.1), written by the Orchestrator from hints the Communicator (§7.5) surfaces - not via direct Slack access.
 
 ### 7.3 Mitigation agent
 
@@ -165,7 +165,7 @@ Which lines reach a person is a policy over event kinds, stated in registers a d
 
 Slack refusing is an ordinary outcome of talking to Slack rather than an error in the walk, and no refusal can fail an incident. A throttle or a workspace that did not answer says nothing about the message, so the line keeps its place and is said on a later pass. Any other refusal - a renamed channel, a revoked token - will say the same thing on every pass, so the line is recorded on the incident's own timeline as one that never arrived, and passed over: a relay waiting for a channel to come back would go silent about everything behind it.
 
-Reading is the other direction, and stays in the read tier: the Communicator is the only agent that reads Slack for human hints (via `argus-read-mcp`), converting one into a structured hint returned to the Orchestrator, which writes it as a `TIMELINE_EVENT` (§7.1).
+Reading is the other direction, and stays in the read tier: the Communicator is the only agent that reads Slack for human hints (via `argus-read-mcp`), converting one into a structured hint returned to the Orchestrator, which publishes it as an `INCIDENT_EVENT` (§7.1).
 
 ### 7.6 Postmortem agent
 
@@ -301,7 +301,9 @@ Putting the changes back is conditional, never a blind restore: a flag is return
 
 Withdrawal is not a verdict. No postmortem is written for it: there was a response, it was stopped part-way, and a document summarising what Argus concluded would be summarising a conclusion that was never reached.
 
-Every transition is written as a paired `TimelineEvent` row, per the Orchestrator's single-writer rule (§7.1, §11.1). A status is written only when the incident enters it: the timeline is read as the account of where the incident has been, so a status set and overwritten by the next node is never recorded at all.
+Every transition is published as a paired `StatusChanged` event, written on the same connection as the status itself, per the Orchestrator's single-writer rule (§7.1, §11.1). A status is written only when the incident enters it: the account is read as where the incident has been, so a status set and overwritten by the next node is never recorded at all.
+
+Work that settles nothing and moves no status is published by the node that did it, as the event that says what it was - an action refused at the tier gate, a walk moving on to the next candidate, a change put back by a withdrawal. There is one account of an incident and every line of it is a published event; nothing writes a second, column-shaped copy alongside.
 
 ## 11. Memory & Data Architecture
 
@@ -315,7 +317,6 @@ Structured state, not free-text - every graph node reads/writes this, never a re
 erDiagram
     INCIDENT ||--o{ HYPOTHESIS : has
     INCIDENT ||--o{ ACTION : has
-    INCIDENT ||--o{ TIMELINE_EVENT : has
     INCIDENT ||--o{ INCIDENT_EVENT : records
     INCIDENT ||--o| POSTMORTEM : produces
     INCIDENT ||--o{ REPLAY_LOG : logs
@@ -363,16 +364,6 @@ erDiagram
         text claimed_by
         timestamp leased_until
         text failure_reason
-        timestamp created_at
-    }
-    TIMELINE_EVENT {
-        uuid id PK
-        uuid incident_id FK
-        enum to_status
-        text actor
-        text action
-        text result
-        float confidence
         timestamp created_at
     }
     INCIDENT_EVENT {
@@ -435,7 +426,7 @@ erDiagram
 
 Separate tables rather than one JSON blob per incident, because the eval metrics (§21) - wasted actions per incident, escalation precision/recall, root-cause accuracy - are counts, joins, and group-bys over structured fields (`tested`, `result`, `confidence`, `tier`). A relational schema already has that structure; free text or a blob would mean re-deriving it at query time.
 
-Neither `HYPOTHESIS` nor `ACTION` has row history - both are mutated in place (`HYPOTHESIS.tested`/`.result`/`.confidence` as the ReAct loop refines, §9 step F; `ACTION.outcome` once a mitigation is confirmed/refuted, §7.3), written in the same transaction as a paired `TIMELINE_EVENT` row (single-writer rule, §7.1). Without that pairing, the walk the incident view renders (§7.7) and the incident narrative the Postmortem agent consumes (§7.6) would collapse to only their last value.
+Neither `HYPOTHESIS` nor `ACTION` has row history - both are mutated in place (`HYPOTHESIS.tested`/`.result`/`.confidence` as the ReAct loop refines, §9 step F; `ACTION.outcome` once a mitigation is confirmed/refuted, §7.3), written in the same transaction as the paired `INCIDENT_EVENT` that accounts for the change (single-writer rule, §7.1). Without that pairing, the walk the incident view renders (§7.7) and the incident narrative the Postmortem agent consumes (§7.6) would collapse to only their last value - and both read the same events through the same renderer, so the page and the document tell one story rather than two.
 
 An `ACTION` row is written *before* its action is taken, and one incident has at most one action per candidate - a unique constraint on `(incident_id, hypothesis_id)`. The insert is therefore the claim on the right to act: a walk resumed inside the mitigation node (§7.1) is refused it by the database rather than by a check it could race with, and answers with the outcome the earlier attempt recorded. Where that attempt recorded none - it stopped between acting and saying what happened - the flag provider's own event log is asked whether the change landed, since it is the only record of what a process that no longer exists managed to do; the incident escalates if it did, or if the provider cannot say.
 

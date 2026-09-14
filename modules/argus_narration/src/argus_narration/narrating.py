@@ -25,11 +25,14 @@ from datetime import datetime
 from typing import assert_never
 
 from argus_core.events import (
+    ActionRefused,
     ActionTaken,
     AgentInvoked,
     AlertAcknowledged,
     AwaitingRecovery,
+    CandidateSelected,
     ChangesRetrieved,
+    ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
     FlagChangesRetrieved,
@@ -37,6 +40,7 @@ from argus_core.events import (
     IncidentEvent,
     LogsRetrieved,
     MetricsRetrieved,
+    MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
@@ -49,6 +53,8 @@ from argus_core.models.actor import Actor
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.refusal import Refusal
+from argus_core.models.undone import Undone
 from pydantic import BaseModel
 
 from argus_narration.clock import a_minute, a_window
@@ -75,6 +81,23 @@ _AGENTS = {
     Actor.CODEFIX: _CODEFIX,
     Actor.COMMUNICATOR: _COMMUNICATOR,
     Actor.POSTMORTEM: _POSTMORTEM
+}
+
+# Why the gate would not let an action through, in a reader's words. Derived
+# from the value rather than stored beside it: two sentences that must agree
+# with one enum is one of them eventually disagreeing.
+_WHY_IT_WAS_REFUSED = {
+    Refusal.NO_REVERSIBLE_ACTION: "no reversible action was proposed",
+    Refusal.NOT_REVERSIBLE: "cannot be undone"
+}
+
+# What became of one change an incident made, said after the flag it is about.
+# Three phrases rather than three shades of "done": a flag left as found is
+# somebody else's now, and one nobody could read is a question still open.
+_WHAT_BECAME_OF_IT = {
+    Undone.RESTORED: "was put back",
+    Undone.LEFT_AS_FOUND: "was left as found",
+    Undone.NOT_ESTABLISHED: "could not be read"
 }
 
 # What each retrieval channel is, said so that somebody who has never read the
@@ -300,6 +323,34 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # itself worth reading, and an empty mark simply marks nothing.
             emphasis = event.root_cause or ""
             text = _the_postmortem_in_short(event)
+        case CandidateSelected():
+            who = _ARGUS
+            # The summary rather than the rank. Which number in the list this
+            # was is a fact about the list; what is being tested now is what
+            # the next few lines are about.
+            emphasis = event.summary
+            text = f"Moving on to {emphasis}"
+        case ActionRefused():
+            who = _ARGUS
+            # The reason, for the same reason a refused message marks its
+            # refusal: the two are different findings, and which of them
+            # happened is the only part a person can act on.
+            emphasis = _WHY_IT_WAS_REFUSED[event.refusal]
+            text = f"Refused to act - {emphasis}"
+        case MitigationResumed():
+            who = _ARGUS
+            emphasis = str(event.outcome).upper()
+            text = (
+                f"Picked the incident back up and read the verdict already "
+                f"recorded for this candidate: {emphasis}"
+            )
+        case ChangeUndone():
+            who = _ARGUS
+            # The flag, as an action marks it: the restore and the change it
+            # reverses are the same subject a page apart, and a reader
+            # matching them up should not have to read two spellings.
+            emphasis = event.flag
+            text = f"{emphasis} {_WHAT_BECAME_OF_IT[event.outcome]} - {event.detail}"
         case CommunicationFailed():
             who = _COMMUNICATOR
             # The one line on the page about the page's own rival: everything

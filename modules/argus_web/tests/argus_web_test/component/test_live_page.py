@@ -13,7 +13,6 @@ from argus_core.events import (
     MetricsRetrieved,
     OnsetDetected,
 )
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
@@ -247,8 +246,6 @@ def _finished(conn: psycopg.Connection, incident_id: str) -> None:
         conn,
         incident_id,
         IncidentStatus.RESOLVED,
-        actor=Actor.MITIGATION,
-        action="dont care"
     )
 
 

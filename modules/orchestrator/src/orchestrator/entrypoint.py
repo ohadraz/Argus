@@ -4,10 +4,11 @@ from collections.abc import Callable
 
 from argus_core.config import get_settings
 from argus_core.db import Connections
-from argus_core.models.actor import Actor
+from argus_core.events import StatusChanged
 from argus_core.models.alert import Alert
 from argus_core.models.incident_state import IncidentState
 from argus_core.models.incident_status import IncidentStatus
+from argus_incidents.publishing import events_into_connection, publish_beside
 from argus_incidents.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
@@ -97,12 +98,19 @@ def run_incident(incident_id: str,
     # investigation that is already under way, which is true again each time it
     # is taken up.
     with connections() as conn:
-        incidents.transition(
+        incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING)
+        # Beside the status, on the same connection, for the reason every other
+        # transition publishes beside its own: this is the only account there
+        # is, and a walk that started without saying so leaves a reader looking
+        # at an incident that was acknowledged and then simply changed.
+        publish_beside(
             conn,
-            incident_id,
-            IncidentStatus.INVESTIGATING,
-            actor=Actor.ORCHESTRATOR,
-            action="investigation started",
+            StatusChanged(
+                incident_id=incident_id,
+                to_status=IncidentStatus.INVESTIGATING,
+                detail="a worker took the incident up"
+            ),
+            events_into_connection(conn)
         )
 
     settings = get_settings()

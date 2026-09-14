@@ -20,13 +20,13 @@ where a caller reasoning about mitigation looks for them.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from enum import StrEnum
 
 from argus_core.models.action import Action, Outcome, Verdict
 from argus_core.models.cause import CauseType
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models.undone import Undone
 from pydantic import BaseModel
 
 __all__ = [
@@ -55,25 +55,6 @@ def state_name(enabled: bool) -> str:
     return "on" if enabled else "off"
 
 
-class Undone(StrEnum):
-    """What became of one attempt to put a change back.
-
-    Three answers, not two, because "nothing was written" has two meanings and
-    a caller's next move differs between them. `LEFT_AS_FOUND` is a decision:
-    the flag holds something Argus did not set, so somebody changed it and it
-    is no longer Argus's to restore. `NOT_ESTABLISHED` is an absence: the
-    provider could not say what the flag holds, and writing on a reading that
-    never came back is the blind restore the check exists to prevent.
-
-    Reported rather than raised. An unwind runs over every change an incident
-    made, and one flag nobody can read must not stop the others being put back.
-    """
-
-    RESTORED = "restored"
-    LEFT_AS_FOUND = "left-as-found"
-    NOT_ESTABLISHED = "not-established"
-
-
 class UndoAttempt(BaseModel):
     """What happened to one change somebody tried to put back.
 
@@ -89,6 +70,7 @@ class UndoAttempt(BaseModel):
     flag: str
     outcome: Undone
     detail: str
+
 
 REVERT_FEATURE_FLAG = "revert-feature-flag"
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
@@ -10,14 +9,18 @@ from psycopg.types.json import Jsonb
 
 
 def create(conn: psycopg.Connection, alert: Alert) -> str:
-    """Creates the Incident row and its initial TimelineEvent in the same
-    transaction (spec §7.1's single-writer rule, §11.1; spec §10's
-    `[*] --> acknowledged` edge counts as a transition).
+    """Creates the Incident row (spec §7.1's single-writer rule, §11.1).
 
     `acknowledged`, not `investigating`: this runs where the alert is received,
     and the walk it queues belongs to a worker that has not taken it yet.
     Writing `investigating` here would date an investigation from the moment
-    Argus heard about the incident rather than from the moment one began."""
+    Argus heard about the incident rather than from the moment one began.
+
+    Committing is the caller's, for the reason it is `transition`'s: the line
+    that accounts for this incident is published on the same connection, and a
+    commit here would put the row beyond reach of its own first sentence. A
+    crash between the two would otherwise leave an incident whose account
+    begins nowhere."""
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO incident (alert_payload, status) VALUES (%s, %s) RETURNING id",
@@ -25,31 +28,23 @@ def create(conn: psycopg.Connection, alert: Alert) -> str:
         )
         row = cursor.fetchone()
         assert row is not None
-        incident_id = str(row[0])
-        cursor.execute(
-            "INSERT INTO timeline_event (incident_id, to_status, actor, action) "
-            "VALUES (%s, %s, %s, %s)",
-            (incident_id, IncidentStatus.ACKNOWLEDGED, Actor.ORCHESTRATOR, "incident created")
-        )
-    conn.commit()
-    return incident_id
+        return str(row[0])
 
 
 def transition(
     conn: psycopg.Connection,
     incident_id: str,
-    to_status: IncidentStatus,
-    actor: Actor,
-    action: str,
-    result: str | None = None,
-    confidence: float | None = None
+    to_status: IncidentStatus
 ) -> None:
-    """Updates `Incident.status` and writes the paired `TimelineEvent` row in
-    the same transaction (spec §7.1, §11.1's single-writer rule).
+    """Updates `Incident.status` (spec §7.1, §11.1's single-writer rule).
 
-    For a status the incident is actually entering. Work that is worth recording
-    and moved nothing goes to `record_note` instead - see there for why the two
-    are separate.
+    For a status the incident is actually entering. Work that is worth
+    recording and moved nothing is published as the acting node's own event,
+    and writes nothing here at all.
+
+    The status alone. What moved it, why, and how sure it was are the
+    `StatusChanged` its caller publishes on this same connection - one account
+    of the incident rather than a column-shaped copy of one beside it.
 
     A transition into a terminal status also stamps `ended_at`, in the same
     statement rather than in a second one: the two facts are one event, and a
@@ -73,15 +68,9 @@ def transition(
             " WHERE id = %s",
             (to_status, ends_the_incident, incident_id)
         )
-        cursor.execute(
-            "INSERT INTO timeline_event "
-            "(incident_id, to_status, actor, action, result, confidence) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (incident_id, to_status, actor, action, result, confidence)
-        )
 
 
-def withdraw(conn: psycopg.Connection, incident_id: str, actor: Actor) -> bool:
+def withdraw(conn: psycopg.Connection, incident_id: str) -> bool:
     """Takes an incident back from Argus, and says whether it took effect.
 
     The one status written from outside the walk. Every other status an
@@ -102,10 +91,9 @@ def withdraw(conn: psycopg.Connection, incident_id: str, actor: Actor) -> bool:
     reports it, and the walk's unwind runs only for the withdrawal that took
     effect, so a second press is not a second undo.
 
-    The timeline row is written only where the status moved, for the reason
-    `record_note` exists at all - a row claiming the incident entered
-    `withdrawn` when it was already there is a claim about the incident that is
-    not true.
+    The account is published only where the status moved: a line claiming the
+    incident entered `withdrawn` when it was already there is a claim about the
+    incident that is not true.
     """
     still_going = [status for status in IncidentStatus if not status.is_terminal()]
 
@@ -116,48 +104,9 @@ def withdraw(conn: psycopg.Connection, incident_id: str, actor: Actor) -> bool:
             (IncidentStatus.WITHDRAWN, incident_id, still_going)
         )
         withdrawn = cursor.rowcount == 1
-
-        if withdrawn:
-            cursor.execute(
-                "INSERT INTO timeline_event (incident_id, to_status, actor, action) "
-                "VALUES (%s, %s, %s, %s)",
-                (incident_id, IncidentStatus.WITHDRAWN, actor, "incident withdrawn")
-            )
     conn.commit()
 
     return withdrawn
-
-
-def record_note(
-    conn: psycopg.Connection,
-    incident_id: str,
-    actor: Actor,
-    action: str,
-    result: str | None = None,
-    confidence: float | None = None
-) -> None:
-    """Writes a `TimelineEvent` row for work that did not move the incident.
-
-    Narration and transition are two operations that were one function only by
-    accident. An action refused at the tier gate is the case that separates
-    them: it is worth recording, and the incident was already `mitigating` and
-    still is. Written through `transition` it would claim the incident entered a
-    status it had never left, which is exactly the false record the timeline is
-    read to avoid.
-
-    The row carries the status the incident is already in, taken from the row
-    itself rather than from the caller - a caller that had to supply it could
-    supply the wrong one, and then this function would be a transition after
-    all.
-    """
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO timeline_event "
-            "(incident_id, to_status, actor, action, result, confidence) "
-            "SELECT %s, status, %s, %s, %s, %s FROM incident WHERE id = %s",
-            (incident_id, actor, action, result, confidence, incident_id)
-        )
-    conn.commit()
 
 
 def get_recent(conn: psycopg.Connection) -> list[Incident]:

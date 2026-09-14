@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import cast
+from unittest.mock import create_autospec
+
+import psycopg
 import pytest
 from argus_core.events import AlertAcknowledged, IncidentEvent, nobody
 from argus_core.models.alert import Alert
@@ -29,9 +33,10 @@ def test_receiving_the_alert_is_the_first_line_of_the_incidents_story() -> None:
 
     Scenario() \
         .given(
-            calling(lambda: acknowledge_alert(SOME_INCIDENT_ID,
+            calling(lambda: acknowledge_alert(_a_connection(),
+                                              SOME_INCIDENT_ID,
                                               some_alert,
-                                              published.append))
+                                              lambda _conn: published.append))
         ) \
         .when(lambda: published) \
         .then(all_of(_exactly_one_event_was_published(),
@@ -42,7 +47,8 @@ def test_receiving_the_alert_is_the_first_line_of_the_incidents_story() -> None:
 def test_an_alert_nobody_is_listening_for_is_still_received() -> None:
     Scenario() \
         .given(DONT_CARE_ALERT) \
-        .when(lambda: acknowledge_alert(SOME_INCIDENT_ID, DONT_CARE_ALERT, nobody)) \
+        .when(lambda: acknowledge_alert(
+            _a_connection(), SOME_INCIDENT_ID, DONT_CARE_ALERT, lambda _conn: nobody)) \
         .then(_nothing_went_wrong())
 
 
@@ -85,3 +91,13 @@ def _nothing_went_wrong() -> Assertion[None]:
         return True
 
     return assertion
+
+
+def _a_connection() -> psycopg.Connection:
+    """A connection that holds a savepoint open and writes nothing.
+
+    The acknowledgement is published beside the row it belongs to, so it takes
+    the connection that row was written on - and what this case is about is the
+    sentence, not the transaction it commits in.
+    """
+    return cast(psycopg.Connection, create_autospec(psycopg.Connection, instance=True))

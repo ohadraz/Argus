@@ -98,11 +98,7 @@ def investigator_node(
         rounds=state.rounds + 1,
         confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,
-        narration=Narration(
-            action=_what_the_investigation_did(hypothesis),
-            result=hypothesis.summary,
-            confidence=hypothesis.confidence,
-        ),
+        narration=Narration(action=_what_the_investigation_did(hypothesis)),
     )
 
 

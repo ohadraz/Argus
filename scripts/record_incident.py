@@ -175,22 +175,40 @@ def _the_timeline_of(incident_id: str) -> list[str]:
     """What the incident recorded about itself, in order.
 
     Read here rather than left for someone to query afterwards, because the
-    stack is torn down the moment this script returns - and the timeline is the
-    only account of which branch the walk actually took.
+    stack is torn down the moment this script returns - and the account is the
+    only record of which branch the walk actually took.
+
+    The published events, in the order they were published. `seq` rather than
+    the clock: two events can share a moment to the microsecond, and the order
+    they were written in is the only thing that makes the walk readable back.
     """
     with psycopg.connect(DATABASE_URL) as connection, connection.cursor() as cursor:
         cursor.execute(
-            "SELECT to_status, actor, action, result "
-            "  FROM timeline_event "
+            "SELECT kind, payload "
+            "  FROM incident_event "
             " WHERE incident_id = %s "
-            "ORDER BY created_at",
+            "ORDER BY seq",
             (incident_id,),
         )
         return [
-            f"  {status:<14} {actor or '-':<13} {action or '-'}"
-            + (f" :: {result}" if result else "")
-            for status, actor, action, result in cursor.fetchall()
+            f"  {kind:<22} {_what_it_said(payload)}"
+            for kind, payload in cursor.fetchall()
         ]
+
+
+def _what_it_said(payload: dict[str, object]) -> str:
+    """The part of an event worth reading in a one-line summary.
+
+    Whichever of these the event happens to carry, because the fields that say
+    what an event was about differ by kind and a recording is read by a person
+    scanning it rather than by anything that parses it.
+    """
+    said = [f"{field}={payload[field]}"
+            for field in ("to_status", "refusal", "outcome", "summary", "flag",
+                          "agent", "channel", "detail")
+            if payload.get(field) is not None]
+
+    return " ".join(said) or "-"
 
 
 def _arm_the_double(name: str) -> None:

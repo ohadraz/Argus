@@ -6,9 +6,10 @@ from unittest.mock import create_autospec
 import psycopg
 import pytest
 from argus_core.db import connect
+from argus_core.events import StatusChanged
 from argus_core.models.alert import Alert
 from argus_core.models.incident_status import IncidentStatus
-from argus_incidents.repository import incidents, timeline
+from argus_incidents.repository import events, incidents
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
 from langgraph.graph.state import CompiledStateGraph
@@ -20,14 +21,15 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
     a_clean_database: None
 ) -> None:
     # The incident stops being one nobody is on at the moment a worker takes
-    # it, not at the moment the alert arrived. Asserted against the timeline as
-    # well as the status, because the duration between the two rows is what
-    # says how long the incident waited for a worker.
+    # it, not at the moment the alert arrived. Asserted against the published
+    # account as well as the status, because the gap between the incident's own
+    # created_at and that line is what says how long it waited for a worker.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
     with connect() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
+        conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \
             .given(
@@ -40,7 +42,7 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
             ) \
             .then(all_of(
                 _the_incident_is_investigating(conn, incident_id),
-                _the_timeline_records_the_investigation_starting(conn, incident_id),
+                _the_account_records_the_investigation_starting(conn, incident_id)
             ))
 
 
@@ -55,6 +57,7 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: 
 
     with connect() as conn:
         incident_id = incidents.create(conn, dont_care_alert)
+        conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \
             .given(
@@ -113,18 +116,25 @@ def _the_graph_was_invoked(a_graph: Any) -> Assertion[Any]:
     return assertion
 
 
-def _the_timeline_records_the_investigation_starting(conn: psycopg.Connection,
-                                                     incident_id: str) -> Assertion[None]:
-    def assertion(_result: None) -> bool:
-        recorded = [event.to_status
-                    for event in timeline.get_timeline_events(conn, incident_id)]
+def _the_account_records_the_investigation_starting(conn: psycopg.Connection,
+                                                    incident_id: str) -> Assertion[None]:
+    """The one line this step is responsible for.
 
-        if recorded != [IncidentStatus.ACKNOWLEDGED, IncidentStatus.INVESTIGATING]:
+    Not the alert arriving: that is published by the intake, and this case
+    creates its incident directly to get at the entrypoint on its own. What is
+    under test is that taking a run up is accounted for at all - a walk that
+    started silently leaves a reader looking at an incident that was
+    acknowledged and then simply changed.
+    """
+    def assertion(_result: None) -> bool:
+        moves = [event.to_status
+                 for event in events.get_by_incident(conn, incident_id)
+                 if isinstance(event, StatusChanged)]
+
+        if moves != [IncidentStatus.INVESTIGATING]:
             raise AssertionError(
-                f"Expected the timeline to record the wait and then the start "
-                f"[{IncidentStatus.ACKNOWLEDGED}, {IncidentStatus.INVESTIGATING}], "
-                f"got {recorded}."
-            )
+                f"Expected the account to record the start of the investigation "
+                f"[{IncidentStatus.INVESTIGATING}], got {moves}.")
 
         return True
 

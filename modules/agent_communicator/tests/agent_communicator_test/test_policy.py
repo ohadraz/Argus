@@ -5,11 +5,14 @@ from decimal import Decimal
 import pytest
 from agent_communicator.policy import Register, how_it_is_said
 from argus_core.events import (
+    ActionRefused,
     ActionTaken,
     AgentInvoked,
     AlertAcknowledged,
     AwaitingRecovery,
+    CandidateSelected,
     ChangesRetrieved,
+    ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
     FlagChangesRetrieved,
@@ -17,6 +20,7 @@ from argus_core.events import (
     IncidentEvent,
     LogsRetrieved,
     MetricsRetrieved,
+    MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
@@ -31,6 +35,8 @@ from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.refusal import Refusal
+from argus_core.models.undone import Undone
 from argus_testkit import Assertion, Scenario
 
 """Which of the things Argus publishes a human actually hears, and how loudly.
@@ -174,6 +180,26 @@ def test_a_move_that_is_not_an_ending_stays_in_the_conversation(
         .then(_it_is_said(Register.FOLLOWED))
 
 
+@pytest.mark.unit
+def test_a_resumed_walk_does_not_re_announce_a_verdict_the_thread_already_has() -> None:
+    # The verdict was written and published by the walk that reached it, in one
+    # transaction, so a follower has already heard this answer. What a resumed
+    # walk adds is that Argus restarted and caught up - a fact about how Argus
+    # is built rather than about the incident, which is the same reason
+    # `agent-invoked` says nothing. The page still shows it; a channel does not
+    # interrupt with a conclusion it already delivered.
+    some_resumption = MitigationResumed(
+        incident_id=AN_INCIDENT,
+        hypothesis_id=new_id(),
+        outcome=Verdict.REFUTED
+    )
+
+    Scenario() \
+        .given(some_resumption) \
+        .when(lambda: how_it_is_said(some_resumption)) \
+        .then(_it_is_said(Register.UNSAID))
+
+
 def _everything_argus_read() -> list[IncidentEvent]:
     """Every event that reports a look rather than a finding.
 
@@ -221,6 +247,10 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
     `awaiting-recovery` is here rather than among the looks: it is the longest
     silence in an incident, and a conversation that went quiet for six minutes
     without saying it was waiting reads as one that stopped.
+
+    `action-refused` is the one a reader would most want to have been told: it
+    is the autonomy boundary holding, and a system that changed nothing because
+    it would not risk the change has said the most important thing it can say.
     """
     return [
         OnsetDetected(incident_id=AN_INCIDENT, onset="2026-08-30T10:03:00Z"),
@@ -233,6 +263,17 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
             confidence=0.8,
             subject="monthly-spend-feature",
             evidence=[]
+        ),
+        CandidateSelected(
+            incident_id=AN_INCIDENT,
+            hypothesis_id=new_id(),
+            summary="the monthly-spend flag was turned on",
+            confidence=0.8
+        ),
+        ActionRefused(
+            incident_id=AN_INCIDENT,
+            hypothesis_id=new_id(),
+            refusal=Refusal.NOT_REVERSIBLE
         ),
         ActionTaken(
             incident_id=AN_INCIDENT,
@@ -248,7 +289,13 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
         ),
         VerdictReached(incident_id=AN_INCIDENT,
                        hypothesis_id=None,
-                       outcome=Verdict.CONFIRMED)
+                       outcome=Verdict.CONFIRMED),
+        ChangeUndone(
+            incident_id=AN_INCIDENT,
+            flag="monthly-spend-feature",
+            outcome=Undone.RESTORED,
+            detail="put back the way Argus found it"
+        )
     ]
 
 

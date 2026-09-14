@@ -46,8 +46,11 @@ def test_firing_alert_with_no_cause_to_find_escalates_with_a_postmortem() -> Non
             eventually(
                 all_of(
                     argus_registered_an_incident_for_the_alert(some_alert),
+                    # Not `acknowledged`: Argus having the alert is published
+                    # as the alert arriving rather than as a status the
+                    # incident entered, so the first transition is a worker
+                    # taking the run up.
                     argus_went_through_statuses(
-                        IncidentStatus.ACKNOWLEDGED,
                         IncidentStatus.INVESTIGATING,
                         IncidentStatus.ESCALATED,
                     ),

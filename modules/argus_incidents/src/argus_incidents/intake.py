@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from argus_core.db import Connections
-from argus_core.events import Publisher
 from argus_core.models.alert import Alert
 
-from argus_incidents.publishing import acknowledge_alert
+from argus_incidents.publishing import PublisherFor, acknowledge_alert
 from argus_incidents.repository import incidents, runs
 
 """How an incident starts - and nothing about how one is walked.
@@ -24,7 +23,7 @@ What walks is the worker's, in its own process.
 
 def start_incident(alert: Alert,
                    connections: Connections,
-                   publisher: Publisher) -> str:
+                   publisher_for: PublisherFor) -> str:
     """The Orchestrator's entrypoint (spec §7.1): creates the `Incident` row
     and puts its walk in line, called by `argus_web` (§7.9) with a normalized
     `Alert` domain object - never a vendor's raw payload.
@@ -39,13 +38,14 @@ def start_incident(alert: Alert,
     and a function that helped itself to either would be one no caller could
     stand in for.
     """
+    # The row and the story's first line, in one transaction. Published from
+    # here because by the time a node runs the alert has already been received;
+    # published before the commit because an incident whose account begins
+    # nowhere is the failure `publish_beside` exists to prevent.
     with connections() as conn:
         incident_id = incidents.create(conn, alert)
-
-    # The story's first line, published from here because by the time a node
-    # runs the alert has already been received - and published after the row
-    # exists, so there is an incident for it to belong to.
-    acknowledge_alert(incident_id, alert, publisher)
+        acknowledge_alert(conn, incident_id, alert, publisher_for)
+        conn.commit()
 
     with connections() as conn:
         runs.enqueue(conn, incident_id)
