@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Final
 
 from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import McpClient
-from argus_core.models import FlagChange, UndoDescriptor, parse_undo_descriptor
+from argus_core.models import (
+    FlagChange,
+    OpenedPullRequest,
+    UndoDescriptor,
+    parse_undo_descriptor,
+)
 from pydantic import TypeAdapter
 
 # One tool answers with a list this module has to build; the other answers with
@@ -13,6 +19,14 @@ from pydantic import TypeAdapter
 # that decision has one door - reading it a second way here would be a second
 # place for it to be decided differently.
 _FLAG_CHANGES: Final = TypeAdapter(list[FlagChange])
+
+_OPENED_PULL_REQUEST: Final = TypeAdapter(OpenedPullRequest)
+
+# The branch a fix was written to, which the server answers with as a bare
+# string. Validated rather than cast: what comes back is handed straight to
+# `open_pull_request` as the branch to propose, and a tool that answered with
+# something else would have that failure surface two calls later.
+_A_BRANCH: Final = TypeAdapter(str)
 
 # Where the server's tools are served, under the address the endpoint names.
 _MCP_PATH: Final = "/mcp"
@@ -81,4 +95,71 @@ def get_recent_flag_changes(since: str,
         "get_recent_flag_changes",
         _FLAG_CHANGES.validate_python,
         since=since,
+    )
+
+
+def commit_to_new_branch(branch: str,
+                         base_branch: str,
+                         files: Mapping[str, str],
+                         message: str,
+                         *,
+                         client: McpClient) -> str:
+    """Puts a proposed fix on a branch of its own and returns that branch.
+
+    The first half of Code-Fix's outward act (spec §7.4), and the half that
+    touches code. `files` maps a repository path to that file's whole new
+    content - a patch, already applied by whoever wrote it, rather than a diff
+    for something downstream to apply.
+
+    Only ever a branch. The base is never written, so the worst a wrong fix can
+    do is sit somewhere unrun until a person looks at it, and the pull request
+    that follows is a proposal rather than a change.
+
+    Raises rather than returning quietly when any part of the patch did not
+    land - including when it reached for the test that grades it (§15.1). A
+    branch reported as written but only half there would be proposed as a whole
+    fix, and read by a human as one.
+    """
+    return client.call(
+        "commit_to_new_branch",
+        _A_BRANCH.validate_python,
+        branch=branch,
+        base_branch=base_branch,
+        files=dict(files),
+        message=message,
+    )
+
+
+def open_pull_request(head_branch: str,
+                      base_branch: str,
+                      title: str,
+                      body: str,
+                      *,
+                      client: McpClient) -> OpenedPullRequest:
+    """Opens a draft pull request proposing a code fix, and returns where a
+    human can read it.
+
+    Code-Fix's one outward act (spec §7.4). Everything before it - the
+    retrieval, the patch, the branch - is Argus working; this is Argus handing
+    the work to somebody, which is why what comes back is an address rather than
+    an outcome.
+
+    **There is no `merge_pull_request` beside this, and there is not going to
+    be.** Merging is a deploy and sits on the irreversible side of §13, so the
+    binding this module gives an agent has no function for it at all - tier
+    enforcement by absence, which no caller can skip and no prompt can talk its
+    way around. The draft is not a parameter here either, for the same reason it
+    is not one on the server.
+
+    Raises rather than returning quietly when no pull request was opened: a fix
+    reported as proposed but never opened closes an incident on a link to
+    nothing.
+    """
+    return client.call(
+        "open_pull_request",
+        _OPENED_PULL_REQUEST.validate_python,
+        head_branch=head_branch,
+        base_branch=base_branch,
+        title=title,
+        body=body,
     )

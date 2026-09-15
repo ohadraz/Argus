@@ -7,13 +7,17 @@ holds and the tools it has (spec §12.1, §13).
 """
 
 from write_mcp_client.client import (
+    commit_to_new_branch,
     get_recent_flag_changes,
+    open_pull_request,
     set_feature_flag,
     write_mcp,
 )
 
 __all__ = [
+    "commit_to_new_branch",
     "get_recent_flag_changes",
+    "open_pull_request",
     "set_feature_flag",
     "write_mcp",
 ]

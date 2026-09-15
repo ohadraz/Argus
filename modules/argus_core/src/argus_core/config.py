@@ -62,6 +62,20 @@ class Settings(BaseSettings):
     write_mcp_host: str = Field(default="localhost")
     write_mcp_port: int = Field(default=8092)
 
+    # The Target Service's repository, which is the only repository Argus may
+    # propose a change to (spec §15.1). Named in full - `owner/name` - because
+    # that is how the API addresses one, and because a deployment that had to
+    # assemble it from two settings could assemble a different one.
+    github_api_url: str = Field(default="https://api.github.com")
+    github_repository: str = Field(default="")
+    # The credential that can push a branch and open a pull request. Scoped to
+    # the repository above and to nothing else: "Argus cannot touch its own
+    # codebase" is a property of what this token reaches, not of what the agent
+    # was told (§15.1). Empty by default for the same reason the admin token is
+    # - a misconfigured write server should fail loudly rather than quietly
+    # authenticate as nobody. It can never merge what it opens (§13).
+    github_token: str = Field(default="")
+
     log_initial_lookback_minutes: int = Field(default=30)
     log_initial_lookahead_minutes: int = Field(default=10)
     # Ceiling on any log window. Widening is how a reasoning caller reaches an 

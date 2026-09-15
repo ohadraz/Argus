@@ -19,24 +19,28 @@ was in.
 from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
-from argus_core.models import FlagChange, FlagUndo
+from argus_core.models import FlagChange, FlagUndo, OpenedPullRequest
 from mcp.server.fastmcp import FastMCP
 
-from write_mcp_server import flag_history, flag_state
+from write_mcp_server import branching, flag_history, flag_state, pull_requests
 from write_mcp_server.flag_state import FlagWriteSettings
+from write_mcp_server.pull_requests import RepositoryWriteSettings
 
 
 def build_server(endpoint: WriteMcpEndpoint,
-                 flag_settings: FlagWriteSettings) -> FastMCP:
+                 flag_settings: FlagWriteSettings,
+                 repository_settings: RepositoryWriteSettings) -> FastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    One slice, not four: both tools speak to the same provider, and both
-    credentials it names belong to this tier. What keeps the tiers apart is
-    that the read server is handed a slice with no field either could arrive
-    in - not a check made here.
+    Two slices, not one, and not five. The flag tools speak to the provider and
+    the code tool speaks to the repository; every credential named belongs to
+    this tier, and none of them belongs in the other's calls. What keeps the
+    *tiers* apart is that the read server is handed a slice with no field any
+    of these could arrive in - not a check made here.
 
     The tool bodies stay registration only; the behaviour, and the seams a
-    decorated function cannot carry, live in `flag_state` and `flag_history`.
+    decorated function cannot carry, live in `flag_state`, `flag_history` and
+    `pull_requests`.
     """
     mcp = FastMCP(
         "argus-write-mcp",
@@ -88,6 +92,57 @@ def build_server(endpoint: WriteMcpEndpoint,
         `flag_history.recent_flag_changes`; this is registration only."""
         return flag_history.recent_flag_changes(since, flag_settings)
 
+    @mcp.tool()
+    def commit_to_new_branch(branch: str,
+                             base_branch: str,
+                             files: dict[str, str],
+                             message: str) -> str:
+        """Puts a proposed fix on a branch of its own, cut from the branch it
+        fixes, and returns the branch it wrote.
+
+        `files` maps a repository path to that file's whole new content. A
+        branch is the only thing this writes to - never the base - so a wrong
+        patch ends up somewhere nobody is running rather than in production.
+
+        It will not write the test that grades the fix (§15.1), and refuses the
+        whole patch rather than the offending file: half a patch on a branch
+        reads like a change somebody meant to make. The behavior lives in
+        `branching.commit_to_new_branch`; this is registration only."""
+        return branching.commit_to_new_branch(
+            branch=branch,
+            base_branch=base_branch,
+            files=files,
+            message=message,
+            settings=repository_settings
+        )
+
+    @mcp.tool()
+    def open_pull_request(head_branch: str,
+                          base_branch: str,
+                          title: str,
+                          body: str) -> OpenedPullRequest:
+        """Opens a draft pull request proposing a code fix, from the branch the
+        fix sits on onto the branch it fixes.
+
+        The reversible end of an irreversible act (§13). Opening a proposal
+        changes nothing about the running service and can be undone by closing
+        it; *merging* one is a deploy, and there is no tool here that does it -
+        not a guarded one, not an approval-gated one, none. That absence is the
+        enforcement, and it is why this returns a place to read rather than an
+        outcome: what happens next is a human's to decide.
+
+        There is no draft parameter, because it is not the caller's choice.
+        Returns the pull request's number and the address a person can read it
+        at. The behavior lives in `pull_requests.open_pull_request`; this is
+        registration only."""
+        return pull_requests.open_pull_request(
+            head_branch=head_branch,
+            base_branch=base_branch,
+            title=title,
+            body=body,
+            settings=repository_settings
+        )
+
     return mcp
 
 
@@ -100,7 +155,8 @@ def main() -> None:
 
     build_server(
         WriteMcpEndpoint.of(settings),
-        FlagWriteSettings.of(settings)
+        FlagWriteSettings.of(settings),
+        RepositoryWriteSettings.of(settings)
     ).run(transport="streamable-http")
 
 
