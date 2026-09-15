@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import Mock, create_autospec
+from unittest.mock import Mock, call, create_autospec
 
 import pytest
-from agent_investigator.retrieval import fetch_logs
+from agent_investigator.retrieval import LogFetcher
 from agent_investigator.tools import LOGS_TOOL
 from argus_core import get_settings, parse_iso, to_iso
 from argus_core.models import ToolResult
@@ -30,7 +30,7 @@ def test_a_log_call_reads_the_window_the_model_named() -> None:
     # window would put the schedule back by another name.
     some_window_start = "2026-08-29T21:50:00Z"
     some_window_end = "2026-08-29T22:05:00Z"
-    some_fetch_logs = create_autospec(fetch_logs, return_value=[])
+    some_fetch_logs = create_autospec(LogFetcher, instance=True, return_value=[])
 
     Scenario() \
         .given(
@@ -54,7 +54,7 @@ def test_a_log_call_naming_no_window_reads_from_before_the_onset_to_the_alert() 
     # starts before the onset because that is where a cause lands - a flag
     # flips in a minute that still looks healthy - and ends at the alert,
     # which is the one moment the service is known to have been unhealthy.
-    some_fetch_logs = create_autospec(fetch_logs, return_value=[])
+    some_fetch_logs = create_autospec(LogFetcher, instance=True, return_value=[])
     the_default_start = to_iso(
         parse_iso(AN_ONSET)
         - timedelta(minutes=get_settings().log_initial_lookback_minutes)
@@ -78,7 +78,7 @@ def test_a_log_call_reads_past_the_onset_when_the_alert_says_no_time() -> None:
     # nothing to end on. It ends a few minutes after the onset instead of at
     # the onset itself, because a window ending the minute the incident began
     # contains the cause and none of the symptoms.
-    some_fetch_logs = create_autospec(fetch_logs, return_value=[])
+    some_fetch_logs = create_autospec(LogFetcher, instance=True, return_value=[])
     the_default_start = to_iso(
         parse_iso(AN_ONSET)
         - timedelta(minutes=get_settings().log_initial_lookback_minutes)
@@ -107,7 +107,7 @@ def test_a_window_that_ends_before_it_starts_comes_back_as_something_to_fix() ->
     # typo the model could fix on its next turn.
     a_window_start = "2026-08-29T22:10:00Z"
     a_window_end_before_it = "2026-08-29T21:50:00Z"
-    some_fetch_logs = create_autospec(fetch_logs, return_value=[])
+    some_fetch_logs = create_autospec(LogFetcher, instance=True, return_value=[])
 
     Scenario() \
         .given(
@@ -134,7 +134,7 @@ def test_a_window_wider_than_the_maximum_is_clamped_and_said_to_be() -> None:
     # certainly inside the incident. Said to be clamped because a model that
     # asked for three hours and silently got one would read the absence of
     # evidence as evidence of absence.
-    some_fetch_logs = create_autospec(fetch_logs, return_value=[])
+    some_fetch_logs = create_autospec(LogFetcher, instance=True, return_value=[])
     a_window_end = AN_ALERT_TIME
     a_window_start_beyond_the_maximum = to_iso(
         parse_iso(a_window_end)
@@ -169,9 +169,19 @@ def test_a_window_wider_than_the_maximum_is_clamped_and_said_to_be() -> None:
 def _the_logs_read_were(reader: Mock,
                         window_start: str,
                         window_end: str) -> Assertion[ToolResult]:
-    """The window the log channel was actually asked for."""
+    """Which window the log channel was actually asked for.
+
+    Compared against `call_args` rather than through `assert_called_once_with`,
+    which does not survive a spec built from a `Protocol`: `self` is left on the
+    signature, so every comparison fails while printing identically.
+    """
     def assertion(dont_care_result: ToolResult) -> bool:
-        reader.assert_called_once_with(window_start, window_end)
+        if reader.call_count != 1 or reader.call_args != call(window_start, window_end):
+            raise AssertionError(
+                f"expected the logs to be read once over "
+                f"[{window_start}..{window_end}], and they were read "
+                f"{reader.call_count} time(s) as {reader.call_args}"
+            )
 
         return True
 

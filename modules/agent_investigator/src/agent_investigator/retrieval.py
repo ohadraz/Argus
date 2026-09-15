@@ -1,27 +1,41 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from functools import partial
 from typing import Protocol
 
-from argus_core import ReadMcpEndpoint, WriteMcpEndpoint, get_settings
+from argus_core.mcp_transport import McpClient
 from argus_core.models import ChangeEvent, ChangeKind, FlagChange, MetricBucket
 from read_mcp_client import get_change_events, get_log_lines, get_metrics_summary
 from write_mcp_client import get_recent_flag_changes
 
-MetricsFetcher = Callable[[str | None], list[MetricBucket]]
-LogFetcher = Callable[[str, str], list[str]]
-ChangeFetcher = Callable[[str, str, str], list[ChangeEvent]]
+# What the loop asks of each retrieval channel, said as the shape it calls with
+# rather than as the function that answers today. `Protocol` rather than a
+# `Callable` alias throughout: a test stands each of these in with
+# `create_autospec`, which needs something introspectable, and specing against
+# the function below instead would be specing against the wrong shape - those
+# take the connection they are asked over, and a channel is asked about a
+# window.
 
-# The two systems that record a change, as this module reaches them. Named
-# types rather than bare `Callable`s in the signature below, so that the seams
-# read as what they are - a deploy history and a flag history - where two
-# three-argument callables would be told apart only by position.
-#
-# `Protocol` rather than a `Callable` alias because a test stands each of these
-# in with `create_autospec`, which needs something introspectable. Specing
-# against the client functions instead would be specing against the wrong
-# shape: those take the address they dial, and a history is asked about a
-# service and a window.
+
+class MetricsFetcher(Protocol):
+    def __call__(self, alert_time: str | None, /) -> list[MetricBucket]: ...
+
+
+class LogFetcher(Protocol):
+    def __call__(self, window_start: str, window_end: str, /) -> list[str]: ...
+
+
+class ChangeFetcher(Protocol):
+    def __call__(self,
+                 service: str,
+                 window_start: str,
+                 window_end: str, /) -> list[ChangeEvent]: ...
+
+
+# The two systems that record a change, as this module reaches them. Named types
+# for the reason the three above are, and told apart by name rather than by
+# position: a deploy history and a flag history are two three-argument callables
+# and nothing else would distinguish them.
 
 
 class DeployHistory(Protocol):
@@ -36,32 +50,53 @@ class FlagHistory(Protocol):
     def __call__(self, since: str, /) -> list[FlagChange]: ...
 
 
-def _deploys_between(service: str,
-                     window_start: str,
-                     window_end: str) -> list[ChangeEvent]:
-    """The read tier's change channel, at the address this deployment holds.
+def metrics_over(client: McpClient) -> MetricsFetcher:
+    """Phase one's channel, asked over one connection to the read tier."""
+    return partial(fetch_metrics, client=client)
 
-    Named here because the client takes the address it dials, and these are
-    the defaults a caller gets when it names no source. Read from the
-    environment for now; it moves to the composition root with the rest of
-    `Collaborators` (V7b / M4).
+
+def logs_over(client: McpClient) -> LogFetcher:
+    """Phase two's channel, asked over one connection to the read tier."""
+    return partial(fetch_logs, client=client)
+
+
+def changes_over(read: McpClient, write: McpClient) -> ChangeFetcher:
+    """The change channel, over a connection to each tier that records one.
+
+    Two clients rather than one because the two histories live on two servers
+    (see `fetch_change_events`), and the merge is what makes them one channel.
+    Bound where a process starts, so the loop below is handed a channel rather
+    than the means to build one.
     """
+    return partial(
+        fetch_change_events,
+        get_change_events=partial(_deploys_between, client=read),
+        get_recent_flag_changes=partial(_flag_changes_since, client=write)
+    )
+
+
+def _deploys_between(*,
+                     service: str,
+                     window_start: str,
+                     window_end: str,
+                     client: McpClient) -> list[ChangeEvent]:
+    """The read tier's change channel, over the connection it is asked on."""
     return get_change_events(
         service=service,
         window_start=window_start,
         window_end=window_end,
-        endpoint=ReadMcpEndpoint.of(get_settings())
+        client=client
     )
 
 
-def _flag_changes_since(since: str) -> list[FlagChange]:
+def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
     """The write tier's flag history, asked from one moment onwards."""
-    return get_recent_flag_changes(
-        since, endpoint=WriteMcpEndpoint.of(get_settings())
-    )
+    return get_recent_flag_changes(since, client=client)
 
 
-def fetch_metrics(alert_time: str | None) -> list[MetricBucket]:
+def fetch_metrics(alert_time: str | None,
+                  *,
+                  client: McpClient) -> list[MetricBucket]:
     """Phase one of spec §16's two-phase retrieval: the per-minute buckets the
     onset is located in.
 
@@ -70,12 +105,13 @@ def fetch_metrics(alert_time: str | None) -> list[MetricBucket]:
     anchored on the alert - and a seam is only useful if a test can spec
     against the shape the caller actually uses.
     """
-    return get_metrics_summary(
-        alert_time=alert_time, endpoint=ReadMcpEndpoint.of(get_settings())
-    )
+    return get_metrics_summary(alert_time=alert_time, client=client)
 
 
-def fetch_logs(window_start: str, window_end: str) -> list[str]:
+def fetch_logs(window_start: str,
+               window_end: str,
+               *,
+               client: McpClient) -> list[str]:
     """Phase two: the log lines for one explicit window, both bounds ISO-8601.
 
     Always an explicit window, never an alert anchor - by the time the loop
@@ -83,18 +119,17 @@ def fetch_logs(window_start: str, window_end: str) -> list[str]:
     to spend the expensive phase around that onset rather than around the
     moment somebody's alerting rule happened to fire.
     """
-    return get_log_lines(
-        window_start=window_start,
-        window_end=window_end,
-        endpoint=ReadMcpEndpoint.of(get_settings())
-    )
+    return get_log_lines(window_start=window_start,
+                         window_end=window_end,
+                         client=client)
 
 
 def fetch_change_events(service: str,
                         window_start: str,
                         window_end: str,
-                        get_change_events: DeployHistory = _deploys_between,
-                        get_recent_flag_changes: FlagHistory = _flag_changes_since
+                        *,
+                        get_change_events: DeployHistory,
+                        get_recent_flag_changes: FlagHistory
                         ) -> list[ChangeEvent]:
     """The third channel: what changed on the service over one explicit window.
 
@@ -118,6 +153,10 @@ def fetch_change_events(service: str,
     Merged here rather than by either server, so neither has to learn that the
     other exists. What comes back is one history in time order, because that is
     what it is: the things that happened to this service, whoever recorded them.
+
+    Neither source is defaulted. Both take a connection somebody opened, and a
+    default would be this module deciding where a deployment's servers are -
+    which is `changes_over`'s business, and a composition root's.
 
     Raises rather than reporting nothing when either source cannot be reached.
     "Nothing changed" is a conclusion something acts on, so a source that was

@@ -5,6 +5,7 @@ from contextlib import contextmanager
 
 import psycopg
 import pytest
+from argus_core.mcp_transport import McpClient
 from argus_testkit import Assertion, Scenario
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START
@@ -93,6 +94,8 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     (POSTMORTEM_NODE, END)
 })
 
+NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
+
 
 @pytest.mark.unit
 def test_every_node_of_the_walk_is_registered() -> None:
@@ -163,7 +166,9 @@ def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:
         raise AssertionError("assembling the graph must not open a connection")
         yield  # pragma: no cover - unreachable, and what makes this a generator
 
-    return build_graph(MemorySaver(), against(no_connections))
+    return build_graph(MemorySaver(), against(no_connections,
+                                              McpClient(NOTHING_IS_SERVED_HERE),
+                                              McpClient(NOTHING_IS_SERVED_HERE)))
 
 
 

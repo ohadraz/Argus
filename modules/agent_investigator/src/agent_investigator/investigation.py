@@ -62,14 +62,7 @@ from pydantic import ValidationError
 
 from agent_investigator.budget import Bound, Budget, InvestigationSettings
 from agent_investigator.reasoning import Conversation, a_conversation_recorded_for
-from agent_investigator.retrieval import (
-    ChangeFetcher,
-    LogFetcher,
-    MetricsFetcher,
-    fetch_change_events,
-    fetch_logs,
-    fetch_metrics,
-)
+from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from agent_investigator.tools import (
     ANSWER_TOOL,
     HYPOTHESES_ARG,
@@ -137,9 +130,9 @@ _ONE_TURN_LEFT: Final = (
 def investigate(
     alert: Alert,
     incident_id: str,
-    fetch_metrics: MetricsFetcher = fetch_metrics,
-    fetch_logs: LogFetcher = fetch_logs,
-    fetch_change_events: ChangeFetcher = fetch_change_events,
+    fetch_metrics: MetricsFetcher,
+    fetch_logs: LogFetcher,
+    fetch_change_events: ChangeFetcher,
     *,
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,

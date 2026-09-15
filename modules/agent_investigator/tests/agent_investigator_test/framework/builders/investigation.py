@@ -15,7 +15,7 @@ from unittest.mock import Mock, create_autospec
 
 from agent_investigator import Findings, Reading, investigate
 from agent_investigator.budget import Budget
-from agent_investigator.retrieval import fetch_change_events, fetch_logs, fetch_metrics
+from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from argus_core import new_id
 from argus_core.events import Publisher, nobody
 from argus_core.models import Alert, Attempt, ChangeEvent, MetricBucket
@@ -83,9 +83,9 @@ def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation
     because of evidence it never mentioned.
     """
     return Investigation(
-        metrics_fetcher=create_autospec(fetch_metrics, return_value=[]),
-        log_fetcher=create_autospec(fetch_logs, return_value=NO_LOGS),
-        change_fetcher=create_autospec(fetch_change_events, return_value=[]),
+        metrics_fetcher=create_autospec(MetricsFetcher, instance=True, return_value=[]),
+        log_fetcher=create_autospec(LogFetcher, instance=True, return_value=NO_LOGS),
+        change_fetcher=create_autospec(ChangeFetcher, instance=True, return_value=[]),
         model=model,
         budget=budget or a_budget()
     )

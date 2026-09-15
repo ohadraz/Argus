@@ -35,7 +35,8 @@ from agent_postmortem import (
     RateTable,
     Sources,
 )
-from argus_core import Connections, ReadMcpEndpoint, Settings, to_iso
+from argus_core import Connections, Settings, to_iso
+from argus_core.mcp_transport import McpClient
 from argus_core.models import MetricBucket
 from argus_incidents.repository import exchange_rates
 from exchange_rate_source.frankfurter import (
@@ -56,13 +57,19 @@ from revenue_source.stripe_adapter import charges_between
 from orchestrator.rates import todays_rates
 
 
-def the_real_sources(settings: Settings, connections: Connections) -> Sources:
+def the_real_sources(settings: Settings,
+                     connections: Connections,
+                     read: McpClient) -> Sources:
     """Every port answered by the provider this deployment is configured for.
 
     The configuration is sliced once, here, and each source is handed only its
     own slice. A source that never learns a credential's name cannot leak it
     into a postmortem, and one holding the whole of `Settings` would be able to
     read every credential Argus has in order to ask about money.
+
+    The read tier arrives as the connection somebody already holds to it, not as
+    an address to dial: a postmortem's metrics are one more question asked over
+    the session an investigation has been using all along.
 
     `connections` rather than a connection: the rates are the one source that
     reaches a table, and it is asked for at most once, while a postmortem is
@@ -80,7 +87,7 @@ def the_real_sources(settings: Settings, connections: Connections) -> Sources:
         engagement=partial(_who_responded, settings=OnCallSettings.of(settings)),
         bands=partial(_what_a_title_is_worth,
                       settings=ResponderRateSettings.of(settings)),
-        metrics=partial(_metrics_between, endpoint=ReadMcpEndpoint.of(settings)),
+        metrics=partial(_metrics_between, client=read),
         working_hours_a_year=settings.working_hours_a_year,
         reporting_currency=settings.reporting_currency
     )
@@ -182,8 +189,8 @@ def _what_a_title_is_worth(*,
 def _metrics_between(window_start: datetime,
                      window_end: datetime,
                      *,
-                     endpoint: ReadMcpEndpoint) -> list[MetricBucket]:
+                     client: McpClient) -> list[MetricBucket]:
     """The metrics channel, asked for a window spanning the whole incident."""
     return get_metrics_summary(window_start=to_iso(window_start),
                                window_end=to_iso(window_end),
-                               endpoint=endpoint)
+                               client=client)

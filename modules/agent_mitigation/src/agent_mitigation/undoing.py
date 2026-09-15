@@ -12,18 +12,14 @@ from __future__ import annotations
 from argus_core.models import UndoDescriptor
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
-from agent_mitigation.tools import (
-    ChangedFromOutside,
-    FlagSetter,
-    set_flag,
-)
+from agent_mitigation.tools import ChangedFromOutside, FlagSetter
 
 __all__ = ["undo_change"]
 
 
 def undo_change(undo_descriptor: UndoDescriptor,
                 changed_from_outside: ChangedFromOutside,
-                set_state: FlagSetter = set_flag) -> UndoAttempt:
+                set_state: FlagSetter) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,

@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
+    FlagSetter,
+    MetricsFetcher,
     MitigationSettings,
-    fetch_recent_metrics,
-    set_flag,
 )
 from agent_mitigation.trying import UndoChange
 from argus_core import new_id
@@ -61,7 +61,8 @@ def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep
+                sleep=dont_care_sleep,
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(
@@ -85,7 +86,8 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                     DONT_CARE_FLAG, was_enabled=some_old_state),
                 fetch_metrics=metrics_reading(the_service_recovers),
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep
+                sleep=dont_care_sleep,
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(
@@ -141,7 +143,8 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                still_wanted=nobody_still_wants_it
+                still_wanted=nobody_still_wants_it,
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(
@@ -169,7 +172,8 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                still_wanted=nobody_wants_it_any_more()
+                still_wanted=nobody_wants_it_any_more(),
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(
@@ -199,7 +203,8 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                still_wanted=nobody_wants_it_any_more()
+                still_wanted=nobody_wants_it_any_more(),
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(all_of(
@@ -227,7 +232,8 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
                     DONT_CARE_FLAG, was_enabled=some_old_state),
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep
+                sleep=dont_care_sleep,
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(all_of(
@@ -283,7 +289,8 @@ def test_a_confirmed_action_is_left_in_place() -> None:
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep
+                sleep=dont_care_sleep,
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(all_of(
@@ -428,7 +435,8 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 set_state=set_state,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep
+                sleep=dont_care_sleep,
+                changed_from_outside=nobody_changed_it()
             )
         ) \
         .then(all_of(
@@ -442,12 +450,14 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
     # Taking an action decides *that* a refuted change is put back; how one is
     # put back belongs to `undo_change` and is tested there. Reaching for it
     # directly is what makes a verdict here depend on the provider's world -
-    # and is why this call carries no `changed_from_outside` of its own.
+    # and is why the check this call carries is never consulted: the undo it
+    # was given brought its own.
     some_flag = "monthly-spend-feature"
 
     Scenario() \
         .given(
             some_old_state := False,
+            dont_care_outside := nobody_changed_it(),
             undo := _an_undo_that_restores(some_flag)
         ) \
         .when(lambda: take_action(
@@ -458,7 +468,8 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
             sleep=dont_care_sleep,
-            undo=undo
+            undo=undo,
+            changed_from_outside=dont_care_outside
         )) \
         .then(all_of(
             _the_change_was_put_back_through(undo),
@@ -603,6 +614,7 @@ def _an_action_is_taken(metrics: list[MetricBucket],
         fetch_metrics=metrics_reading(metrics),
         now=clock or a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
+        changed_from_outside=nobody_changed_it(),
         **keywords
     )
 
@@ -610,7 +622,7 @@ def _an_action_is_taken(metrics: list[MetricBucket],
 def _a_flag_setter_changing_from(flag: str, was_enabled: bool) -> MagicMock:
     """Answers as the real `set_flag` does - with the descriptor that would put
     the change back."""
-    set_state: MagicMock = create_autospec(set_flag)
+    set_state: MagicMock = create_autospec(FlagSetter, instance=True)
     set_state.return_value = an_undo_descriptor_for(flag, was_enabled)
 
     return set_state
@@ -618,7 +630,7 @@ def _a_flag_setter_changing_from(flag: str, was_enabled: bool) -> MagicMock:
 
 def _a_flag_setter_that_cannot_write(failure: str) -> MagicMock:
     """The provider refuses the write, so the flag never moved."""
-    set_state: MagicMock = create_autospec(set_flag)
+    set_state: MagicMock = create_autospec(FlagSetter, instance=True)
     set_state.side_effect = RuntimeError(failure)
 
     return set_state
@@ -626,7 +638,7 @@ def _a_flag_setter_that_cannot_write(failure: str) -> MagicMock:
 
 def _a_flag_setter_that_cannot_put_it_back(flag: str, failure: str) -> MagicMock:
     """Setting the flag works; putting it back is what fails."""
-    set_state: MagicMock = create_autospec(set_flag)
+    set_state: MagicMock = create_autospec(FlagSetter, instance=True)
     set_state.side_effect = [an_undo_descriptor_for(flag), RuntimeError(failure)]
 
     return set_state
@@ -644,7 +656,7 @@ def _an_undo_that_restores(flag: str) -> MagicMock:
 def _metrics_that_never_recover() -> MagicMock:
     """A reader that would go on answering "still failing" for as long as it
     is asked - so what a test measures is how many times it was asked."""
-    fetch_metrics: MagicMock = create_autospec(fetch_recent_metrics)
+    fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True)
     fetch_metrics.side_effect = [a_still_failing_window(), a_still_failing_window()]
 
     return fetch_metrics
@@ -653,7 +665,7 @@ def _metrics_that_never_recover() -> MagicMock:
 def _metrics_recovering_only_after_the_action() -> MagicMock:
     """The first look ends at the action, so no whole minute has followed it
     yet; the second carries one, and only then can a verdict be read."""
-    fetch_metrics: MagicMock = create_autospec(fetch_recent_metrics)
+    fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True)
     fetch_metrics.side_effect = [a_window_ending_at_the_action(), a_recovered_window()]
 
     return fetch_metrics

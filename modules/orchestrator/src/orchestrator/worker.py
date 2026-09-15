@@ -11,13 +11,24 @@ from os import getpid
 import psycopg
 from agent_mitigation import (
     MitigationSettings,
+    flag_changes_over,
+    flag_setter_over,
     somebody_else_changed_flag_since,
     undo_change,
 )
-from argus_core import Connections, DatabaseSettings, get_settings, open_pool
+from argus_core import (
+    Connections,
+    DatabaseSettings,
+    ReadMcpEndpoint,
+    WriteMcpEndpoint,
+    get_settings,
+    open_pool,
+)
 from argus_core.schema import require_schema
 from argus_incidents import IsStillWanted, events_into, wanted_via
 from argus_incidents.repository import runs
+from read_mcp_client import read_mcp
+from write_mcp_client import write_mcp
 
 from orchestrator.entrypoint import graph_for, run_incident
 from orchestrator.unwinding import taken_actions_from, unwind_incident
@@ -125,18 +136,29 @@ def work_forever(connections: Connections,
 
 
 def main() -> None:
-    """The process itself: a pool, then take runs until killed.
+    """The process itself: a pool, two sessions, then take runs until killed.
 
     Where everything this process needs is built, and the only place that knows
-    a pool exists. A `main` rather than bare module-level code, so that
-    importing this module - which the tests do - starts nothing and opens
-    nothing.
+    a pool exists or that either MCP server has an address. A `main` rather than
+    bare module-level code, so that importing this module - which the tests do -
+    starts nothing and opens nothing.
+
+    The clients are held for the life of the worker, which is the point of them:
+    one session per tier, reused by every retrieval of every incident this
+    process walks, rather than a connection and an MCP handshake per tool call.
+    Neither dials anything until the first call, so a worker that finds an empty
+    queue and is killed never opened a socket.
     """
     logging.basicConfig(level=logging.INFO)
 
     settings = get_settings()
+    mitigation = MitigationSettings.of(settings)
 
-    with open_pool(DatabaseSettings.of(settings)) as pool:
+    with (
+        open_pool(DatabaseSettings.of(settings)) as pool,
+        read_mcp(ReadMcpEndpoint.of(settings)) as read,
+        write_mcp(WriteMcpEndpoint.of(settings)) as write,
+    ):
         connections = pool.connection
 
         # Before anything is claimed. A worker that took a run and then found no
@@ -145,7 +167,7 @@ def main() -> None:
         with pool.connection() as conn:
             require_schema(conn)
 
-        graph_of = graph_for(connections)
+        graph_of = graph_for(connections, read, write)
 
         work_forever(
             connections,
@@ -155,8 +177,10 @@ def main() -> None:
                                undo_change,
                                changed_from_outside=partial(
                                    somebody_else_changed_flag_since,
-                                   settings=MitigationSettings.of(settings)
-                               )
+                                   settings=mitigation,
+                                   fetch=flag_changes_over(write)
+                               ),
+                               set_state=flag_setter_over(write)
                            ),
                            taken_actions_of=taken_actions_from(connections),
                            publisher=events_into(connections)),

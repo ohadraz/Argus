@@ -19,14 +19,20 @@ what it is: the things that happened to this service, whoever recorded them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import NamedTuple
 from unittest.mock import Mock, call, create_autospec
 
 import pytest
 from agent_investigator.retrieval import (
     DeployHistory,
     FlagHistory,
+    changes_over,
     fetch_change_events,
+    logs_over,
+    metrics_over,
 )
+from argus_core.mcp_transport import McpClient
 from argus_core.models import ChangeEvent, ChangeKind, FlagChange
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -35,6 +41,12 @@ DONT_CARE_FLAG = "kukibuki"
 
 SOME_WINDOW_START = "2026-08-29T20:00:00Z"
 SOME_WINDOW_END = "2026-08-29T22:15:00Z"
+SOME_ALERT_TIME = "2026-08-29T22:10:00Z"
+
+METRICS_TOOL = "get_metrics_summary"
+LOGS_TOOL = "get_log_lines"
+CHANGE_EVENTS_TOOL = "get_change_events"
+FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 
 
 @pytest.mark.unit
@@ -208,6 +220,115 @@ def test_a_toggle_keeps_the_actor_the_provider_named() -> None:
         )
 
 
+@pytest.mark.integration
+def test_the_metrics_channel_is_asked_over_the_read_tier() -> None:
+    # Which tier a channel is asked over is decided once, when the channel is
+    # built, and is invisible everywhere else: a channel bound to the wrong
+    # client answers in the right shape from the wrong server. These three say
+    # which session each one reaches, which nothing downstream can.
+    Scenario()         .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        )         .when(
+            _asking(read, write, lambda: metrics_over(read)(SOME_ALERT_TIME))
+        )         .then(all_of(
+            _the_read_tier_was_asked_for(METRICS_TOOL),
+            _the_write_tier_was_asked_for()
+        ))
+
+
+@pytest.mark.integration
+def test_the_log_channel_is_asked_over_the_read_tier() -> None:
+    Scenario()         .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        )         .when(
+            _asking(read, write,
+                    lambda: logs_over(read)(SOME_WINDOW_START, SOME_WINDOW_END))
+        )         .then(all_of(
+            _the_read_tier_was_asked_for(LOGS_TOOL),
+            _the_write_tier_was_asked_for()
+        ))
+
+
+@pytest.mark.integration
+def test_the_change_channel_asks_each_tier_for_the_history_it_keeps() -> None:
+    # The one place the tier split could be undone by a wiring mistake and
+    # nothing would say so. The flag history lives on the write tier because the
+    # provider serves its audit log to admin credentials alone, and a change
+    # channel that asked the read tier for it would simply find nothing - which
+    # reads exactly like an incident where no flag moved.
+    Scenario()         .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        )         .when(
+            _asking(read, write, lambda: changes_over(read, write)(
+                A_SERVICE, SOME_WINDOW_START, SOME_WINDOW_END
+            ))
+        )         .then(all_of(
+            _the_read_tier_was_asked_for(CHANGE_EVENTS_TOOL),
+            _the_write_tier_was_asked_for(FLAG_CHANGES_TOOL)
+        ))
+
+
+class _Asked(NamedTuple):
+    """Which tool each tier was asked for, in the order it was asked."""
+
+    read: list[str]
+    write: list[str]
+
+
+def _a_session_that_remembers_what_it_was_asked() -> Mock:
+    """A client that answers nothing and records the question.
+
+    Specced against `McpClient` rather than a `Protocol` of this suite's own,
+    because what a channel is handed is the real thing and the question being
+    asked is which of two it was handed.
+    """
+    client: Mock = create_autospec(McpClient, instance=True)
+
+    return client
+
+
+def _asking(read: Mock, write: Mock, ask: Callable[[], object]) -> Callable[[], _Asked]:
+    """Runs one channel and reports what each tier was asked for."""
+    def step() -> _Asked:
+        ask()
+
+        return _Asked(
+            read=[asked.args[0] for asked in read.call.call_args_list],
+            write=[asked.args[0] for asked in write.call.call_args_list]
+        )
+
+    return step
+
+
+def _the_read_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
+    def assertion(asked: _Asked) -> bool:
+        if asked.read != list(tools):
+            raise AssertionError(
+                f"Expected the read tier to be asked for {list(tools)}, "
+                f"got {asked.read}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_write_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
+    def assertion(asked: _Asked) -> bool:
+        if asked.write != list(tools):
+            raise AssertionError(
+                f"Expected the write tier to be asked for {list(tools)}, "
+                f"got {asked.write}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_flag_change(flag: str = DONT_CARE_FLAG,
                    enabled: bool = True,
                    at: str = "2026-08-29T21:00:00Z",
@@ -256,9 +377,9 @@ def _the_flag_history_was_asked_since(asked: Mock, since: str) -> Assertion[obje
     def assertion(_changes: object) -> bool:
         if asked.call_count != 1 or asked.call_args != call(since):
             raise AssertionError(
-                f"expected the flag history to be asked once since [{since}], "
+                f"Expected the flag history to be asked once since [{since}], "
                 f"and it was called {asked.call_count} time(s) "
-                f"as {asked.call_args}"
+                f"as {asked.call_args}."
             )
 
         return True

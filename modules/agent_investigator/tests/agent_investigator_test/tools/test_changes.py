@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import Mock, create_autospec
+from unittest.mock import Mock, call, create_autospec
 
 import pytest
-from agent_investigator.retrieval import fetch_change_events
+from agent_investigator.retrieval import ChangeFetcher
 from agent_investigator.tools import CHANGES_TOOL
 from argus_core import get_settings, parse_iso, to_iso
 from argus_core.models import ToolResult
@@ -27,7 +27,7 @@ def test_a_change_call_naming_no_window_ends_at_the_onset() -> None:
     # window stops there. Offering later changes invites attribution by mere
     # proximity, which is the one mistake this channel is most likely to
     # produce.
-    some_fetch_changes = create_autospec(fetch_change_events, return_value=[])
+    some_fetch_changes = create_autospec(ChangeFetcher, instance=True, return_value=[])
     the_default_start = to_iso(
         parse_iso(AN_ONSET)
         - timedelta(minutes=get_settings().change_lookback_minutes)
@@ -52,7 +52,7 @@ def test_a_change_source_that_cannot_be_reached_fails_the_investigation() -> Non
     # that could not be read must not arrive looking like a source that was
     # read and found empty.
     some_fetch_changes = create_autospec(
-        fetch_change_events, side_effect=RuntimeError("the change source is down")
+        ChangeFetcher, instance=True, side_effect=RuntimeError("the change source is down")
     )
 
     Scenario() \
@@ -70,9 +70,21 @@ def test_a_change_source_that_cannot_be_reached_fails_the_investigation() -> Non
 def _the_changes_read_were(reader: Mock,
                            window_start: str,
                            window_end: str) -> Assertion[ToolResult]:
-    """The window the change channel was actually asked for, and for whom."""
+    """The window the change channel was actually asked for, and for whom.
+
+    Compared against `call_args` rather than through `assert_called_once_with`,
+    which does not survive a spec built from a `Protocol`: `self` is left on the
+    signature, so every comparison fails while printing identically.
+    """
     def assertion(dont_care_result: ToolResult) -> bool:
-        reader.assert_called_once_with(A_SERVICE, window_start, window_end)
+        if reader.call_count != 1 or reader.call_args != call(
+            A_SERVICE, window_start, window_end
+        ):
+            raise AssertionError(
+                f"Expected the changes to be read once for [{A_SERVICE}] over "
+                f"[{window_start}..{window_end}], and they were read "
+                f"{reader.call_count} time(s) as {reader.call_args}."
+            )
 
         return True
 

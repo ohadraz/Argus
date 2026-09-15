@@ -39,9 +39,6 @@ from agent_mitigation.tools import (
     MitigationSettings,
     Sleeper,
     StillWanted,
-    fetch_recent_metrics,
-    set_flag,
-    somebody_else_changed_flag_since,
 )
 from agent_mitigation.undoing import undo_change
 
@@ -64,7 +61,7 @@ class UndoChange(Protocol):
 
     def __call__(self,
                  undo_descriptor: UndoDescriptor,
-                 set_state: FlagSetter = ...) -> UndoAttempt:
+                 set_state: FlagSetter) -> UndoAttempt:
         ...
 
     # No `changed_from_outside` here any more. Whoever supplies the undo binds
@@ -86,15 +83,15 @@ def _nobody_stopped_this_walk() -> bool:
 def take_action(action: Action,
                 settings: MitigationSettings,
                 thresholds: AnomalyThresholds,
-                set_state: FlagSetter = set_flag,
-                fetch_metrics: MetricsFetcher = fetch_recent_metrics,
+                set_state: FlagSetter,
+                fetch_metrics: MetricsFetcher,
                 now: Clock = utc_now,
                 sleep: Sleeper = time.sleep,
                 still_wanted: StillWanted = _nobody_stopped_this_walk,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody,
                 *,
-                changed_from_outside: ChangedFromOutside | None = None,
+                changed_from_outside: ChangedFromOutside,
                 undo: UndoChange | None = None) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
@@ -126,11 +123,13 @@ def take_action(action: Action,
             detail=f"could not set flag [{action.flag}]: {error}",
         )
 
-    outside = changed_from_outside if changed_from_outside is not None else partial(
-        somebody_else_changed_flag_since, settings=settings
-    )
+    # The undo is composed from the check rather than defaulted beside it: a
+    # caller supplying its own undo has already bound whatever check it trusts,
+    # and one that supplies none gets `undo_change` bound to the check this call
+    # was given. Neither is reached without a caller having said who asks the
+    # provider - which is a connection, and not this module's to open.
     putting_back = undo if undo is not None else partial(
-        undo_change, changed_from_outside=outside
+        undo_change, changed_from_outside=changed_from_outside
     )
 
     settled = _what_watching_the_service_settled(
@@ -162,7 +161,9 @@ def take_action(action: Action,
             undo_descriptor=undo_descriptor,
         )
 
-    return _undone(action, undo_descriptor, set_state, outside, putting_back)
+    return _undone(
+        action, undo_descriptor, set_state, changed_from_outside, putting_back
+    )
 
 
 def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,

@@ -5,10 +5,11 @@ from typing import Any
 
 import pytest
 from argus_core import WriteMcpEndpoint, get_settings
+from argus_core.mcp_transport import McpClient
 from argus_core.models import FlagChange, UndoDescriptor
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
-from write_mcp_client import get_recent_flag_changes, set_feature_flag
+from write_mcp_client import get_recent_flag_changes, set_feature_flag, write_mcp
 
 from write_mcp_client_test.fake_feature_flag_provider import FakeUnleashHandler, a_running_write_mcp
 
@@ -37,11 +38,9 @@ def test_switching_a_flag_off_reaches_the_provider_through_the_real_write_server
             calling(the_provider_has_enabled(running_write_mcp, some_flag))
         ) \
         .when(
-            lambda: set_feature_flag(
-                some_flag,
-                enabled=False,
-                endpoint=_the_server_the_fixture_started()
-            )
+            _asking_the_server(lambda client: set_feature_flag(
+                some_flag, enabled=False, client=client
+            ))
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=True),
@@ -62,11 +61,9 @@ def test_switching_a_flag_on_reaches_the_provider_through_the_real_write_server(
             calling(the_provider_has_enabled(running_write_mcp))
         ) \
         .when(
-            lambda: set_feature_flag(
-                some_flag,
-                enabled=True,
-                endpoint=_the_server_the_fixture_started()
-            )
+            _asking_the_server(lambda client: set_feature_flag(
+                some_flag, enabled=True, client=client
+            ))
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=False),
@@ -88,8 +85,8 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
             ))
         ) \
         .when(
-            lambda: get_recent_flag_changes(
-                SINCE, endpoint=_the_server_the_fixture_started()
+            _asking_the_server(
+                lambda client: get_recent_flag_changes(SINCE, client=client)
             )
         ) \
         .then(
@@ -104,6 +101,10 @@ def test_a_change_the_client_made_can_be_undone_through_the_same_call(
     # Undoing a refuted mitigation is this same tool with the state reversed,
     # which is the only reason one tool serves both directions. If the round
     # trip only worked one way, a refuted action could not be put back.
+    #
+    # Both writes go over one session, which is how the walk makes them: an
+    # action and the undo that follows it are two calls by one worker, and a
+    # session good for only the first would leave a refuted flag where it was.
     some_flag = "monthly-spend-feature"
 
     Scenario() \
@@ -111,14 +112,11 @@ def test_a_change_the_client_made_can_be_undone_through_the_same_call(
             calling(the_provider_has_enabled(running_write_mcp, some_flag))
         ) \
         .when(
-            lambda: _undoing(
-                set_feature_flag(
-                    some_flag,
-                    enabled=False,
-                    endpoint=_the_server_the_fixture_started()
-                ),
-                some_flag
-            )
+            _asking_the_server(lambda client: _undoing(
+                set_feature_flag(some_flag, enabled=False, client=client),
+                some_flag,
+                client
+            ))
         ) \
         .then(
             the_provider_now_reports_enabled(running_write_mcp, [some_flag])
@@ -130,22 +128,29 @@ INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
 DONT_CARE_ACTOR = "dont-care-actor"
 
 
-def _undoing(undo_descriptor: UndoDescriptor, flag: str) -> UndoDescriptor:
+def _undoing(undo_descriptor: UndoDescriptor,
+             flag: str,
+             client: McpClient) -> UndoDescriptor:
     return set_feature_flag(
-        flag,
-        enabled=undo_descriptor.was_enabled,
-        endpoint=_the_server_the_fixture_started()
+        flag, enabled=undo_descriptor.was_enabled, client=client
     )
 
 
-def _the_server_the_fixture_started() -> WriteMcpEndpoint:
-    """Where the subprocess the fixture started is listening.
+def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """One client to the subprocess the fixture started, held for one `when`.
 
-    Read through `get_settings` rather than named here, because the fixture
-    is what decides the port - it sets the environment and clears the cache
-    before yielding, and this is the same answer the server resolved from.
+    Where the subprocess is listening is read through `get_settings` rather than
+    named here, because the fixture is what decides the port - it sets the
+    environment and clears the cache before yielding, and this is the same
+    answer the server resolved from.
+
+    Closed on the way out, so a test leaves no session and no thread behind it.
     """
-    return WriteMcpEndpoint.of(get_settings())
+    def step() -> T:
+        with write_mcp(WriteMcpEndpoint.of(get_settings())) as client:
+            return ask(client)
+
+    return step
 
 
 def the_provider_has_enabled(handler: type[FakeUnleashHandler],

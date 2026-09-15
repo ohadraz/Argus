@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock, create_autospec
 
-from agent_investigator.retrieval import fetch_change_events, fetch_logs, fetch_metrics
+from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from agent_investigator.tools import Dispatcher
 from argus_core.models import ToolCall
 
@@ -47,10 +47,15 @@ def a_dispatcher(reads_metrics: Mock | None = None,
         onset=AN_ONSET,
         alert_time=alert_time,
         settings=some_investigation_settings(),
-        fetch_metrics=reads_metrics or create_autospec(fetch_metrics, return_value=[]),
-        fetch_logs=reads_logs or create_autospec(fetch_logs, return_value=[]),
-        fetch_change_events=reads_changes or create_autospec(fetch_change_events,
-                                                             return_value=[])
+        fetch_metrics=reads_metrics or create_autospec(
+            MetricsFetcher, instance=True, return_value=[]
+        ),
+        fetch_logs=reads_logs or create_autospec(
+            LogFetcher, instance=True, return_value=[]
+        ),
+        fetch_change_events=reads_changes or create_autospec(
+            ChangeFetcher, instance=True, return_value=[]
+        )
     )
 
 

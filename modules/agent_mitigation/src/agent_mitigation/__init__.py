@@ -12,6 +12,11 @@ choice, and the question of reversibility, without reaching the write.
 import. What a caller running this agent has to supply - the settings slice it
 behaves by, the flag history it reads, whether the walk is still wanted - is
 named here; how those reach the provider is not, and stays inside.
+
+Three of those are built from a connection, and the three builders are doors for
+that reason: a caller hands over the client it holds to a tier and gets back the
+flag history, the metrics or the one write, without ever learning which tool
+answers or where that server is.
 """
 
 from __future__ import annotations
@@ -36,10 +41,14 @@ from agent_mitigation.strategies import (
     can_be_undone,
 )
 from agent_mitigation.tools import (
+    FlagChangesSince,
     MitigationSettings,
     StillWanted,
     argus_changed_flag_since,
     fetch_recent_flag_changes,
+    flag_changes_over,
+    flag_setter_over,
+    recent_metrics_over,
     somebody_else_changed_flag_since,
 )
 from agent_mitigation.trying import UndoChange, take_action
@@ -50,6 +59,7 @@ __all__ = [
     "REVERT_FEATURE_FLAG",
     "Action",
     "ActionTaker",
+    "FlagChangesSince",
     "MitigationSettings",
     "MitigationStrategy",
     "Outcome",
@@ -63,7 +73,10 @@ __all__ = [
     "argus_changed_flag_since",
     "can_be_undone",
     "fetch_recent_flag_changes",
+    "flag_changes_over",
+    "flag_setter_over",
     "mitigate",
+    "recent_metrics_over",
     "propose_action",
     "somebody_else_changed_flag_since",
     "state_name",

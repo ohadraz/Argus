@@ -7,10 +7,16 @@ from typing import NamedTuple
 
 import pytest
 from argus_core import ReadMcpEndpoint, get_settings, parse_iso
+from argus_core.mcp_transport import McpClient
 from argus_core.models import ChangeEvent, MetricBucket
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
-from read_mcp_client import get_change_events, get_log_lines, get_metrics_summary
+from read_mcp_client import (
+    get_change_events,
+    get_log_lines,
+    get_metrics_summary,
+    read_mcp,
+)
 
 from read_mcp_client_test.conftest import FakeTargetServiceHandler
 from read_mcp_client_test.framework.builders import (
@@ -33,7 +39,7 @@ def test_get_log_lines_reaches_the_real_read_mcp_server(
             calling(the_target_service_has_logs(some_logs))
         ) \
         .when(
-            lambda: get_log_lines(endpoint=_the_server_the_fixture_started())
+            _asking_the_server(lambda client: get_log_lines(client=client))
         ) \
         .then(
             _the_returned_lines_are(some_logs)
@@ -99,16 +105,88 @@ def test_get_change_events_reaches_the_real_read_mcp_server(
             ))
         ) \
         .when(
-            lambda: get_change_events(
+            _asking_the_server(lambda client: get_change_events(
                 "kukibuki-service",
                 window_start=an_iso_minute(some_deploy_time - timedelta(hours=1)),
                 window_end=an_iso_minute(some_deploy_time + timedelta(hours=1)),
-                endpoint=_the_server_the_fixture_started()
-            )
+                client=client
+            ))
         ) \
         .then(
             _the_changes_reference(some_revision)
         )
+
+
+@pytest.mark.integration
+def test_one_session_serves_every_call_made_over_it(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    """Three tools over one client, which is the whole point of holding one.
+
+    Asserted as three answers rather than by counting connections, because what
+    a caller is promised is that a client is good for more than one question -
+    and a session that had silently been rebuilt between them would answer these
+    identically. What it rules out is the failure that matters: a second call
+    over a held session raising rather than answering.
+    """
+    some_logs = ["INFO some line"]
+    the_target_service_has = partial(_the_target_service_has, running_read_mcp)
+
+    Scenario() \
+        .given(
+            calling(the_target_service_has(
+                metrics=[a_metric_at(datetime(2026, 8, 20, 11, 45, 0, tzinfo=UTC))],
+                logs=some_logs
+            ))
+        ) \
+        .when(
+            _asking_the_server(_every_channel_in_turn)
+        ) \
+        .then(
+            _every_call_was_answered()
+        )
+
+
+class _ThreeAnswers(NamedTuple):
+    """What each of three tools said, over one session."""
+
+    lines: list[str]
+    buckets: list[MetricBucket]
+    changes: list[ChangeEvent]
+
+
+def _every_channel_in_turn(client: McpClient) -> _ThreeAnswers:
+    some_window = datetime(2026, 8, 20, 11, 45, 0, tzinfo=UTC)
+
+    return _ThreeAnswers(
+        lines=get_log_lines(client=client),
+        buckets=get_metrics_summary(client=client),
+        changes=get_change_events(
+            "kukibuki-service",
+            window_start=an_iso_minute(some_window - timedelta(hours=1)),
+            window_end=an_iso_minute(some_window + timedelta(hours=1)),
+            client=client
+        )
+    )
+
+
+def _every_call_was_answered() -> Assertion[_ThreeAnswers]:
+    def assertion(answers: _ThreeAnswers) -> bool:
+        if not answers.lines:
+            raise AssertionError(
+                f"Expected the first call over the session to return lines, "
+                f"got {answers.lines}."
+            )
+
+        if not answers.buckets:
+            raise AssertionError(
+                f"Expected the second call over the session to return buckets, "
+                f"got {answers.buckets}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_target_service_has_deploys(
@@ -158,23 +236,28 @@ class _DrillDown(NamedTuple):
     lines: list[str]
 
 
-def _the_server_the_fixture_started() -> ReadMcpEndpoint:
-    """Where the subprocess the fixture started is listening.
+def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """One client to the subprocess the fixture started, held for one `when`.
 
-    Read through `get_settings` rather than named here, because the fixture is
-    what decides the port - it sets the environment and clears the cache before
-    yielding, and this is the same answer the server itself resolved from.
+    Where the subprocess is listening is read through `get_settings` rather than
+    named here, because the fixture is what decides the port - it sets the
+    environment and clears the cache before yielding, and this is the same
+    answer the server itself resolved from.
+
+    Closed on the way out, so a test leaves no session and no thread behind it.
     """
-    return ReadMcpEndpoint.of(get_settings())
+    def step() -> T:
+        with read_mcp(ReadMcpEndpoint.of(get_settings())) as client:
+            return ask(client)
+
+    return step
 
 
 def _drilling_down_from_metrics_to_logs(alert_time: str,
                                         into: Callable[[MetricBucket], bool]
 ) -> Callable[[], _DrillDown]:
-    def step() -> _DrillDown:
-        buckets = get_metrics_summary(
-            alert_time=alert_time, endpoint=_the_server_the_fixture_started()
-        )
+    def both_phases(client: McpClient) -> _DrillDown:
+        buckets = get_metrics_summary(alert_time=alert_time, client=client)
         anomalous = [bucket for bucket in buckets if into(bucket)]
         onset = anomalous[0].bucket_id if anomalous else None
 
@@ -188,11 +271,11 @@ def _drilling_down_from_metrics_to_logs(alert_time: str,
             lines=get_log_lines(
                 window_start=window_start,
                 window_end=window_end,
-                endpoint=_the_server_the_fixture_started()
+                client=client
             )
         )
 
-    return step
+    return _asking_the_server(both_phases)
 
 
 def _a_window_anchored_on(onset: str) -> tuple[str, str]:

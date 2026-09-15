@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from argus_core import Connections, get_settings
 from argus_core.events import StatusChanged
+from argus_core.mcp_transport import McpClient
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents import events_into_connection, publish_beside
 from argus_incidents.repository import incidents
@@ -31,7 +32,9 @@ a run nobody is holding can be picked up by whoever comes next.
 type GraphOf = Callable[[], CompiledStateGraph[IncidentState]]
 
 
-def graph_for(connections: Connections) -> GraphOf:
+def graph_for(connections: Connections,
+              read: McpClient,
+              write: McpClient) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 
     Built lazily and held, because compiling it sets up a checkpointer and the
@@ -39,6 +42,10 @@ def graph_for(connections: Connections) -> GraphOf:
     the closure rather than at module level, so two processes - or a suite and
     the application inside it - are two graphs against two sets of connections
     rather than one that whichever ran first got to decide.
+
+    The two clients are passed through rather than built here, for the same
+    reason `connections` is: what this function owns is when the graph is
+    compiled, not what the process it belongs to has opened.
 
     The checkpointer's context manager is kept alongside the graph deliberately:
     it owns the connection the checkpointer writes on, and letting it be
@@ -56,7 +63,7 @@ def graph_for(connections: Connections) -> GraphOf:
             )
             checkpointer = checkpointer_cm.__enter__()
             checkpointer.setup()
-            graph = build_graph(checkpointer, against(connections))
+            graph = build_graph(checkpointer, against(connections, read, write))
 
         return graph
 

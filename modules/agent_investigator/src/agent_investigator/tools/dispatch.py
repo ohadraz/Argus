@@ -17,14 +17,7 @@ from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolResult
 from argus_core.replay import CallType, Replay
 
 from agent_investigator.budget import InvestigationSettings
-from agent_investigator.retrieval import (
-    ChangeFetcher,
-    LogFetcher,
-    MetricsFetcher,
-    fetch_change_events,
-    fetch_logs,
-    fetch_metrics,
-)
+from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_investigator.tools.changes import CHANGES_TOOL, read_changes
 from agent_investigator.tools.logs import LOGS_TOOL, read_logs
@@ -64,9 +57,10 @@ class Dispatcher:
     again - the evidence is not in *its* transcript, and re-reading is how it
     gets there.
 
-    The fetchers are default-argument seams, as everywhere else in this module:
-    the real read-tier calls in production, doubles in a test, and no
-    monkeypatching either way.
+    The fetchers are named, never defaulted. Each one is a channel asked over a
+    connection somebody opened, so a default here would be this class deciding
+    where a deployment's servers are - and a test that forgot to name one would
+    reach the real read tier rather than failing.
 
     `replay` is where a served retrieval leaves its receipt (spec §4 principle
     6), and defaults to one that reaches nobody, exactly as the narrator beside
@@ -90,12 +84,12 @@ class Dispatcher:
                  onset: str,
                  alert_time: str | None,
                  settings: InvestigationSettings,
+                 fetch_metrics: MetricsFetcher,
+                 fetch_logs: LogFetcher,
+                 fetch_change_events: ChangeFetcher,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
                  having_read: Sequence[Reading] = (),
-                 fetch_metrics: MetricsFetcher = fetch_metrics,
-                 fetch_logs: LogFetcher = fetch_logs,
-                 fetch_change_events: ChangeFetcher = fetch_change_events,
                  clock: Clock = time.monotonic) -> None:
         self._service = service
         self._onset = onset

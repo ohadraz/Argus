@@ -158,7 +158,7 @@ name = "argus-agent-investigator"
 version = "0.1.0"
 source = { editable = "modules/agent_investigator" }
 dependencies = [
-    { name = "argus-argus-core", extra = ["llm"] },
+    { name = "argus-argus-core", extra = ["llm", "mcp"] },
     { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
 ]
@@ -170,7 +170,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" },
+    { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
@@ -183,7 +183,7 @@ name = "argus-agent-mitigation"
 version = "0.1.0"
 source = { editable = "modules/agent_mitigation" }
 dependencies = [
-    { name = "argus-argus-core" },
+    { name = "argus-argus-core", extra = ["mcp"] },
     { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
 ]
@@ -195,7 +195,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "argus-argus-core", extras = ["mcp"], editable = "modules/argus_core" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
@@ -422,7 +422,7 @@ dependencies = [
     { name = "argus-agent-investigator" },
     { name = "argus-agent-mitigation" },
     { name = "argus-agent-postmortem" },
-    { name = "argus-argus-core", extra = ["llm"] },
+    { name = "argus-argus-core", extra = ["llm", "mcp"] },
     { name = "argus-argus-incidents" },
     { name = "argus-argus-narration" },
     { name = "argus-exchange-rate-source" },
@@ -447,7 +447,7 @@ requires-dist = [
     { name = "argus-agent-investigator", editable = "modules/agent_investigator" },
     { name = "argus-agent-mitigation", editable = "modules/agent_mitigation" },
     { name = "argus-agent-postmortem", editable = "modules/agent_postmortem" },
-    { name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" },
+    { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
     { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
     { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-exchange-rate-source", editable = "modules/exchange_rate_source" },

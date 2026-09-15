@@ -2,34 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Protocol
 
-from argus_core import (
-    ReadMcpEndpoint,
-    SettingsSlice,
-    WriteMcpEndpoint,
-    get_settings,
-    to_iso,
-    utc_now,
-)
+from argus_core import SettingsSlice, to_iso, utc_now
+from argus_core.mcp_transport import McpClient
 from argus_core.models import FlagChange, MetricBucket, UndoDescriptor
 from read_mcp_client import get_metrics_summary
 from write_mcp_client import get_recent_flag_changes, set_feature_flag
 
 from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
-
-
-def _flag_changes_since(since: str) -> list[FlagChange]:
-    """The write tier's flag history, asked from one moment onwards.
-
-    A named function rather than `get_recent_flag_changes` itself, because the
-    client takes the address it dials and this is the default a caller gets
-    when it names no fetcher. The address is read here for now; it moves to
-    the composition root with the rest of `Collaborators` (V7b / M4).
-    """
-    return get_recent_flag_changes(
-        since, endpoint=WriteMcpEndpoint.of(get_settings())
-    )
 
 
 class FlagChangeFetcher(Protocol):
@@ -47,8 +29,19 @@ class FlagChangeFetcher(Protocol):
 # lookback is about something else entirely.
 class FlagChangesSince(Protocol):
     def __call__(self, since: str) -> list[FlagChange]: ...
-MetricsFetcher = Callable[[], list[MetricBucket]]
-FlagSetter = Callable[[str, bool], UndoDescriptor]
+# The service's own account of itself, and the one way to change what it does.
+# `Protocol` rather than a `Callable` alias for both, because a test stands each
+# in with `create_autospec` and specing against the function that answers them
+# would be specing against the wrong shape: those take the connection they are
+# asked over, and neither of these knows a server exists.
+
+
+class MetricsFetcher(Protocol):
+    def __call__(self) -> list[MetricBucket]: ...
+
+
+class FlagSetter(Protocol):
+    def __call__(self, flag: str, enabled: bool, /) -> UndoDescriptor: ...
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
 # Whether the walk waiting on an action is still one anybody wants. Takes
@@ -80,9 +73,39 @@ class MitigationSettings(SettingsSlice):
     mitigation_verification_timeout_seconds: float
 
 
+def flag_changes_over(client: McpClient) -> FlagChangesSince:
+    """The provider's flag history, asked over one connection to the write tier.
+
+    The tier is the write tier because the provider serves its audit log to
+    admin credentials only, and `argus-read-mcp` holds none by design. Reading
+    history is strictly less than the write tier can already do.
+    """
+    return partial(_flag_changes_since, client=client)
+
+
+def recent_metrics_over(client: McpClient) -> MetricsFetcher:
+    """The service's metrics, asked over one connection to the read tier."""
+    return partial(fetch_recent_metrics, client=client)
+
+
+def flag_setter_over(client: McpClient) -> FlagSetter:
+    """The one write Argus makes, over one connection to the write tier."""
+    return partial(set_flag, client=client)
+
+
+def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
+    """The write tier's flag history, asked from one moment onwards.
+
+    A named function rather than `get_recent_flag_changes` itself, because the
+    agent needs exactly one of that tool's calling shapes and a seam is only
+    useful if a test can spec against the shape the caller actually uses.
+    """
+    return get_recent_flag_changes(since, client=client)
+
+
 def fetch_recent_flag_changes(
     settings: MitigationSettings,
-    fetch: FlagChangesSince = _flag_changes_since,
+    fetch: FlagChangesSince,
     now: Clock = utc_now,
 ) -> list[FlagChange]:
     """The flag toggles recorded over the configured lookback, oldest first -
@@ -93,6 +116,11 @@ def fetch_recent_flag_changes(
     window ending now - and a seam is only useful if a test can spec against
     the shape the caller actually uses. Deciding the window here also keeps
     `propose_action` free of both configuration and I/O.
+
+    `fetch` is not defaulted, here or in the two questions below. It is the
+    provider reached over a connection somebody opened, and a default would be
+    this module deciding where that provider is - which belongs to whoever
+    started the process. The clock still is: a clock is not an address.
 
     Argus's own changes are dropped here rather than by the caller, because
     every caller wants the same thing: what somebody *else* did. Once Argus can
@@ -112,7 +140,7 @@ def argus_changed_flag_since(
     flag: str,
     since: datetime,
     settings: MitigationSettings,
-    fetch: FlagChangesSince = _flag_changes_since,
+    fetch: FlagChangesSince,
 ) -> bool | None:
     """Whether Argus's own change to `flag` reached the provider after `since`.
 
@@ -145,7 +173,7 @@ def somebody_else_changed_flag_since(
     flag: str,
     since: datetime,
     settings: MitigationSettings,
-    fetch: FlagChangesSince = _flag_changes_since,
+    fetch: FlagChangesSince,
 ) -> bool | None:
     """Whether anybody but Argus changed `flag` after `since`.
 
@@ -177,7 +205,7 @@ def somebody_else_changed_flag_since(
     )
 
 
-def fetch_recent_metrics() -> list[MetricBucket]:
+def fetch_recent_metrics(*, client: McpClient) -> list[MetricBucket]:
     """The service's metric buckets, over the retention the read tier holds.
 
     Unanchored deliberately. The verdict asks whether the minutes since the
@@ -186,18 +214,14 @@ def fetch_recent_metrics() -> list[MetricBucket]:
     have no departure to contrast with, and would read any steady rate as
     healthy however elevated it was.
     """
-    return get_metrics_summary(
-        endpoint=ReadMcpEndpoint.of(get_settings())
-    )
+    return get_metrics_summary(client=client)
 
 
-def set_flag(flag: str, enabled: bool) -> UndoDescriptor:
+def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:
     """Sets a flag to a state, returning the undo descriptor for the change.
 
     One seam for both taking an action and undoing it: undoing is the same call
     with the state reversed. That is not a convenience - it is what lets a
     refuted mitigation be put back in whichever direction it went.
     """
-    return set_feature_flag(
-        flag, enabled, endpoint=WriteMcpEndpoint.of(get_settings())
-    )
+    return set_feature_flag(flag, enabled, client=client)

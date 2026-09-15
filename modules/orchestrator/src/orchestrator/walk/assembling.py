@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
 
+from agent_investigator import changes_over, logs_over, metrics_over
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
 from agent_mitigation import (
@@ -22,6 +23,9 @@ from agent_mitigation import (
     argus_changed_flag_since,
     can_be_undone,
     fetch_recent_flag_changes,
+    flag_changes_over,
+    flag_setter_over,
+    recent_metrics_over,
     somebody_else_changed_flag_since,
     take_action,
     undo_change,
@@ -30,6 +34,7 @@ from argus_core import Connections, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import Publisher
 from argus_core.llm import get_llm_client
+from argus_core.mcp_transport import McpClient
 from argus_core.replay import Recorder
 from argus_incidents import (
     IsStillWanted,
@@ -95,15 +100,33 @@ class Collaborators:
     max_rounds: int
 
 
-def against(connections: Connections) -> Collaborators:
-    """The real ones, for a process that has a database and a model.
+def against(connections: Connections,
+            read: McpClient,
+            write: McpClient) -> Collaborators:
+    """The real ones, for a process that has a database, a model and two tiers.
 
     Built once where the process starts. Everything derived from `connections`
     is a closure over it rather than an open connection, so assembling a graph
-    reaches nothing - a walk is what opens one, when a node actually runs.
+    reaches nothing - a walk is what opens one, when a node actually runs. The
+    two clients are the same bargain: each is one session to one server, opened
+    by the process that owns it and handed here rather than dialled per call.
+
+    Which tier answers which question is decided here and nowhere else. The read
+    client serves every retrieval channel and the verification metrics; the write
+    client serves the one write Argus makes and the provider's own history of
+    who made it - which lives on the write tier because the provider serves that
+    history to admin credentials alone (spec §12.1).
     """
     settings = get_settings()
     mitigation = MitigationSettings.of(settings)
+    # Asked of the provider four different ways below, over one connection.
+    flag_history = flag_changes_over(write)
+    # Whether anybody but Argus has been in since it wrote. Bound once because
+    # both the action and the undo it may need consult the same question of the
+    # same provider with the same notion of who Argus is.
+    outside = partial(
+        somebody_else_changed_flag_since, settings=mitigation, fetch=flag_history
+    )
     # Where the algorithm draws its lines, read from the deployment and
     # handed to both agents that measure against them. A domain value
     # rather than a slice: `argus_core.anomaly` decides what counts as an
@@ -118,7 +141,7 @@ def against(connections: Connections) -> Collaborators:
     # Built once rather than per postmortem: which provider answers which
     # question is a fact about the deployment, and the only thing that differs
     # between two incidents is which incident is being written up.
-    sources = the_real_sources(settings, connections)
+    sources = the_real_sources(settings, connections, read)
 
     return Collaborators(
         # Bound here because this is where a deployment's configuration meets
@@ -128,14 +151,22 @@ def against(connections: Connections) -> Collaborators:
         investigate=partial(
             _investigate,
             settings=InvestigationSettings.of(settings),
-            thresholds=thresholds
+            thresholds=thresholds,
+            # The three channels, each over the tier that answers it. The change
+            # channel takes both, because a deploy and a flag flip are recorded
+            # by two systems and the Investigator reads one history.
+            fetch_metrics=metrics_over(read),
+            fetch_logs=logs_over(read),
+            fetch_change_events=changes_over(read, write)
         ),
         record_hypothesis=records.hypothesis,
         # Mitigation's three collaborators, each bound to the configuration
         # this deployment holds. The lookback, the name Argus writes under and
         # the wait for the service are read once, here, rather than by the
         # agent every time it is asked a question.
-        fetch_flag_changes=partial(fetch_recent_flag_changes, mitigation),
+        fetch_flag_changes=partial(
+            fetch_recent_flag_changes, mitigation, flag_history
+        ),
         record_outcome=records.outcome,
         # The gate's question, answered by the agent that would have to perform
         # the undo. Bound here rather than imported by the gate, so that the one
@@ -146,21 +177,22 @@ def against(connections: Connections) -> Collaborators:
             take_action,
             settings=mitigation,
             thresholds=thresholds,
-            changed_from_outside=partial(
-                somebody_else_changed_flag_since, settings=mitigation
-            ),
+            set_state=flag_setter_over(write),
+            fetch_metrics=recent_metrics_over(read),
+            changed_from_outside=outside,
             undo=partial(
                 undo_change,
-                changed_from_outside=partial(
-                    somebody_else_changed_flag_since, settings=mitigation
-                )
+                changed_from_outside=outside,
+                set_state=flag_setter_over(write)
             )
         ),
         record_action=records.claim_action,
         complete_action=records.complete_action,
         already_taken=records.action_outcome,
         claimed_at=records.action_claimed_at,
-        change_landed=partial(argus_changed_flag_since, settings=mitigation),
+        change_landed=partial(
+            argus_changed_flag_since, settings=mitigation, fetch=flag_history
+        ),
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id,
             connections=connections,

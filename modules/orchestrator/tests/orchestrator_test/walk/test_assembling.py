@@ -8,6 +8,7 @@ from dataclasses import MISSING
 import psycopg
 import pytest
 from argus_core import Connections
+from argus_core.mcp_transport import McpClient
 from argus_testkit import Assertion, Scenario
 from orchestrator.walk.assembling import Collaborators, against
 
@@ -20,6 +21,8 @@ inside a node: assembling touches nothing, and nothing on the record has a
 default that a forgetful test could fall through to.
 """
 
+NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
+
 
 @pytest.mark.unit
 def test_assembling_the_collaborators_opens_no_connection() -> None:
@@ -28,7 +31,9 @@ def test_assembling_the_collaborators_opens_no_connection() -> None:
     # A source that refuses to open is both the fixture and the assertion here.
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
-        .when(lambda: against(no_connections)) \
+        .when(lambda: against(no_connections,
+                              _a_client_that_must_not_be_reached(),
+                              _a_client_that_must_not_be_reached())) \
         .then(_every_collaborator_was_supplied())
 
 
@@ -46,6 +51,17 @@ def test_no_collaborator_may_be_left_out() -> None:
             if field.default is not MISSING or field.default_factory is not MISSING
         ]) \
         .then(_nothing_is_defaulted())
+
+
+def _a_client_that_must_not_be_reached() -> McpClient:
+    """A client to an address nothing serves.
+
+    The parallel of the connections above, and it holds for the same reason: a
+    client connects on its first call, so assembling one reaches nothing, and
+    anything that asked it a question would fail here rather than quietly find
+    a real server.
+    """
+    return McpClient(NOTHING_IS_SERVED_HERE)
 
 
 def _connections_that_must_not_be_opened() -> Connections:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from unittest.mock import Mock, create_autospec
+from unittest.mock import Mock, call, create_autospec
 
 import pytest
-from agent_investigator.retrieval import fetch_metrics
+from agent_investigator.retrieval import MetricsFetcher
 from agent_investigator.tools import METRICS_TOOL
 from agent_investigator.tools.metrics import metrics_tool
 from argus_core.models import MetricBucket, ToolDefinition, ToolResult
@@ -26,7 +26,7 @@ def test_a_metrics_call_reads_the_span_around_the_alert() -> None:
     # The alert is the anchor because it is the one moment Argus knows the
     # service was unhealthy. The onset is inferred from these very buckets, so
     # anchoring on it would be reading the answer back into the question.
-    some_fetch_metrics = create_autospec(fetch_metrics, return_value=[])
+    some_fetch_metrics = create_autospec(MetricsFetcher, instance=True, return_value=[])
 
     Scenario() \
         .given(
@@ -47,7 +47,7 @@ def test_the_buckets_that_came_back_are_what_the_model_is_shown() -> None:
     # were unremarkable, which is not what was retrieved.
     a_bucket_that_came_back = _a_bucket(bucket_id="2026-08-29T22:16:00Z", error_rate=0.42)
     some_fetch_metrics = create_autospec(
-        fetch_metrics, return_value=[a_bucket_that_came_back]
+        MetricsFetcher, instance=True, return_value=[a_bucket_that_came_back]
     )
 
     Scenario() \
@@ -68,7 +68,7 @@ def test_an_alert_with_no_start_time_still_reads_the_metrics() -> None:
     # channel the onset came from. The metrics source has its own idea of
     # where to look when it is given no anchor, and that is the honest thing
     # to pass on rather than an anchor invented here.
-    some_fetch_metrics = create_autospec(fetch_metrics, return_value=[])
+    some_fetch_metrics = create_autospec(MetricsFetcher, instance=True, return_value=[])
 
     Scenario() \
         .given(
@@ -98,9 +98,19 @@ def test_the_metrics_tool_offers_no_window_to_narrow() -> None:
 
 def _the_metrics_read_were_anchored_on(reader: Mock,
                                        alert_time: str | None) -> Assertion[ToolResult]:
-    """What the metrics channel was actually anchored on."""
+    """What the metrics channel was actually anchored on.
+
+    Compared against `call_args` rather than through `assert_called_once_with`,
+    which does not survive a spec built from a `Protocol`: `self` is left on the
+    signature, so every comparison fails while printing identically.
+    """
     def assertion(dont_care_result: ToolResult) -> bool:
-        reader.assert_called_once_with(alert_time)
+        if reader.call_count != 1 or reader.call_args != call(alert_time):
+            raise AssertionError(
+                f"Expected the metrics to be read once anchored on [{alert_time}], "
+                f"and they were read {reader.call_count} time(s) "
+                f"as {reader.call_args}."
+            )
 
         return True
 

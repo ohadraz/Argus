@@ -23,7 +23,7 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from agent_investigator.retrieval import fetch_logs
+from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from agent_investigator.tools import LOGS_TOOL, METRICS_TOOL, Dispatcher
 from argus_core.models import ToolResult
 from argus_core.replay import CallType, Replay, ReplayEntry
@@ -88,7 +88,7 @@ def test_a_window_that_was_already_read_is_not_read_again() -> None:
     # reason to widen the window or to answer.
     some_window_start = "2026-08-29T21:50:00Z"
     some_window_end = "2026-08-29T22:05:00Z"
-    some_fetch_logs = create_autospec(fetch_logs, return_value=[])
+    some_fetch_logs = create_autospec(LogFetcher, instance=True, return_value=[])
 
     def the_same_window_again() -> ToolResult:
         return some_dispatcher.dispatch(
@@ -129,7 +129,10 @@ def test_a_retrieval_that_was_served_is_written_down() -> None:
         ) \
         .when(
             lambda: _a_dispatcher_recording_to(
-                recorded, reads_logs=create_autospec(fetch_logs, return_value=[some_line])
+                recorded,
+                reads_logs=create_autospec(
+                    LogFetcher, instance=True, return_value=[some_line]
+                )
             ).dispatch(
                 a_call_to(LOGS_TOOL,
                           window_start=some_window_start,
@@ -251,8 +254,14 @@ def _a_dispatcher_recording_to(recorded: Kept[ReplayEntry],
         onset=AN_ONSET,
         alert_time=AN_ALERT_TIME,
         settings=some_investigation_settings(),
-        replay=Replay(SOME_INCIDENT_ID, recorded.take),
-        fetch_logs=reads_logs or create_autospec(fetch_logs, return_value=[])
+        fetch_metrics=create_autospec(MetricsFetcher, instance=True, return_value=[]),
+        fetch_logs=reads_logs or create_autospec(
+            LogFetcher, instance=True, return_value=[]
+        ),
+        fetch_change_events=create_autospec(
+            ChangeFetcher, instance=True, return_value=[]
+        ),
+        replay=Replay(SOME_INCIDENT_ID, recorded.take)
     )
 
 

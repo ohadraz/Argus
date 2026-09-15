@@ -13,7 +13,7 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 from agent_investigator import Findings, Reading, investigate
-from agent_investigator.retrieval import fetch_change_events, fetch_logs, fetch_metrics
+from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from argus_core import new_id, parse_iso
 from argus_core.events import (
     ChannelsUnread,
@@ -1439,9 +1439,9 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
     return investigate(
         an_alert(),
         incident_id=SOME_INCIDENT_ID,
-        fetch_metrics=create_autospec(fetch_metrics, return_value=saw),
-        fetch_logs=create_autospec(fetch_logs, return_value=[]),
-        fetch_change_events=create_autospec(fetch_change_events, return_value=[]),
+        fetch_metrics=create_autospec(MetricsFetcher, instance=True, return_value=saw),
+        fetch_logs=create_autospec(LogFetcher, instance=True, return_value=[]),
+        fetch_change_events=create_autospec(ChangeFetcher, instance=True, return_value=[]),
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),
         converse=a_model_that_says(a_turn_answering(an_explanation())),

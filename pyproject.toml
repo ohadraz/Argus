@@ -187,6 +187,9 @@ ignore_imports = [
     "agent_investigator.** -> argus_core.llm",
     "agent_postmortem.** -> argus_core.llm",
     "orchestrator.** -> argus_core.llm",
+    "agent_investigator.** -> argus_core.mcp_transport",
+    "agent_mitigation.** -> argus_core.mcp_transport",
+    "orchestrator.** -> argus_core.mcp_transport",
     "read_mcp_client.** -> argus_core.mcp_transport",
     "write_mcp_client.** -> argus_core.mcp_transport",
 ]

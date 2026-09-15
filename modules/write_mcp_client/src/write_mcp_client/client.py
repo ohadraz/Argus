@@ -1,17 +1,38 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import cast
+from typing import Final
 
 from argus_core import WriteMcpEndpoint
-from argus_core.mcp_transport import call_mcp_tool
+from argus_core.mcp_transport import McpClient
 from argus_core.models import FlagChange, UndoDescriptor, parse_undo_descriptor
+from pydantic import TypeAdapter
+
+# One tool answers with a list this module has to build; the other answers with
+# a descriptor the kernel already knows how to read, and `parse_undo_descriptor`
+# is passed as it stands. A union decides which member a stored object is, and
+# that decision has one door - reading it a second way here would be a second
+# place for it to be decided differently.
+_FLAG_CHANGES: Final = TypeAdapter(list[FlagChange])
+
+# Where the server's tools are served, under the address the endpoint names.
+_MCP_PATH: Final = "/mcp"
+
+
+def write_mcp(endpoint: WriteMcpEndpoint) -> McpClient:
+    """A client holding one session to `argus-write-mcp`.
+
+    Built where a process starts, and separate from the read tier's client
+    because the servers are separate - two sessions to two addresses. Holding
+    one authorizes nothing: what makes the write tier the write tier is the
+    credential that server holds and the tools it has (spec §12.1, §13).
+    """
+    return McpClient(f"{endpoint.write_mcp_url}{_MCP_PATH}")
 
 
 def set_feature_flag(flag: str,
                      enabled: bool,
                      *,
-                     endpoint: WriteMcpEndpoint) -> UndoDescriptor:
+                     client: McpClient) -> UndoDescriptor:
     """Sets a feature flag on or off, returning the undo descriptor for the
     change.
 
@@ -30,18 +51,17 @@ def set_feature_flag(flag: str,
     that state. A verdict formed against a service nothing was done to would
     describe an experiment that never ran.
     """
-    result = call_mcp_tool(
-        f"{endpoint.write_mcp_url}/mcp",
+    return client.call(
         "set_feature_flag",
+        parse_undo_descriptor,
         flag=flag,
         enabled=enabled,
     )
-    return parse_undo_descriptor(cast(Mapping[str, object], result))
 
 
 def get_recent_flag_changes(since: str,
                             *,
-                            endpoint: WriteMcpEndpoint) -> list[FlagChange]:
+                            client: McpClient) -> list[FlagChange]:
     """Reads the flag toggles the provider recorded since `since`, oldest first.
 
     How Mitigation learns which flag an incident is about, and in which
@@ -57,9 +77,8 @@ def get_recent_flag_changes(since: str,
     Raises rather than returning an empty list when the provider cannot be
     reached: "nothing changed" is a conclusion the caller escalates on.
     """
-    result = call_mcp_tool(
-        f"{endpoint.write_mcp_url}/mcp",
+    return client.call(
         "get_recent_flag_changes",
+        _FLAG_CHANGES.validate_python,
         since=since,
     )
-    return [FlagChange.model_validate(change) for change in cast(list[object], result)]
