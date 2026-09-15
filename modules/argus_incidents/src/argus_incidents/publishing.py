@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-
-import psycopg
-from argus_core import Connections
-from argus_core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
-from argus_core.models import Alert
-from argus_core.replay import Recorder, ReplayEntry
-
-from argus_incidents.repository import events, replay
-
 """The one subscriber the event stream has.
 
 `argus_core` defines what an event is and how it is published; it cannot know
@@ -23,6 +11,18 @@ order: an event published before a decision is written before it, rather than
 usually-before-it. A broker would implement the same `Publisher` and change
 nothing about who publishes or who reads.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+import psycopg
+from argus_core import Connections
+from argus_core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
+from argus_core.models import Alert
+from argus_core.replay import Recorder, ReplayEntry
+
+from argus_incidents.repository import events, replay
 
 # How a caller that already holds a connection gets a subscriber that writes on
 # it. A seam rather than a call, so what files an event stays injectable in the

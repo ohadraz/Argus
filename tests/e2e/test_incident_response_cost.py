@@ -1,3 +1,22 @@
+"""What the response cost, over an incident somebody was actually paged for.
+
+The minutes have their own file. This is the second half of the same figure:
+the pay band of each responder's title, read from an HR system Argus reaches
+over the network like any other provider. Every layer between the two is a
+place the cost can quietly become absent - a credential nobody set, a title the
+bands do not carry, an endpoint answering a shape the adapter cannot read - and
+each of those is a legitimate answer on its own, which is why only a run of the
+whole stack tells them apart from a figure that was priced.
+
+The figure is bounded rather than named. How many minutes the response took
+depends on how fast Argus happened to walk the incident, so an exact
+expectation would be an assertion about wall-clock. What is not free to vary is
+the rate: whatever the minutes were, they were spent by people on one of two
+known bands, so the cost has to sit between those minutes at the cheaper band
+and the same minutes at the dearer one. A figure outside that is a rate nobody
+published.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -26,25 +45,6 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-
-"""What the response cost, over an incident somebody was actually paged for.
-
-The minutes have their own file. This is the second half of the same figure:
-the pay band of each responder's title, read from an HR system Argus reaches
-over the network like any other provider. Every layer between the two is a
-place the cost can quietly become absent - a credential nobody set, a title the
-bands do not carry, an endpoint answering a shape the adapter cannot read - and
-each of those is a legitimate answer on its own, which is why only a run of the
-whole stack tells them apart from a figure that was priced.
-
-The figure is bounded rather than named. How many minutes the response took
-depends on how fast Argus happened to walk the incident, so an exact
-expectation would be an assertion about wall-clock. What is not free to vary is
-the rate: whatever the minutes were, they were spent by people on one of two
-known bands, so the cost has to sit between those minutes at the cheaper band
-and the same minutes at the dearer one. A figure outside that is a rate nobody
-published.
-"""
 
 # The bands the Target Service's HR endpoint publishes for the two titles it
 # pages.

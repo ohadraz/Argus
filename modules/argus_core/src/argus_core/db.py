@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-from contextlib import AbstractContextManager
-
-import psycopg
-from psycopg_pool import ConnectionPool
-
-from argus_core.config import DatabaseSettings, get_settings
-
 """Where a connection to Argus's own database comes from.
 
 Two things live here, for two kinds of caller. A process that runs for a while -
@@ -22,6 +12,16 @@ bare `connect` below satisfy it. Nothing below the process edge knows which it
 was handed, which is what keeps `psycopg_pool` out of every module that happens
 to write a row.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+
+import psycopg
+from psycopg_pool import ConnectionPool
+
+from argus_core.config import DatabaseSettings, get_settings
 
 # How anything gets a connection: ask, use it for a block, and let go. The
 # narrowest thing a caller can depend on, and deliberately not `ConnectionPool` -

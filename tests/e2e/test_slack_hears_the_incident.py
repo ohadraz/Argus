@@ -1,3 +1,25 @@
+"""What a person in Slack sees while Argus works, over a whole real incident.
+
+Nothing in the walk posts anything. The relay follows the event log and says
+what is new, so this is the one test that can fail for the reason that matters
+most: an incident handled perfectly that nobody outside the dashboard ever
+heard about.
+
+Four things are asserted, and they are the registers the delivery policy has.
+The incident opens with a message in the channel, because nobody can have
+chosen to follow it yet. What Argus then found and did arrives as replies, out
+of everyone else's way. How it ended goes back to the channel, addressed to the
+people who never opened it.
+
+The write-up it leaves behind is filed where postmortems are kept - here the
+war room, no archive being configured - carrying a link to the page that holds
+all of it.
+
+And one thing is asserted by its absence: what Argus read. The retrievals are
+the bulk of an incident's account and the least of its news, and a channel that
+carried them would bury the four lines that matter.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -21,28 +43,6 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-
-"""What a person in Slack sees while Argus works, over a whole real incident.
-
-Nothing in the walk posts anything. The relay follows the event log and says
-what is new, so this is the one test that can fail for the reason that matters
-most: an incident handled perfectly that nobody outside the dashboard ever
-heard about.
-
-Four things are asserted, and they are the registers the delivery policy has.
-The incident opens with a message in the channel, because nobody can have
-chosen to follow it yet. What Argus then found and did arrives as replies, out
-of everyone else's way. How it ended goes back to the channel, addressed to the
-people who never opened it.
-
-The write-up it leaves behind is filed where postmortems are kept - here the
-war room, no archive being configured - carrying a link to the page that holds
-all of it.
-
-And one thing is asserted by its absence: what Argus read. The retrievals are
-the bulk of an incident's account and the least of its news, and a channel that
-carried them would bury the four lines that matter.
-"""
 
 # What the account says while Argus is reading rather than concluding. Not one
 # of these belongs in a channel, and the policy that decides so is only really

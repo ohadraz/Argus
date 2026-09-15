@@ -1,3 +1,11 @@
+"""The change channel: what changed, over a window the logs could not afford.
+
+The channel most likely to produce a cause and most likely to produce a wrong
+one, since a change is the only thing in the evidence shaped like an actor.
+Hence a default window that stops at the onset, and hence the one failure in
+this package that is not the model's to recover from.
+"""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -16,14 +24,6 @@ from agent_investigator_test.framework.builders.dispatcher import (
     a_call_to,
     a_dispatcher,
 )
-
-"""The change channel: what changed, over a window the logs could not afford.
-
-The channel most likely to produce a cause and most likely to produce a wrong
-one, since a change is the only thing in the evidence shaped like an actor.
-Hence a default window that stops at the onset, and hence the one failure in
-this package that is not the model's to recover from.
-"""
 
 
 @pytest.mark.unit

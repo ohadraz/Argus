@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from agent_codefix import propose_fix
-from argus_testkit import Assertion, Scenario
-
 """Asking Code-Fix for a permanent fix, and being told there is none.
 
 The agent is a stub (spec §7.4) - no RAG, no pull request, no `git-mcp` call -
@@ -12,6 +6,12 @@ and what is asserted here is the shape of its answer rather than its content.
 not found; it is not an absence for a caller to interpret, and it is not an
 exception for one to survive.
 """
+
+from __future__ import annotations
+
+import pytest
+from agent_codefix import propose_fix
+from argus_testkit import Assertion, Scenario
 
 DONT_CARE_HYPOTHESIS = "the flag was reverted and the service did not recover"
 

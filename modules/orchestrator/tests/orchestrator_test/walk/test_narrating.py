@@ -1,3 +1,18 @@
+"""The one place a status is persisted, and the one place it is published.
+
+Nodes do their work and say what they did; this decides where the incident
+stands and writes it down. Keeping that in a wrapper rather than in each node is
+what makes "a status is written only when the incident enters it" a property of
+the graph instead of a rule five nodes have to remember - and the rule was
+already being forgotten.
+
+It is also where the walk finds out it is no longer wanted. Every node the graph
+runs passes through here first, so one question asked in one place stops all of
+them - and asked before the node rather than after, because a node that has
+already toggled a flag cannot be stopped by anything this wrapper does with its
+return value.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -13,21 +28,6 @@ from orchestrator.walk import ports
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.state import IncidentState
-
-"""The one place a status is persisted, and the one place it is published.
-
-Nodes do their work and say what they did; this decides where the incident
-stands and writes it down. Keeping that in a wrapper rather than in each node is
-what makes "a status is written only when the incident enters it" a property of
-the graph instead of a rule five nodes have to remember - and the rule was
-already being forgotten.
-
-It is also where the walk finds out it is no longer wanted. Every node the graph
-runs passes through here first, so one question asked in one place stops all of
-them - and asked before the node rather than after, because a node that has
-already toggled a flag cannot be stopped by anything this wrapper does with its
-return value.
-"""
 
 type Node = Callable[[IncidentState], StateDelta]
 type NodeResult = dict[str, Any]

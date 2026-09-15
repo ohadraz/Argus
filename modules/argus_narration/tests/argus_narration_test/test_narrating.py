@@ -1,3 +1,21 @@
+"""Turning the recorded account into the lines a reader sees.
+
+Every event becomes exactly one line. Nothing here decides what an event meant,
+groups two of them into a conclusion, or drops one it finds uninteresting - the
+moment this had an opinion about the investigation, the page would be a second
+investigator.
+
+Two exceptions, and both are counting rather than judging: candidates formed in
+one breath are gathered onto one line, and identical looks at a service that
+has not recovered are counted rather than repeated. Both are here, and so is
+the case each must not swallow - candidates formed in two different rounds, and
+a look that found something different.
+
+What a line is made *of* is another module's subject. A metrics line carries
+its buckets and a log line its lines, but which minutes are marked and how a
+level is read belong to `metrics` and `logs`, and are tested there.
+"""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -43,24 +61,6 @@ from argus_core.models import (
 )
 from argus_narration.narrating import NarrationLine, build_narration
 from argus_testkit import Assertion, Scenario, all_of
-
-"""Turning the recorded account into the lines a reader sees.
-
-Every event becomes exactly one line. Nothing here decides what an event meant,
-groups two of them into a conclusion, or drops one it finds uninteresting - the
-moment this had an opinion about the investigation, the page would be a second
-investigator.
-
-Two exceptions, and both are counting rather than judging: candidates formed in
-one breath are gathered onto one line, and identical looks at a service that
-has not recovered are counted rather than repeated. Both are here, and so is
-the case each must not swallow - candidates formed in two different rounds, and
-a look that found something different.
-
-What a line is made *of* is another module's subject. A metrics line carries
-its buckets and a log line its lines, but which minutes are marked and how a
-level is read belong to `metrics` and `logs`, and are tested there.
-"""
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 

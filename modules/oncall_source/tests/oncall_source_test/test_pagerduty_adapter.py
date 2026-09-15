@@ -1,3 +1,15 @@
+"""Reading the on-call provider - one incident, two resources, one object.
+
+PagerDuty publishes the acknowledgement on the incident and the job title on
+the user, so an acknowledgement in Argus's terms is composed from both. That
+composition is this module's whole job, and it is what this suite is about;
+the arithmetic on top of it belongs to `test_engagement`.
+
+What is injected is the client factory, so the SDK's request path stays real
+and only its answers are written. Whether that path reaches PagerDuty correctly
+is proven in the e2e stack.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -11,18 +23,6 @@ from oncall_source import OnCallUnavailable
 from oncall_source.engagement import OnCallSettings
 from oncall_source.pagerduty_adapter import reported_incident
 from pagerduty import Error as PagerDutyError
-
-"""Reading the on-call provider - one incident, two resources, one object.
-
-PagerDuty publishes the acknowledgement on the incident and the job title on
-the user, so an acknowledgement in Argus's terms is composed from both. That
-composition is this module's whole job, and it is what this suite is about;
-the arithmetic on top of it belongs to `test_engagement`.
-
-What is injected is the client factory, so the SDK's request path stays real
-and only its answers are written. Whether that path reaches PagerDuty correctly
-is proven in the e2e stack.
-"""
 
 SOME_INCIDENT = "incident-1"
 SOME_RESPONDER = "responder-1"

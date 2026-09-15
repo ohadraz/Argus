@@ -1,3 +1,17 @@
+"""How a register becomes a message: the channel, or a reply in the thread.
+
+The policy says how loudly a line is said and this is the only module that
+knows what loudly means in Slack - a message in the channel reaches everyone,
+a reply reaches whoever is following that thread. Nothing above here has an
+opinion about threads, and nothing below here has one about what is worth
+interrupting a person with.
+
+The double stands where Slack does, so what runs here is the client the demo
+builds and the arguments the SDK encodes. What is asserted is what a person
+would see: where the message landed, what it said, and which conversation it
+joined.
+"""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -24,20 +38,6 @@ from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import events, incidents
 from argus_narration import a_narration_line
 from argus_testkit import Assertion, Scenario, all_of, calling
-
-"""How a register becomes a message: the channel, or a reply in the thread.
-
-The policy says how loudly a line is said and this is the only module that
-knows what loudly means in Slack - a message in the channel reaches everyone,
-a reply reaches whoever is following that thread. Nothing above here has an
-opinion about threads, and nothing below here has one about what is worth
-interrupting a person with.
-
-The double stands where Slack does, so what runs here is the client the demo
-builds and the arguments the SDK encodes. What is asserted is what a person
-would see: where the message landed, what it said, and which conversation it
-joined.
-"""
 
 A_WAR_ROOM = "C-war-room"
 

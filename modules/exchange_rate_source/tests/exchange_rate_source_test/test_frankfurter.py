@@ -1,3 +1,17 @@
+"""Reading a day's rates from the provider that publishes them.
+
+The provider's body is answered as a real `httpx.Response`, so the parsing
+under test is the same parsing a live call would get - the seam sits at the
+request, not at the shape of the answer. What is asserted is only what Argus
+depends on: the rates, the day they were published, and the currencies named
+the way every other source in Argus names them.
+
+A base currency arrives here lower-cased, because that is how a payment
+provider reports what it took. The rate provider spells currencies upper-case.
+Somewhere that has to be reconciled, and here is the only place that knows
+both spellings.
+"""
+
 from __future__ import annotations
 
 from datetime import date
@@ -13,20 +27,6 @@ from exchange_rate_source.frankfurter import (
     ExchangeRateSettings,
     rates_published_for,
 )
-
-"""Reading a day's rates from the provider that publishes them.
-
-The provider's body is answered as a real `httpx.Response`, so the parsing
-under test is the same parsing a live call would get - the seam sits at the
-request, not at the shape of the answer. What is asserted is only what Argus
-depends on: the rates, the day they were published, and the currencies named
-the way every other source in Argus names them.
-
-A base currency arrives here lower-cased, because that is how a payment
-provider reports what it took. The rate provider spells currencies upper-case.
-Somewhere that has to be reconciled, and here is the only place that knows
-both spellings.
-"""
 
 SOME_BASE_CURRENCY = "usd"
 SOME_OTHER_CURRENCY = "eur"

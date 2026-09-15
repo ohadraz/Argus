@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Sequence
-
-from argus_core.models import FlagChange
-
 """Telling Argus's own changes from everybody else's.
 
 Argus identifies a culprit partly by asking the provider what changed recently.
@@ -16,6 +10,12 @@ The provider answers this by recording an author on every change, which is only
 useful if Argus writes under a name of its own - see `Settings.unleash_actor`
 and the credential the Target Environment seeds for it.
 """
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from argus_core.models import FlagChange
 
 
 def changes_not_made_by(actor: str, changes: Sequence[FlagChange]) -> list[FlagChange]:

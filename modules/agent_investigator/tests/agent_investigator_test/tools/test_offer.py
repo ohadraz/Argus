@@ -1,3 +1,11 @@
+"""What the Investigator is given, taken as a whole.
+
+The tier boundary lives here rather than in a prompt: the Investigator is
+read-only because of what it possesses, so what it possesses is asserted
+rather than assumed. Each channel's own behaviour is tested beside the channel;
+this file is only about the offer.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -10,14 +18,6 @@ from agent_investigator.tools import (
 )
 from argus_core.models import ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
-
-"""What the Investigator is given, taken as a whole.
-
-The tier boundary lives here rather than in a prompt: the Investigator is
-read-only because of what it possesses, so what it possesses is asserted
-rather than assumed. Each channel's own behaviour is tested beside the channel;
-this file is only about the offer.
-"""
 
 
 @pytest.mark.unit

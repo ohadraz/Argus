@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
-from argus_testkit import Assertion, Scenario, all_of
-
 """One log line as the service wrote it, read off into the columns a table shows.
 
 The line itself travels alongside whatever is made of it, because the line is
@@ -16,6 +10,12 @@ labelled is still a line Argus read, and a line that merely mentions an error
 is not a line at error level - which is why the level is looked for only where
 the service writes one, and taken as prose everywhere else.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
+from argus_testkit import Assertion, Scenario, all_of
 
 SOME_MINUTE = "2026-08-30T10:12"
 ANOTHER_MINUTE = "2026-08-30T10:13"

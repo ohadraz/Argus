@@ -1,3 +1,22 @@
+"""Everything about an incident that is a number, measured before anything is
+asked of a model.
+
+One function, because the figures are not independent: the loss is a
+subtraction between two windows, both windows are dated from the same instant,
+and the currency the answer is published in is a property of the table that
+converted them. Measured separately they could disagree with each other, and a
+document whose duration and whose loss describe different incidents is worse
+than one carrying neither.
+
+Two costs, and they are the same kind of thing: what the outage cost customers,
+and what the response cost the business. Both are money, both come from ports,
+and both are reported side by side on the page - so both are measured here.
+
+Nothing here is a judgement and no figure rests on another's absence. Metrics
+nobody could read cost the document a sentence of narrative; they do not touch
+the money, because the money was measured by the party that took it.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -30,25 +49,6 @@ from agent_postmortem_test.framework.builders import (
     revenue_that_was,
     some_sources,
 )
-
-"""Everything about an incident that is a number, measured before anything is
-asked of a model.
-
-One function, because the figures are not independent: the loss is a
-subtraction between two windows, both windows are dated from the same instant,
-and the currency the answer is published in is a property of the table that
-converted them. Measured separately they could disagree with each other, and a
-document whose duration and whose loss describe different incidents is worse
-than one carrying neither.
-
-Two costs, and they are the same kind of thing: what the outage cost customers,
-and what the response cost the business. Both are money, both come from ports,
-and both are reported side by side on the page - so both are measured here.
-
-Nothing here is a judgement and no figure rests on another's absence. Metrics
-nobody could read cost the document a sentence of narrative; they do not touch
-the money, because the money was measured by the party that took it.
-"""
 
 SOME_CALM_HOURLY_REVENUE = 1_200
 SOME_REVENUE_DURING_THE_INCIDENT = Decimal("100.00")

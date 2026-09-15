@@ -1,10 +1,3 @@
-from __future__ import annotations
-
-from decimal import Decimal
-
-from argus_core.models import PostmortemDocument
-from argus_testkit import Assertion
-
 """What a finished postmortem says, and what it is asked never to say.
 
 Every assertion here reads a document, because a document is the only thing two
@@ -20,6 +13,13 @@ Every one of them raises with what it expected and what it got. An assertion
 that only returns `False` makes a reader run the test again under a debugger to
 learn what a passing document would have looked like.
 """
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+from argus_core.models import PostmortemDocument
+from argus_testkit import Assertion
 
 
 def reports_root_cause(expected: str) -> Assertion[PostmortemDocument]:

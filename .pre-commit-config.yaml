@@ -24,3 +24,9 @@ repos:
         entry: uv run python -m nox -s guard_e2e_boundary  # fails if a module's tests/ contains an e2e-marked test
         language: system
         pass_filenames: false  # no filenames - it always scans modules/*/tests/ in full.
+
+      - id: guard-module-docstrings
+        name: module docstrings (via nox)
+        entry: uv run python -m nox -s guard_module_docstrings  # fails if a module's prose sits below its imports, where __doc__ never sees it
+        language: system
+        pass_filenames: false  # no filenames - it always scans every .py in the repo.

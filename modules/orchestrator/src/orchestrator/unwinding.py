@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-from typing import Protocol
-
-from agent_mitigation import UndoAttempt
-from argus_core import Connections
-from argus_core.events import ChangeUndone, Publisher, nobody, publish
-from argus_core.models import TakenAction, UndoDescriptor
-from argus_incidents.repository import taken_actions
-
 """Putting back everything an incident changed, once nobody wants it walked.
 
 The other half of a withdrawal. Marking the incident stops the walk; this makes
@@ -22,6 +11,17 @@ order, and where the answers are written down - none of which an agent can
 decide, because all three need the records and the single writer that holds
 them.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Protocol
+
+from agent_mitigation import UndoAttempt
+from argus_core import Connections
+from argus_core.events import ChangeUndone, Publisher, nobody, publish
+from argus_core.models import TakenAction, UndoDescriptor
+from argus_incidents.repository import taken_actions
 
 # Where the incident's own changes are read from. A seam because the process
 # this module is about - every change, in order, each one recorded - is

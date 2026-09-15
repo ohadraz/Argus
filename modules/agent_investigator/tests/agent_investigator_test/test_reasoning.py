@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-from typing import Any
-
-import pytest
-from agent_investigator.reasoning import a_conversation_recorded_for
-from argus_core.llm import LLMClient
-from argus_core.models import Ask, ToolDefinition, Transcript, Turn
-from argus_core.replay import CallType, Replay, ReplayEntry
-from argus_testkit import Assertion, Kept, Scenario, all_of
-
 """How an investigation's model calls come to be written down.
 
 `converse` is the seam the loop talks through, and it is deliberately a
@@ -29,6 +18,17 @@ which is the wiring nothing else would notice getting wrong: a `Replay` built
 for the wrong incident produces well-formed rows, plausible counts, and an
 eval that joins them to an investigation which never made them.
 """
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from agent_investigator.reasoning import a_conversation_recorded_for
+from argus_core.llm import LLMClient
+from argus_core.models import Ask, ToolDefinition, Transcript, Turn
+from argus_core.replay import CallType, Replay, ReplayEntry
+from argus_testkit import Assertion, Kept, Scenario, all_of
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 ANOTHER_INCIDENT_ID = "9f1b0d2e-5a44-4c31-8b77-2e6cf0a41d5c"

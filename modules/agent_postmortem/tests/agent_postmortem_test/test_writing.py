@@ -1,3 +1,23 @@
+"""Arrangement, and nothing else.
+
+Three collaborators do the work - one measures the incident, one asks the model
+for prose, one turns both into the sentences the document discloses - and this
+module puts what they return onto a page. So all three are mocked here, and
+what is asserted is that each was given what it needs and that what it answered
+reached the document unaltered.
+
+None of the figures are recomputed here. `test_measuring` says what the numbers
+are, `test_assumptions` says what the disclosures are, `test_conversation` says
+what a usable answer is, and `component/test_postmortem` runs the three for
+real against a document. Asserting an exchange rate in this file would be
+testing `measuring` through two layers of indirection, and it would still pass
+if `writing` put the figure in the wrong column.
+
+The one judgement `writing` makes is what an unusable answer means: faults do
+not stop a document being written, they make it say on its face that it is
+partial.
+"""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -41,26 +61,6 @@ from agent_postmortem_test.framework.builders import (
     an_evidence_bundle,
     some_sources,
 )
-
-"""Arrangement, and nothing else.
-
-Three collaborators do the work - one measures the incident, one asks the model
-for prose, one turns both into the sentences the document discloses - and this
-module puts what they return onto a page. So all three are mocked here, and
-what is asserted is that each was given what it needs and that what it answered
-reached the document unaltered.
-
-None of the figures are recomputed here. `test_measuring` says what the numbers
-are, `test_assumptions` says what the disclosures are, `test_conversation` says
-what a usable answer is, and `component/test_postmortem` runs the three for
-real against a document. Asserting an exchange rate in this file would be
-testing `measuring` through two layers of indirection, and it would still pass
-if `writing` put the figure in the wrong column.
-
-The one judgement `writing` makes is what an unusable answer means: faults do
-not stop a document being written, they make it say on its face that it is
-partial.
-"""
 
 SOME_TITLE = "Senior Kuki"
 SOME_OTHER_TITLE = "Site Reliability Engineer"

@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core import new_id
-from argus_core.events import ActionTaken, OnsetDetected, StatusChanged, VerdictReached
-from argus_core.models import IncidentStatus, Verdict
-from argus_narration import NarrationLine, a_narration_line
-from argus_testkit import Assertion, Scenario, all_of
-from argus_web.views.decorating import DecoratedLine, decorated
-
 """How the page dresses a line it was given, and what it points that line at.
 
 The account is the same wherever it is read; only the page has a stylesheet and
@@ -19,6 +9,16 @@ Derived rather than carried, which is what keeps the renderer shared: a Slack
 message wants neither of these, and a renderer that produced them anyway would
 be making every destination pay for the page's furniture.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core import new_id
+from argus_core.events import ActionTaken, OnsetDetected, StatusChanged, VerdictReached
+from argus_core.models import IncidentStatus, Verdict
+from argus_narration import NarrationLine, a_narration_line
+from argus_testkit import Assertion, Scenario, all_of
+from argus_web.views.decorating import DecoratedLine, decorated
 
 SOME_MINUTE = "2026-08-30T10:03:00Z"
 SOME_FLAG = "monthly-spend-feature"

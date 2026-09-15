@@ -1,19 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-from datetime import UTC, datetime
-from typing import cast
-from unittest.mock import MagicMock, create_autospec
-
-import pytest
-from agent_mitigation import UndoAttempt
-from argus_core import new_id
-from argus_core.events import ChangeUndone, IncidentEvent
-from argus_core.models import FlagUndo, TakenAction, UndoDescriptor, Undone
-from argus_testkit import Assertion, Scenario, all_of
-from orchestrator import unwinding
-from orchestrator.unwinding import unwind_incident
-
 """Putting back everything an incident changed, once nobody wants it walked.
 
 The other half of a withdrawal. Marking the incident stops the walk; this is
@@ -32,6 +16,22 @@ one event per change, because an incident that moved three flags and restored
 two of them is not a withdrawal that worked, and the one left behind is
 somebody's to go and look at.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import cast
+from unittest.mock import MagicMock, create_autospec
+
+import pytest
+from agent_mitigation import UndoAttempt
+from argus_core import new_id
+from argus_core.events import ChangeUndone, IncidentEvent
+from argus_core.models import FlagUndo, TakenAction, UndoDescriptor, Undone
+from argus_testkit import Assertion, Scenario, all_of
+from orchestrator import unwinding
+from orchestrator.unwinding import unwind_incident
 
 _DONT_CARE_INCIDENT_ID = "buki-123"
 

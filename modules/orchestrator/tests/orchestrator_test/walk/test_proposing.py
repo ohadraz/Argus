@@ -1,3 +1,15 @@
+"""Choosing the reversible action that answers the hypothesis, and only that.
+
+The node reads the flag provider and hands the choice to the agent; nothing
+mutating happens here, which is what leaves room for the gate between this node
+and the one that acts.
+
+A provider that cannot be read is not an error to raise. "Nothing changed" and
+"I could not find out" both mean there is no action to take, and the incident
+goes to a human either way - crashing the graph instead would drop everything
+already learned about it.
+"""
+
 from __future__ import annotations
 
 from typing import cast
@@ -13,19 +25,6 @@ from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import a_determined_hypothesis, an_incident_state
-
-"""Choosing the reversible action that answers the hypothesis, and only that.
-
-The node reads the flag provider and hands the choice to the agent; nothing
-mutating happens here, which is what leaves room for the gate between this node
-and the one that acts.
-
-A provider that cannot be read is not an error to raise. "Nothing changed" and
-"I could not find out" both mean there is no action to take, and the incident
-goes to a human either way - crashing the graph instead would drop everything
-already learned about it.
-"""
-
 
 DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
 

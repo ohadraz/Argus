@@ -1,3 +1,13 @@
+"""What the shop took over a window, as the payment provider reports it.
+
+What this suite injects is the listing itself rather than a hand-built client,
+in the vocabulary the port is written in: `Charge` is Argus's word for one, so
+a charge written here is the same object a real provider's adapter produces.
+The request path - pagination, the base address, the credential - and the
+reading of Stripe's own status strings and minor units are exercised where the
+adapter answers for them, not here.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
@@ -8,16 +18,6 @@ from typing import Any
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from revenue_source import Charge, RevenueUnavailable, taken_between
-
-"""What the shop took over a window, as the payment provider reports it.
-
-What this suite injects is the listing itself rather than a hand-built client,
-in the vocabulary the port is written in: `Charge` is Argus's word for one, so
-a charge written here is the same object a real provider's adapter produces.
-The request path - pagination, the base address, the credential - and the
-reading of Stripe's own status strings and minor units are exercised where the
-adapter answers for them, not here.
-"""
 
 SOME_CURRENCY = "usd"
 SOME_OTHER_CURRENCY = "eur"

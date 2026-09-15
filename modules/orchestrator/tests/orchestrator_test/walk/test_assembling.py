@@ -1,3 +1,12 @@
+"""What a deployment supplies a walk with, and when it is allowed to reach out.
+
+`against` is the only thing in the Orchestrator that knows a database can be
+had, so it is the only place a graph could quietly acquire one. Two properties
+keep the walk testable without infrastructure, and neither is visible from
+inside a node: assembling touches nothing, and nothing on the record has a
+default that a forgetful test could fall through to.
+"""
+
 from __future__ import annotations
 
 import dataclasses
@@ -11,15 +20,6 @@ from argus_core import Connections
 from argus_core.mcp_transport import McpClient
 from argus_testkit import Assertion, Scenario
 from orchestrator.walk.assembling import Collaborators, against
-
-"""What a deployment supplies a walk with, and when it is allowed to reach out.
-
-`against` is the only thing in the Orchestrator that knows a database can be
-had, so it is the only place a graph could quietly acquire one. Two properties
-keep the walk testable without infrastructure, and neither is visible from
-inside a node: assembling touches nothing, and nothing on the record has a
-default that a forgetful test could fall through to.
-"""
 
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
 

@@ -63,17 +63,16 @@ from agent_investigator_test.framework.builders.model import (
 
 # ---- from test_loop.py ----
 
-"""The loop: what the model decides, and what the loop decides for it.
-
-Two things are deliberately not the model's. The onset is measured before its
-first turn, because a sampled anchor makes two investigations of one incident
-incomparable. The budget is arithmetic the loop does between turns, because a
-bound the model could talk past is not a bound.
-
-Everything else is the model's - which channel, which window, in what order,
-and when it has seen enough. So these tests script the model and assert what
-the loop did about it, and none of them needs a recording.
-"""
+# The loop: what the model decides, and what the loop decides for it.
+#
+# Two things are deliberately not the model's. The onset is measured before its
+# first turn, because a sampled anchor makes two investigations of one incident
+# incomparable. The budget is arithmetic the loop does between turns, because a
+# bound the model could talk past is not a bound.
+#
+# Everything else is the model's - which channel, which window, in what order,
+# and when it has seen enough. So these tests script the model and assert what
+# the loop did about it, and none of them needs a recording.
 
 # The bounds' own names, restated rather than imported from `Budget`. This is
 # the wording a human reads when an investigation gives up, and a test that
@@ -914,18 +913,17 @@ def _the_transition_is(from_state: str | None, to_state: str | None) -> Assertio
 
 # ---- from test_investigator_publishing.py ----
 
-"""The investigation, narrated as it happens.
-
-Control flow is the model's now, so two runs of one incident can read
-different evidence - which makes a bug reproduce intermittently and the
-transcript the only way to see why. That is what raises narration here from
-principle to necessity: an account naming every window asked for, in order, is
-what an investigation can be reconstructed from afterwards.
-
-The other half is what was *not* read. A channel nobody asked for and a
-channel that came back empty leave the same silence behind and mean opposite
-things, so the investigation says which channels it never asked.
-"""
+# The investigation, narrated as it happens.
+#
+# Control flow is the model's now, so two runs of one incident can read
+# different evidence - which makes a bug reproduce intermittently and the
+# transcript the only way to see why. That is what raises narration here from
+# principle to necessity: an account naming every window asked for, in order, is
+# what an investigation can be reconstructed from afterwards.
+#
+# The other half is what was *not* read. A channel nobody asked for and a
+# channel that came back empty leave the same silence behind and mean opposite
+# things, so the investigation says which channels it never asked.
 
 
 @pytest.mark.unit
@@ -1346,24 +1344,23 @@ def _the_first_candidate_published_moved(published: list[IncidentEvent],
 
 # ---- from test_recorded_investigation.py ----
 
-"""The one retrieval the loop makes for itself, and its receipt.
-
-Every other read is the model's: it asks, the dispatcher serves, and the
-dispatcher writes it down. The metrics are different - the loop reads them
-before the model has any say, because the onset every window is anchored on has
-to be measured rather than sampled - and that read goes nowhere near the
-dispatcher.
-
-So it needs its own receipt, or a replay can reconstruct every turn of the
-conversation and not the evidence the first one was written from. The buckets
-are in the opening message; without this entry, nothing in the log says what
-they were.
-
-Written down when it happens rather than when the investigation ends, which is
-what the second test is about: an incident whose metrics show nothing never
-reaches a model at all, and that is exactly the run someone later asks "what
-did it actually see" about.
-"""
+# The one retrieval the loop makes for itself, and its receipt.
+#
+# Every other read is the model's: it asks, the dispatcher serves, and the
+# dispatcher writes it down. The metrics are different - the loop reads them
+# before the model has any say, because the onset every window is anchored on has
+# to be measured rather than sampled - and that read goes nowhere near the
+# dispatcher.
+#
+# So it needs its own receipt, or a replay can reconstruct every turn of the
+# conversation and not the evidence the first one was written from. The buckets
+# are in the opening message; without this entry, nothing in the log says what
+# they were.
+#
+# Written down when it happens rather than when the investigation ends, which is
+# what the second test is about: an incident whose metrics show nothing never
+# reaches a model at all, and that is exactly the run someone later asks "what
+# did it actually see" about.
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 

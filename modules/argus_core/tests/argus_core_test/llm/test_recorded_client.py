@@ -1,3 +1,21 @@
+"""The receipt Argus keeps for every model call it makes (spec §4 principle 6).
+
+An `LLMClient` that wraps another and writes down what passed through it. A
+decorator rather than a change to the adapter, for two reasons: the adapter's
+job is talking to Anthropic, and a second job in it would be a second reason to
+change it; and wrapping the *Protocol* records whatever client Argus is
+configured with rather than only the one that exists today.
+
+What it records is Argus's own shapes - a transcript, a turn - not the wire's.
+That is the level a replay is wanted at: an eval re-reads what the model was
+asked and what it answered, and the JSON the SDK happened to send is neither
+more truthful nor more useful for that.
+
+`test_replay.py` holds the seam this uses. Here is only what the wrapper adds:
+the payloads, the timing measured around the call, an answer handed back
+untouched, and a call that produced no answer recorded all the same.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -17,24 +35,6 @@ from argus_core_test.framework.replay import (
     the_entry_took,
     the_entry_was_recorded_for,
 )
-
-"""The receipt Argus keeps for every model call it makes (spec §4 principle 6).
-
-An `LLMClient` that wraps another and writes down what passed through it. A
-decorator rather than a change to the adapter, for two reasons: the adapter's
-job is talking to Anthropic, and a second job in it would be a second reason to
-change it; and wrapping the *Protocol* records whatever client Argus is
-configured with rather than only the one that exists today.
-
-What it records is Argus's own shapes - a transcript, a turn - not the wire's.
-That is the level a replay is wanted at: an eval re-reads what the model was
-asked and what it answered, and the JSON the SDK happened to send is neither
-more truthful nor more useful for that.
-
-`test_replay.py` holds the seam this uses. Here is only what the wrapper adds:
-the payloads, the timing measured around the call, an answer handed back
-untouched, and a call that produced no answer recorded all the same.
-"""
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 SOME_MODEL = "claude-opus-5"

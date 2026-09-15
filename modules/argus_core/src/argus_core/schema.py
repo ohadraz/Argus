@@ -1,16 +1,3 @@
-from __future__ import annotations
-
-import logging
-from collections.abc import Callable
-from pathlib import Path
-from typing import Final
-
-import psycopg
-
-from argus_core.db import connect_from_env
-
-logger = logging.getLogger(__name__)
-
 """Who applies Argus's schema, and what a process that finds none does about it.
 
 The schema is Alembic's, in `migrations/versions/` - `001` is every table there
@@ -24,6 +11,18 @@ said what it now says - a licence that lasts exactly as long as no deployment
 outlives a restart, and no longer.
 """
 
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from pathlib import Path
+from typing import Final
+
+import psycopg
+
+from argus_core.db import connect_from_env
+
+logger = logging.getLogger(__name__)
 
 def _upgrade_to_head() -> None:
     """Runs the chain, from wherever the database is to wherever it ends.

@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-from typing import Any, Final
-
-import pytest
-from argus_core.llm.adapters.anthropic_adapter import to_messages
-from argus_core.models.transcript import Ask, ToolResult, ToolResults, Transcript
-from argus_core.models.turn import ToolCall, Turn
-from argus_testkit import Assertion, Scenario, all_of
-
 """How a conversation Argus is holding becomes the request the API expects.
 
 `Turn` covers one reply coming back and `ToolDefinition` covers the tools
@@ -23,6 +13,15 @@ than the adapter, and the next provider would be a rewrite of the loop rather
 than of the adapter.
 """
 
+from __future__ import annotations
+
+from typing import Any, Final
+
+import pytest
+from argus_core.llm.adapters.anthropic_adapter import to_messages
+from argus_core.models.transcript import Ask, ToolResult, ToolResults, Transcript
+from argus_core.models.turn import ToolCall, Turn
+from argus_testkit import Assertion, Scenario, all_of
 
 # Anthropic's own vocabulary for a request's messages. Stated here rather than
 # imported from the code under test: a test that borrowed Argus's spelling

@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-
-import pytest
-from agent_investigator.budget import Bound, Budget
-from argus_core.models import ToolCall, Turn
-from argus_testkit import Assertion, Scenario, calling
-
 """What stops an investigation that the model would happily continue.
 
 The loop hands the model tools and lets it decide what to read; this is the
@@ -19,6 +10,15 @@ Nothing here asks the model anything. A bound the model could be persuaded to
 respect is not a bound, so every one of these is arithmetic the loop does on
 its own.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+import pytest
+from agent_investigator.budget import Bound, Budget
+from argus_core.models import ToolCall, Turn
+from argus_testkit import Assertion, Scenario, calling
 
 
 @pytest.mark.unit

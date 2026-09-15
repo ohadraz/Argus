@@ -1,3 +1,15 @@
+"""What Argus says about its own work, and the one rule that says on it.
+
+An event is an account of something that happened - it names the incident, the
+moment, and enough of the values involved that somebody reading it months later
+needs nothing but the event. The rule is that publishing one can never change
+what Argus decides, which here means it cannot fail a caller either.
+
+Where an event carries a word from a vocabulary this system already names, it
+carries the value rather than the spelling: a reader that has to know which of
+four words means "it worked" is a reader that will one day match none of them.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -23,18 +35,6 @@ from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from pydantic import ValidationError
-
-"""What Argus says about its own work, and the one rule that says on it.
-
-An event is an account of something that happened - it names the incident, the
-moment, and enough of the values involved that somebody reading it months later
-needs nothing but the event. The rule is that publishing one can never change
-what Argus decides, which here means it cannot fail a caller either.
-
-Where an event carries a word from a vocabulary this system already names, it
-carries the value rather than the spelling: a reader that has to know which of
-four words means "it worked" is a reader that will one day match none of them.
-"""
 
 SOME_WINDOW_START = "2026-08-30T10:02:00Z"
 SOME_WINDOW_END = "2026-08-30T10:12:00Z"

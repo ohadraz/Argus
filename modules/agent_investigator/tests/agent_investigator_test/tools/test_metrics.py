@@ -1,3 +1,12 @@
+"""The metrics channel: the minutes the onset was measured from.
+
+The channel with nothing to get wrong, and that is the design rather than an
+accident - the span belongs to the metrics source, so the model is not offered
+a window it could narrow past the onset it was handed. What is left to test is
+that the anchor is the alert, that the buckets actually reach the model, and
+that an alert with no start time still gets read.
+"""
+
 from __future__ import annotations
 
 from unittest.mock import Mock, call, create_autospec
@@ -14,15 +23,6 @@ from agent_investigator_test.framework.builders.dispatcher import (
     a_call_to,
     a_dispatcher,
 )
-
-"""The metrics channel: the minutes the onset was measured from.
-
-The channel with nothing to get wrong, and that is the design rather than an
-accident - the span belongs to the metrics source, so the model is not offered
-a window it could narrow past the onset it was handed. What is left to test is
-that the anchor is the alert, that the buckets actually reach the model, and
-that an alert with no start time still gets read.
-"""
 
 
 @pytest.mark.unit

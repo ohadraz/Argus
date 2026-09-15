@@ -1,3 +1,16 @@
+"""Shaping an incident's rows into what a reader is shown.
+
+No database here: the rows these take are what the repositories already return,
+and every question below is about the arrangement rather than the retrieval -
+which attempt belongs to which candidate, what an untried candidate looks like,
+and what happens to an attempt that names no candidate at all.
+
+The order everything arrives in is kept rather than re-imposed. Ranking
+candidates and sequencing actions are decisions the investigation made, and a
+view that sorted them again would be a second opinion about them - so the
+assertions read the lists as lists, in the order they came.
+"""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -22,19 +35,6 @@ from argus_web.views.incidents import (
     build_incident_detail,
     build_incident_summary,
 )
-
-"""Shaping an incident's rows into what a reader is shown.
-
-No database here: the rows these take are what the repositories already return,
-and every question below is about the arrangement rather than the retrieval -
-which attempt belongs to which candidate, what an untried candidate looks like,
-and what happens to an attempt that names no candidate at all.
-
-The order everything arrives in is kept rather than re-imposed. Ranking
-candidates and sequencing actions are decisions the investigation made, and a
-view that sorted them again would be a second opinion about them - so the
-assertions read the lists as lists, in the order they came.
-"""
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 

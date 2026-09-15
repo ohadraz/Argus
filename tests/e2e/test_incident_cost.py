@@ -1,3 +1,23 @@
+"""What the incident cost, over a shop that was actually taking money.
+
+The estimate is the one figure in a postmortem that rests on something outside
+Argus entirely - a payment provider - and every layer between the two is a
+place it can quietly become absent: a credential nobody set, a window the
+provider reports nothing for, a currency the document cannot state. Each of
+those is a legitimate answer on its own, which is exactly why only a run of the
+whole stack can tell them apart from a figure that was measured.
+
+So this asserts a number rather than a field being populated: the shop's own
+endpoint derives its charges from the very minutes `/metrics` reports, so an
+incident that broke the shop must cost more than nothing, and an estimate of
+zero over a window with charges in it means the money never reached the
+arithmetic.
+
+It says nothing about how large the loss is. Two of the four terms come from
+the model's judgment and the incident's own duration, and a suite asserting a
+range would be asserting how fast Argus happened to run.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -24,26 +44,6 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-
-"""What the incident cost, over a shop that was actually taking money.
-
-The estimate is the one figure in a postmortem that rests on something outside
-Argus entirely - a payment provider - and every layer between the two is a
-place it can quietly become absent: a credential nobody set, a window the
-provider reports nothing for, a currency the document cannot state. Each of
-those is a legitimate answer on its own, which is exactly why only a run of the
-whole stack can tell them apart from a figure that was measured.
-
-So this asserts a number rather than a field being populated: the shop's own
-endpoint derives its charges from the very minutes `/metrics` reports, so an
-incident that broke the shop must cost more than nothing, and an estimate of
-zero over a window with charges in it means the money never reached the
-arithmetic.
-
-It says nothing about how large the loss is. Two of the four terms come from
-the model's judgment and the incident's own duration, and a suite asserting a
-range would be asserting how fast Argus happened to run.
-"""
 
 SOME_SECOND_CURRENCY = "eur"
 

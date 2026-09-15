@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-from decimal import Decimal
-
-import pytest
-from argus_core.models import Alert, IncidentStatus, PostmortemDocument
-from argus_testkit import Assertion, Kept, Scenario, all_of
-from orchestrator.walk.closing import postmortem_node
-from orchestrator.walk.ports import RecordPostmortem, WritePostmortem
-from orchestrator.walk.state import IncidentState
-
 """The last node: what it writes, and that it writes at all.
 
 Two collaborators, both injected - one that produces the document and one that
@@ -21,6 +10,17 @@ The document it stores is whatever came back, complete or not. An incident
 that ends with a partial postmortem still ends with a postmortem: a page
 finding nothing where one should be cannot tell "not written" from "lost".
 """
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+from argus_core.models import Alert, IncidentStatus, PostmortemDocument
+from argus_testkit import Assertion, Kept, Scenario, all_of
+from orchestrator.walk.closing import postmortem_node
+from orchestrator.walk.ports import RecordPostmortem, WritePostmortem
+from orchestrator.walk.state import IncidentState
 
 DONT_CARE_INCIDENT_ID = "e6e6e6e6-0000-4000-8000-000000000006"
 

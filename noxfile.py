@@ -148,7 +148,7 @@ def sweep(session: nox.Session) -> None:
     """
     Registers `sweep` as a nox session, i.e., runnable via
     `uv run python -m nox -s sweep`.
-    Runs every free suite at once - `lint`, `typecheck`, `guard_e2e_boundary`,
+    Runs every free suite at once - `lint`, `typecheck`, the three guards,
     `test_all`, `integration` and `e2e_replay` - each in its own process, and
     stops the lot the moment one of them fails.
 
@@ -181,8 +181,8 @@ def sweep(session: nox.Session) -> None:
 # What a sweep runs. Every suite that costs nothing and needs no key - the same
 # set CI runs on a push, which is what makes a green sweep mean something
 # before the push rather than after it.
-_SWEEP = ["lint", "typecheck", "guard_layering", "guard_e2e_boundary", "test_all",
-          "integration", "e2e_replay"]
+_SWEEP = ["lint", "typecheck", "guard_layering", "guard_e2e_boundary",
+          "guard_module_docstrings", "test_all", "integration", "e2e_replay"]
 
 # How often a sweep looks at its children. Long enough that watching is free,
 # short enough that a failure stops the others while they still have most of
@@ -309,6 +309,22 @@ def guard_e2e_boundary(session: nox.Session) -> None:
     brings up, and only for root tests/e2e/.
     """
     session.run("uv", "run", "python", "scripts/guard_e2e_boundary.py", external=True)
+
+@nox.session
+def guard_module_docstrings(session: nox.Session) -> None:
+    """
+    Registers `guard_module_docstrings` as a nox session, i.e., runnable via
+    `uv run python -m nox -s guard_module_docstrings`.
+    Fails if a module's prose sits below its imports, where it is a no-op
+    expression rather than a docstring: `__doc__` stays `None`, and `help()`,
+    pydoc and every editor hover show a module that says nothing about itself.
+
+    It asks only that prose already written is readable, never that a module
+    write some. Ruff's `D100` is the other question and the wrong one here -
+    most modules are a type or two whose own docstrings say everything, and
+    demanding a header on each would buy filler.
+    """
+    session.run("uv", "run", "python", "scripts/guard_module_docstrings.py", external=True)
 
 @nox.session
 def contract(session: nox.Session) -> None:

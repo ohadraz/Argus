@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from unittest.mock import create_autospec
-
-import psycopg
-import pytest
-from argus_core.schema import SchemaNotApplied, SchemaPresent, require_schema
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-
 """What a process does when it finds a database nobody has prepared.
 
 Argus applies its schema from a job of its own and from nowhere else. A process
@@ -24,6 +15,15 @@ Whether the tables are there is a question for the database; whether an answer
 of "no" is fatal is not. The asking is injected so that this file - the suite of
 a module that has no container - can state the second without needing the first.
 """
+
+from __future__ import annotations
+
+from unittest.mock import create_autospec
+
+import psycopg
+import pytest
+from argus_core.schema import SchemaNotApplied, SchemaPresent, require_schema
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 
 A_PREPARED_DATABASE = True
 A_DATABASE_WITH_NO_SCHEMA = False

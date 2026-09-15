@@ -1,3 +1,20 @@
+"""The one thing standing between a proposed action and the call that performs it.
+
+A guarantee enforced by the code it constrains is a convention, not a guarantee,
+so the check lives here rather than inside the agent that does the write.
+
+What it checks is a fact about the *kind* of action, asked of the thing that
+would have to perform the undo. An action of a reversible kind cannot reach this
+node without its way back - the models no longer allow one to be built - so the
+question left to ask is whether Argus knows how to put a change of this sort back
+at all. A kind it does not is what §13 refuses to take autonomously.
+
+A rejection is about *this* action, not about the incident. The explanations
+after it on the list may be perfectly reversible, so the gate clears the action,
+says why, and moves the incident nowhere - whether anything follows is decided
+one node further on, in one place.
+"""
+
 from __future__ import annotations
 
 from typing import cast
@@ -26,24 +43,6 @@ from orchestrator_test.framework.builders import (
     a_random_id,
     an_incident_state,
 )
-
-"""The one thing standing between a proposed action and the call that performs it.
-
-A guarantee enforced by the code it constrains is a convention, not a guarantee,
-so the check lives here rather than inside the agent that does the write.
-
-What it checks is a fact about the *kind* of action, asked of the thing that
-would have to perform the undo. An action of a reversible kind cannot reach this
-node without its way back - the models no longer allow one to be built - so the
-question left to ask is whether Argus knows how to put a change of this sort back
-at all. A kind it does not is what §13 refuses to take autonomously.
-
-A rejection is about *this* action, not about the incident. The explanations
-after it on the list may be perfectly reversible, so the gate clears the action,
-says why, and moves the incident nowhere - whether anything follows is decided
-one node further on, in one place.
-"""
-
 
 DONT_CARE_FLAG = "dont-care-flag"
 

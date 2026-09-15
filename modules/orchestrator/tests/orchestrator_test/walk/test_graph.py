@@ -1,3 +1,18 @@
+"""The shape of the walk, and what a walk is allowed to cost.
+
+Spec §10's diagram, written down twice - once as the graph the Orchestrator
+assembles and once here - so that the two can be compared. Read off the
+compiled graph rather than driven, which is the limit of what this can say: it
+proves every edge exists, not that any router ever returns the key that takes
+one - nor which route takes which edge, since two routes to one node are drawn
+as a single edge. The walk itself is `component/`'s subject.
+
+LangGraph ends a run that exceeds its recursion limit as failed, so the limit
+has to be derived from the graph rather than picked: a verdict with one more
+explanation than usual would otherwise end the incident on a recursion error,
+with production already changed and no postmortem written.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Generator
@@ -23,21 +38,6 @@ from orchestrator.walk.graph import (
     recursion_limit,
 )
 from orchestrator.walk.state import IncidentState
-
-"""The shape of the walk, and what a walk is allowed to cost.
-
-Spec §10's diagram, written down twice - once as the graph the Orchestrator
-assembles and once here - so that the two can be compared. Read off the
-compiled graph rather than driven, which is the limit of what this can say: it
-proves every edge exists, not that any router ever returns the key that takes
-one - nor which route takes which edge, since two routes to one node are drawn
-as a single edge. The walk itself is `component/`'s subject.
-
-LangGraph ends a run that exceeds its recursion limit as failed, so the limit
-has to be derived from the graph rather than picked: a verdict with one more
-explanation than usual would otherwise end the incident on a recursion error,
-with production already changed and no postmortem written.
-"""
 
 type Edge = tuple[str, str]
 

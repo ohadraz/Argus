@@ -1,16 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core import connect_from_env
-from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
-from argus_core.models import REVERT_FEATURE_FLAG, Actor, Alert, FlagUndo, IncidentStatus, Verdict
-from argus_incidents.publishing import events_into_connection
-from argus_incidents.repository import events, hypotheses, incidents, taken_actions
-from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.records import Records
-
-from orchestrator_test.framework.builders import a_determined_hypothesis
-
 """That a decision and the account of it are one write.
 
 The incident tables record what Argus concluded; the event stream is what a
@@ -23,6 +10,19 @@ principle 8 - publishing cannot fail the work it describes - which is why the
 narration is written inside a savepoint of its own: it commits with the
 transition, and it fails alone.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core import connect_from_env
+from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
+from argus_core.models import REVERT_FEATURE_FLAG, Actor, Alert, FlagUndo, IncidentStatus, Verdict
+from argus_incidents.publishing import events_into_connection
+from argus_incidents.repository import events, hypotheses, incidents, taken_actions
+from argus_testkit import Assertion, Scenario, all_of
+from orchestrator.records import Records
+
+from orchestrator_test.framework.builders import a_determined_hypothesis
 
 DONT_CARE_ACTOR = Actor.MITIGATION
 DONT_CARE_ACTION = REVERT_FEATURE_FLAG

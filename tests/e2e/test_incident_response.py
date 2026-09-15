@@ -1,3 +1,19 @@
+"""What the response cost, over an incident somebody was actually paged for.
+
+The minutes are the one figure resting on an on-call provider, and every layer
+between the two is a place they can quietly become absent: a credential nobody
+set, an incident the provider does not hold, an acknowledgement in a shape the
+SDK does not recognise. Each is a legitimate answer on its own, which is why
+only a run of the whole stack tells them apart from a figure that was measured.
+
+The figure asserted is person-minutes: each responder's own acknowledgement to
+the end of the incident, added together. Two responders acknowledging some
+minutes in is what makes that different from three other numbers a wrong
+implementation would produce - the incident's own length, one responder's
+span, or two full incidents - so the arithmetic is spelled out here rather
+than trusted.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -26,22 +42,6 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-
-"""What the response cost, over an incident somebody was actually paged for.
-
-The minutes are the one figure resting on an on-call provider, and every layer
-between the two is a place they can quietly become absent: a credential nobody
-set, an incident the provider does not hold, an acknowledgement in a shape the
-SDK does not recognise. Each is a legitimate answer on its own, which is why
-only a run of the whole stack tells them apart from a figure that was measured.
-
-The figure asserted is person-minutes: each responder's own acknowledgement to
-the end of the incident, added together. Two responders acknowledging some
-minutes in is what makes that different from three other numbers a wrong
-implementation would produce - the incident's own length, one responder's
-span, or two full incidents - so the arithmetic is spelled out here rather
-than trusted.
-"""
 
 # What the Target Service authors on every incident it reports: two people
 # paged, neither of them instantly.

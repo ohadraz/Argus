@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from argus_core import Connections
-from argus_core.events import RecordedEvent
-from argus_incidents.repository import events
-
-from agent_communicator.relaying import SLACK_RELAY, Backlog, Place
-from agent_communicator.repository import cursors
-
 """The relay's log and its place, plugged into the database they live in.
 
 `relaying` says what a relay does; this says where it reads from. The whole of
@@ -19,6 +10,15 @@ transaction-less session pinning a snapshot for nothing - which for this reader
 is worse than idle, because a reader holding an old transaction cannot see what
 has committed since (`events.get_since`).
 """
+
+from __future__ import annotations
+
+from argus_core import Connections
+from argus_core.events import RecordedEvent
+from argus_incidents.repository import events
+
+from agent_communicator.relaying import SLACK_RELAY, Backlog, Place
+from agent_communicator.repository import cursors
 
 
 def events_since(connections: Connections) -> Backlog:

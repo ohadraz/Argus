@@ -1,3 +1,26 @@
+"""Walking the candidates an investigation offered, one at a time.
+
+Being wrong about a correlated change is the ordinary case in an incident, not
+the exceptional one, so a refuted mitigation is not the end of what Argus can
+do - it is the end of what Argus can do *about that candidate*. These cover the
+decision made after each attempt: try the next explanation, buy a wider look,
+or admit there are no moves left.
+
+One node owns that decision. Both ways an attempt can fail to settle anything -
+the gate refusing it, and the service refusing to recover - arrive at the same
+place, because "what now" has one answer and splitting it across two nodes
+would be two chances to get it wrong.
+
+The node reports what it found and never a status. Where that leaves the
+incident is derived from the state it produced, which is what `_the_walk_goes_to`
+does here and what the graph does in production.
+
+Nothing here tells anybody. A longer walk is a longer silence before a human
+hears anything, and what closes that gap is the relay in `agent_communicator`,
+which follows the events these decisions are published as - so the node
+decides, publishes, and knows nothing about who is listening.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -29,30 +52,6 @@ from orchestrator_test.framework.builders import (
 # the node is told its budget now, and a test taking the number from the
 # same configuration would agree with itself whatever either said.
 SOME_ROUND_BUDGET = 3
-
-"""Walking the candidates an investigation offered, one at a time.
-
-Being wrong about a correlated change is the ordinary case in an incident, not
-the exceptional one, so a refuted mitigation is not the end of what Argus can
-do - it is the end of what Argus can do *about that candidate*. These cover the
-decision made after each attempt: try the next explanation, buy a wider look,
-or admit there are no moves left.
-
-One node owns that decision. Both ways an attempt can fail to settle anything -
-the gate refusing it, and the service refusing to recover - arrive at the same
-place, because "what now" has one answer and splitting it across two nodes
-would be two chances to get it wrong.
-
-The node reports what it found and never a status. Where that leaves the
-incident is derived from the state it produced, which is what `_the_walk_goes_to`
-does here and what the graph does in production.
-
-Nothing here tells anybody. A longer walk is a longer silence before a human
-hears anything, and what closes that gap is the relay in `agent_communicator`,
-which follows the events these decisions are published as - so the node
-decides, publishes, and knows nothing about who is listening.
-"""
-
 
 SOME_FLAG = "monthly-spend-feature"
 ANOTHER_FLAG = "legacy-checkout-fallback"

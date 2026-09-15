@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-import psycopg
-
 """Where each reader of the event log got to, kept so that a restart resumes.
 
 The relay's own state, so it lives with the relay rather than with the log it
@@ -16,6 +12,10 @@ Committing is the caller's, as in every repository here. A reader that delivers
 and then moves on wants both in whatever transaction it decides is one unit of
 work, and committing here would take the choice away.
 """
+
+from __future__ import annotations
+
+import psycopg
 
 # Where the log starts, and what a reader that has never looked is told. Zero
 # rather than null so that no caller has to decide what "nowhere" means - one

@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-import logging
-import time
-
-from argus_core import Connections, DatabaseSettings, get_settings, open_pool
-
-from agent_communicator.delivering import a_destination_per_register, a_slack_delivery
-from agent_communicator.following import events_since, place_for
-from agent_communicator.relaying import SLACK_RELAY, Backlog, Delivery, Place, relay_once
-from agent_communicator.slack import SlackSettings, a_slack_client
-
 """The process that watches the event log and keeps Slack up to date.
 
 It does one thing in a loop: look at the log, say what is new, move on. Nothing
@@ -21,6 +9,18 @@ A process of its own rather than a thread inside the worker: a worker walking
 an incident is busy for minutes at a time, and a relay sharing that process
 would go quiet exactly while an incident was most worth hearing about.
 """
+
+from __future__ import annotations
+
+import logging
+import time
+
+from argus_core import Connections, DatabaseSettings, get_settings, open_pool
+
+from agent_communicator.delivering import a_destination_per_register, a_slack_delivery
+from agent_communicator.following import events_since, place_for
+from agent_communicator.relaying import SLACK_RELAY, Backlog, Delivery, Place, relay_once
+from agent_communicator.slack import SlackSettings, a_slack_client
 
 logger = logging.getLogger(__name__)
 

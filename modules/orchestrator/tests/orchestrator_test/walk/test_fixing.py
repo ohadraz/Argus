@@ -1,3 +1,16 @@
+"""Looking for a permanent fix, and reporting what came back.
+
+Code-Fix is still a stub that offers nothing, so most of what happens here is
+an incident admitting there is no fix and going to a human. What is asserted is
+the reporting rather than the stub: the node says what the agent answered, so
+that the day the agent answers something the graph carries it - rather than
+going on reporting no fix while the agent quietly proposes one.
+
+Silence is the other failure, and the older one: an incident that reached here
+and said nothing ended the graph still marked `fixing`, which is a status
+nothing was working on.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -12,20 +25,6 @@ from orchestrator.walk.routes import ESCALATED_ROUTE, RESOLVED_ROUTE
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import a_determined_hypothesis
-
-"""Looking for a permanent fix, and reporting what came back.
-
-Code-Fix is still a stub that offers nothing, so most of what happens here is
-an incident admitting there is no fix and going to a human. What is asserted is
-the reporting rather than the stub: the node says what the agent answered, so
-that the day the agent answers something the graph carries it - rather than
-going on reporting no fix while the agent quietly proposes one.
-
-Silence is the other failure, and the older one: an incident that reached here
-and said nothing ended the graph still marked `fixing`, which is a status
-nothing was working on.
-"""
-
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "buki-123"

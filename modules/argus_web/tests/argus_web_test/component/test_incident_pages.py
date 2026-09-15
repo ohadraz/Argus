@@ -1,3 +1,12 @@
+"""Argus's own screen, through the browser's door.
+
+Nothing is stubbed: a request reaches the real app, reads through the real
+repositories against a real Postgres, and comes back as the HTML a person
+looking at the demo would get. The assertions are on data attributes the
+templates carry deliberately - a page contract, rather than on prose, which is
+free to change without any of these tests having an opinion.
+"""
+
 from __future__ import annotations
 
 import re
@@ -21,15 +30,6 @@ from argus_incidents.repository import hypotheses, incidents, postmortems, taken
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
-
-"""Argus's own screen, through the browser's door.
-
-Nothing is stubbed: a request reaches the real app, reads through the real
-repositories against a real Postgres, and comes back as the HTML a person
-looking at the demo would get. The assertions are on data attributes the
-templates carry deliberately - a page contract, rather than on prose, which is
-free to change without any of these tests having an opinion.
-"""
 
 # What htmx's "ask again in a moment" looks like in the rendered page. Named
 # because two assertions read it and they must read the same thing: one saying

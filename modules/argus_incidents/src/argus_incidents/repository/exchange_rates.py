@@ -1,11 +1,3 @@
-from __future__ import annotations
-
-from datetime import date
-from decimal import Decimal
-
-import psycopg
-from argus_core.models import PublishedRates
-
 """Where a day's exchange rates are written down.
 
 Not an incident's table and not the single-writer rule's business: a rate
@@ -18,6 +10,14 @@ Rates are never updated, only inserted. A day's reference rate is published
 once and does not move, so a second insert for the same day is the same
 numbers arriving again - taken as already known rather than as a correction.
 """
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+import psycopg
+from argus_core.models import PublishedRates
 
 
 def record(conn: psycopg.Connection, rates: PublishedRates) -> None:

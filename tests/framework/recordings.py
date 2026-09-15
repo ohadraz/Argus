@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """The recordings the cross-module suites replay, by the names they are stored
 under in modules/anthropic_double/recordings/.
 
@@ -14,5 +12,7 @@ it means "a turn the model actually took". Same value, two facts - and the day
 one of them needs a different recording, a shared constant would silently move
 the other.
 """
+
+from __future__ import annotations
 
 RECORDED_TOOL_USE_TURN = "feature-flag-toggle"

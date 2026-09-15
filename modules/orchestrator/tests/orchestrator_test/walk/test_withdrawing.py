@@ -1,3 +1,12 @@
+"""The one way out of the walk that is the same wherever it is asked.
+
+The routers decide from the state, and a node that did nothing changed none -
+so a withdrawn incident would be sent round the same loop until LangGraph's
+recursion limit recorded the run as failed. Wrapped at registration rather than
+checked inside each router, for the reason every node is wrapped: five of them
+cannot each be trusted to remember, and the one that forgot would be the loop.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -13,15 +22,6 @@ from orchestrator.walk.mitigating import route_after_mitigation
 from orchestrator.walk.routes import RESOLVED_ROUTE, WITHDRAWN_ROUTE
 from orchestrator.walk.state import IncidentState
 from orchestrator.walk.withdrawing import stopping_when_withdrawn
-
-"""The one way out of the walk that is the same wherever it is asked.
-
-The routers decide from the state, and a node that did nothing changed none -
-so a withdrawn incident would be sent round the same loop until LangGraph's
-recursion limit recorded the run as failed. Wrapped at registration rather than
-checked inside each router, for the reason every node is wrapped: five of them
-cannot each be trusted to remember, and the one that forgot would be the loop.
-"""
 
 type Route = Callable[[IncidentState], str]
 

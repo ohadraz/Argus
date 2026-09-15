@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-from typing import Any
-from uuid import uuid4
-
-import httpx
-import pytest
-from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
-from argus_core import get_settings
-from argus_testkit import Assertion, Scenario, all_of
-from slack_double.server import DEFAULT_BASE_URL
-
 """Whether the double still answers as the workspace it stands in for.
 
 Every other Slack suite in this repo posts at `slack_double` and believes what
@@ -26,6 +14,18 @@ all, and that a refusal comes back named and marked as one no retry will fix.
 These post real messages into a real channel, which is why they are behind
 their own session (`nox -s contract_slack`) and their own credential.
 """
+
+from __future__ import annotations
+
+from typing import Any
+from uuid import uuid4
+
+import httpx
+import pytest
+from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
+from argus_core import get_settings
+from argus_testkit import Assertion, Scenario, all_of
+from slack_double.server import DEFAULT_BASE_URL
 
 # Enough to tell a reader of the war room why a message they did not expect is
 # there, and enough that two runs never look like one message posted twice.

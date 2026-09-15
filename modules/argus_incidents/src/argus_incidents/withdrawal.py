@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-from typing import Protocol
-
-from argus_core import Connections
-from argus_core.events import Publisher, StatusChanged, publish
-from argus_core.models import Actor, IncidentStatus
-
-from argus_incidents.repository import incidents
-
 """How an incident is taken back - and nothing about how one is walked.
 
 The Orchestrator's second entrypoint, beside `intake`, and in this package for
@@ -19,6 +9,16 @@ reading the status back, and unwinds what it had done itself - which is what
 keeps one writer on an incident. A withdrawal that undid actions from here would
 be a second writer racing the first for the same rows.
 """
+
+from __future__ import annotations
+
+from typing import Protocol
+
+from argus_core import Connections
+from argus_core.events import Publisher, StatusChanged, publish
+from argus_core.models import Actor, IncidentStatus
+
+from argus_incidents.repository import incidents
 
 
 class IsStillWanted(Protocol):

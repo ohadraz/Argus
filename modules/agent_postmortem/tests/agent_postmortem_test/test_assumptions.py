@@ -1,3 +1,27 @@
+"""What the document admits to having assumed rather than measured.
+
+Two kinds of line, arriving from opposite directions. One is the model's own:
+asked what else a reader should know it took rather than measured, it answers
+in prose, and that answer has to reach the page - dropped, it would leave a
+document claiming more certainty than the thing that wrote it had.
+
+The other is Argus's, and it is here because a figure is only as honest as the
+steps between the source and the page. A rate applied, a band a title was
+priced at, a working year the bands were divided by: none of those is a
+measurement, and a reader who cannot see them is being asked to take the
+figures on trust.
+
+An absence gets a line too, and it is the half most worth testing. A figure
+that is missing and a figure that is zero look identical on a page unless the
+document says which it is - and each absence has its own sentence, because
+"nobody responded" and "the on-call system could not be reached" are different
+findings that would otherwise leave the same blank.
+
+Nothing here reads a source. Everything was read while the incident was being
+measured, so this takes a measured incident and the one setting the figures
+were produced under, and turns them into sentences.
+"""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -32,30 +56,6 @@ from agent_postmortem_test.framework.builders import (
     a_measured_incident,
     an_engagement_of,
 )
-
-"""What the document admits to having assumed rather than measured.
-
-Two kinds of line, arriving from opposite directions. One is the model's own:
-asked what else a reader should know it took rather than measured, it answers
-in prose, and that answer has to reach the page - dropped, it would leave a
-document claiming more certainty than the thing that wrote it had.
-
-The other is Argus's, and it is here because a figure is only as honest as the
-steps between the source and the page. A rate applied, a band a title was
-priced at, a working year the bands were divided by: none of those is a
-measurement, and a reader who cannot see them is being asked to take the
-figures on trust.
-
-An absence gets a line too, and it is the half most worth testing. A figure
-that is missing and a figure that is zero look identical on a page unless the
-document says which it is - and each absence has its own sentence, because
-"nobody responded" and "the on-call system could not be reached" are different
-findings that would otherwise leave the same blank.
-
-Nothing here reads a source. Everything was read while the incident was being
-measured, so this takes a measured incident and the one setting the figures
-were produced under, and turns them into sentences.
-"""
 
 SOME_TITLE = "Senior Kuki"
 SOME_TITLE_NO_BAND_COVERS = "Principal Buki"

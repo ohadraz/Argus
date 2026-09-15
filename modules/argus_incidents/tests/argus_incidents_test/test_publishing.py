@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-from typing import cast
-from unittest.mock import create_autospec
-
-import psycopg
-import pytest
-from argus_core.events import AlertAcknowledged, IncidentEvent, nobody
-from argus_core.models import Alert
-from argus_incidents.publishing import acknowledge_alert
-from argus_testkit import Assertion, Scenario, all_of, calling
-
 """The first line of an incident's story.
 
 The moment Argus has the alert and has looked at nothing yet. An account that
@@ -21,6 +9,18 @@ cover - acknowledging with nobody listening has to be as ordinary as
 acknowledging with a subscriber, because the default everywhere else in this
 system is that nobody is.
 """
+
+from __future__ import annotations
+
+from typing import cast
+from unittest.mock import create_autospec
+
+import psycopg
+import pytest
+from argus_core.events import AlertAcknowledged, IncidentEvent, nobody
+from argus_core.models import Alert
+from argus_incidents.publishing import acknowledge_alert
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 SOME_INCIDENT_ID = "some-incident"
 DONT_CARE_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")

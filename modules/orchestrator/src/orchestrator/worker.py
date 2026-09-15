@@ -1,3 +1,14 @@
+"""The process that walks incidents.
+
+It does one thing in a loop: take a run, walk it, settle it. Everything that
+makes an investigation slow - the model, the retrieval, the wait for a service
+to recover - happens here, in a process nobody is holding a connection open to.
+
+A worker takes work rather than being given it, which is what makes a second
+one harmless and a restart uneventful: the queue is the only coordination, and
+a run whose worker stopped is simply the oldest thing nobody holds a lease on.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -32,17 +43,6 @@ from write_mcp_client import write_mcp
 
 from orchestrator.entrypoint import graph_for, run_incident
 from orchestrator.unwinding import taken_actions_from, unwind_incident
-
-"""The process that walks incidents.
-
-It does one thing in a loop: take a run, walk it, settle it. Everything that
-makes an investigation slow - the model, the retrieval, the wait for a service
-to recover - happens here, in a process nobody is holding a connection open to.
-
-A worker takes work rather than being given it, which is what makes a second
-one harmless and a restart uneventful: the queue is the only coordination, and
-a run whose worker stopped is simply the oldest thing nobody holds a lease on.
-"""
 
 logger = logging.getLogger(__name__)
 

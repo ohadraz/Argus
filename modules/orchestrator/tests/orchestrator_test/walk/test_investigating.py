@@ -1,3 +1,16 @@
+"""What one round of investigation leaves behind, which is its work and its
+account of it - never a status.
+
+Where the incident stands is derived from these returns one place further out,
+by `status_after`, and tested there. A node asserting a status here would be
+asserting a decision it no longer makes.
+
+A cause was named is the whole admission test. Confidence used to gate it, and
+that was the wrong question: the action is taken alone, confirmed against the
+service and put back when it does not help, so an unsure answer is a reason to
+try it and see.
+"""
+
 from __future__ import annotations
 
 from typing import cast
@@ -30,19 +43,6 @@ from orchestrator_test.framework.builders import (
     an_incident_state,
     an_undetermined_hypothesis,
 )
-
-"""What one round of investigation leaves behind, which is its work and its
-account of it - never a status.
-
-Where the incident stands is derived from these returns one place further out,
-by `status_after`, and tested there. A node asserting a status here would be
-asserting a decision it no longer makes.
-
-A cause was named is the whole admission test. Confidence used to gate it, and
-that was the wrong question: the action is taken alone, confirmed against the
-service and put back when it does not help, so an unsure answer is a reason to
-try it and see.
-"""
 
 SOME_FLAG = "monthly-spend-feature"
 

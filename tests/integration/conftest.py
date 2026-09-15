@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-import subprocess
-from collections.abc import Iterator
-
-import pytest
-from argus_core import connect_from_env
-from argus_core.schema import reset_schema
-from psycopg import sql
-
 """The database this suite runs against, and its state between tests.
 
 Brought up here rather than by the one test file that needs it, because a
@@ -19,6 +9,16 @@ from a committed recording and retrieval answers from memory, so this fixture
 is the whole of what `integration` asks of docker - which is what lets the
 session stay free and keyless.
 """
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Iterator
+
+import pytest
+from argus_core import connect_from_env
+from argus_core.schema import reset_schema
+from psycopg import sql
 
 
 @pytest.fixture(scope="session", autouse=True)

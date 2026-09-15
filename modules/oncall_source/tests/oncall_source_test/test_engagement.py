@@ -1,19 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable, Mapping
-from datetime import UTC, datetime, timedelta
-from typing import Any
-
-import pytest
-from argus_testkit import Assertion, Scenario, all_of
-from oncall_source import (
-    Acknowledgement,
-    OnCallUnavailable,
-    ReportedIncident,
-    engagement_with,
-)
-from oncall_source.engagement import EngagedResponder
-
 """What human attention an incident took, as the on-call provider reports it.
 
 What this suite injects is the incident the provider reports, in the vocabulary
@@ -29,6 +13,22 @@ know is when, or whether, a person picked it up. The incident's own start is
 stated wherever the gap between it and an acknowledgement is the point, and
 nothing computes from it.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import pytest
+from argus_testkit import Assertion, Scenario, all_of
+from oncall_source import (
+    Acknowledgement,
+    OnCallUnavailable,
+    ReportedIncident,
+    engagement_with,
+)
+from oncall_source.engagement import EngagedResponder
 
 SOME_INCIDENT = "incident-1"
 SOME_RESPONDER = "responder-1"

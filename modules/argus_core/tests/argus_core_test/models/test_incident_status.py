@@ -1,8 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core.models.incident_status import IncidentStatus
-
 """Which statuses an incident can still move out of.
 
 Asked by anything that waits on an incident - a page that polls, a report that
@@ -10,6 +5,11 @@ counts what is still open. It lives on the status rather than in the caller
 because "is there more to come?" is a fact about the state machine (spec §10),
 and a second copy of it in a template is a second copy that can be wrong.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core.models.incident_status import IncidentStatus
 
 
 @pytest.mark.unit

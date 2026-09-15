@@ -1,11 +1,3 @@
-from __future__ import annotations
-
-import psycopg
-import pytest
-from agent_communicator.repository import cursors
-from argus_core import connect_from_env
-from argus_testkit import Assertion, Scenario, all_of, calling
-
 """Where a reader of the event log got to, kept so that a restart resumes.
 
 A relay delivering an incident's account somewhere else - Slack today, email
@@ -18,6 +10,14 @@ One row per reader rather than one row: two destinations fall behind at
 different rates, and a single place would make the slower of them decide what
 the faster one has already said.
 """
+
+from __future__ import annotations
+
+import psycopg
+import pytest
+from agent_communicator.repository import cursors
+from argus_core import connect_from_env
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 A_SLACK_RELAY = "slack"
 ANOTHER_RELAY = "email"

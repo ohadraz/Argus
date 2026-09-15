@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from decimal import Decimal
-
-import pytest
-from agent_postmortem.responder_cost import ResponderCost, responder_cost, unpriced_titles
-from agent_postmortem.sources import EngagedResponder, PayBand
-from argus_testkit import Assertion, Scenario, all_of
-
 """What the response cost, out of minutes already measured and bands already
 published.
 
@@ -20,6 +11,15 @@ The numbers here are chosen to divide exactly. A working year of 2000 hours is
 an arithmetic slip shows up as a different figure rather than as a rounding
 argument.
 """
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+from agent_postmortem.responder_cost import ResponderCost, responder_cost, unpriced_titles
+from agent_postmortem.sources import EngagedResponder, PayBand
+from argus_testkit import Assertion, Scenario, all_of
 
 MINUTES_PER_HOUR = 60
 SOME_WORKING_YEAR_IN_HOURS = 2000.0

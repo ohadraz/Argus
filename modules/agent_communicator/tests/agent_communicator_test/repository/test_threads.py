@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-import psycopg
-import pytest
-from agent_communicator.repository import threads
-from argus_core import connect_from_env
-from argus_core.models import Alert
-from argus_incidents.repository import incidents
-from argus_testkit import Assertion, Scenario, all_of, calling
-
 """Which conversation an incident is being told in, remembered between passes.
 
 Slack has no thread id: a reply names the timestamp of the message it is
@@ -24,6 +14,16 @@ Each test asks for an empty database rather than being handed one. This
 module's suite is mostly unit tests that never open a connection, so the
 fixture is offered rather than autouse.
 """
+
+from __future__ import annotations
+
+import psycopg
+import pytest
+from agent_communicator.repository import threads
+from argus_core import connect_from_env
+from argus_core.models import Alert
+from argus_incidents.repository import incidents
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 A_WAR_ROOM = "C0INCIDENTS"
 ANOTHER_CHANNEL = "C0POSTMORTEMS"

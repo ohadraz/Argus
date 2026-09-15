@@ -1,3 +1,16 @@
+"""One exchange with the model, as the Investigator's loop reads it.
+
+The counterpart to `test_verdict.py`. That file covers the answer the model
+gives when it is asked one question and replies once; this one covers the turn
+it takes when it can ask for evidence first - what it said, what it wants
+called, and what the round cost. Offline for the same reason: what is under
+test is the translation, not the call.
+
+A turn is deliberately not the SDK's `Message` passed along. The loop dispatches
+on it, counts a budget from it, and narrates it, and none of those should be
+written against a vendor's response shape.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,19 +37,6 @@ from argus_core.llm.adapters.anthropic_adapter import (
 )
 from argus_core.models.turn import Turn
 from argus_testkit import Assertion, Scenario, all_of
-
-"""One exchange with the model, as the Investigator's loop reads it.
-
-The counterpart to `test_verdict.py`. That file covers the answer the model
-gives when it is asked one question and replies once; this one covers the turn
-it takes when it can ask for evidence first - what it said, what it wants
-called, and what the round cost. Offline for the same reason: what is under
-test is the translation, not the call.
-
-A turn is deliberately not the SDK's `Message` passed along. The loop dispatches
-on it, counts a budget from it, and narrates it, and none of those should be
-written against a vendor's response shape.
-"""
 
 
 @pytest.mark.unit

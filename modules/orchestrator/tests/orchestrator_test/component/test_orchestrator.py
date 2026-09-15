@@ -1,3 +1,18 @@
+"""The whole walk, through the graph the Orchestrator actually assembles.
+
+Every node is the real one, so what is under test is the module: that a node's
+work implies a status, that the status is derived and written once, that the
+router reading it reaches a node that exists, and that an incident arrives at
+an ending §10 has a name for. Only what lies outside the Orchestrator is
+doubled - the agents it delegates to and the repositories it writes through,
+both of which it already names as ports.
+
+That leaves no database, no model and no flag provider, so this says the same
+thing about the same graph that `e2e` does and says it in a second. What it
+cannot say is whether the agents behind those ports are any good; that is
+theirs to answer, one module down.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -43,21 +58,6 @@ from orchestrator.walk.graph import (
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import a_random_id
-
-"""The whole walk, through the graph the Orchestrator actually assembles.
-
-Every node is the real one, so what is under test is the module: that a node's
-work implies a status, that the status is derived and written once, that the
-router reading it reaches a node that exists, and that an incident arrives at
-an ending §10 has a name for. Only what lies outside the Orchestrator is
-doubled - the agents it delegates to and the repositories it writes through,
-both of which it already names as ports.
-
-That leaves no database, no model and no flag provider, so this says the same
-thing about the same graph that `e2e` does and says it in a second. What it
-cannot say is whether the agents behind those ports are any good; that is
-theirs to answer, one module down.
-"""
 
 type Walked = tuple[IncidentState, list[str]]
 

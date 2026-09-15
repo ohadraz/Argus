@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-import logging
-from datetime import UTC, datetime
-from enum import StrEnum
-from typing import Any, Protocol
-
-from pydantic import BaseModel, Field
-
-from argus_core.ids import UuidStr, new_id
-
 """Every external call, written down well enough to replay it (spec §4 principle 6).
 
 The three records Argus keeps are not the same record. The incident tables say
@@ -30,6 +19,17 @@ succeeding. `Recorder` is that file's `Publisher`, `record` is its `publish`,
 and `Replay` is its `Narrator` - an incident bound once so that nothing below
 has to carry an id it has no other use for.
 """
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any, Protocol
+
+from pydantic import BaseModel, Field
+
+from argus_core.ids import UuidStr, new_id
 
 _logger = logging.getLogger(__name__)
 

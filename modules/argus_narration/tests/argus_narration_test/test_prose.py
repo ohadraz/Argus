@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_narration.prose import said_plainly
-from argus_testkit import Assertion, Scenario
-
 """A model's instant, said the way the rest of the page says instants.
 
 One repair, and one fact about how a language model happens to write: it names
@@ -24,6 +18,12 @@ states them as fields now. A line break was typesetting nobody asked for, and
 is mended where the answer is accepted, so the postmortem and the pager read
 the same sentence this page does.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_narration.prose import said_plainly
+from argus_testkit import Assertion, Scenario
 
 
 @pytest.mark.unit

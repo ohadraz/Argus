@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-from enum import StrEnum
-from typing import Final, Protocol
-
-from argus_core.events import RecordedEvent
-from argus_narration import NarrationLine, a_narration_line
-
-from agent_communicator.policy import Register, how_it_is_said
-
 """Slack as a projection of the event log, fed by a relay.
 
 Nothing in the walk calls this, and that is the whole point. A step of an
@@ -29,6 +19,16 @@ At-least-once rather than exactly-once, deliberately. A line said twice is a
 nuisance a reader forgives; a line nobody ever says is the failure this exists
 to prevent, so the place only ever moves past a line that landed.
 """
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Final, Protocol
+
+from argus_core.events import RecordedEvent
+from argus_narration import NarrationLine, a_narration_line
+
+from agent_communicator.policy import Register, how_it_is_said
 
 # Which reader this is, in `event_cursor`. Named for the destination rather
 # than for the process, so a second relay to a second destination is a second

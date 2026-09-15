@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-from datetime import date, timedelta
-from decimal import Decimal
-
-import pytest
-from argus_core import connect_from_env
-from argus_core.models import PublishedRates
-from argus_incidents.repository import exchange_rates
-from argus_testkit import Assertion, Scenario, all_of, calling
-
 """Where a day's exchange rates are written down, and read back whole.
 
 Not an incident's table: a rate belongs to a day rather than to an incident,
@@ -22,6 +11,17 @@ Rates are never updated, only inserted. A day's reference rate is published
 once and does not move, so a second insert for the same day is the same numbers
 arriving again - taken as already known rather than as a correction.
 """
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+from decimal import Decimal
+
+import pytest
+from argus_core import connect_from_env
+from argus_core.models import PublishedRates
+from argus_incidents.repository import exchange_rates
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 SOME_BASE_CURRENCY = "usd"
 ANOTHER_BASE_CURRENCY = "gbp"

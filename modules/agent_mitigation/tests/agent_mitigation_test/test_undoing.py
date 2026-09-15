@@ -1,3 +1,13 @@
+"""Putting one change back, where it is still Argus's to put back.
+
+The condition is a question about the provider's record, not about the flag's
+current value: has anybody but Argus changed this flag since Argus wrote it. A
+value comparison answers a different question - what does the provider's
+evaluation cache currently serve - and answers it wrongly for as long as that
+cache is stale, which is exactly the window in which a human's deliberate change
+would be overwritten.
+"""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -16,16 +26,6 @@ from agent_mitigation_test.framework.builders import (
     nobody_changed_it,
     somebody_changed_it,
 )
-
-"""Putting one change back, where it is still Argus's to put back.
-
-The condition is a question about the provider's record, not about the flag's
-current value: has anybody but Argus changed this flag since Argus wrote it. A
-value comparison answers a different question - what does the provider's
-evaluation cache currently serve - and answers it wrongly for as long as that
-cache is stale, which is exactly the window in which a human's deliberate change
-would be overwritten.
-"""
 
 SOME_FLAG = "monthly-spend-feature"
 DONT_CARE_MOMENT = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Keeping what a collaborator was handed, so a test can read it back.
 
 The counterpart to `assertions.py`: that module says how a result is checked,
@@ -11,6 +9,8 @@ events, a recorder is handed replay entries, a notifier is handed messages, and
 none of that is this module's business - which is what keeps `argus_testkit`
 free of dependencies on the packages it is used to test.
 """
+
+from __future__ import annotations
 
 
 class Kept[T]:

@@ -1,3 +1,19 @@
+"""The relay's two seams, against the database they are seams over.
+
+`relaying` decides what gets said and in what order and knows about no database
+at all; this is where its log and its place meet postgres. So these tests ask
+the one question its unit tests cannot: that what was published really comes
+back, and that the place really outlives the process that moved it.
+
+A component test rather than an integration one: what talks to postgres is
+`argus_incidents`' repositories, which have integration tests of their own.
+This is one module through its own front door with the infrastructure it cannot
+fake behind it.
+
+One relay's worth of wiring at a time. A test here that re-asked what the flow
+does with what it read would be testing `relaying` through a container.
+"""
+
 from __future__ import annotations
 
 import psycopg
@@ -16,22 +32,6 @@ from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import events, incidents
 from argus_narration import NarrationLine
 from argus_testkit import Assertion, Scenario, all_of, calling
-
-"""The relay's two seams, against the database they are seams over.
-
-`relaying` decides what gets said and in what order and knows about no database
-at all; this is where its log and its place meet postgres. So these tests ask
-the one question its unit tests cannot: that what was published really comes
-back, and that the place really outlives the process that moved it.
-
-A component test rather than an integration one: what talks to postgres is
-`argus_incidents`' repositories, which have integration tests of their own.
-This is one module through its own front door with the infrastructure it cannot
-fake behind it.
-
-One relay's worth of wiring at a time. A test here that re-asked what the flow
-does with what it read would be testing `relaying` through a container.
-"""
 
 A_READER = "slack"
 ANOTHER_READER = "email"

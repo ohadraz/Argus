@@ -1,3 +1,21 @@
+"""What the model is asked, and the one shape its answer may take.
+
+The model is handed the incident and the figures Argus already computed, and
+asked only for the parts prose can carry. Handed half an incident it will
+explain the half it was shown, fluently, and nothing downstream can tell that
+from an explanation of the whole.
+
+It is asked for no number at all. Every figure in the document is measured, and
+a model's arithmetic about a measurement is not a second opinion - it is a
+second answer nobody can tell apart from the first.
+
+The three asks are separate functions because they are separate situations. The
+opening one states the incident. A refusal rides on the tool call it refuses,
+because a provider that has seen a call expects its result next. And where
+there was no call to refuse, the incident is put again from the start - the
+only shape left, and the one this file exists to keep distinct from the other.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -22,24 +40,6 @@ from agent_postmortem_test.framework.builders import (
     an_answer,
     an_evidence_bundle,
 )
-
-"""What the model is asked, and the one shape its answer may take.
-
-The model is handed the incident and the figures Argus already computed, and
-asked only for the parts prose can carry. Handed half an incident it will
-explain the half it was shown, fluently, and nothing downstream can tell that
-from an explanation of the whole.
-
-It is asked for no number at all. Every figure in the document is measured, and
-a model's arithmetic about a measurement is not a second opinion - it is a
-second answer nobody can tell apart from the first.
-
-The three asks are separate functions because they are separate situations. The
-opening one states the incident. A refusal rides on the tool call it refuses,
-because a provider that has seen a call expects its result next. And where
-there was no call to refuse, the incident is put again from the start - the
-only shape left, and the one this file exists to keep distinct from the other.
-"""
 
 SOME_FAULT = "the field [root_cause] was missing from your answer"
 

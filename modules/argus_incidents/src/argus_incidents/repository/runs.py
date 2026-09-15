@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-from datetime import datetime, timedelta
-from enum import StrEnum
-
-import psycopg
-from argus_core import UuidStr
-from psycopg.rows import class_row
-from pydantic import BaseModel
-
 """The queue of incidents waiting to be walked.
 
 The alert endpoint writes a row here and answers; a worker takes it and invokes
@@ -22,6 +12,16 @@ and answers a question the lock cannot - whether the worker that took this run
 is still walking it - because a dead worker's lock dies with its connection and
 leaves nothing behind to distinguish it from a slow one.
 """
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from enum import StrEnum
+
+import psycopg
+from argus_core import UuidStr
+from psycopg.rows import class_row
+from pydantic import BaseModel
 
 
 class RunState(StrEnum):

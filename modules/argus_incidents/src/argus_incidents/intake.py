@@ -1,11 +1,3 @@
-from __future__ import annotations
-
-from argus_core import Connections
-from argus_core.models import Alert
-
-from argus_incidents.publishing import PublisherFor, acknowledge_alert
-from argus_incidents.repository import incidents, runs
-
 """How an incident starts - and nothing about how one is walked.
 
 Here rather than in `orchestrator` so that the process receiving alerts cannot
@@ -19,6 +11,14 @@ boundary rather than a convention: `argus_web` depends on this package and not
 on `orchestrator`, so langgraph is never installed in the web process at all.
 What walks is the worker's, in its own process.
 """
+
+from __future__ import annotations
+
+from argus_core import Connections
+from argus_core.models import Alert
+
+from argus_incidents.publishing import PublisherFor, acknowledge_alert
+from argus_incidents.repository import incidents, runs
 
 
 def start_incident(alert: Alert,

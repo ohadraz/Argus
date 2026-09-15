@@ -1,3 +1,25 @@
+"""The whole agent, end to end, with nothing faked but its sources and the model.
+
+Every collaborator inside runs for real: the incident is measured, the model is
+asked, the disclosures are written, and the three land on one document. That is
+what makes this a component test rather than a unit one, and it is the only
+place the arithmetic is asserted against an actual page.
+
+The unit suites each say what one module does, and every one of them would keep
+passing if `writing` put the minimum where the midpoint goes, asked the model
+about the wrong incident's figures, or disclosed a working year the cost was not
+computed under. The cases here are chosen for what spans two modules or more:
+money converted in one and disclosed in another, an absence that has to travel
+from a source through a measurement to a sentence, and an answer refused twice
+that still has to produce a document.
+
+The numbers are chosen so each figure can only come out right one way. The shop
+takes 1200 an hour when it is well, the incident ran half an hour from its
+onset, and 100 came in while it was broken - so a loss of 500 is the only
+arithmetic that lands, and 600 or 400 would each name the mistake that produced
+it.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -57,28 +79,6 @@ from agent_postmortem_test.framework.builders import (
     revenue_that_was,
     some_sources,
 )
-
-"""The whole agent, end to end, with nothing faked but its sources and the model.
-
-Every collaborator inside runs for real: the incident is measured, the model is
-asked, the disclosures are written, and the three land on one document. That is
-what makes this a component test rather than a unit one, and it is the only
-place the arithmetic is asserted against an actual page.
-
-The unit suites each say what one module does, and every one of them would keep
-passing if `writing` put the minimum where the midpoint goes, asked the model
-about the wrong incident's figures, or disclosed a working year the cost was not
-computed under. The cases here are chosen for what spans two modules or more:
-money converted in one and disclosed in another, an absence that has to travel
-from a source through a measurement to a sentence, and an answer refused twice
-that still has to produce a document.
-
-The numbers are chosen so each figure can only come out right one way. The shop
-takes 1200 an hour when it is well, the incident ran half an hour from its
-onset, and 100 came in while it was broken - so a loss of 500 is the only
-arithmetic that lands, and 600 or 400 would each name the mistake that produced
-it.
-"""
 
 SOME_CALM_HOURLY_REVENUE = 1_200
 SOME_REVENUE_DURING_THE_INCIDENT = Decimal("100.00")

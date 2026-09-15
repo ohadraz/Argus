@@ -1,16 +1,3 @@
-from __future__ import annotations
-
-from decimal import Decimal
-
-import pytest
-from agent_postmortem.checking import faults_in
-from agent_postmortem.prompting import (
-    EXECUTIVE_SUMMARY_FIELD,
-    ROOT_CAUSE_FIELD,
-    SubmittedPostmortem,
-)
-from argus_testkit import Assertion, Scenario, all_of
-
 """What is wrong with an answer, asked of the answer itself.
 
 The conversation beside this one asks the same questions through two model
@@ -29,6 +16,19 @@ Every case here asserts what was named, not how many faults came back. The
 wording is the product: a model told "invalid answer" rewrites the part it
 liked least, which is rarely the part that was wrong.
 """
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+from agent_postmortem.checking import faults_in
+from agent_postmortem.prompting import (
+    EXECUTIVE_SUMMARY_FIELD,
+    ROOT_CAUSE_FIELD,
+    SubmittedPostmortem,
+)
+from argus_testkit import Assertion, Scenario, all_of
 
 # The figure this file's incident was measured at. A stated amount is only
 # checkable against a computed one, so every summary below is read against

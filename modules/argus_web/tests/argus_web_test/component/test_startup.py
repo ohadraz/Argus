@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Iterator
-
-import psycopg
-import pytest
-from argus_core import connect_from_env
-from argus_core.schema import SchemaNotApplied, reset_schema
-from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
-from argus_web.app import app
-from fastapi.testclient import TestClient
-
 """What this application does about the database's shape: nothing but check it.
 
 It used to apply the schema on the way up, which made the process that only
@@ -23,6 +11,18 @@ it. Refusing rather than proceeding, because a process that starts and then
 fails on whatever route is hit first reports the cause to whoever happened to
 open a page, as a broken page.
 """
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+import psycopg
+import pytest
+from argus_core import connect_from_env
+from argus_core.schema import SchemaNotApplied, reset_schema
+from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
+from argus_web.app import app
+from fastapi.testclient import TestClient
 
 
 @pytest.mark.component

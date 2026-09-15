@@ -1,3 +1,17 @@
+"""Taking an incident back while Argus is in the middle of it.
+
+The one thing a person can do to a running response, and the only case in the
+suite where the interesting moment is mid-walk rather than at the end: an
+incident is withdrawn *after* Argus has changed the world and *before* it has
+finished deciding what that change proved.
+
+What is asserted is the whole of the promise. The incident ends as withdrawn
+rather than as anything Argus concluded; the flag goes back to the state Argus
+found it in, which is the broken one, because the person who took the incident
+back is the one holding it now; and no postmortem is written, because there is
+no response to write up.
+"""
+
 from __future__ import annotations
 
 import time
@@ -28,20 +42,6 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, flags_evaluating_true, switch_flag
-
-"""Taking an incident back while Argus is in the middle of it.
-
-The one thing a person can do to a running response, and the only case in the
-suite where the interesting moment is mid-walk rather than at the end: an
-incident is withdrawn *after* Argus has changed the world and *before* it has
-finished deciding what that change proved.
-
-What is asserted is the whole of the promise. The incident ends as withdrawn
-rather than as anything Argus concluded; the flag goes back to the state Argus
-found it in, which is the broken one, because the person who took the incident
-back is the one holding it now; and no postmortem is written, because there is
-no response to write up.
-"""
 
 _A_POLL = 0.5
 

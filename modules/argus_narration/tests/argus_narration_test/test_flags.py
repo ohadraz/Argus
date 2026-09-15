@@ -1,10 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core.models import FlagChange
-from argus_narration.flags import FlagToggleRow, a_flag_history, on_or_off, said_as_a_state
-from argus_testkit import Assertion, Scenario, all_of
-
 """The flag provider's recorded changes, each said as the move it was.
 
 A row shows a transition rather than describing one, because that is what the
@@ -19,6 +12,13 @@ which way a change went and which of a flag's changes is its newest, because an
 action points at the newest one and a link to an older move would show a reader
 the wrong reason for what Argus did.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core.models import FlagChange
+from argus_narration.flags import FlagToggleRow, a_flag_history, on_or_off, said_as_a_state
+from argus_testkit import Assertion, Scenario, all_of
 
 SOME_MOMENT = "2026-08-30T10:05:00Z"
 A_LATER_MOMENT = "2026-08-30T10:25:00Z"

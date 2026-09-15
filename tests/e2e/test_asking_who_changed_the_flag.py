@@ -1,3 +1,16 @@
+"""Whether Argus can recognise its own change in the provider's log.
+
+The one question a resumed walk asks the provider, and the one thing no unit
+test can answer: it turns on whether the actor Argus is configured with is the
+name the provider actually records against its writes. Those two are set in
+different repositories, and a drift between them switches the recognition off
+silently - the failure this exists to catch.
+
+One client for the whole test, as a worker holds one for its whole life. The
+write and the two questions about it all go over that session, which is also how
+the walk makes them.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
@@ -13,19 +26,6 @@ from argus_testkit import Assertion, Scenario, all_of, calling
 from write_mcp_client import write_mcp
 
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG
-
-"""Whether Argus can recognise its own change in the provider's log.
-
-The one question a resumed walk asks the provider, and the one thing no unit
-test can answer: it turns on whether the actor Argus is configured with is the
-name the provider actually records against its writes. Those two are set in
-different repositories, and a drift between them switches the recognition off
-silently - the failure this exists to catch.
-
-One client for the whole test, as a worker holds one for its whole life. The
-write and the two questions about it all go over that session, which is also how
-the walk makes them.
-"""
 
 # Before anything this test does, so a change it makes cannot be missed for
 # having been made a moment too early.

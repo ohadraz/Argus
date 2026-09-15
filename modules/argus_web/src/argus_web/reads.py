@@ -1,3 +1,12 @@
+"""Everything the view is allowed to know about an incident.
+
+One place, because the incident page and the fragment it polls ask the same
+question and would otherwise ask it twice, in two slightly different ways. It
+reads through the repositories that own the tables and writes no SQL of its
+own: `argus_web` holds no incident-domain logic (spec §7.9), and a query here
+would be the beginning of a second opinion about what an incident is.
+"""
+
 from __future__ import annotations
 
 import psycopg
@@ -21,15 +30,6 @@ from argus_web.views import (
     build_postmortem_view,
     build_story,
 )
-
-"""Everything the view is allowed to know about an incident.
-
-One place, because the incident page and the fragment it polls ask the same
-question and would otherwise ask it twice, in two slightly different ways. It
-reads through the repositories that own the tables and writes no SQL of its
-own: `argus_web` holds no incident-domain logic (spec §7.9), and a query here
-would be the beginning of a second opinion about what an incident is.
-"""
 
 
 def read_history(conn: psycopg.Connection) -> list[IncidentSummary]:

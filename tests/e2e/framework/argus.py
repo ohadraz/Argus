@@ -1,3 +1,14 @@
+"""Talking to a running Argus stack, and asserting on what it did.
+
+Shared by every e2e test rather than restated in each: an assertion about
+"the incident this webhook call created" is the same assertion whichever
+scenario is driving it, and two copies drift the moment one is fixed.
+
+Everything here takes the webhook's `httpx.Response`, because that is what a
+`Scenario`'s `when` produces and the only handle a test has on the incident
+Argus created for it.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -14,17 +25,6 @@ from argus_core.models import IncidentStatus
 from argus_core.replay import CallType
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
 from argus_testkit import Assertion, all_of
-
-"""Talking to a running Argus stack, and asserting on what it did.
-
-Shared by every e2e test rather than restated in each: an assertion about
-"the incident this webhook call created" is the same assertion whichever
-scenario is driving it, and two copies drift the moment one is fixed.
-
-Everything here takes the webhook's `httpx.Response`, because that is what a
-`Scenario`'s `when` produces and the only handle a test has on the incident
-Argus created for it.
-"""
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"

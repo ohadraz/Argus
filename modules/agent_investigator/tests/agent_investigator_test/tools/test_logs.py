@@ -1,3 +1,12 @@
+"""The log channel: the window the model asked for, and the one it did not.
+
+The expensive channel and the only one with a ceiling, so this is where a
+window is most likely to be wrong - too wide, inverted, or absent. None of
+those may end the investigation: an inverted window is the model's mistake to
+correct on its next turn, and a clamped one is only honest if the model is
+told it was clamped.
+"""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -17,15 +26,6 @@ from agent_investigator_test.framework.builders.dispatcher import (
     a_call_to,
     a_dispatcher,
 )
-
-"""The log channel: the window the model asked for, and the one it did not.
-
-The expensive channel and the only one with a ceiling, so this is where a
-window is most likely to be wrong - too wide, inverted, or absent. None of
-those may end the investigation: an inverted window is the model's mistake to
-correct on its next turn, and a clamped one is only honest if the model is
-told it was clamped.
-"""
 
 
 @pytest.mark.unit

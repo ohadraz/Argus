@@ -1,3 +1,15 @@
+"""The account of an incident, written down and read back.
+
+This is the only writer the event stream has, and it writes nothing else. What
+it stores has to come back as what went in - the same type, the same payload,
+in the same order - because the narration is not re-derivable from anything
+else: if a line is lost here it is lost.
+
+It is read two ways. A page asks for one incident's account whole; a relay asks
+what has been published since it last looked, across every incident at once,
+and carries the place it got to so that a restart resumes rather than repeats.
+"""
+
 from __future__ import annotations
 
 import psycopg
@@ -13,18 +25,6 @@ from argus_core.events import (
 from argus_core.models import Actor, Alert, RetrievalChannel
 from argus_incidents.repository import events, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
-
-"""The account of an incident, written down and read back.
-
-This is the only writer the event stream has, and it writes nothing else. What
-it stores has to come back as what went in - the same type, the same payload,
-in the same order - because the narration is not re-derivable from anything
-else: if a line is lost here it is lost.
-
-It is read two ways. A page asks for one incident's account whole; a relay asks
-what has been published since it last looked, across every incident at once,
-and carries the place it got to so that a restart resumes rather than repeats.
-"""
 
 # Bigger than anything published in these tests. What is under test where this
 # appears is which events come back, not how many of them fit in one batch.

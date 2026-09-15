@@ -1,3 +1,20 @@
+"""That an investigation's calls - to the model and to the read tier - actually
+reach the replay log.
+
+The unit tests either side of this one hold the halves: `argus_core` proves an
+entry is built and written, `agent_investigator` proves a conversation is bound
+to the right incident and recorder. Neither can prove they were joined - the
+seam between them is a default argument, and a default nobody passes is exactly
+the kind of wiring that is written once, never exercised, and discovered empty
+on the day somebody wants to re-score a benchmark run.
+
+So this drives a real investigation: the real adapter, the real recorder, a
+real database. Only two things are stood in for, and neither is on the path
+under test - the model answers from a committed recording, and retrieval
+answers from memory, because what is being checked is that a call was written
+down rather than what the model made of it.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -18,23 +35,6 @@ from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
 
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN
-
-"""That an investigation's calls - to the model and to the read tier - actually
-reach the replay log.
-
-The unit tests either side of this one hold the halves: `argus_core` proves an
-entry is built and written, `agent_investigator` proves a conversation is bound
-to the right incident and recorder. Neither can prove they were joined - the
-seam between them is a default argument, and a default nobody passes is exactly
-the kind of wiring that is written once, never exercised, and discovered empty
-on the day somebody wants to re-score a benchmark run.
-
-So this drives a real investigation: the real adapter, the real recorder, a
-real database. Only two things are stood in for, and neither is on the path
-under test - the model answers from a committed recording, and retrieval
-answers from memory, because what is being checked is that a call was written
-down rather than what the model made of it.
-"""
 
 DATABASE_URL = get_settings().database_url
 

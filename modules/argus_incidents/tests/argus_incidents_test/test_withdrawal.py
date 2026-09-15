@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core import connect_from_env
-from argus_core.events import IncidentEvent, StatusChanged
-from argus_core.models import Alert, IncidentStatus
-from argus_incidents.repository import incidents
-from argus_incidents.withdrawal import wanted_via, withdraw_incident
-from argus_testkit import Assertion, Scenario, all_of
-
 """The door a human stops Argus through.
 
 The Orchestrator's second entrypoint, beside the one that starts an incident,
@@ -19,6 +9,16 @@ incident finds out that somebody stopped it the same way it finds out anything
 else - from the event stream - and a withdrawal that only wrote a row would
 leave that page polling an incident that had already ended.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core import connect_from_env
+from argus_core.events import IncidentEvent, StatusChanged
+from argus_core.models import Alert, IncidentStatus
+from argus_incidents.repository import incidents
+from argus_incidents.withdrawal import wanted_via, withdraw_incident
+from argus_testkit import Assertion, Scenario, all_of
 
 
 @pytest.mark.component

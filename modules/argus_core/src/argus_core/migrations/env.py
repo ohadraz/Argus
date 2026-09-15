@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-from alembic import context
-from argus_core.config import get_settings
-from sqlalchemy import create_engine, pool
-
 """How Alembic reaches Argus's database.
 
 Run by Alembic rather than imported by anything, which is why it is a script
@@ -18,6 +12,12 @@ No `target_metadata`: Argus declares its tables in SQL rather than in SQLAlchemy
 models, so there is nothing for `--autogenerate` to compare against. A revision
 here is written, not generated.
 """
+
+from __future__ import annotations
+
+from alembic import context
+from argus_core.config import get_settings
+from sqlalchemy import create_engine, pool
 
 # SQLAlchemy picks a driver from the URL's scheme and `postgresql` alone means
 # psycopg2, which this workspace does not install. The application's own URL is

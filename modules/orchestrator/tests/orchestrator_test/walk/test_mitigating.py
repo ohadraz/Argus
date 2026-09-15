@@ -1,3 +1,17 @@
+"""Performing the action the gate admitted, and recording what came of it.
+
+The node reports the verdict it measured and never a status: where the incident
+stands as a result is a conclusion drawn from it one place further out, and
+drawing it here is how the same verdict came to mean two different statuses in
+two places.
+
+The other half is what a resumed walk does. The claim on an action is written
+before the action and outlives the worker that wrote it, so a walk refused the
+claim is a walk that has been resumed inside this node - and what it does next
+depends on what the earlier attempt left behind: a recorded outcome, a change
+that reached the provider with nothing measured after it, or nothing at all.
+"""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -37,20 +51,6 @@ from orchestrator_test.framework.builders import (
     a_random_id,
     an_incident_state,
 )
-
-"""Performing the action the gate admitted, and recording what came of it.
-
-The node reports the verdict it measured and never a status: where the incident
-stands as a result is a conclusion drawn from it one place further out, and
-drawing it here is how the same verdict came to mean two different statuses in
-two places.
-
-The other half is what a resumed walk does. The claim on an action is written
-before the action and outlives the worker that wrote it, so a walk refused the
-claim is a walk that has been resumed inside this node - and what it does next
-depends on what the earlier attempt left behind: a recorded outcome, a change
-that reached the provider with nothing measured after it, or nothing at all.
-"""
 
 DONT_CARE_FLAG = "dont-care-flag"
 SOME_FLAG_THE_CANDIDATE_BLAMES = "monthly-spend-feature"

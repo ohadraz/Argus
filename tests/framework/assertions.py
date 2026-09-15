@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-from argus_core import UuidStr
-from argus_core.models import CauseType, Hypothesis
-from argus_testkit.assertions import Assertion
-
 """Assertions about a `Hypothesis`, shared by every tier that produces one.
 
 These live here rather than in `argus_testkit` because they know Argus's
@@ -12,6 +6,12 @@ domain. The testkit is deliberately generic - `all_of`, `eventually`,
 import of `argus_core` would make the test machinery depend on the thing under
 test.
 """
+
+from __future__ import annotations
+
+from argus_core import UuidStr
+from argus_core.models import CauseType, Hypothesis
+from argus_testkit.assertions import Assertion
 
 
 def the_cause_was_identified_as(expected_cause: CauseType) -> Assertion[Hypothesis]:

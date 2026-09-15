@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-import time
-from collections.abc import Callable
-from typing import Any
-
-from argus_core.llm.client import LLMClient
-from argus_core.models.tool_definition import ToolDefinition
-from argus_core.models.transcript import Transcript
-from argus_core.models.turn import Turn
-from argus_core.replay import CallType, Replay
-
 """An `LLMClient` that keeps a receipt for every call it passes on.
 
 A decorator rather than instrumentation inside the adapter, for two reasons.
@@ -29,6 +17,18 @@ Nothing about the call changes. The answer is handed back as it arrived, a
 failure is re-raised as it was thrown, and a recorder having a bad day is
 invisible to everyone above - `Replay` swallows that, as narration does.
 """
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+from typing import Any
+
+from argus_core.llm.client import LLMClient
+from argus_core.models.tool_definition import ToolDefinition
+from argus_core.models.transcript import Transcript
+from argus_core.models.turn import Turn
+from argus_core.replay import CallType, Replay
 
 # Reading the clock, so a test can hand over one that does not tick. A
 # `Callable` rather than a Protocol because it takes no arguments: there are no

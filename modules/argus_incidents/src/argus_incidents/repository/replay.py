@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-import psycopg
-from argus_core.replay import CallType, ReplayEntry
-from psycopg.types.json import Jsonb
-
 """Where a call Argus made out of its own process is written down (spec §11.1).
 
 `argus_core.replay` says what an entry is and how it is handed over; this is
@@ -15,6 +9,12 @@ Writes here and touches nothing else, which is what leaves spec §7.1's
 single-writer rule intact as this table arrives. The four domain tables keep
 the one writer they had, `incident_event` has its own, and this has a third.
 """
+
+from __future__ import annotations
+
+import psycopg
+from argus_core.replay import CallType, ReplayEntry
+from psycopg.types.json import Jsonb
 
 
 def record(conn: psycopg.Connection, entry: ReplayEntry) -> None:

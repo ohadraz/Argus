@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from math import isclose
-
-import pytest
-from agent_postmortem.estimate import error_rate_delta, loss_between
-from argus_core.models import MetricBucket
-from argus_testkit import Assertion, Scenario
-
 """What the incident cost the business, term by term.
 
 Two quantities, measured separately and never multiplied: the loss itself,
@@ -19,6 +8,17 @@ what happened.
 Every case here is arithmetic. Nothing asks a model anything - a figure a
 model could be talked out of is not a measurement.
 """
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from math import isclose
+
+import pytest
+from agent_postmortem.estimate import error_rate_delta, loss_between
+from argus_core.models import MetricBucket
+from argus_testkit import Assertion, Scenario
 
 INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 INCIDENT_END = INCIDENT_START + timedelta(minutes=30)

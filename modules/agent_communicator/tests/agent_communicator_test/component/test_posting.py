@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from typing import Any
-
-import httpx
-import pytest
-from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
-from argus_testkit import Assertion, Scenario, all_of
-
 """What Argus says in Slack, said through the real adapter.
 
 The double stands where Slack does, so what is exercised here is the client the
@@ -19,6 +10,15 @@ message arrives where it was addressed and says what it was given: a message
 delivered to the wrong channel is indistinguishable, from inside Argus, from
 one delivered correctly.
 """
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+import pytest
+from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
+from argus_testkit import Assertion, Scenario, all_of
 
 
 @pytest.mark.component

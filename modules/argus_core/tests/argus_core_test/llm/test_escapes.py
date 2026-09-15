@@ -1,9 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core.llm.escapes import with_escapes_resolved
-from argus_testkit import Assertion, Scenario
-
 """What a model wrote, where it escaped a character instead of writing it.
 
 The model's own artefact, not the API's: the SDK decodes a response exactly
@@ -26,6 +20,12 @@ it is accepted. Where nothing should change, the expectation is the sentence
 itself, so a repair that reached further shows up as a difference rather than
 hiding inside a second string somebody typed out by hand.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core.llm.escapes import with_escapes_resolved
+from argus_testkit import Assertion, Scenario
 
 
 @pytest.mark.unit

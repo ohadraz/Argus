@@ -1,11 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core import parse_iso
-from argus_core.models import Evidence
-from argus_narration.findings import Finding, a_finding, pointed_at
-from argus_testkit import Assertion, Scenario, all_of
-
 """One cited fact, pointed at the row it names.
 
 A link is worse than no link when it is wrong: a reader who follows one
@@ -18,6 +10,14 @@ sentence. That is the whole of what changed here: the words of a claim decide
 nothing at all now, which is why every sentence below is arbitrary and every
 moment is not.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core import parse_iso
+from argus_core.models import Evidence
+from argus_narration.findings import Finding, a_finding, pointed_at
+from argus_testkit import Assertion, Scenario, all_of
 
 
 @pytest.mark.unit

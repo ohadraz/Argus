@@ -1,3 +1,13 @@
+"""How an incident is walked. Starting one is `argus_incidents.intake`.
+
+The two live apart because importing this builds the graph and everything
+under it: a process that can reach here can run an investigation, and the
+process receiving alerts must not be able to. Nothing about a run depends on
+the connection the alert arrived on, which is what makes an investigation
+survive a gateway timeout - and what makes the checkpointer worth having, since
+a run nobody is holding can be picked up by whoever comes next.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -14,16 +24,6 @@ from langgraph.graph.state import CompiledStateGraph
 from orchestrator.walk.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.state import IncidentState
-
-"""How an incident is walked. Starting one is `argus_incidents.intake`.
-
-The two live apart because importing this builds the graph and everything
-under it: a process that can reach here can run an investigation, and the
-process receiving alerts must not be able to. Nothing about a run depends on
-the connection the alert arrived on, which is what makes an investigation
-survive a gateway timeout - and what makes the checkpointer worth having, since
-a run nobody is holding can be picked up by whoever comes next.
-"""
 
 # Where the graph a walk runs on comes from. A parameter rather than a global
 # reached through: the thread a resumed run continues on is the whole of what

@@ -1,3 +1,10 @@
+"""Asking the flag provider whether a half-finished action actually landed.
+
+A worker that died between taking an action and recording what came of it
+leaves a claim with no outcome. Only the provider knows whether the change was
+made, and this is the one place Argus asks it that question about itself.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -19,13 +26,6 @@ from argus_core import to_iso
 from argus_core.mcp_transport import McpClient
 from argus_core.models import FlagChange
 from argus_testkit import Assertion, Scenario, all_of
-
-"""Asking the flag provider whether a half-finished action actually landed.
-
-A worker that died between taking an action and recording what came of it
-leaves a claim with no outcome. Only the provider knows whether the change was
-made, and this is the one place Argus asks it that question about itself.
-"""
 
 SOME_FLAG = "kukibuki"
 SOME_ARGUS_USER = "Shuki Tuki"

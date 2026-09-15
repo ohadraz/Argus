@@ -1,3 +1,16 @@
+"""One incident, the sources that describe it, and what measuring it produced.
+
+Every test that drives the agent needs six sources answering before it reaches
+anything it is actually about, and every test downstream of the measuring needs
+a `Measurements` before it reaches anything it is about. Spelled out per file,
+those arrangements get copied and drift: two files disagree about how long the
+incident ran, and a reader cannot tell whether the difference is the point.
+
+So the incident is fixed here, and each builder is written to be asked for the
+one thing its test cares about. What a test does not name, it does not care
+about - which is what makes the thing it does name visible.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -36,19 +49,6 @@ from argus_core.models import (
     Turn,
 )
 from argus_testkit import Kept
-
-"""One incident, the sources that describe it, and what measuring it produced.
-
-Every test that drives the agent needs six sources answering before it reaches
-anything it is actually about, and every test downstream of the measuring needs
-a `Measurements` before it reaches anything it is about. Spelled out per file,
-those arrangements get copied and drift: two files disagree about how long the
-incident ran, and a reader cannot tell whether the difference is the point.
-
-So the incident is fixed here, and each builder is written to be asked for the
-one thing its test cares about. What a test does not name, it does not care
-about - which is what makes the thing it does name visible.
-"""
 
 # One incident, dated from its onset. The alert is late by ten minutes, which
 # is the ordinary case rather than an edge one: a rule needs a few minutes of

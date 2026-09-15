@@ -1,18 +1,3 @@
-from __future__ import annotations
-
-from datetime import UTC, datetime
-from typing import Any
-
-import pytest
-from argus_core.models.undo_descriptor import (
-    SET_FEATURE_FLAG_TOOL,
-    UndoDescriptor,
-    parse_undo_descriptor,
-)
-from argus_core.timestamps import to_iso
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from pydantic import ValidationError
-
 """The record of one change, in the shape that puts it back (spec §7.3, §13).
 
 What the write tier returns and what an undo reads back, hours later and two
@@ -32,6 +17,21 @@ spelled out here rather than imported from the model: this file is what pins the
 wire shape, and a test that took the tag from the code it checks would agree
 with any change to it.
 """
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+from argus_core.models.undo_descriptor import (
+    SET_FEATURE_FLAG_TOOL,
+    UndoDescriptor,
+    parse_undo_descriptor,
+)
+from argus_core.timestamps import to_iso
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from pydantic import ValidationError
 
 SOME_FLAG = "monthly-spend-feature"
 SOME_ENVIRONMENT = "production"

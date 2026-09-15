@@ -1,17 +1,3 @@
-from __future__ import annotations
-
-from typing import Any
-
-import pytest
-from argus_core.replay import CallType, Replay, ReplayEntry
-from argus_testkit import Assertion, Scenario
-
-from argus_core_test.framework.replay import (
-    a_recorder_that_keeps_what_it_is_given,
-    the_entry_took,
-    the_entry_was_recorded_for,
-)
-
 """Every external call, written down well enough to replay (spec §4 principle 6).
 
 The incident tables record what Argus concluded and the event stream records
@@ -33,6 +19,20 @@ This file is the seam alone - that an entry is built, reaches a recorder, and
 cannot take the call down with it. What a wrapped model client actually puts in
 one is `llm/test_recorded_client.py`.
 """
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from argus_core.replay import CallType, Replay, ReplayEntry
+from argus_testkit import Assertion, Scenario
+
+from argus_core_test.framework.replay import (
+    a_recorder_that_keeps_what_it_is_given,
+    the_entry_took,
+    the_entry_was_recorded_for,
+)
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 SOME_MODEL = "claude-opus-5"

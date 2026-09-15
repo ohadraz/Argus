@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
-
-import pytest
-from argus_core import to_iso
-from argus_narration.clock import a_minute, a_moment, a_window, is_a_moment
-from argus_testkit import Assertion, Scenario
-
 """Wire-format instants, said the way a person reads them.
 
 The tools speak `2026-08-30T10:14:00Z` to each other; a reader sitting beside a
@@ -19,6 +10,15 @@ Which instant it is never matters. What matters is what is done to it: trimmed
 to a minute, kept to the second, given its date back when a window crosses one,
 or handed back untouched because it was never a time at all.
 """
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from argus_core import to_iso
+from argus_narration.clock import a_minute, a_moment, a_window, is_a_moment
+from argus_testkit import Assertion, Scenario
 
 
 @pytest.mark.unit

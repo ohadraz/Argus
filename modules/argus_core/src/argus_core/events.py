@@ -1,3 +1,16 @@
+"""What Argus says about its own work as it does it (spec §4 principle 6).
+
+The incident tables record conclusions - which candidate was blamed, what was
+done, where the incident ended. These record the work: which window was asked
+for, what came back, which minute was called the onset, what was formed from
+it. Nothing here is read by anything that decides: an event is an account, and
+an account that could change the outcome would be a participant.
+
+Each event is its own type rather than a `kind` with a bag of fields, because a
+reader has to be able to hold one and know what it is holding. `kind` is on
+each of them all the same - it is what a stored row is read back by.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -21,19 +34,6 @@ from argus_core.models.metrics import MetricBucket
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
-
-"""What Argus says about its own work as it does it (spec §4 principle 6).
-
-The incident tables record conclusions - which candidate was blamed, what was
-done, where the incident ended. These record the work: which window was asked
-for, what came back, which minute was called the onset, what was formed from
-it. Nothing here is read by anything that decides: an event is an account, and
-an account that could change the outcome would be a participant.
-
-Each event is its own type rather than a `kind` with a bag of fields, because a
-reader has to be able to hold one and know what it is holding. `kind` is on
-each of them all the same - it is what a stored row is read back by.
-"""
 
 _logger = logging.getLogger(__name__)
 

@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-import psycopg
-
 """Which Slack conversation an incident is being told in.
 
 Slack has no thread id: a reply names the timestamp of the message it is
@@ -11,6 +7,10 @@ day, which is why it is a row and not something held in memory.
 
 Committing is the caller's, as in every repository here.
 """
+
+from __future__ import annotations
+
+import psycopg
 
 
 def get(conn: psycopg.Connection, incident_id: str, channel: str) -> str | None:

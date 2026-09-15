@@ -1,3 +1,11 @@
+"""The button that stops Argus, from the outside.
+
+`argus_web` decides nothing here. It names the incident and reports what the
+Orchestrator answered - which is the same arrangement as the alert webhook, and
+for the same reason: whether a withdrawal is permitted is a fact about the
+incident, and the incident does not live in the web process.
+"""
+
 from __future__ import annotations
 
 from http import HTTPStatus as HttpStatus
@@ -10,14 +18,6 @@ from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
-
-"""The button that stops Argus, from the outside.
-
-`argus_web` decides nothing here. It names the incident and reports what the
-Orchestrator answered - which is the same arrangement as the alert webhook, and
-for the same reason: whether a withdrawal is permitted is a fact about the
-incident, and the incident does not live in the web process.
-"""
 
 
 @pytest.mark.component

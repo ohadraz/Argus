@@ -1,21 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from agent_communicator.policy import Register
-from agent_communicator.relaying import Outcome, relay_once
-from argus_core import new_id
-from argus_core.events import (
-    ActionTaken,
-    IncidentEvent,
-    OnsetDetected,
-    RetrievalRequested,
-    StatusChanged,
-)
-from argus_core.models import IncidentStatus, RetrievalChannel
-from argus_incidents.repository import events
-from argus_narration import NarrationLine, a_narration_line
-from argus_testkit import Assertion, Scenario, all_of, calling
-
 """Slack as a projection of the event log, rather than calls inside the walk.
 
 The relay follows what was published and says it somewhere a human is: it reads
@@ -33,6 +15,24 @@ Delivery is at-least-once. A line said twice is a nuisance; a line nobody ever
 says is the failure this exists to prevent, so the place only ever moves past a
 line that landed - or past one nobody was ever going to be told about.
 """
+
+from __future__ import annotations
+
+import pytest
+from agent_communicator.policy import Register
+from agent_communicator.relaying import Outcome, relay_once
+from argus_core import new_id
+from argus_core.events import (
+    ActionTaken,
+    IncidentEvent,
+    OnsetDetected,
+    RetrievalRequested,
+    StatusChanged,
+)
+from argus_core.models import IncidentStatus, RetrievalChannel
+from argus_incidents.repository import events
+from argus_narration import NarrationLine, a_narration_line
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 AN_INCIDENT = new_id()
 

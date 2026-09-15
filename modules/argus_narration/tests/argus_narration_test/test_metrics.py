@@ -1,10 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core.models import MetricBucket
-from argus_narration.metrics import BucketRow, a_bucket_row
-from argus_testkit import Assertion, Scenario, all_of
-
 """One minute of the service's metrics, as a row on the page.
 
 Nothing here judges the incident. `elevated` is the mark a reader's eye lands
@@ -19,6 +12,13 @@ different set of minutes than the other would make a reader translate between
 them. A test that read the figure out of the code could not notice the day the
 two stopped agreeing.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core.models import MetricBucket
+from argus_narration.metrics import BucketRow, a_bucket_row
+from argus_testkit import Assertion, Scenario, all_of
 
 THE_RATE_A_MINUTE_IS_MARKED_AT = 0.05
 

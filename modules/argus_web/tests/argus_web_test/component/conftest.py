@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-import subprocess
-from collections.abc import Iterator
-
-import pytest
-from argus_core import connect_from_env
-from argus_core.schema import reset_schema
-
 """Postgres, and nothing else.
 
 A component test runs `argus_web` entire - its routes, its reads, its
@@ -16,6 +7,15 @@ would need a second dialect of the schema, which is precisely the thing a
 component test is supposed to be checking against. So the real server comes up,
 from the same `docker-compose.yml` the stack runs on, with the same DDL.
 """
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Iterator
+
+import pytest
+from argus_core import connect_from_env
+from argus_core.schema import reset_schema
 
 
 @pytest.fixture(scope="session", autouse=True)

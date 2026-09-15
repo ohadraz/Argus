@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from typing import Any, Final
-
-import pytest
-from argus_core.models.tool_definition import ToolDefinition
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from pydantic import ValidationError
-
 """What Argus offers the model, and the wire shape that offer takes.
 
 The counterpart to `test_turn.py`: that file covers a reply coming back, this
@@ -20,6 +11,14 @@ a schema that forgets `additionalProperties` silently stops being strict, and
 nothing downstream notices until the model sends an argument nobody handles.
 """
 
+from __future__ import annotations
+
+from typing import Any, Final
+
+import pytest
+from argus_core.models.tool_definition import ToolDefinition
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from pydantic import ValidationError
 
 # Anthropic's own vocabulary for a tool offer. Stated here rather than imported
 # from the code under test: a test that borrowed Argus's spelling would agree

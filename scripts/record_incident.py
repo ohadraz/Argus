@@ -1,3 +1,33 @@
+"""Captures real model answers as replayable recordings.
+
+Recording is a proxy inside the Anthropic double rather than a script that
+builds its own request: the double is told to record, then the stack drives one
+real incident through it, so the request that gets stored is by construction the
+request the adapter sends - prompt, schema transform and all.
+
+This script is the part around that: arm the double, stage the Target Service,
+fire the alert, and say what was written. It exists so a recording is one
+command rather than four hand-typed curls whose order matters - seeds take
+precedence over record mode, so a double that was seeded by a previous run
+records nothing and the mistake looks like a working run.
+
+It takes recording *names* and nothing else. What each one stages, and which
+alert it fires, is the mapping below rather than something typed at the command
+line: a recording is replayed for one specific e2e case, so the world it was
+captured in is a property of the recording, not a choice. Getting that wrong is
+not a failure - it is a plausible-looking recording of the wrong incident, paid
+for and committed.
+
+Several names in one run share one stack, and `all` is every name. The stack is
+the slow part - a build, a compose up, four local services - and it is brought
+up once by the nox session around this script whether it captures one recording
+or five. What is *not* shared is the world: each recording is captured in the
+same reset environment the e2e suite arranges for the case that replays it.
+
+Costs one real investigation per name, which is why it is a session nobody runs
+by accident and never part of a suite.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -28,36 +58,6 @@ from tests.e2e.framework.flags import (
     the_boot_flags_were_put_back,
     the_flag_provider_forgot_every_change,
 )
-
-"""Captures real model answers as replayable recordings.
-
-Recording is a proxy inside the Anthropic double rather than a script that
-builds its own request: the double is told to record, then the stack drives one
-real incident through it, so the request that gets stored is by construction the
-request the adapter sends - prompt, schema transform and all.
-
-This script is the part around that: arm the double, stage the Target Service,
-fire the alert, and say what was written. It exists so a recording is one
-command rather than four hand-typed curls whose order matters - seeds take
-precedence over record mode, so a double that was seeded by a previous run
-records nothing and the mistake looks like a working run.
-
-It takes recording *names* and nothing else. What each one stages, and which
-alert it fires, is the mapping below rather than something typed at the command
-line: a recording is replayed for one specific e2e case, so the world it was
-captured in is a property of the recording, not a choice. Getting that wrong is
-not a failure - it is a plausible-looking recording of the wrong incident, paid
-for and committed.
-
-Several names in one run share one stack, and `all` is every name. The stack is
-the slow part - a build, a compose up, four local services - and it is brought
-up once by the nox session around this script whether it captures one recording
-or five. What is *not* shared is the world: each recording is captured in the
-same reset environment the e2e suite arranges for the case that replays it.
-
-Costs one real investigation per name, which is why it is a session nobody runs
-by accident and never part of a suite.
-"""
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"

@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-from datetime import date, timedelta
-from decimal import Decimal
-
-import pytest
-from agent_postmortem import RateTable
-from argus_core.models import PublishedRates, RatesUnavailable
-from argus_testkit import Assertion, Scenario, all_of
-from argus_testkit.collecting import Kept
-from orchestrator.rates import HeldRates, Published, todays_rates
-
 """The day's rates: fetched once, held, and stood in for when nobody answers.
 
 Five situations, and the difference between them is the whole point. Rates are
@@ -26,6 +14,18 @@ Where those rates are kept is not this module's subject. The table belongs to
 `argus_incidents`, and what it does with a row is tested there; here it is two
 injected collaborators, so these are the decisions and nothing else.
 """
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+from decimal import Decimal
+
+import pytest
+from agent_postmortem import RateTable
+from argus_core.models import PublishedRates, RatesUnavailable
+from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit.collecting import Kept
+from orchestrator.rates import HeldRates, Published, todays_rates
 
 SOME_BASE_CURRENCY = "usd"
 SOME_OTHER_CURRENCY = "eur"

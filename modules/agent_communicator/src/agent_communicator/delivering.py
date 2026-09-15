@@ -1,3 +1,16 @@
+"""How a register becomes a message: the channel itself, or a reply in a thread.
+
+The only module that knows what "loudly" means in Slack. A message in the
+channel reaches everyone in it; a reply reaches whoever is following that
+thread - so the register decides which of the two a line is, and nothing else
+here has an opinion about it.
+
+An incident's thread is whatever Slack called its first message. That is
+remembered against the incident, because the line delivered twenty minutes
+later is delivered by another pass and usually another process, and a
+conversation nobody can find again is a channel of loose sentences.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -12,19 +25,6 @@ from agent_communicator.policy import Register
 from agent_communicator.relaying import Delivery, Outcome
 from agent_communicator.repository import threads
 from agent_communicator.slack import post_message
-
-"""How a register becomes a message: the channel itself, or a reply in a thread.
-
-The only module that knows what "loudly" means in Slack. A message in the
-channel reaches everyone in it; a reply reaches whoever is following that
-thread - so the register decides which of the two a line is, and nothing else
-here has an opinion about it.
-
-An incident's thread is whatever Slack called its first message. That is
-remembered against the incident, because the line delivered twenty minutes
-later is delivered by another pass and usually another process, and a
-conversation nobody can find again is a channel of loose sentences.
-"""
 
 # How Slack marks a word inside a message. The narration hands the page three
 # strings - what comes before the word it sets apart, the word, and what comes

@@ -1,3 +1,20 @@
+"""Mitigation against a real provider, in both directions and both outcomes.
+
+The cases in `test_scenario_investigation.py` are about what Argus concludes.
+These are about what it then does to a world that can answer back:
+
+- a flag switched *off* caused the incident, so ending it means switching that
+  flag back on - the direction a revert-only write tier could not perform at
+  all;
+- a flag was switched on, the logs say so, and it was not the cause - so the
+  action is refuted, the flag has to be found where it was left, and Argus
+  goes on to whatever else the evidence offered before it gives up.
+
+Both are staged by the Target Service, whose telemetry is a live function of
+flag state, so nothing here asserts on what Argus reported about itself. The
+provider's own answer about the flag is the evidence.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -23,23 +40,6 @@ from tests.e2e.framework.argus import (
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG, the_flag_provider_reports
 from tests.framework.assertions import the_cause_was_identified_as
-
-"""Mitigation against a real provider, in both directions and both outcomes.
-
-The cases in `test_scenario_investigation.py` are about what Argus concludes.
-These are about what it then does to a world that can answer back:
-
-- a flag switched *off* caused the incident, so ending it means switching that
-  flag back on - the direction a revert-only write tier could not perform at
-  all;
-- a flag was switched on, the logs say so, and it was not the cause - so the
-  action is refuted, the flag has to be found where it was left, and Argus
-  goes on to whatever else the evidence offered before it gives up.
-
-Both are staged by the Target Service, whose telemetry is a live function of
-flag state, so nothing here asserts on what Argus reported about itself. The
-provider's own answer about the flag is the evidence.
-"""
 
 
 @pytest.mark.e2e

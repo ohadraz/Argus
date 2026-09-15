@@ -1,3 +1,16 @@
+"""Which of the things Argus publishes a human hears, and how loudly.
+
+Everything is published and everything is on the dashboard; a channel is not a
+dashboard. What earns an interruption is what Argus found, what it changed,
+what it concluded and where the incident now stands - not the reading it did to
+get there, which is evidence somebody goes looking for rather than news.
+
+Here rather than where events are published. A component that knew which of its
+own lines were worth interrupting a person with would be making an editorial
+decision in the middle of doing its job - and the decision would then be made
+once per publisher, differently each time.
+"""
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -27,19 +40,6 @@ from argus_core.events import (
     StatusChanged,
     VerdictReached,
 )
-
-"""Which of the things Argus publishes a human hears, and how loudly.
-
-Everything is published and everything is on the dashboard; a channel is not a
-dashboard. What earns an interruption is what Argus found, what it changed,
-what it concluded and where the incident now stands - not the reading it did to
-get there, which is evidence somebody goes looking for rather than news.
-
-Here rather than where events are published. A component that knew which of its
-own lines were worth interrupting a person with would be making an editorial
-decision in the middle of doing its job - and the decision would then be made
-once per publisher, differently each time.
-"""
 
 
 class Register(StrEnum):

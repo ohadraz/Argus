@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-from typing import Any
-
-import httpx
-import pytest
-from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
-from argus_testkit import Assertion, Scenario, all_of, attempting
-
 """Every way Slack declines to carry a message, and what Argus does about it.
 
 Nothing. That is the claim these make: a refusal, a throttle and a workspace
@@ -20,6 +11,15 @@ told apart here - only that each is survived and that nothing was delivered. A
 call that answered an id after failing would be worse than one that raised: the
 war room would hold a thread reference naming a message that does not exist.
 """
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+import pytest
+from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
+from argus_testkit import Assertion, Scenario, all_of, attempting
 
 # By address rather than by name: `localhost` resolves to IPv6 first and waits
 # out a refusal on each of the two, which doubles what this costs for nothing.

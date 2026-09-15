@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-import subprocess
-from collections.abc import Iterator
-
-import pytest
-from argus_core import connect_from_env
-from argus_core.schema import reset_schema
-from psycopg import sql
-
 """The database this module's tests run against, and its state between them.
 
 Offered rather than imposed. Most of this module's tests never touch a database
@@ -24,6 +14,16 @@ lives and it stays free of `argus_core` - depending back on the module it
 supports would close a cycle - and the alternative, a helper in `argus_core`
 itself, would put docker in a production package.
 """
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Iterator
+
+import pytest
+from argus_core import connect_from_env
+from argus_core.schema import reset_schema
+from psycopg import sql
 
 
 @pytest.fixture(scope="session")

@@ -1,15 +1,3 @@
-from __future__ import annotations
-
-import threading
-import time
-from collections.abc import Iterator
-
-import httpx
-import pytest
-import uvicorn
-from slack_double import DEFAULT_BASE_URL, DEFAULT_PORT
-from slack_double import app as slack_double_app
-
 """The Slack double, and nothing else.
 
 A component test runs `agent_communicator` entire - the adapter, the client it
@@ -22,6 +10,18 @@ service: the SDK needs a real port to talk to, and that is the whole of what
 the double requires. Reset between tests for the reason the database is -
 messages left by one test read back as another test's.
 """
+
+from __future__ import annotations
+
+import threading
+import time
+from collections.abc import Iterator
+
+import httpx
+import pytest
+import uvicorn
+from slack_double import DEFAULT_BASE_URL, DEFAULT_PORT
+from slack_double import app as slack_double_app
 
 _A_MOMENT = 0.05
 _LONG_ENOUGH_TO_COME_UP = 10.0

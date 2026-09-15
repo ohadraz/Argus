@@ -1,3 +1,25 @@
+"""Turning four tables back into one incident.
+
+The agent holds no connection and reads no rows: what it is handed is this,
+assembled from the incident's own row, the account it published, the
+candidates it ranked and the actions it took. Gathering is the Orchestrator's
+work because the tables are, and because an agent that queried for its own
+evidence could ask a different question than the page beside it.
+
+Nothing here is derived or judged. Every line comes from something that was
+recorded while it was happening - which is the point: what happened was
+decided then, and a postmortem re-deciding it from conclusions would be
+writing a different incident.
+
+The last case covers the other half of this module - writing the document
+rather than gathering what goes in it - and exists to hold a claim that would
+otherwise be only an assertion in a commit message: that this path can be
+driven with no payment provider, no on-call system, no HR source, no read tier
+and no model. Every one of those is a plain function here. Before the sources
+and the client factory arrived as arguments, this call could not be made at all
+without all five installed and reachable.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -32,28 +54,6 @@ from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
 from orchestrator.gathering import gather_evidence, write_postmortem_for
-
-"""Turning four tables back into one incident.
-
-The agent holds no connection and reads no rows: what it is handed is this,
-assembled from the incident's own row, the account it published, the
-candidates it ranked and the actions it took. Gathering is the Orchestrator's
-work because the tables are, and because an agent that queried for its own
-evidence could ask a different question than the page beside it.
-
-Nothing here is derived or judged. Every line comes from something that was
-recorded while it was happening - which is the point: what happened was
-decided then, and a postmortem re-deciding it from conclusions would be
-writing a different incident.
-
-The last case covers the other half of this module - writing the document
-rather than gathering what goes in it - and exists to hold a claim that would
-otherwise be only an assertion in a commit message: that this path can be
-driven with no payment provider, no on-call system, no HR source, no read tier
-and no model. Every one of those is a plain function here. Before the sources
-and the client factory arrived as arguments, this call could not be made at all
-without all five installed and reachable.
-"""
 
 # How many hours a year the bands are divided by. Any number does: nothing here
 # publishes a cost, and the arithmetic that would use it is the agent's own

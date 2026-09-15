@@ -1,10 +1,3 @@
-from __future__ import annotations
-
-from typing import Any
-
-from argus_core.replay import ReplayEntry
-from argus_testkit import Assertion, Kept
-
 """Reading back what a recorder was handed.
 
 Shared by the two suites that need it for different questions:
@@ -19,6 +12,13 @@ Not taste: `argus_testkit` is a dev dependency *of* `argus_core`, so depending
 back on it would close a cycle that a fresh `uv sync --all-packages` is
 entitled to refuse.
 """
+
+from __future__ import annotations
+
+from typing import Any
+
+from argus_core.replay import ReplayEntry
+from argus_testkit import Assertion, Kept
 
 KeptEntries = Kept[ReplayEntry]
 

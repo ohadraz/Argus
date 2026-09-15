@@ -1,3 +1,19 @@
+"""What every turn of an investigation asks the API to keep.
+
+A loop re-sends the whole transcript each turn, so by the end of a walk the
+same opening message and the same tool results have been read at full price
+five or six times over. One breakpoint turns all but the newest of that into a
+cache read at a tenth of the price.
+
+The regression this guards is silent by construction: drop the breakpoint and
+every request still succeeds, every suite still passes, and only the bill
+changes. Nothing else here would notice.
+
+Whether the API *honours* the breakpoint is the third party's half of the
+bargain and cannot be checked against a stand-in - that one lives in
+`tests/contract/`, where it is paid for.
+"""
+
 from __future__ import annotations
 
 from unittest.mock import Mock
@@ -18,22 +34,6 @@ from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Ask
 from argus_core.models.turn import Turn
 from argus_testkit import Assertion, Scenario
-
-"""What every turn of an investigation asks the API to keep.
-
-A loop re-sends the whole transcript each turn, so by the end of a walk the
-same opening message and the same tool results have been read at full price
-five or six times over. One breakpoint turns all but the newest of that into a
-cache read at a tenth of the price.
-
-The regression this guards is silent by construction: drop the breakpoint and
-every request still succeeds, every suite still passes, and only the bill
-changes. Nothing else here would notice.
-
-Whether the API *honours* the breakpoint is the third party's half of the
-bargain and cannot be checked against a stand-in - that one lives in
-`tests/contract/`, where it is paid for.
-"""
 
 
 @pytest.mark.unit

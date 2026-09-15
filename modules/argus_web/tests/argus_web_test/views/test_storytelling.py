@@ -1,21 +1,3 @@
-from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
-
-import pytest
-from argus_core import new_id
-from argus_core.events import (
-    ChangesRetrieved,
-    FlagChangesRetrieved,
-    IncidentEvent,
-    LogsRetrieved,
-    MetricsRetrieved,
-    StatusChanged,
-)
-from argus_core.models import Alert, FlagChange, Incident, IncidentStatus, MetricBucket
-from argus_testkit import Assertion, Scenario
-from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
-
 """One incident's whole account of itself, arranged for one screen.
 
 The evidence is gathered here rather than left under the retrievals that
@@ -33,6 +15,24 @@ The rest are about the header: how long the incident has been running, and the
 version the page polls against. That version has to change when the content
 does and not otherwise, or the page either never updates or updates constantly.
 """
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from argus_core import new_id
+from argus_core.events import (
+    ChangesRetrieved,
+    FlagChangesRetrieved,
+    IncidentEvent,
+    LogsRetrieved,
+    MetricsRetrieved,
+    StatusChanged,
+)
+from argus_core.models import Alert, FlagChange, Incident, IncidentStatus, MetricBucket
+from argus_testkit import Assertion, Scenario
+from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 

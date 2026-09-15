@@ -1,3 +1,20 @@
+"""Which of the things Argus publishes a human actually hears, and how loudly.
+
+Everything is published and everything is on the dashboard; a channel is not a
+dashboard. What earns an interruption is what Argus found, what it changed, what
+it concluded and where the incident now stands - not the reading it did to get
+there, which is evidence a reader goes looking for rather than news.
+
+Register, not a flag: the opening of an incident and its ending are addressed to
+everyone, and everything in between is addressed to whoever is following it.
+Said in words a destination can translate - Slack into a channel message and a
+thread reply, email into a send and a digest - rather than in Slack's own.
+
+The policy lives here and not where events are published. A component that knew
+which of its own lines were worth interrupting somebody with would be a
+component making an editorial decision in the middle of doing its job.
+"""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -40,23 +57,6 @@ from argus_core.models import (
     Verdict,
 )
 from argus_testkit import Assertion, Scenario
-
-"""Which of the things Argus publishes a human actually hears, and how loudly.
-
-Everything is published and everything is on the dashboard; a channel is not a
-dashboard. What earns an interruption is what Argus found, what it changed, what
-it concluded and where the incident now stands - not the reading it did to get
-there, which is evidence a reader goes looking for rather than news.
-
-Register, not a flag: the opening of an incident and its ending are addressed to
-everyone, and everything in between is addressed to whoever is following it.
-Said in words a destination can translate - Slack into a channel message and a
-thread reply, email into a send and a digest - rather than in Slack's own.
-
-The policy lives here and not where events are published. A component that knew
-which of its own lines were worth interrupting somebody with would be a
-component making an editorial decision in the middle of doing its job.
-"""
 
 AN_INCIDENT = new_id()
 

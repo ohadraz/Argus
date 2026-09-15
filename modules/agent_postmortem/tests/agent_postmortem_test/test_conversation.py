@@ -1,3 +1,25 @@
+"""The one second chance, and the two things that earn it.
+
+A field the model left out, and a figure it made up. They are answered
+together: one further call naming what was wrong with the first, and then
+whatever comes back is what the document is written from. There is no third
+attempt - an incident that is over is not improved by an agent that will not
+stop, and the faults are handed back so the caller can mark the document
+partial.
+
+The invented figure is the subtler of the two. Columns are safe from the model
+by construction, but the executive summary is published as written, so a
+sentence claiming a number Argus never computed reaches the one reader least
+able to check it.
+
+The shape of the second ask is the other half of this file, and it is not a
+detail of wording. A submission is refused through the result of the call that
+made it, because a provider that has seen a tool call expects its result next -
+but a model that made no call submitted nothing there is anything to refuse, so
+that one is asked again from the start. Getting it wrong produces a
+conversation a provider will not accept, or one the model cannot make sense of.
+"""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -21,28 +43,6 @@ from agent_postmortem_test.framework.builders import (
     an_answer_without,
     an_evidence_bundle,
 )
-
-"""The one second chance, and the two things that earn it.
-
-A field the model left out, and a figure it made up. They are answered
-together: one further call naming what was wrong with the first, and then
-whatever comes back is what the document is written from. There is no third
-attempt - an incident that is over is not improved by an agent that will not
-stop, and the faults are handed back so the caller can mark the document
-partial.
-
-The invented figure is the subtler of the two. Columns are safe from the model
-by construction, but the executive summary is published as written, so a
-sentence claiming a number Argus never computed reaches the one reader least
-able to check it.
-
-The shape of the second ask is the other half of this file, and it is not a
-detail of wording. A submission is refused through the result of the call that
-made it, because a provider that has seen a tool call expects its result next -
-but a model that made no call submitted nothing there is anything to refuse, so
-that one is asked again from the start. Getting it wrong produces a
-conversation a provider will not accept, or one the model cannot make sense of.
-"""
 
 # The figure this file's incident was measured at, and the same figure as a
 # summary would write it. A stated amount is only checkable against a computed

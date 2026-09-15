@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from argus_narration import NarrationLine
-
 """What a page adds to a line that every other destination does without.
 
 The account is the same wherever it is read. A stylesheet and an anchor are
@@ -13,6 +9,10 @@ So this derives both from the line. The class comes off the word the line
 already marks, the link off what the line is already about, and nothing here
 knows an event from another.
 """
+
+from __future__ import annotations
+
+from argus_narration import NarrationLine
 
 # How a marked word is dressed, by the kind of line it appears on. A status
 # wears the badge the header gives it and a verdict wears red or green; every

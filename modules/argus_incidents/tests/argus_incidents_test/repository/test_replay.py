@@ -1,17 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-from functools import partial
-from typing import Any
-
-import psycopg
-import pytest
-from argus_core import connect_from_env
-from argus_core.models import Alert
-from argus_core.replay import CallType, ReplayEntry
-from argus_incidents.repository import incidents, replay
-from argus_testkit import Assertion, Scenario, all_of, calling
-
 """Where a call Argus made out of its own process is written down (spec §11.1).
 
 The subscriber's counterpart for the replay log: `argus_core.replay` says what
@@ -29,6 +15,19 @@ and two calls read back in the wrong order are a conversation that no longer
 makes sense.
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable
+from functools import partial
+from typing import Any
+
+import psycopg
+import pytest
+from argus_core import connect_from_env
+from argus_core.models import Alert
+from argus_core.replay import CallType, ReplayEntry
+from argus_incidents.repository import incidents, replay
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 SOME_MODEL = "claude-opus-5"
 

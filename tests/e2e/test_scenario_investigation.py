@@ -1,36 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
-
-import httpx
-import pytest
-from argus_core.models import CauseType, IncidentStatus
-from argus_testkit import Scenario, all_of, calling, eventually
-
-from tests.e2e.framework.argus import (
-    INVESTIGATION_TIMEOUT_SECONDS,
-    MITIGATION_TIMEOUT_SECONDS,
-    RECORDED_BAD_DEPLOYMENT,
-    RECORDED_FLAG_TOGGLE,
-    RECORDED_FLAG_TOGGLE_UNCORROBORATED,
-    TARGET_SERVICE_BASE_URL,
-    THE_SERVICE_NAME,
-    about_the_hypothesis,
-    argus_ended_with_status,
-    argus_is_triggered_with_alert,
-    the_model_answers_from,
-)
-from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.flags import (
-    THE_DEMO_FLAG,
-    another_flag_was_toggled_on,
-    the_flag_provider_forgot_every_change,
-    the_flag_provider_reports,
-    the_service_returned_to_baseline,
-)
-from tests.framework.assertions import some_confidence_was_given, the_cause_was_identified_as
-
 """What Argus concludes about a seeded scenario, and what it then does, end to
 end.
 
@@ -65,6 +32,39 @@ something. An outcome that needs the model to be uncertain can only be staged
 by a recording, so it would pass replayed and fail live - a test that reports
 which harness ran it rather than what Argus does.
 """
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from http import HTTPStatus as HttpStatus
+
+import httpx
+import pytest
+from argus_core.models import CauseType, IncidentStatus
+from argus_testkit import Scenario, all_of, calling, eventually
+
+from tests.e2e.framework.argus import (
+    INVESTIGATION_TIMEOUT_SECONDS,
+    MITIGATION_TIMEOUT_SECONDS,
+    RECORDED_BAD_DEPLOYMENT,
+    RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_UNCORROBORATED,
+    TARGET_SERVICE_BASE_URL,
+    THE_SERVICE_NAME,
+    about_the_hypothesis,
+    argus_ended_with_status,
+    argus_is_triggered_with_alert,
+    the_model_answers_from,
+)
+from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.flags import (
+    THE_DEMO_FLAG,
+    another_flag_was_toggled_on,
+    the_flag_provider_forgot_every_change,
+    the_flag_provider_reports,
+    the_service_returned_to_baseline,
+)
+from tests.framework.assertions import some_confidence_was_given, the_cause_was_identified_as
 
 SOME_UNRELATED_FLAG = "an-unrelated-feature"
 

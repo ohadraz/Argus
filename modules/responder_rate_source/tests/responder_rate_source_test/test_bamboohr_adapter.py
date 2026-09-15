@@ -1,3 +1,14 @@
+"""Reading the HR source - one fetch of every level, inverted into titles.
+
+The endpoint takes no parameters and answers levels carrying their titles, so
+turning that into "what is this title worth" is this module's whole job. It is
+also the reason nothing here asks about a person: a band belongs to a level,
+and a level is a rung, not a payroll record.
+
+What is injected is the fetch, so the shape being read is the provider's own
+and only the answer is written.
+"""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -14,17 +25,6 @@ from responder_rate_source.bands import (
     PayBandsUnavailable,
     ResponderRateSettings,
 )
-
-"""Reading the HR source - one fetch of every level, inverted into titles.
-
-The endpoint takes no parameters and answers levels carrying their titles, so
-turning that into "what is this title worth" is this module's whole job. It is
-also the reason nothing here asks about a person: a band belongs to a level,
-and a level is a rung, not a payroll record.
-
-What is injected is the fetch, so the shape being read is the provider's own
-and only the answer is written.
-"""
 
 # The provider's own field names, spelled out here rather than shared with the
 # module under test: the assertion is that Argus reads *these*, and a constant

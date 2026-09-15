@@ -1,16 +1,3 @@
-from __future__ import annotations
-
-import pytest
-from argus_core.models import Attempt, CauseType, Evidence, Hypothesis
-from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.walk.candidates import the_next_worth_trying
-
-from orchestrator_test.framework.builders import (
-    a_determined_hypothesis,
-    a_random_id,
-    an_undetermined_hypothesis,
-)
-
 """Which explanation on the list is worth an experiment, asked directly.
 
 The question two nodes share - the investigation choosing where to start, and
@@ -23,6 +10,19 @@ cause has nothing to change on its account, and a candidate blaming a subject
 this incident already changed and put back would be the same experiment run
 twice. Everything else on the list is worth trying, however far down it sits.
 """
+
+from __future__ import annotations
+
+import pytest
+from argus_core.models import Attempt, CauseType, Evidence, Hypothesis
+from argus_testkit import Assertion, Scenario, all_of
+from orchestrator.walk.candidates import the_next_worth_trying
+
+from orchestrator_test.framework.builders import (
+    a_determined_hypothesis,
+    a_random_id,
+    an_undetermined_hypothesis,
+)
 
 SOME_FLAG = "monthly-spend-feature"
 ANOTHER_FLAG = "legacy-checkout-fallback"

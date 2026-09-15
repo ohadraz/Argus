@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-from datetime import UTC, datetime
-from decimal import Decimal
-
-import pytest
-from argus_core import new_id
-from argus_core.models import Postmortem
-from argus_testkit import Assertion, Scenario
-from argus_web.views.postmortems import PostmortemView, build_postmortem_view
-
 """The postmortem row, shaped for transport.
 
 Nothing here is derived, judged or rounded: every field is one the Postmortem
@@ -22,6 +11,17 @@ Decimals would let a swap pass. The comparison is against the row itself rather
 than against literals restated here, so a field added to both sides is covered
 the day it is added.
 """
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from decimal import Decimal
+
+import pytest
+from argus_core import new_id
+from argus_core.models import Postmortem
+from argus_testkit import Assertion, Scenario
+from argus_web.views.postmortems import PostmortemView, build_postmortem_view
 
 
 @pytest.mark.unit

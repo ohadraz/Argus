@@ -1,3 +1,15 @@
+"""Asserting on the world Argus acted on, and putting that world back.
+
+An incident that reached `resolved` proves the graph ran; it does not prove
+anything changed. These read the flag provider and the Target Service directly,
+so a mitigation that reported success without turning a flag off, or turned one
+off without the service recovering, fails here rather than passing quietly.
+
+Everything takes the webhook's `httpx.Response` for the same reason the rest of
+the e2e framework does - it is what a `Scenario`'s `when` produces - even where
+the assertion does not need it.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -11,18 +23,6 @@ from argus_core.models import MetricBucket
 from argus_testkit import Assertion
 
 from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS, TARGET_SERVICE_BASE_URL
-
-"""Asserting on the world Argus acted on, and putting that world back.
-
-An incident that reached `resolved` proves the graph ran; it does not prove
-anything changed. These read the flag provider and the Target Service directly,
-so a mitigation that reported success without turning a flag off, or turned one
-off without the service recovering, fails here rather than passing quietly.
-
-Everything takes the webhook's `httpx.Response` for the same reason the rest of
-the e2e framework does - it is what a `Scenario`'s `when` produces - even where
-the assertion does not need it.
-"""
 
 # The provider's own database, published by the Target Environment's compose
 # file. Reached directly because the provider offers no other way back to a
