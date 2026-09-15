@@ -24,10 +24,8 @@ decides to say it are kept in one file rather than one apiece.
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent_postmortem.measuring import Measurements
-from agent_postmortem.prompting import ASSUMPTIONS_FIELD
+from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import unpriced_titles
 from agent_postmortem.sources import EngagementAnswer
 
@@ -88,7 +86,7 @@ PAY_BAND_ASSUMPTION_LABEL = "pay band"
 UNPRICED_TITLE_ASSUMPTION_LABEL = "unpriced title"
 
 
-def assumptions_of(answer: dict[str, Any],
+def assumptions_of(answer: SubmittedPostmortem,
                    measured: Measurements,
                    working_hours_a_year: float) -> list[str]:
     """Everything the document assumed, in the order a reader meets it.
@@ -108,7 +106,7 @@ def assumptions_of(answer: dict[str, Any],
 
     assumptions.extend(_the_pricing_behind(measured, working_hours_a_year))
 
-    assumptions.extend(str(stated) for stated in answer.get(ASSUMPTIONS_FIELD, []))
+    assumptions.extend(answer.assumptions)
 
     # The takings rather than the figure they became: a figure is also absent
     # where the money was read and no rate could be, and that is a partial

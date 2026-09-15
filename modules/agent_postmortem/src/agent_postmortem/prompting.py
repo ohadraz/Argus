@@ -14,9 +14,10 @@ call has fields.
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
 from argus_core.models import Ask, ToolDefinition, ToolResult, ToolResults, Transcript, Turn
+from pydantic import BaseModel, field_validator
 
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
@@ -34,6 +35,71 @@ REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
     EXECUTIVE_SUMMARY_FIELD
 ]
+
+
+class SubmittedPostmortem(BaseModel):
+    """What the model submitted, said as fields rather than as a mapping.
+
+    The answer is read by four modules on its way to the page - the one that
+    takes the call apart, the one that finds faults in it, the one composing the
+    disclosures, and the one filling in the columns - and as a mapping each of
+    those named its fields in strings. A field renamed here is now a type error
+    in all four rather than a key that quietly returns nothing in three.
+
+    Every field is optional, because finding out what is missing is the point:
+    a required field the model left out is a fault to put back to it (see
+    `checking`), not an answer that failed to arrive. `None` means unanswered,
+    and reaches the document as an absent column rather than an empty one.
+
+    The attribute names are the wire names above, and have to be: the call's
+    arguments are validated into this as they stand.
+
+    Nothing here refuses a submission, which is what the validators below are
+    for. A field that did not arrive in its declared shape costs that field and
+    no other: refusing the whole call would throw away a root cause the model
+    wrote over an `assumptions` it sent as a bare string, and the document would
+    then record as unanswered something that was answered. This agent spends its
+    whole discipline telling an absence that was measured from one that was
+    never asked, and an absence manufactured here would be neither.
+    """
+
+    root_cause: str | None = None
+    executive_summary: str | None = None
+    assumptions: list[str] = []
+
+    @field_validator(ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, mode="before")
+    @classmethod
+    def _prose_however_it_arrived(cls, value: Any) -> Any:
+        """A prose field made to cost only itself.
+
+        A number is written out: a figure where a sentence was asked for is
+        still an answer, and one dropped here would be a root cause the model
+        supplied and the document denies. Anything structural is read as
+        unanswered instead, which `checking` then names and asks about.
+        """
+        if value is None or isinstance(value, str):
+            return value
+
+        return str(value) if isinstance(value, int | float) else None
+
+    @field_validator(ASSUMPTIONS_FIELD, mode="before")
+    @classmethod
+    def _however_many_were_stated(cls, value: Any) -> Any:
+        """The assumptions, as the list they were asked for.
+
+        A model with one thing to say sends it as a string often enough to be
+        worth reading as the list containing it. Anything else in the list that
+        is not a sentence is dropped rather than refused - a disclosure that
+        cannot be read costs one line, and refusing it would cost the document.
+        """
+        if isinstance(value, str):
+            return [value]
+
+        if isinstance(value, list):
+            return [stated for stated in value if isinstance(stated, str)]
+
+        return []
+
 
 SUBMIT_POSTMORTEM = ToolDefinition(
     name=SUBMIT_TOOL_NAME,

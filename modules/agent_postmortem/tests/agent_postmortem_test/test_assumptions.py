@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
 
 import pytest
 from agent_postmortem import (
@@ -18,7 +17,7 @@ from agent_postmortem import (
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.assumptions import assumptions_of
-from agent_postmortem.prompting import ASSUMPTIONS_FIELD
+from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import EngagedResponder, PayBand, RateTable
 from argus_testkit import Assertion, Scenario, all_of
@@ -72,7 +71,7 @@ SOME_BAND = PayBand(
 
 # An answer the model gave that says nothing about assumptions, for the tests
 # whose subject is one of Argus's own disclosures.
-DONT_CARE_ANSWER: dict[str, Any] = {}
+DONT_CARE_ANSWER = SubmittedPostmortem()
 
 # A cost that was published, for the tests about what a published one has to
 # disclose. Its figures are never read - what is under test is the sentences
@@ -92,7 +91,7 @@ def test_what_the_model_says_it_assumed_is_carried_through() -> None:
 
     Scenario() \
         .given(
-            an_answer := {ASSUMPTIONS_FIELD: [some_assumption]}
+            an_answer := SubmittedPostmortem(assumptions=[some_assumption])
         ) \
         .when(
             lambda: assumptions_of(an_answer,

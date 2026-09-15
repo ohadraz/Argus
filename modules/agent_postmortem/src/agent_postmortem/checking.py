@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
-from typing import Any, Final
+from typing import Final
 
-from agent_postmortem.prompting import EXECUTIVE_SUMMARY_FIELD, REQUIRED_FIELDS
+from agent_postmortem.prompting import REQUIRED_FIELDS, SubmittedPostmortem
 
 # A currency amount as prose writes one: a dollar sign, then digits with
 # whatever grouping and decimals the writer felt like. Deliberately only `$` -
@@ -33,18 +33,25 @@ CURRENCY_IN_PROSE: Final = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?")
 FIGURE_TOLERANCE: Final = 0.05
 
 
-def faults_in(answer: dict[str, Any], estimate: Decimal | None) -> list[str]:
+def faults_in(answer: SubmittedPostmortem, estimate: Decimal | None) -> list[str]:
     """Everything about this answer that has to be put right, or nothing."""
     return _missing_fields(answer) + _invented_figures(answer, estimate)
 
 
-def _missing_fields(answer: dict[str, Any]) -> list[str]:
+def _missing_fields(answer: SubmittedPostmortem) -> list[str]:
+    """Which of the fields the tool declared required went unanswered.
+
+    Read off the same list the tool declares, by name, rather than field by
+    field: a field the model is told it must send and this does not check for
+    is the pair going out of step in the direction nothing would notice.
+    """
     return [f"the field [{field}] was missing from your answer"
             for field in REQUIRED_FIELDS
-            if answer.get(field) is None]
+            if getattr(answer, field) is None]
 
 
-def _invented_figures(answer: dict[str, Any], estimate: Decimal | None) -> list[str]:
+def _invented_figures(answer: SubmittedPostmortem,
+                      estimate: Decimal | None) -> list[str]:
     """Amounts in the summary that are not the one Argus arrived at.
 
     With no estimate every amount is invented by definition: there is nothing
@@ -52,8 +59,8 @@ def _invented_figures(answer: dict[str, Any], estimate: Decimal | None) -> list[
     rate source could not be read, and a summary is not licensed to fill the
     gap with a number of its own.
     """
-    summary = answer.get(EXECUTIVE_SUMMARY_FIELD)
-    if not isinstance(summary, str):
+    summary = answer.executive_summary
+    if summary is None:
         return []
 
     return [

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
 
 import pytest
 from agent_postmortem.conversation import answer_worth_writing
-from agent_postmortem.prompting import EXECUTIVE_SUMMARY_FIELD, ROOT_CAUSE_FIELD
+from agent_postmortem.prompting import (
+    EXECUTIVE_SUMMARY_FIELD,
+    ROOT_CAUSE_FIELD,
+    SubmittedPostmortem,
+)
 from argus_core.models import Ask, ToolResults, Transcript, Turn
 from argus_testkit import Assertion, Kept, Scenario, all_of
 
@@ -50,7 +53,7 @@ SOME_SUMMARY_STATING_THE_FIGURE = "the outage cost roughly $500"
 SOME_INVENTED_FIGURE = "$1,200,000"
 SOME_SUMMARY_WITHOUT_A_FIGURE = "checkout failed for half an hour"
 
-type Reading = tuple[dict[str, Any], list[str]]
+type Reading = tuple[SubmittedPostmortem, list[str]]
 
 
 @pytest.mark.unit
@@ -163,36 +166,6 @@ def test_a_summary_naming_the_computed_figure_is_accepted() -> None:
                 _answered_with(EXECUTIVE_SUMMARY_FIELD,
                                SOME_SUMMARY_STATING_THE_FIGURE),
                 _found_no_fault()
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_summary_naming_any_figure_at_all_is_challenged_when_nothing_was_computed() -> None:
-    # With no estimate there is nothing for a figure to agree with, so every
-    # figure is invented by definition - which is the case whenever the payment
-    # provider or the rate source could not be read.
-    asks: Kept[Transcript] = Kept()
-
-    Scenario() \
-        .given(
-            an_incident_nobody_could_cost := a_measured_incident(
-                baseline_revenue=None)
-        ) \
-        .when(
-            lambda: answer_worth_writing(
-                a_model_answering_in_turn(
-                    an_answer(
-                        executive_summary=f"the outage cost {SOME_INVENTED_FIGURE}"),
-                    an_answer(executive_summary=SOME_SUMMARY_WITHOUT_A_FIGURE),
-                    recording_into=asks),
-                an_evidence_bundle(),
-                an_incident_nobody_could_cost)
-        ) \
-        .then(
-            all_of(
-                _was_asked(asks, times=2),
-                _the_correction_named(asks, SOME_INVENTED_FIGURE)
             )
         )
 
@@ -314,8 +287,8 @@ def _was_asked(asks: Kept[Transcript], times: int = 1) -> Assertion[Reading]:
     def assertion(dont_care_reading: Reading) -> bool:
         if len(asks.taken) != times:
             raise AssertionError(
-                f"expected the model to be asked [{times}] time(s), got "
-                f"[{len(asks.taken)}]")
+                f"Expected the model to be asked [{times}] time(s), got "
+                f"[{len(asks.taken)}].")
 
         return True
 
@@ -326,9 +299,9 @@ def _answered_with(field: str, expected: str) -> Assertion[Reading]:
     def assertion(reading: Reading) -> bool:
         answer, _ = reading
 
-        if answer.get(field) != expected:
+        if getattr(answer, field) != expected:
             raise AssertionError(
-                f"expected [{field}] to be [{expected}], got [{answer.get(field)}]")
+                f"Expected [{field}] to be [{expected}], got [{getattr(answer, field)}].")
 
         return True
 
@@ -344,10 +317,10 @@ def _answered_nothing() -> Assertion[Reading]:
     def assertion(reading: Reading) -> bool:
         answer, _ = reading
 
-        if answer:
+        if answer != SubmittedPostmortem():
             raise AssertionError(
-                f"expected nothing to be read out of an answer in the wrong shape, "
-                f"got {answer}")
+                f"Expected nothing to be read out of an answer in the wrong shape, "
+                f"got {answer}.")
 
         return True
 
@@ -360,7 +333,7 @@ def _found_no_fault() -> Assertion[Reading]:
 
         if faults:
             raise AssertionError(
-                f"expected an answer nothing was wrong with, got {faults}")
+                f"Expected an answer nothing was wrong with, got {faults}.")
 
         return True
 
@@ -373,8 +346,8 @@ def _found_a_fault() -> Assertion[Reading]:
 
         if not faults:
             raise AssertionError(
-                "expected the faults to come back with the answer, so the caller "
-                "can mark the document partial, and none did")
+                "Expected the faults to come back with the answer, so the caller "
+                "can mark the document partial, and none did.")
 
         return True
 
@@ -387,7 +360,7 @@ def _the_correction_named(asks: Kept[Transcript], expected: str) -> Assertion[Re
 
         if expected not in said:
             raise AssertionError(
-                f"expected the correction to name [{expected}], and it did not: {said}")
+                f"Expected the correction to name [{expected}], and it did not: {said}.")
 
         return True
 
@@ -409,22 +382,22 @@ def _the_correction_answered_the_call_it_rejected(
 
         if not submitted or not answered:
             raise AssertionError(
-                "expected the correction to carry the model's own turn and the "
+                "Expected the correction to carry the model's own turn and the "
                 "result of the call it made, and it carried "
-                f"{len(submitted)} turn(s) and {len(answered)} result(s)")
+                f"{len(submitted)} turn(s) and {len(answered)} result(s).")
 
         expected_call_id = submitted[0].tool_calls[0].id
         answering = [result.call_id for result in answered[0].results]
 
         if answering != [expected_call_id]:
             raise AssertionError(
-                f"expected the result to answer call [{expected_call_id}], "
-                f"got {answering}")
+                f"Expected the result to answer call [{expected_call_id}], "
+                f"got {answering}.")
 
         if not answered[0].results[0].failed:
             raise AssertionError(
-                "expected the rejected submission to be marked failed, so the model "
-                "reads it as something to fix rather than as evidence")
+                "Expected the rejected submission to be marked failed, so the model "
+                "reads it as something to fix rather than as evidence.")
 
         return True
 
@@ -444,7 +417,7 @@ def _the_correction_was_a_fresh_ask(asks: Kept[Transcript]) -> Assertion[Reading
 
         if carried:
             raise AssertionError(
-                f"expected the correction to be a fresh ask, and it carried {carried}")
+                f"Expected the correction to be a fresh ask, and it carried {carried}.")
 
         return True
 

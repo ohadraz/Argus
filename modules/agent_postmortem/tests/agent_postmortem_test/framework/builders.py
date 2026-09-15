@@ -11,6 +11,7 @@ from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
     ROOT_CAUSE_FIELD,
+    SubmittedPostmortem,
 )
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import (
@@ -428,6 +429,19 @@ def an_answer_without(field: str) -> dict[str, Any]:
     del answer[field]
 
     return answer
+
+
+def a_submitted_answer(root_cause: str = "dont care",
+                       executive_summary: str = "dont care",
+                       assumptions: list[str] | None = None) -> SubmittedPostmortem:
+    """The same submission, once it has been read out of the call.
+
+    Validated from the arguments above rather than built beside them, so a
+    field the two spell differently is a field this one loses too - which is
+    the whole reason the answer became a model.
+    """
+    return SubmittedPostmortem.model_validate(
+        an_answer(root_cause, executive_summary, assumptions))
 
 
 def a_model_answering(root_cause: str = "dont care",

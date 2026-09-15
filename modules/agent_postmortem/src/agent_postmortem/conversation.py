@@ -11,7 +11,6 @@ can catch prose that names a different number from the one Argus measured.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
 
 from argus_core.llm import LLMClient
 from argus_core.models import Transcript, Turn
@@ -22,6 +21,7 @@ from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
+    SubmittedPostmortem,
     opening_ask,
     opening_ask_again,
     rejecting,
@@ -30,7 +30,8 @@ from agent_postmortem.prompting import (
 
 def answer_worth_writing(llm: LLMClient,
                          evidence: IncidentEvidence,
-                         measured: Measurements) -> tuple[dict[str, Any], list[str]]:
+                         measured: Measurements
+                         ) -> tuple[SubmittedPostmortem, list[str]]:
     """The model's answer, and whatever is still wrong with it.
 
     Two attempts at most (spec §7.6). The second is worth making because the
@@ -71,7 +72,8 @@ def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Tran
 
 
 def _reading_of(turn: Turn,
-                estimate: Decimal | None) -> tuple[dict[str, Any], list[str]]:
+                estimate: Decimal | None
+                ) -> tuple[SubmittedPostmortem, list[str]]:
     """What one turn amounts to: its answer and whatever is wrong with it.
 
     The estimate is no longer computed from anything the model said, so it is
@@ -83,7 +85,7 @@ def _reading_of(turn: Turn,
     return answer, faults_in(answer, estimate)
 
 
-def _answer_from(turn: Turn) -> dict[str, Any]:
+def _answer_from(turn: Turn) -> SubmittedPostmortem:
     """What the model submitted, or nothing at all.
 
     A turn carrying no call to the tool it was offered is an answer in the
@@ -93,6 +95,6 @@ def _answer_from(turn: Turn) -> dict[str, Any]:
     """
     for call in turn.tool_calls:
         if call.name == SUBMIT_TOOL_NAME:
-            return call.arguments
+            return SubmittedPostmortem.model_validate(call.arguments)
 
-    return {}
+    return SubmittedPostmortem()

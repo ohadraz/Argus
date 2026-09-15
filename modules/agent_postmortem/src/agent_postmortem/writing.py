@@ -17,7 +17,7 @@ which it is.
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
 
 from argus_core.llm import LLMClient
 from argus_core.models import PostmortemDocument
@@ -26,7 +26,7 @@ from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.prompting import EXECUTIVE_SUMMARY_FIELD, ROOT_CAUSE_FIELD
+from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.sources import Sources
 
 
@@ -42,14 +42,15 @@ class Ask(Protocol):
     def __call__(self,
                  llm: LLMClient,
                  evidence: IncidentEvidence,
-                 measured: Measurements) -> tuple[dict[str, Any], list[str]]: ...
+                 measured: Measurements
+                 ) -> tuple[SubmittedPostmortem, list[str]]: ...
 
 
 class Disclose(Protocol):
     """Turning what was measured into what the document admits to assuming."""
 
     def __call__(self,
-                 answer: dict[str, Any],
+                 answer: SubmittedPostmortem,
                  measured: Measurements,
                  working_hours_a_year: float) -> list[str]: ...
 
@@ -72,8 +73,11 @@ def write_postmortem(evidence: IncidentEvidence,
     answer, faults = ask(llm, evidence, measured)
 
     return PostmortemDocument(
-        root_cause=_text(answer, ROOT_CAUSE_FIELD),
-        executive_summary=_text(answer, EXECUTIVE_SUMMARY_FIELD),
+        # Absent rather than empty where the model never answered: a blank on a
+        # page reads as a root cause somebody wrote and left empty, and this
+        # document is one nobody can ask a follow-up question of.
+        root_cause=answer.root_cause,
+        executive_summary=answer.executive_summary,
         customer_loss_estimate=measured.loss,
         estimate_currency=measured.currency,
         # Not multiplied by the count: the source answers person-minutes, so
@@ -90,15 +94,3 @@ def write_postmortem(evidence: IncidentEvidence,
         assumptions=disclose(answer, measured, sources.working_hours_a_year),
         checklist_complete=not faults
     )
-
-
-def _text(answer: dict[str, Any], field: str) -> str | None:
-    """The field as the document publishes it, or nothing at all.
-
-    Absent rather than empty where the model never answered: a blank on a page
-    reads as a root cause somebody wrote and left empty, and this document is
-    one nobody can ask a follow-up question of.
-    """
-    value = answer.get(field)
-
-    return str(value) if value is not None else None

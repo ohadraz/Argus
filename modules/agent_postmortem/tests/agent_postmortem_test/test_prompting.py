@@ -8,6 +8,7 @@ from agent_postmortem.prompting import (
     ROOT_CAUSE_FIELD,
     SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
+    SubmittedPostmortem,
     opening_ask,
     opening_ask_again,
     rejecting,
@@ -197,6 +198,165 @@ def test_a_model_that_submitted_nothing_is_asked_again_from_the_start() -> None:
                 _says(SOME_FAULT, SUBMIT_TOOL_NAME)
             )
         )
+
+
+@pytest.mark.unit
+def test_a_field_that_did_not_arrive_as_prose_costs_only_itself() -> None:
+    # The whole reason the answer is read leniently. A submission refused
+    # outright over one badly typed field would throw away a root cause the
+    # model wrote, and the document would then record as unanswered something
+    # that was answered - a manufactured absence, in an agent whose entire
+    # discipline is telling a real one from a missing measurement.
+    some_root_cause = "the checkout fallback was disabled by a flag toggle"
+
+    Scenario() \
+        .given(
+            a_submission_whose_summary_is_not_prose := {
+                ROOT_CAUSE_FIELD: some_root_cause,
+                EXECUTIVE_SUMMARY_FIELD: {"nested": "in the wrong shape"}
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_whose_summary_is_not_prose)
+        ) \
+        .then(
+            all_of(
+                _answered(ROOT_CAUSE_FIELD, some_root_cause),
+                _left_unanswered(EXECUTIVE_SUMMARY_FIELD)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_where_prose_was_asked_for_is_still_an_answer() -> None:
+    # Dropped, it would be a root cause the model supplied and the document
+    # denies. Written out, it is an answer in the wrong register - which the
+    # reader can see, argue with, and ask about.
+    some_figure_the_model_sent = 1200
+
+    Scenario() \
+        .given(
+            a_submission_answering_with_a_number := {
+                ROOT_CAUSE_FIELD: some_figure_the_model_sent
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_answering_with_a_number)
+        ) \
+        .then(
+            _answered(ROOT_CAUSE_FIELD, str(some_figure_the_model_sent))
+        )
+
+
+@pytest.mark.unit
+def test_a_single_assumption_sent_on_its_own_is_the_list_containing_it() -> None:
+    # A model with one thing to disclose sends it as a sentence rather than as
+    # a list of one often enough to be worth reading. Refused, the disclosure
+    # would go missing - and a disclosure is the one field whose absence the
+    # document has no other way to admit to.
+    some_assumption = "the log lines shown were the whole of the failing traffic"
+
+    Scenario() \
+        .given(
+            a_submission_disclosing_one_thing := {
+                ASSUMPTIONS_FIELD: some_assumption
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_disclosing_one_thing)
+        ) \
+        .then(
+            _disclosed([some_assumption])
+        )
+
+
+@pytest.mark.unit
+def test_an_assumption_that_is_not_a_sentence_costs_that_line_and_no_other() -> None:
+    # One unreadable disclosure is one line lost. Refusing the list would lose
+    # every other disclosure with it, and the root cause besides.
+    some_assumption = "takings in NZD are not in the figure"
+
+    Scenario() \
+        .given(
+            a_submission_disclosing_one_of_each := {
+                ASSUMPTIONS_FIELD: [some_assumption, {"not": "a sentence"}]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_disclosing_one_of_each)
+        ) \
+        .then(
+            _disclosed([some_assumption])
+        )
+
+
+@pytest.mark.unit
+def test_a_submission_carrying_nothing_usable_is_empty_rather_than_refused() -> None:
+    # The terminating case, and the one the rest of the agent is built on: an
+    # answer nothing can be read out of is an empty answer, not an exception.
+    # `checking` names every field that went unanswered, the model is asked once
+    # more, and a second unusable answer is written down as an incomplete
+    # document rather than thrown away entirely.
+    Scenario() \
+        .given(
+            a_submission_of_something_else := {"nonsense": 1}
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_of_something_else)
+        ) \
+        .then(
+            all_of(
+                _left_unanswered(ROOT_CAUSE_FIELD),
+                _left_unanswered(EXECUTIVE_SUMMARY_FIELD),
+                _disclosed([])
+            )
+        )
+
+
+def _answered(field: str, expected: str) -> Assertion[SubmittedPostmortem]:
+    def assertion(submitted: SubmittedPostmortem) -> bool:
+        if getattr(submitted, field) != expected:
+            raise AssertionError(
+                f"Expected [{field}] to be [{expected}], got "
+                f"[{getattr(submitted, field)}].")
+
+        return True
+
+    return assertion
+
+
+def _left_unanswered(field: str) -> Assertion[SubmittedPostmortem]:
+    """That a field carries nothing, rather than carrying something empty.
+
+    The distinction the document rests on: absent is a question nobody
+    answered, and an empty string on a page is an answer somebody left blank.
+    """
+    def assertion(submitted: SubmittedPostmortem) -> bool:
+        if getattr(submitted, field) is not None:
+            raise AssertionError(
+                f"Expected [{field}] to have gone unanswered, got "
+                f"[{getattr(submitted, field)}].")
+
+        return True
+
+    return assertion
+
+
+def _disclosed(expected: list[str]) -> Assertion[SubmittedPostmortem]:
+    def assertion(submitted: SubmittedPostmortem) -> bool:
+        if submitted.assumptions != expected:
+            raise AssertionError(
+                f"Expected the assumptions to be {expected}, got "
+                f"{submitted.assumptions}.")
+
+        return True
+
+    return assertion
 
 
 def _says(*expected: str) -> Assertion[Transcript]:

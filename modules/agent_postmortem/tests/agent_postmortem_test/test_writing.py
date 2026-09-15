@@ -9,6 +9,7 @@ from agent_postmortem import write_postmortem
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.measuring import Measurements, measure
+from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import EngagedResponder
 from argus_core.models import PostmortemDocument
@@ -35,7 +36,7 @@ from agent_postmortem_test.framework.assertions import (
 from agent_postmortem_test.framework.builders import (
     SOME_CURRENCY,
     a_measured_incident,
-    an_answer,
+    a_submitted_answer,
     an_engagement_of,
     an_evidence_bundle,
     some_sources,
@@ -78,8 +79,8 @@ def test_the_prose_the_model_wrote_is_what_the_document_says() -> None:
     Scenario() \
         .given(
             a_model_that_answered := _asking_that_answers(
-                an_answer(root_cause=some_root_cause,
-                          executive_summary=some_summary))
+                a_submitted_answer(root_cause=some_root_cause,
+                                   executive_summary=some_summary))
         ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
@@ -106,7 +107,7 @@ def test_a_field_the_answer_never_carried_is_absent_rather_than_empty() -> None:
     # root cause somebody wrote and left blank.
     Scenario() \
         .given(
-            an_answer_carrying_nothing := _asking_that_answers({})
+            an_answer_carrying_nothing := _asking_that_answers(SubmittedPostmortem())
         ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
@@ -153,7 +154,7 @@ def test_the_figures_measured_are_the_figures_published() -> None:
                 some_sources(),
                 _dont_care_llm(),
                 measure=_measuring_that_returns(a_fully_measured_incident),
-                ask=_asking_that_answers(an_answer()),
+                ask=_asking_that_answers(a_submitted_answer()),
                 disclose=_disclosing_that_returns([]))
         ) \
         .then(
@@ -187,7 +188,7 @@ def test_an_incident_nobody_could_measure_reports_no_response() -> None:
                 _dont_care_llm(),
                 measure=_measuring_that_returns(
                     an_incident_nobody_could_say_who_worked_on),
-                ask=_asking_that_answers(an_answer()),
+                ask=_asking_that_answers(a_submitted_answer()),
                 disclose=_disclosing_that_returns([]))
         ) \
         .then(
@@ -215,7 +216,7 @@ def test_the_disclosures_produced_are_the_disclosures_listed() -> None:
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
                                          a_measured_incident()),
-                                     ask=_asking_that_answers(an_answer()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=a_disclosure_of_two_things)
         ) \
         .then(
@@ -227,7 +228,7 @@ def test_the_disclosures_produced_are_the_disclosures_listed() -> None:
 def test_an_answer_nothing_was_wrong_with_is_written_down_as_complete() -> None:
     Scenario() \
         .given(
-            an_answer_with_no_faults := _asking_that_answers(an_answer(), faults=[])
+            an_answer_with_no_faults := _asking_that_answers(a_submitted_answer(), faults=[])
         ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
@@ -251,7 +252,7 @@ def test_an_answer_still_carrying_a_fault_is_written_down_as_incomplete() -> Non
     Scenario() \
         .given(
             an_answer_still_wrong := _asking_that_answers(
-                an_answer(), faults=["the field [root_cause] was missing"])
+                a_submitted_answer(), faults=["the field [root_cause] was missing"])
         ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
@@ -284,7 +285,7 @@ def test_the_tokens_the_incident_spent_come_from_its_evidence() -> None:
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
                                          a_measured_incident()),
-                                     ask=_asking_that_answers(an_answer()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
@@ -298,7 +299,7 @@ def test_the_model_is_asked_about_the_incident_that_was_measured() -> None:
     # anything but this incident writes fluent prose about a different one, and
     # the document reads perfectly either way.
     measured = a_measured_incident()
-    asking = _asking_that_answers(an_answer())
+    asking = _asking_that_answers(a_submitted_answer())
 
     Scenario() \
         .given(
@@ -337,7 +338,7 @@ def test_the_disclosures_are_written_from_what_was_measured_and_configured() -> 
                                      sources,
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(measured),
-                                     ask=_asking_that_answers(an_answer()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=disclosing)
         ) \
         .then(
@@ -352,7 +353,7 @@ def _measuring_that_returns(measured: Measurements) -> MagicMock:
     return cast(MagicMock, measuring)
 
 
-def _asking_that_answers(answer: dict[str, object],
+def _asking_that_answers(answer: SubmittedPostmortem,
                          faults: list[str] | None = None) -> MagicMock:
     asking = create_autospec(answer_worth_writing)
     asking.return_value = (answer, faults if faults is not None else [])
