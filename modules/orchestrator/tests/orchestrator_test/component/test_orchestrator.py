@@ -93,7 +93,6 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         record_action=lambda *dont_care_args, **dont_care_keywords: True,
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
-        claimed_at=lambda incident_id, hypothesis_id: None,
         change_landed=_a_change_that_never_landed(),
         propose_fix=lambda dont_care_hypothesis: None,
         write_postmortem=lambda dont_care_incident: _a_document(),

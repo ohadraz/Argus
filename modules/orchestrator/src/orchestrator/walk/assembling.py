@@ -50,7 +50,6 @@ from orchestrator.records import Records
 from orchestrator.sources import the_real_sources
 from orchestrator.walk.ports import (
     ActionAlreadyTaken,
-    ActionClaimedAt,
     ChangeLanded,
     CompleteAction,
     FetchFlagChanges,
@@ -87,7 +86,6 @@ class Collaborators:
     record_action: RecordAction
     complete_action: CompleteAction
     already_taken: ActionAlreadyTaken
-    claimed_at: ActionClaimedAt
     change_landed: ChangeLanded
     propose_fix: ProposeFix
     write_postmortem: WritePostmortem
@@ -191,8 +189,7 @@ def against(connections: Connections,
         ),
         record_action=records.claim_action,
         complete_action=records.complete_action,
-        already_taken=records.action_outcome,
-        claimed_at=records.action_claimed_at,
+        already_taken=records.claimed_action,
         change_landed=partial(
             argus_changed_flag_since, settings=mitigation, fetch=flag_history
         ),

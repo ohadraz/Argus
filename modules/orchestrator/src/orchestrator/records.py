@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from argus_core import Connections
 from argus_core.events import IncidentEvent, PostmortemWritten
 from argus_core.models import (
@@ -21,6 +19,8 @@ from argus_incidents.repository import (
     postmortems,
     taken_actions,
 )
+
+from orchestrator.walk.ports import ClaimedAction
 
 
 class Records:
@@ -115,30 +115,31 @@ class Records:
             )
             publish_beside(conn, narrating, self._publisher_for(conn))
 
-    def action_outcome(self, incident_id: str, hypothesis_id: str) -> Verdict | None:
-        """What the row says an earlier attempt concluded, as a verdict.
+    def claimed_action(self,
+                       incident_id: str,
+                       hypothesis_id: str) -> ClaimedAction | None:
+        """What an earlier attempt on this candidate staked, and what came of it.
 
-        Converted here rather than passed on as text. This is the edge between
-        a column and the walk, and a verdict that stayed a string until some
-        branch compared it against a literal is a branch nothing checks.
+        One read, because it is one row. Asked for the verdict and the moment
+        separately it was fetched twice to take one column each - and the two
+        answers could come from either side of a write that landed between them.
+
+        The verdict is converted here rather than passed on as text. This is the
+        edge between a column and the walk, and a verdict that stayed a string
+        until some branch compared it against a literal is a branch nothing
+        checks.
         """
         with self._connections() as conn:
             taken_action = taken_actions.get_action_for_hypothesis(
                 conn, incident_id, hypothesis_id)
 
-        if taken_action is None or taken_action.outcome is None:
+        if taken_action is None:
             return None
 
-        return Verdict(taken_action.outcome)
-
-    def action_claimed_at(self,
-                          incident_id: str,
-                          hypothesis_id: str) -> datetime | None:
-        with self._connections() as conn:
-            taken_action = taken_actions.get_action_for_hypothesis(
-                conn, incident_id, hypothesis_id)
-
-        return taken_action.taken_at if taken_action is not None else None
+        return ClaimedAction(
+            outcome=Verdict(taken_action.outcome) if taken_action.outcome else None,
+            claimed_at=taken_action.taken_at
+        )
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /) -> None:
         """Stores the write-up, and says that there is one, in one write.

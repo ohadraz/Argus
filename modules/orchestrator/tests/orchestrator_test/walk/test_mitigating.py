@@ -78,11 +78,6 @@ def already_taken() -> MagicMock:
 
 
 @pytest.fixture
-def claimed_at() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.ActionClaimedAt, instance=True))
-
-
-@pytest.fixture
 def still_wanted() -> MagicMock:
     wanted = cast(MagicMock, create_autospec(IsStillWanted, instance=True))
     wanted.return_value = True
@@ -107,7 +102,6 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     Scenario() \
@@ -124,7 +118,6 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.CONFIRMED))
 
@@ -136,7 +129,6 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     Scenario() \
@@ -153,7 +145,6 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.REFUTED))
 
@@ -165,7 +156,6 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     Scenario() \
@@ -182,7 +172,6 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.ESCALATED))
 
@@ -194,7 +183,6 @@ def test_the_node_that_takes_the_action_decides_no_status(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # The verdict is what this node measured; where the incident stands as a
@@ -214,7 +202,6 @@ def test_the_node_that_takes_the_action_decides_no_status(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_no_status_was_decided())
 
@@ -226,7 +213,6 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # The descriptor the write tier returned, not the one proposed: it is the
@@ -252,7 +238,6 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_the_action_row_records_the_way_back(some_undo_descriptor,
                                                    complete_action))
@@ -265,7 +250,6 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # Withdrawn is not a verdict about the hypothesis. The action was taken and
@@ -287,7 +271,6 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_the_candidate_learned_nothing(record_outcome))
 
@@ -299,7 +282,6 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # The candidate learns nothing, but the action row must: the flag is still
@@ -324,7 +306,6 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_row_records_the_outcome((str(Verdict.WITHDRAWN)), complete_action),
                      _the_action_row_records_the_way_back(some_undo_descriptor,
@@ -338,7 +319,6 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # An action was taken and the service was measured afterwards, so this
@@ -361,7 +341,6 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_the_candidate_was_tested_and_settled(some_candidate,
                                                     str(Verdict.REFUTED),
@@ -375,7 +354,6 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
     complete_action: MagicMock,
     already_taken: MagicMock,
     record_outcome: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # A worker died inside this node and another took the run up. The claim is
@@ -399,7 +377,6 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       record_outcome=record_outcome,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
                      _nothing_was_completed(complete_action),
@@ -413,7 +390,6 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
     complete_action: MagicMock,
     already_taken: MagicMock,
     record_outcome: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # An incident whose story runs from a taken action straight to a conclusion
@@ -439,7 +415,6 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       record_outcome=record_outcome,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_resumption_published_was(
@@ -453,7 +428,6 @@ def test_a_walk_that_claimed_the_action_takes_it(
     complete_action: MagicMock,
     already_taken: MagicMock,
     record_outcome: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # The other half, so the guard cannot pass by never acting at all: a walk
@@ -473,7 +447,6 @@ def test_a_walk_that_claimed_the_action_takes_it(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       record_outcome=record_outcome,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_taken(take),
                      _no_earlier_outcome_was_looked_up(already_taken)))
@@ -485,7 +458,6 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     change_landed: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -497,8 +469,6 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
                 record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_claim_was_written_at(
-                claimed_at, SOME_MOMENT_THE_CLAIM_WAS_WRITTEN)),
             calling(lambda: _the_change_reached_the_provider(change_landed)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor(),
@@ -510,7 +480,6 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       change_landed=change_landed,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
@@ -524,7 +493,6 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     change_landed: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -536,8 +504,6 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
                 record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_claim_was_written_at(
-                claimed_at, SOME_MOMENT_THE_CLAIM_WAS_WRITTEN)),
             calling(lambda: _the_change_never_reached_the_provider(change_landed)),
             calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
             an_action_taking_incident := _a_mitigating_incident(
@@ -550,7 +516,6 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       change_landed=change_landed,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
@@ -564,7 +529,6 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     change_landed: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -576,8 +540,6 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
                 record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_claim_was_written_at(
-                claimed_at, SOME_MOMENT_THE_CLAIM_WAS_WRITTEN)),
             calling(lambda: _the_provider_cannot_say(change_landed)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor(),
@@ -589,7 +551,6 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       change_landed=change_landed,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
@@ -631,7 +592,6 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # The one moment production state changes. An account that omitted it
@@ -654,7 +614,6 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_exactly_one_action_was_announced(some_candidate, the_action, published))
@@ -667,7 +626,6 @@ def test_the_graph_says_which_way_it_moved_the_flag(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # "A flag was changed" is the half of the sentence nobody can act on.
@@ -688,7 +646,6 @@ def test_the_graph_says_which_way_it_moved_the_flag(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_announced_action_moved_the_flag(the_action.enabled, published))
@@ -701,7 +658,6 @@ def test_the_graph_says_what_verdict_came_back(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # The verdict is what the action was for, and it arrives after it - two
@@ -721,7 +677,6 @@ def test_the_graph_says_what_verdict_came_back(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
-                                      claimed_at=claimed_at,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_was_narrated(str(Verdict.REFUTED), complete_action))
 
@@ -733,7 +688,6 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
-    claimed_at: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # The account is never part of the work, at this level as at every other.
@@ -746,7 +700,6 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
             complete_action=complete_action,
             record_outcome=record_outcome,
             already_taken=already_taken,
-            claimed_at=claimed_at,
             still_wanted=still_wanted,
             publisher=publisher
         )
@@ -809,18 +762,21 @@ def _this_walk_holds_the_claim(record_action: MagicMock) -> None:
     record_action.return_value = True
 
 
-def _an_earlier_attempt_holds_the_claim(record_action: MagicMock,
-                                        already_taken: MagicMock,
-                                        nothing_recorded: str | None) -> None:
-    """The claim was written by a worker that is gone. `nothing_recorded` is
-    what it left against it - an outcome, or `None` where it stopped between
-    taking the action and saying what happened."""
+def _an_earlier_attempt_holds_the_claim(
+        record_action: MagicMock,
+        already_taken: MagicMock,
+        nothing_recorded: Verdict | None,
+        written_at: datetime = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN) -> None:
+    """The claim was written by a worker that is gone.
+
+    `nothing_recorded` is what it left against it - an outcome, or `None` where
+    it stopped between taking the action and saying what happened. The moment
+    comes back on the same value because it is the same row: the branch with no
+    outcome to read is the one that asks the provider what happened after it.
+    """
     record_action.return_value = False
-    already_taken.return_value = nothing_recorded
-
-
-def _the_claim_was_written_at(claimed_at: MagicMock, moment: datetime) -> None:
-    claimed_at.return_value = moment
+    already_taken.return_value = ports.ClaimedAction(
+        outcome=nothing_recorded, claimed_at=written_at)
 
 
 def _the_change_reached_the_provider(change_landed: MagicMock) -> None:

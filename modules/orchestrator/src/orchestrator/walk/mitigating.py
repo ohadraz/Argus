@@ -20,7 +20,6 @@ from argus_incidents import IsStillWanted
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     ActionAlreadyTaken,
-    ActionClaimedAt,
     ChangeLanded,
     CompleteAction,
     RecordAction,
@@ -40,7 +39,6 @@ def mitigation_node(
     record_action: RecordAction,
     complete_action: CompleteAction,
     already_taken: ActionAlreadyTaken,
-    claimed_at: ActionClaimedAt,
     record_outcome: RecordOutcome,
     still_wanted: IsStillWanted,
     take: TakeAction,
@@ -75,7 +73,7 @@ def mitigation_node(
         action_type=state.proposed_action.action_type
     ):
         resumed = _what_the_earlier_attempt_left(
-            state, already_taken, claimed_at, change_landed, publisher
+            state, already_taken, change_landed, publisher
         )
 
         # `None` means the earlier attempt left nothing behind - the claim was
@@ -157,7 +155,6 @@ def mitigation_node(
 
 def _what_the_earlier_attempt_left(state: IncidentState,
                                    already_taken: ActionAlreadyTaken,
-                                   claimed_at: ActionClaimedAt,
                                    change_landed: ChangeLanded,
                                    publisher: Publisher
                                    ) -> StateDelta | None:
@@ -187,7 +184,8 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     """
     assert state.hypothesis is not None and state.proposed_action is not None
 
-    outcome = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
+    claimed = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
+    outcome = claimed.outcome if claimed is not None else None
 
     if outcome is not None:
         # The account of the gap, and not of the verdict: that was published by
@@ -221,7 +219,7 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     # A candidate naming no subject, or a claim whose moment cannot be read, is
     # a question that cannot be put - which is the same answer as a provider
     # that will not answer it.
-    since = claimed_at(state.incident_id, hypothesis_id=state.hypothesis.id)
+    since = claimed.claimed_at if claimed is not None else None
     subject = state.hypothesis.subject
     landed = (change_landed(subject, since)
               if since is not None and subject is not None else None)

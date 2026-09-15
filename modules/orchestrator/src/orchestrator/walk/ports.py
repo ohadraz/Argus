@@ -32,6 +32,7 @@ from argus_core.models import (
 # holds both.
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
+from pydantic import BaseModel
 
 
 class Investigate(Protocol):
@@ -154,34 +155,42 @@ class ChangeLanded(Protocol):
     def __call__(self, flag: str, since: datetime) -> bool | None: ...
 
 
-class ActionClaimedAt(Protocol):
-    """When the claim on this candidate's action was written.
+class ClaimedAction(BaseModel):
+    """What an earlier attempt on this candidate staked, and what came of it.
 
-    The moment the provider's log is asked about: a change to the same flag
-    before it belongs to whoever made the incident, and only one after it can
-    be the attempt that stopped halfway.
+    Both, because the resuming walk needs both and needs them to describe one
+    attempt. Asked separately they were two reads of the same row, which is a
+    round trip nobody needed and, worse, two answers that a write landing
+    between them could draw from different moments.
+
+    `outcome` is `None` where the claim exists and nothing was recorded against
+    it: the worker holding it stopped between taking the action and saying what
+    happened, which is the one case this walk cannot answer for itself. It is
+    then `claimed_at` that matters - the moment the provider's log is asked
+    about, since a change to the same flag before it belongs to whoever made
+    the incident, and only one after it can be the attempt that stopped halfway.
+
+    The verdict itself rather than the text of the column it was read from. The
+    walk branches on this, and a branch on a string is a branch that goes on
+    compiling after somebody changes how a verdict is spelt.
     """
 
-    def __call__(self, incident_id: str, hypothesis_id: str) -> datetime | None: ...
+    outcome: Verdict | None
+    claimed_at: datetime
 
 
 class ActionAlreadyTaken(Protocol):
-    """What an earlier attempt recorded for this candidate, if anything.
+    """What an earlier attempt left on this candidate, if it left anything.
 
-    `None` where the claim exists and nothing was recorded against it: the
-    worker holding it stopped between taking the action and saying what
-    happened, which is the one case this walk cannot answer for itself.
-
-    The verdict itself rather than the text of the row it was read from. The
-    walk branches on this, and a branch on a string is a branch that goes on
-    compiling after somebody changes how a verdict is spelt.
+    `None` where no claim was ever written - which the resuming branch does not
+    expect to see, since it is reached only by losing a claim to somebody.
     """
 
     def __call__(
         self,
         incident_id: str,
         hypothesis_id: str
-    ) -> Verdict | None: ...
+    ) -> ClaimedAction | None: ...
 
 
 class TransitionIncident(Protocol):
