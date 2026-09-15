@@ -1,10 +1,19 @@
 """Putting a proposed fix on a branch of its own (spec §7.4, §13).
 
 The half of Code-Fix's outward act that touches code, and it touches only a
-branch. Nothing here can write to `main`: the branch is created first and every
-write names it explicitly, so the worst a wrong patch can do is exist somewhere
-nobody is running. What makes that change is a human merging it, which is not
-something this server can do (see `pull_requests`).
+branch. Nothing here can write to `main`: the only ref this module ever writes
+is a new one, so the worst a wrong patch can do is exist somewhere nobody is
+running. What makes that change is a human merging it, which is not something
+this server can do (see `pull_requests`).
+
+The fix arrives as **one commit**, built the way git itself builds one: a tree
+written over the base's tree, a commit pointing at that tree, and only then a
+ref pointing at the commit. Writing file by file through the Contents API would
+be simpler to read and wrong in two ways - it makes a commit per file, so a
+reviewer gets three identical messages instead of one change, and it publishes
+each file as it goes, so a patch that fails halfway is left on a branch looking
+whole. A tree and a commit are unreachable objects until the last call, which is
+what makes the branch appear complete or not at all.
 
 Separate from opening the pull request because the two fail differently and a
 caller needs to tell them apart - a push that was rejected and a proposal that
@@ -21,7 +30,6 @@ branch nobody runs, and that merging is a person's act (§13).
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Callable, Mapping
 from typing import Any, Final
 
@@ -31,20 +39,31 @@ from write_mcp_server.pull_requests import RepositoryWriteSettings
 
 HttpGet = Callable[..., httpx.Response]
 HttpPost = Callable[..., httpx.Response]
-HttpPut = Callable[..., httpx.Response]
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
 # GitHub's wire vocabulary, named for the fields that carry it. `SHA_FIELD` is
-# two different things under one spelling and that is the API's doing, not
-# ours: on a ref it is the commit a branch points at, on a write it is the blob
-# being replaced - which is why the two are read through different names below.
+# the same spelling for four different things and that is the API's doing, not
+# ours - the commit a ref points at, the tree a commit points at, the tree a new
+# one is written over, and the object each answer identifies itself by.
 REF_FIELD: Final = "ref"
 OBJECT_FIELD: Final = "object"
 SHA_FIELD: Final = "sha"
 MESSAGE_FIELD: Final = "message"
 CONTENT_FIELD: Final = "content"
-BRANCH_FIELD: Final = "branch"
+TREE_FIELD: Final = "tree"
+BASE_TREE_FIELD: Final = "base_tree"
+PARENTS_FIELD: Final = "parents"
+PATH_FIELD: Final = "path"
+MODE_FIELD: Final = "mode"
+TYPE_FIELD: Final = "type"
+
+# A tree entry says what kind of thing it is and what permissions it carries.
+# Everything a fix writes is an ordinary, non-executable file: `100755` would
+# hand a patch the ability to mark a file runnable, and `blob` is what
+# distinguishes a file from a subdirectory or a submodule.
+FILE_MODE: Final = "100644"
+FILE_TYPE: Final = "blob"
 
 ACCEPT_HEADER: Final = "application/vnd.github+json"
 
@@ -57,9 +76,10 @@ class BranchNotWritten(Exception):
     next move is the same for all four: there is nothing to open a pull request
     from, so it must not open one.
 
-    It says nothing about what was left behind. A push cannot be un-pushed from
-    here, so a failure partway through leaves a branch with some of the patch on
-    it; what matters is that nobody proposes it as though it were whole.
+    Anything it is raised for leaves no branch behind. Everything written before
+    the ref is an object nothing points at, which is a repository's own business
+    to collect - so a failure partway through is not a half-finished branch for
+    somebody to find, it is a branch that was never created.
     """
 
 
@@ -69,9 +89,8 @@ def commit_to_new_branch(branch: str,
                          message: str,
                          settings: RepositoryWriteSettings,
                          get: HttpGet = httpx.get,
-                         post: HttpPost = httpx.post,
-                         put: HttpPut = httpx.put) -> str:
-    """Creates `branch` off `base_branch` and writes `files` onto it.
+                         post: HttpPost = httpx.post) -> str:
+    """Commits `files` as one change and creates `branch` pointing at it.
 
     `files` maps a repository path to that file's **whole** new content, not to
     a diff. A patch is applied by the model that wrote it, not here: applying a
@@ -85,13 +104,17 @@ def commit_to_new_branch(branch: str,
     test exposing the bug is the one worth reading, and refusing it a path would
     refuse exactly that.
 
-    Raises `BranchNotWritten` if the repository refuses any step.
+    Raises `BranchNotWritten` if the repository refuses any step. The branch is
+    the last thing written, so a failure means there is no branch rather than a
+    branch with half a fix on it.
     """
     base_head = _head_of(base_branch, settings, get)
-    _create_branch(branch, base_head, settings, post)
+    base_tree = _tree_of(base_head, settings, get)
 
-    for path, content in files.items():
-        _write(path, content, branch, base_branch, message, settings, get, put)
+    tree = _write_tree(files, base_tree, settings, post)
+    commit = _write_commit(tree, base_head, message, settings, post)
+
+    _create_branch(branch, commit, settings, post)
 
     return branch
 
@@ -121,10 +144,125 @@ def _head_of(base_branch: str,
     return str(head)
 
 
+def _tree_of(commit: str,
+             settings: RepositoryWriteSettings,
+             get: HttpGet) -> str:
+    """The tree the base commit points at, which the fix is written over.
+
+    Read rather than assumed, because a new tree must be written over a *tree*
+    and what the ref gives back is a *commit*. Written over nothing instead, the
+    fix would propose a repository containing only the files it touched - every
+    other file in the service deleted, in a patch that reads as a small one.
+    """
+    url = f"{_repository(settings)}/git/commits/{commit}"
+
+    try:
+        response = get(url, headers=_headers(settings), timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        answered: dict[str, Any] = response.json()
+        tree = answered[TREE_FIELD][SHA_FIELD]
+    except Exception as error:
+        raise BranchNotWritten(
+            f"could not read the tree of commit [{commit}] at [{url}]: {error}"
+        ) from error
+
+    return str(tree)
+
+
+def _write_tree(files: Mapping[str, str],
+                base_tree: str,
+                settings: RepositoryWriteSettings,
+                post: HttpPost) -> str:
+    """The whole fix as one tree, written over the base's.
+
+    Each entry carries its content directly rather than a blob written in a call
+    of its own: the API writes the blob and uses its sha, which makes the number
+    of requests a property of the fix being one change rather than of how many
+    files it happens to touch.
+
+    Over the base tree, so that everything the fix did not name stays where it
+    was - this describes a repository, not a patch, and a tree written from
+    nothing would describe one with nothing else in it.
+    """
+    url = f"{_repository(settings)}/git/trees"
+    entries = [
+        {
+            PATH_FIELD: path,
+            MODE_FIELD: FILE_MODE,
+            TYPE_FIELD: FILE_TYPE,
+            CONTENT_FIELD: content
+        }
+        for path, content in files.items()
+    ]
+
+    return _written(
+        url,
+        {BASE_TREE_FIELD: base_tree, TREE_FIELD: entries},
+        f"could not write a tree over [{base_tree}]",
+        settings,
+        post
+    )
+
+
+def _write_commit(tree: str,
+                  parent: str,
+                  message: str,
+                  settings: RepositoryWriteSettings,
+                  post: HttpPost) -> str:
+    """The one commit the fix arrives as.
+
+    Its parent is the base's head, which is what makes it a change *to* that
+    branch rather than an unrelated history: a commit written without one is a
+    root commit, and a pull request from it has nothing to diff against.
+    """
+    url = f"{_repository(settings)}/git/commits"
+
+    return _written(
+        url,
+        {MESSAGE_FIELD: message, TREE_FIELD: tree, PARENTS_FIELD: [parent]},
+        f"could not commit tree [{tree}] onto [{parent}]",
+        settings,
+        post
+    )
+
+
+def _written(url: str,
+             body: dict[str, Any],
+             refused: str,
+             settings: RepositoryWriteSettings,
+             post: HttpPost) -> str:
+    """Writes one git object and returns the sha the repository gave it.
+
+    A tree and a commit are written the same way and read back the same way, and
+    both are useless without the sha - there is nothing to point the next call
+    at - so the failure and the extraction are said once rather than twice.
+    """
+    try:
+        response = post(
+            url,
+            headers=_headers(settings),
+            json=body,
+            timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        answered: dict[str, Any] = response.json()
+        written = answered[SHA_FIELD]
+    except Exception as error:
+        raise BranchNotWritten(f"{refused}: {error}") from error
+
+    return str(written)
+
+
 def _create_branch(branch: str,
                    at: str,
                    settings: RepositoryWriteSettings,
                    post: HttpPost) -> None:
+    """Points a new branch at the finished commit - the last thing written.
+
+    Until this call nothing in the repository refers to the fix at all. That
+    ordering is the module's safety: `main` is never a ref this writes, and a
+    branch either names a whole commit or was never created.
+    """
     url = f"{_repository(settings)}/git/refs"
 
     try:
@@ -139,84 +277,6 @@ def _create_branch(branch: str,
         raise BranchNotWritten(
             f"could not create branch [{branch}] at [{at}]: {error}"
         ) from error
-
-
-def _write(path: str,
-           content: str,
-           branch: str,
-           base_branch: str,
-           message: str,
-           settings: RepositoryWriteSettings,
-           get: HttpGet,
-           put: HttpPut) -> None:
-    """Writes one file onto the branch, replacing whatever was there.
-
-    `branch` is named on every write. The Contents API writes to the
-    repository's default branch when no branch is given, so a write that forgot
-    to say would land on `main` - the one outcome this module exists to make
-    impossible, and one that would be silent.
-    """
-    url = f"{_repository(settings)}/contents/{path}"
-    body: dict[str, Any] = {
-        MESSAGE_FIELD: message,
-        CONTENT_FIELD: base64.b64encode(content.encode()).decode(),
-        BRANCH_FIELD: branch
-    }
-
-    replacing = _blob_at(path, base_branch, settings, get)
-
-    if replacing is not None:
-        body[SHA_FIELD] = replacing
-
-    try:
-        response = put(
-            url,
-            headers=_headers(settings),
-            json=body,
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-    except Exception as error:
-        raise BranchNotWritten(
-            f"could not write [{path}] onto [{branch}]: {error}"
-        ) from error
-
-
-def _blob_at(path: str,
-             base_branch: str,
-             settings: RepositoryWriteSettings,
-             get: HttpGet) -> str | None:
-    """The blob this write replaces, or `None` for a file the fix adds.
-
-    The API refuses an update that does not name the version it replaces, and
-    refuses a *creation* that names one - so the two cases are genuinely
-    different calls and the absence has to be real rather than an empty string.
-
-    Anything other than a readable answer is treated as "no previous version",
-    including a 404, which is the ordinary way the API says a fix brought a new
-    file. A wrong guess here does not pass silently: the write that follows is
-    the one the repository rejects.
-    """
-    url = f"{_repository(settings)}/contents/{path}"
-
-    try:
-        response = get(
-            url,
-            headers=_headers(settings),
-            params={REF_FIELD: base_branch},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        if response.status_code != httpx.codes.OK:
-            return None
-
-        answered: dict[str, Any] = response.json()
-    except Exception:
-        return None
-
-    blob = answered.get(SHA_FIELD)
-
-    return blob if isinstance(blob, str) else None
 
 
 def _repository(settings: RepositoryWriteSettings) -> str:
