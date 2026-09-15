@@ -28,8 +28,8 @@ from orchestrator.walk.ports import (
 )
 from orchestrator.walk.routes import (
     ESCALATED_ROUTE,
+    FIXING_ROUTE,
     NEXT_CANDIDATE_ROUTE,
-    RESOLVED_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
 
@@ -270,19 +270,25 @@ def _nothing_to_act_on() -> StateDelta:
 
 
 def route_after_mitigation(state: IncidentState) -> str:
-    """A confirmed action resolves; anything else that left the world intact
-    hands over to the walk.
+    """A confirmed action goes on to look for a permanent fix; anything else
+    that left the world intact hands over to the walk.
+
+    A mitigation that worked is not the end of the incident, and this is where
+    that stopped being pretended. The symptom is gone and the fault that caused
+    it is still in the code with a flag holding it off, so the incident carries
+    on to Code-Fix - which is why `fixing` is reached by two different roads
+    now. The other one is Argus running out of reversible moves; this one is
+    Argus having made one that worked.
 
     A refuted action stays in `mitigating` and goes to the node that decides
-    whether another explanation is left to try. Code-Fix is reached only once
-    there is not, which is what "Argus is out of reversible moves" means.
+    whether another explanation is left to try.
 
     An `escalated` outcome still ends things immediately: the action could not
     be taken at all, so nothing was changed and nothing was measured, and a
     further experiment would run against a world Argus cannot describe.
     """
-    if state.status == IncidentStatus.RESOLVED:
-        return RESOLVED_ROUTE
+    if state.status == IncidentStatus.MITIGATED:
+        return FIXING_ROUTE
     if state.status == IncidentStatus.MITIGATING:
         return NEXT_CANDIDATE_ROUTE
     return ESCALATED_ROUTE

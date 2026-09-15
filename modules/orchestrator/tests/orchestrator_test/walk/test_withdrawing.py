@@ -19,7 +19,7 @@ from orchestrator.walk.fixing import route_after_codefix
 from orchestrator.walk.gating import route_after_gate
 from orchestrator.walk.investigating import route_after_investigation
 from orchestrator.walk.mitigating import route_after_mitigation
-from orchestrator.walk.routes import RESOLVED_ROUTE, WITHDRAWN_ROUTE
+from orchestrator.walk.routes import FIXING_ROUTE, WITHDRAWN_ROUTE
 from orchestrator.walk.state import IncidentState
 from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
@@ -48,9 +48,9 @@ def test_a_withdrawn_incident_is_routed_out_of_the_walk() -> None:
 @pytest.mark.unit
 def test_a_live_incident_is_routed_by_the_router_it_wraps() -> None:
     Scenario() \
-        .given(a_resolved_incident := _an_incident_in(IncidentStatus.RESOLVED)) \
-        .when(lambda: stopping_when_withdrawn(route_after_mitigation)(a_resolved_incident)) \
-        .then(_the_route_is(RESOLVED_ROUTE))
+        .given(a_mitigated_incident := _an_incident_in(IncidentStatus.MITIGATED)) \
+        .when(lambda: stopping_when_withdrawn(route_after_mitigation)(a_mitigated_incident)) \
+        .then(_the_route_is(FIXING_ROUTE))
 
 
 @pytest.mark.unit

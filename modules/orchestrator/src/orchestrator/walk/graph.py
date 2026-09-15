@@ -196,7 +196,11 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         MITIGATION_NODE,
         stopping_when_withdrawn(route_after_mitigation),
         {
-            RESOLVED_ROUTE: POSTMORTEM_NODE,
+            # A mitigation that worked goes on to Code-Fix rather than to the
+            # postmortem. The symptom is gone; the fault it exposed is still in
+            # the code, and a flag holding a bug off is a thing somebody has to
+            # come back to unless the bug gets fixed.
+            FIXING_ROUTE: CODEFIX_NODE,
             NEXT_CANDIDATE_ROUTE: NEXT_CANDIDATE_NODE,
             ESCALATED_ROUTE: POSTMORTEM_NODE,
             WITHDRAWN_ROUTE: END

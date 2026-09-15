@@ -93,21 +93,33 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     business knowing how Argus is configured, and the caller already holds the
     value.
 
-    The order of the questions is the design. A code fix settles the incident
-    outright, so it is asked first. An action's verdict comes next, because it
-    is the strongest evidence anything here has. Only then does the walk's own
-    arithmetic decide, and `fixing` is what is left when every question above it
-    has been answered no.
+    The order of the questions is the design, and the first of them is "did the
+    symptom stop". A confirmed action is the strongest evidence anything here
+    has - metrics re-queried after the change and recovered - so it is asked
+    first, and it is asked before `fix_found` because an incident that was
+    mitigated and then had a fix proposed for it carries both at once.
+
+    Only then does the walk's own arithmetic decide, and `fixing` is what is
+    left when every question above it has been answered no.
+
+    **Nothing here returns `resolved`.** A mitigation stops a symptom and a
+    draft pull request proposes a change nobody has made; neither ends the
+    cause, and Argus cannot merge (spec §13). What this derives is how far
+    Argus got, and the furthest it gets is `mitigated`.
 
     `state.status` is never read. Deriving a status from a status would put the
     node that set the previous one back in the business this function takes it
     out of.
     """
-    if state.fix_found is not None:
-        return IncidentStatus.RESOLVED if state.fix_found else IncidentStatus.ESCALATED
-
     if state.action_outcome == Verdict.CONFIRMED:
-        return IncidentStatus.RESOLVED
+        return IncidentStatus.MITIGATED
+
+    # A fix reached without a confirmed mitigation is one Argus arrived at
+    # having stopped nothing: the symptom is still happening, and a proposal
+    # does not stop it. Whether one was found decides what the incident carries,
+    # not what state it is in.
+    if state.fix_found is not None:
+        return IncidentStatus.ESCALATED
 
     # Not a third opinion on the hypothesis: nothing was changed and nothing was
     # measured, so a further experiment would run against a world Argus cannot

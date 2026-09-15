@@ -109,9 +109,9 @@ def test_an_action_that_helps_ends_the_incident_in_a_postmortem(
     collaborators: Collaborators
 ) -> None:
     # The happy path, whole: one investigation, one candidate, one action, and
-    # the service recovers. Every node between the alert and the document is
-    # reached exactly once, and nothing that ends an incident Argus could not
-    # fix is reached at all.
+    # the service recovers - and then Code-Fix, because a mitigation that
+    # worked leaves a fault in the code with a flag holding it off. Every node
+    # between the alert and the document is reached exactly once.
     Scenario() \
         .given(everything_works := collaborators) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), everything_works)) \
@@ -120,8 +120,9 @@ def test_an_action_that_helps_ends_the_incident_in_a_postmortem(
                            MITIGATION_PROPOSAL_NODE,
                            TIER_GATE_NODE,
                            MITIGATION_NODE,
+                           CODEFIX_NODE,
                            POSTMORTEM_NODE),
-            _the_incident_ended(IncidentStatus.RESOLVED)))
+            _the_incident_ended(IncidentStatus.MITIGATED)))
 
 
 @pytest.mark.component
@@ -176,8 +177,9 @@ def test_a_refuted_action_is_followed_by_the_next_explanation(
                            MITIGATION_PROPOSAL_NODE,
                            TIER_GATE_NODE,
                            MITIGATION_NODE,
+                           CODEFIX_NODE,
                            POSTMORTEM_NODE),
-            _the_incident_ended(IncidentStatus.RESOLVED)))
+            _the_incident_ended(IncidentStatus.MITIGATED)))
 
 
 @pytest.mark.component

@@ -43,7 +43,7 @@ from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
-from orchestrator.walk.routes import ESCALATED_ROUTE, NEXT_CANDIDATE_ROUTE, RESOLVED_ROUTE
+from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, NEXT_CANDIDATE_ROUTE
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import (
@@ -559,11 +559,14 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
 
 
 @pytest.mark.unit
-def test_an_action_that_settled_the_incident_is_routed_to_the_postmortem() -> None:
+def test_an_action_that_stopped_the_symptom_goes_on_to_look_for_a_fix() -> None:
+    # The path that did not exist before. A mitigation that worked used to end
+    # the incident at the postmortem, which meant the fault it exposed was
+    # never fixed - a flag left holding back a bug nobody had written down.
     Scenario() \
-        .given(a_resolved_incident := _an_incident_in(IncidentStatus.RESOLVED)) \
-        .when(lambda: route_after_mitigation(a_resolved_incident)) \
-        .then(_the_route_is(RESOLVED_ROUTE))
+        .given(a_mitigated_incident := _an_incident_in(IncidentStatus.MITIGATED)) \
+        .when(lambda: route_after_mitigation(a_mitigated_incident)) \
+        .then(_the_route_is(FIXING_ROUTE))
 
 
 @pytest.mark.unit

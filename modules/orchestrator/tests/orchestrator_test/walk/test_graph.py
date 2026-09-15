@@ -75,14 +75,18 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     (TIER_GATE_NODE, NEXT_CANDIDATE_NODE),
     (TIER_GATE_NODE, END),
 
+    # A mitigation that worked still goes looking for a permanent fix: the flag
+    # is back, and the fault it exposed is still in the code.
+    (MITIGATION_NODE, CODEFIX_NODE),
     (MITIGATION_NODE, NEXT_CANDIDATE_NODE),
     (MITIGATION_NODE, POSTMORTEM_NODE),
     (MITIGATION_NODE, END),
 
     # The loop. An attempt that settled nothing goes back to the proposal node
     # for the next explanation, or back to the Investigator for a wider look -
-    # and Code-Fix is reached only once neither is left, which is what "Argus
-    # is out of moves" actually means.
+    # and once neither is left, Code-Fix is the last move Argus has. That is a
+    # different road to it than the one above, which a mitigation takes having
+    # worked.
     (NEXT_CANDIDATE_NODE, MITIGATION_PROPOSAL_NODE),
     (NEXT_CANDIDATE_NODE, INVESTIGATOR_NODE),
     (NEXT_CANDIDATE_NODE, CODEFIX_NODE),

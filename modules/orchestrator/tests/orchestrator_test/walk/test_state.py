@@ -40,9 +40,13 @@ def test_an_incident_nothing_has_happened_to_yet_is_being_investigated() -> None
 
 
 @pytest.mark.unit
-def test_a_confirmed_action_resolves_the_incident() -> None:
-    # The one route to `resolved`, and it goes through evidence: `confirmed`
+def test_a_confirmed_action_mitigates_the_incident() -> None:
+    # The one route to `mitigated`, and it goes through evidence: `confirmed`
     # means the metrics were re-queried after the change and had recovered.
+    #
+    # Mitigated rather than resolved, because a reverted flag is a workaround
+    # holding a fault off rather than the fault being gone. What would resolve
+    # it is the permanent fix being merged, which is nobody here's to do.
     Scenario() \
         .given(
             a_confirmed_attempt := _an_incident(
@@ -53,7 +57,7 @@ def test_a_confirmed_action_resolves_the_incident() -> None:
             lambda: status_after(a_confirmed_attempt, SOME_MAX_ROUNDS)
         ) \
         .then(
-            _the_status_is(IncidentStatus.RESOLVED)
+            _the_status_is(IncidentStatus.MITIGATED)
         )
 
 
@@ -159,7 +163,12 @@ def test_a_walk_out_of_candidates_and_rounds_looks_for_a_permanent_fix() -> None
 
 
 @pytest.mark.unit
-def test_a_code_fix_that_was_found_resolves_the_incident() -> None:
+def test_a_code_fix_found_without_a_mitigation_still_escalates() -> None:
+    # A fix reached this way is one Argus arrived at having stopped nothing:
+    # the symptom is still happening and a draft pull request does not stop it.
+    # Calling that resolved said the incident was over while the shop was still
+    # failing - the status answers "did the symptom stop", and the proposal is
+    # something attached to the incident rather than a state of it.
     Scenario() \
         .given(
             a_fix_that_was_found := _an_incident(
@@ -170,7 +179,7 @@ def test_a_code_fix_that_was_found_resolves_the_incident() -> None:
             lambda: status_after(a_fix_that_was_found, SOME_MAX_ROUNDS)
         ) \
         .then(
-            _the_status_is(IncidentStatus.RESOLVED)
+            _the_status_is(IncidentStatus.ESCALATED)
         )
 
 
@@ -189,6 +198,28 @@ def test_a_code_fix_that_was_not_found_escalates() -> None:
         ) \
         .then(
             _the_status_is(IncidentStatus.ESCALATED)
+        )
+
+
+@pytest.mark.unit
+def test_a_mitigated_incident_stays_mitigated_once_a_fix_is_proposed() -> None:
+    # The new path: a mitigation worked, and Code-Fix then ran and proposed
+    # something. Both facts are set on the state at once, so the order the
+    # questions are asked in decides the answer - and asking `fix_found` first
+    # would report an incident whose symptom demonstrably stopped as escalated.
+    Scenario() \
+        .given(
+            a_mitigation_that_also_got_a_fix := _an_incident(
+                candidates=[_a_candidate()],
+                action_outcome="confirmed",
+                fix_found=True
+            )
+        ) \
+        .when(
+            lambda: status_after(a_mitigation_that_also_got_a_fix, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.MITIGATED)
         )
 
 
