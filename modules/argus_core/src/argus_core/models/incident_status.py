@@ -12,6 +12,16 @@ class IncidentStatus(StrEnum):
     ACKNOWLEDGED = "acknowledged"
     INVESTIGATING = "investigating"
     MITIGATING = "mitigating"
+    # The symptom stopped and the cause did not. A flag is back where it was, a
+    # version is rolled back, and the fault that was exposed is still in the
+    # code with a workaround holding it off - which is a different thing from
+    # the incident being over, and the thing a reverted flag has always
+    # actually been. Argus called it `resolved` before, which was the state
+    # machine saying something untrue about the world (spec §10).
+    MITIGATED = "mitigated"
+    # The cause is gone, not merely held off. Argus does not reach this on its
+    # own: what makes a mitigated incident resolved is the permanent fix being
+    # merged, and merging is outside its autonomy by construction (§13).
     RESOLVED = "resolved"
     FIXING = "fixing"
     ESCALATED = "escalated"
@@ -44,8 +54,15 @@ class IncidentStatus(StrEnum):
         nothing is left because a human ended it, not because the walk did. It
         is also the one status the walk itself reads back, since it is the only
         way an incident can end that the walk's own state cannot tell it about.
+
+        `mitigated` is terminal in the same sense `escalated` is - it is as far
+        as Argus can take the incident, and what would move it on is a person's
+        to do. Something is still owed there, which is exactly what the status
+        is for saying; it is not something Argus is still working on, so a page
+        polling it would poll forever.
         """
         return self in (
+            IncidentStatus.MITIGATED,
             IncidentStatus.RESOLVED,
             IncidentStatus.ESCALATED,
             IncidentStatus.WITHDRAWN

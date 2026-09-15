@@ -46,3 +46,14 @@ def test_a_withdrawn_incident_has_nowhere_left_to_go() -> None:
     # A human took the incident back. Argus stops, and unlike `fixing` there is
     # nothing of Argus's still working on it.
     assert IncidentStatus.WITHDRAWN.is_terminal() is True
+
+
+@pytest.mark.unit
+def test_a_mitigated_incident_has_nowhere_left_to_go() -> None:
+    # The service is well and the cause is still there, held back by a flag
+    # somebody reverted. Terminal because it is as far as Argus can take it:
+    # what would make it `resolved` is a human merging the fix, which is
+    # outside Argus's autonomy entirely (spec §13) and nothing here can wait
+    # for. An incident that sat here non-terminal would be one a page polls
+    # forever.
+    assert IncidentStatus.MITIGATED.is_terminal() is True
