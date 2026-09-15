@@ -31,7 +31,7 @@ from orchestrator.walk.routes import (
     INVESTIGATING_ROUTE,
     MITIGATING_ROUTE,
     NEXT_CANDIDATE_ROUTE,
-    RESOLVED_ROUTE,
+    POSTMORTEM_ROUTE,
     WITHDRAWN_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
@@ -224,8 +224,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         CODEFIX_NODE,
         stopping_when_withdrawn(route_after_codefix),
         {
-            RESOLVED_ROUTE: POSTMORTEM_NODE,
-            ESCALATED_ROUTE: POSTMORTEM_NODE,
+            POSTMORTEM_ROUTE: POSTMORTEM_NODE,
             WITHDRAWN_ROUTE: END
         }
     )

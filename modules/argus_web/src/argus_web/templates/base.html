@@ -327,6 +327,17 @@
   .status.mitigating, .status.fixing {
                           color: var(--amber); border-color: var(--amber);
                           animation: breathing 1.6s ease-in-out infinite; }
+  /* The service is well and something is still owed: the symptom stopped, and
+     the fault that caused it is still in the code behind a flag somebody
+     reverted. Green, because the shop is serving; dashed, because the incident
+     is not closed the way a resolved one is, and a reader scanning a list of
+     endings should be able to see which ones still want something. Still, like
+     every other ending - Argus has done what it can. */
+  .status.mitigated { color: var(--good);  border-color: var(--good);
+                      border-style: dashed; }
+  /* Solid green, and currently unreachable: what resolves a mitigated incident
+     is the permanent fix being merged, which is outside Argus's autonomy. Kept
+     because the status exists and something will one day set it. */
   .status.resolved  { color: var(--good);  border-color: var(--good); }
   /* Escalated is over too - it stops moving for the same reason resolved
      does - and stays red because it ended by giving up. */
@@ -371,6 +382,9 @@
   .moved-to.acknowledged { color: var(--bad); }
   .moved-to.investigating { color: var(--bad); }
   .moved-to.mitigating, .moved-to.fixing { color: var(--amber); }
+  /* In the stream it is a mention of the ending rather than the ending itself,
+     so it takes the colour and not the dashed border the header badge wears. */
+  .moved-to.mitigated { color: var(--good); }
   .moved-to.resolved { color: var(--good); }
   .moved-to.escalated { color: var(--bad); }
   .moved-to.withdrawn { color: #9aa0a6; }

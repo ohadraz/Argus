@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from argus_core.models import IncidentStatus
-
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import ProposeFix
-from orchestrator.walk.routes import ESCALATED_ROUTE, RESOLVED_ROUTE
+from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
 
@@ -65,4 +63,12 @@ def codefix_node(state: IncidentState, propose_fix: ProposeFix) -> StateDelta:
 
 
 def route_after_codefix(state: IncidentState) -> str:
-    return RESOLVED_ROUTE if state.status == IncidentStatus.RESOLVED else ESCALATED_ROUTE
+    """Wherever it came from and however it went, the incident gets written up.
+
+    One route, because there is one destination. This branched on `resolved`
+    against everything else and both arms reached the postmortem anyway - a
+    distinction the graph could not act on, and since a mitigation stopped
+    being called resolved, one nothing sets either. How the incident ended is
+    the status's to say; where it goes next was never in doubt.
+    """
+    return POSTMORTEM_ROUTE

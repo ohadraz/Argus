@@ -22,7 +22,7 @@ from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.ports import ProposeFix
-from orchestrator.walk.routes import ESCALATED_ROUTE, RESOLVED_ROUTE
+from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import a_determined_hypothesis
@@ -188,19 +188,26 @@ def test_an_incident_with_no_hypothesis_is_still_asked_about() -> None:
 
 
 @pytest.mark.unit
-def test_route_after_codefix_resolves_only_when_resolved() -> None:
+def test_every_incident_that_reaches_code_fix_goes_on_to_the_postmortem() -> None:
+    # One route, because there is one destination. This used to branch on
+    # `resolved` versus everything else, and both arms led to the postmortem
+    # anyway - a distinction the graph could not act on and nothing set. How the
+    # incident ended is the status's to say; where it goes next is not in doubt.
     Scenario() \
-        .given(a_fixed_incident := _an_incident_in(IncidentStatus.RESOLVED)) \
-        .when(lambda: route_after_codefix(a_fixed_incident)) \
-        .then(_the_route_is(RESOLVED_ROUTE))
+        .given(a_mitigated_incident := _an_incident_in(IncidentStatus.MITIGATED)) \
+        .when(lambda: route_after_codefix(a_mitigated_incident)) \
+        .then(_the_route_is(POSTMORTEM_ROUTE))
 
 
 @pytest.mark.unit
-def test_route_after_codefix_escalates_an_incident_it_could_not_fix() -> None:
+def test_an_incident_nothing_could_be_done_for_also_goes_to_the_postmortem() -> None:
+    # The other road in. An incident that reached Code-Fix having stopped
+    # nothing still gets written up - a human reading it afterwards needs the
+    # account most, not least.
     Scenario() \
         .given(an_unfixed_incident := _an_incident_in(IncidentStatus.FIXING)) \
         .when(lambda: route_after_codefix(an_unfixed_incident)) \
-        .then(_the_route_is(ESCALATED_ROUTE))
+        .then(_the_route_is(POSTMORTEM_ROUTE))
 
 
 class _AnAgentRememberingWhatItWasAsked:

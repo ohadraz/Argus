@@ -17,5 +17,9 @@ FIXING_ROUTE: Final = "fixing"
 INVESTIGATING_ROUTE: Final = "investigating"
 MITIGATING_ROUTE: Final = "mitigating"
 NEXT_CANDIDATE_ROUTE: Final = "next_candidate"
-RESOLVED_ROUTE: Final = "resolved"
+# Where an incident goes once Code-Fix has had its turn, however that turn went.
+# Named for the destination rather than for an outcome, because by then the
+# outcome is the status's to carry and every one of them gets written up - the
+# incident nothing could be done for most of all.
+POSTMORTEM_ROUTE: Final = "postmortem"
 WITHDRAWN_ROUTE: Final = "withdrawn"
