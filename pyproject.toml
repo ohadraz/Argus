@@ -205,6 +205,7 @@ forbidden_modules = ["*"]
 ignore_imports = [
     "argus_web.** -> argus_core",
     "argus_web.** -> argus_core.**",
+    "argus_web.** -> argus_incidents",
     "argus_web.** -> argus_incidents.**",
     "argus_web.** -> argus_narration",
 ]

@@ -12,7 +12,7 @@ from datetime import timedelta
 from functools import partial
 from typing import Protocol
 
-from argus_core import to_iso_minute
+from argus_core import to_iso_minute, utc_now
 from argus_core.anomaly import AnomalyThresholds, has_recovered_since
 from argus_core.events import (
     AwaitingRecovery,
@@ -42,7 +42,6 @@ from agent_mitigation.tools import (
     fetch_recent_metrics,
     set_flag,
     somebody_else_changed_flag_since,
-    utc_now,
 )
 from agent_mitigation.undoing import undo_change
 

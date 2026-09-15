@@ -7,6 +7,11 @@ the service did, `undoing.py` puts a recorded change back, and `mitigating.py`
 composes the choice and the doing for callers that need no gate between them.
 The split follows §13's gate: the Orchestrator has to be able to reach the
 choice, and the question of reversibility, without reaching the write.
+
+`tools.py` is behind the same door rather than a sixth module of its own to
+import. What a caller running this agent has to supply - the settings slice it
+behaves by, the flag history it reads, whether the walk is still wanted - is
+named here; how those reach the provider is not, and stays inside.
 """
 
 from __future__ import annotations
@@ -30,6 +35,13 @@ from agent_mitigation.strategies import (
     Strategies,
     can_be_undone,
 )
+from agent_mitigation.tools import (
+    MitigationSettings,
+    StillWanted,
+    argus_changed_flag_since,
+    fetch_recent_flag_changes,
+    somebody_else_changed_flag_since,
+)
 from agent_mitigation.trying import UndoChange, take_action
 from agent_mitigation.undoing import undo_change
 
@@ -38,17 +50,22 @@ __all__ = [
     "REVERT_FEATURE_FLAG",
     "Action",
     "ActionTaker",
+    "MitigationSettings",
     "MitigationStrategy",
     "Outcome",
     "RevertFeatureFlag",
+    "StillWanted",
     "Strategies",
     "UndoAttempt",
     "UndoChange",
     "Undone",
     "Verdict",
+    "argus_changed_flag_since",
     "can_be_undone",
+    "fetch_recent_flag_changes",
     "mitigate",
     "propose_action",
+    "somebody_else_changed_flag_since",
     "state_name",
     "take_action",
     "undo_change",

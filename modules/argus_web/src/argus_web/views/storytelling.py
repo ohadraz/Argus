@@ -14,10 +14,10 @@ wins, because it is the later read that Argus acted on.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from hashlib import sha256
 
-from argus_core import UuidStr
+from argus_core import UuidStr, utc_now
 from argus_core.events import ChangesRetrieved, IncidentEvent, StatusChanged
 from argus_core.models import Alert, ChangeEvent, FlagChange, Incident, IncidentStatus
 from argus_narration import (
@@ -132,19 +132,9 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     )
 
 
-def _utc_now() -> datetime:
-    """The clock `build_live_incident` reads when an incident is still running.
-
-    Its own function so that it is an argument with a default rather than a
-    call buried in the builder - which is the difference between a test that
-    can hold the elapsed time still and one that cannot.
-    """
-    return datetime.now(UTC)
-
-
 def build_live_incident(incident: Incident,
                         events: Sequence[IncidentEvent],
-                        now: Callable[[], datetime] = _utc_now) -> LiveIncident:
+                        now: Callable[[], datetime] = utc_now) -> LiveIncident:
     """Arranges one incident into the screen somebody watches it on.
 
     `now` is injected because the elapsed time is the one value here that does

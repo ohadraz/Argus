@@ -11,9 +11,12 @@ from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.events import Publisher
 from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
-from argus_incidents.intake import start_incident
-from argus_incidents.publishing import events_into, events_into_connection
-from argus_incidents.withdrawal import withdraw_incident
+from argus_incidents import (
+    events_into,
+    events_into_connection,
+    start_incident,
+    withdraw_incident,
+)
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles

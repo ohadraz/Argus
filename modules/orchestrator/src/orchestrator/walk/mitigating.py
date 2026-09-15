@@ -15,7 +15,7 @@ from argus_core.events import (
     publish,
 )
 from argus_core.models import Actor, IncidentStatus
-from argus_incidents.withdrawal import IsStillWanted
+from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (

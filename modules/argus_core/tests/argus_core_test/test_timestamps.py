@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
-from argus_core.timestamps import parse_iso, to_iso, to_iso_minute
+from argus_core.timestamps import parse_iso, to_iso, to_iso_minute, utc_now
 
 
 @pytest.mark.unit
@@ -170,3 +170,14 @@ def test_to_iso_minute_is_the_same_for_any_instant_within_that_minute() -> None:
     assert to_iso_minute(a_later_instant_in_the_same_minute) == to_iso_minute(
         some_instant_on_the_minute
     )
+
+
+@pytest.mark.unit
+def test_utc_now_answers_an_instant_that_knows_it_is_in_utc() -> None:
+    # One assertion for both halves: a naive instant has no offset to compare,
+    # so an answer that is not aware fails here rather than reading as some
+    # other zone. Everything that writes a timestamp down goes through `to_iso`,
+    # which converts rather than rejects - so a clock that answered naively
+    # would not raise, it would quietly write whatever the host's zone made of
+    # the number.
+    assert utc_now().utcoffset() == timedelta(0)

@@ -12,14 +12,13 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from agent_investigator import Findings
-from agent_mitigation import Action, Outcome, Verdict
-from agent_mitigation.tools import StillWanted
+from agent_mitigation import Action, Outcome, StillWanted, Verdict
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models import (
     ActionType,
     Alert,
     Attempt,
+    Findings,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -72,6 +71,13 @@ class TakeAction(Protocol):
     # is how the wait for the service to answer hears that somebody stopped the
     # walk. A caller with none of the three takes the same action, tells nobody,
     # and is stopped by nothing.
+    #
+    # `still_wanted` is the same question as `argus_incidents`' `IsStillWanted`,
+    # already bound to an incident. The walk holds both names because the walk is
+    # what binds them: `mitigating` partials the incident id in before it calls
+    # the agent, and the agent below asks without knowing which incident it is
+    # asking about. The arity is the whole difference - neither is the other
+    # spelt wrong.
     def __call__(
         self,
         action: Action,

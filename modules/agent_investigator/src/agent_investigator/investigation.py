@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any, Final
 
 from argus_core import to_iso
@@ -43,6 +42,7 @@ from argus_core.models import (
     Attempt,
     Evidence,
     Exchange,
+    Findings,
     Hypothesis,
     MetricBucket,
     Reading,
@@ -132,29 +132,6 @@ _ONE_TURN_LEFT: Final = (
     "\n\nThis is your last turn: there is no budget for another retrieval. Answer now, "
     "with final_answer, from what you have already read."
 )
-
-
-@dataclass(frozen=True)
-class Findings:
-    """What one investigation concluded, and what it read to conclude it.
-
-    Named for the product rather than the process: an investigation is the
-    thing that runs, and this is what it hands back.
-
-    `candidates` is every explanation the model offered, best first, and is
-    never empty - an investigation that identified no cause says so in one
-    candidate carrying the reason. Whether any of them is worth acting on is
-    the mitigate threshold's business, not this type's.
-
-    `already_read` is what a later round cannot work out for itself. A round is
-    bought by a refutation, not by a wider window, and the round that follows
-    should know what the one before it saw - both so it does not pay again for
-    the same evidence, and so that a channel nobody asked for stays
-    distinguishable from one that was asked and came back empty.
-    """
-
-    candidates: list[Hypothesis]
-    already_read: list[Reading]
 
 
 def investigate(

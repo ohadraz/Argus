@@ -32,7 +32,13 @@ from argus_core.config import (
 )
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
-from argus_core.timestamps import TIMESTAMP_FORMAT, parse_iso, to_iso, to_iso_minute
+from argus_core.timestamps import (
+    TIMESTAMP_FORMAT,
+    parse_iso,
+    to_iso,
+    to_iso_minute,
+    utc_now,
+)
 
 __all__ = [
     "TIMESTAMP_FORMAT",
@@ -51,5 +57,6 @@ __all__ = [
     "open_pool",
     "parse_iso",
     "to_iso",
-    "to_iso_minute"
+    "to_iso_minute",
+    "utc_now"
 ]

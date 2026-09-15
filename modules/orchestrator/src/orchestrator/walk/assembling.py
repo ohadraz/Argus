@@ -17,21 +17,27 @@ from functools import partial
 
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
-from agent_mitigation import can_be_undone, take_action
-from agent_mitigation.tools import (
+from agent_mitigation import (
     MitigationSettings,
     argus_changed_flag_since,
+    can_be_undone,
     fetch_recent_flag_changes,
     somebody_else_changed_flag_since,
+    take_action,
+    undo_change,
 )
-from agent_mitigation.undoing import undo_change
 from argus_core import Connections, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import Publisher
 from argus_core.llm import get_llm_client
 from argus_core.replay import Recorder
-from argus_incidents.publishing import calls_into, events_into, events_into_connection
-from argus_incidents.withdrawal import IsStillWanted, wanted_via
+from argus_incidents import (
+    IsStillWanted,
+    calls_into,
+    events_into,
+    events_into_connection,
+    wanted_via,
+)
 
 from orchestrator.gathering import write_postmortem_for
 from orchestrator.records import Records

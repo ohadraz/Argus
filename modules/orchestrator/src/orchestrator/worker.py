@@ -9,16 +9,15 @@ from functools import partial
 from os import getpid
 
 import psycopg
-from agent_mitigation.tools import (
+from agent_mitigation import (
     MitigationSettings,
     somebody_else_changed_flag_since,
+    undo_change,
 )
-from agent_mitigation.undoing import undo_change
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.schema import require_schema
-from argus_incidents.publishing import events_into
+from argus_incidents import IsStillWanted, events_into, wanted_via
 from argus_incidents.repository import runs
-from argus_incidents.withdrawal import IsStillWanted, wanted_via
 
 from orchestrator.entrypoint import graph_for, run_incident
 from orchestrator.unwinding import taken_actions_from, unwind_incident

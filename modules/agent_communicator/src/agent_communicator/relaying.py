@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Final, Protocol
 
-from argus_incidents.repository.events import RecordedEvent
+from argus_core.events import RecordedEvent
 from argus_narration import NarrationLine, a_narration_line
 
 from agent_communicator.policy import Register, how_it_is_said

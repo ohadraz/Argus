@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from argus_core import Connections
+from argus_core.events import RecordedEvent
 from argus_incidents.repository import events
-from argus_incidents.repository.events import RecordedEvent
 
 from agent_communicator.relaying import SLACK_RELAY, Backlog, Place
 from agent_communicator.repository import cursors

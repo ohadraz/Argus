@@ -14,7 +14,7 @@ from argus_core.models import (
     UndoDescriptor,
     Verdict,
 )
-from argus_incidents.publishing import PublisherFor, publish_beside
+from argus_incidents import PublisherFor, publish_beside
 from argus_incidents.repository import (
     hypotheses,
     incidents,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from argus_core import (
@@ -10,6 +10,7 @@ from argus_core import (
     WriteMcpEndpoint,
     get_settings,
     to_iso,
+    utc_now,
 )
 from argus_core.models import FlagChange, MetricBucket, UndoDescriptor
 from read_mcp_client import get_metrics_summary
@@ -77,12 +78,6 @@ class MitigationSettings(SettingsSlice):
     flag_change_lookback_minutes: int
     unleash_actor: str
     mitigation_verification_timeout_seconds: float
-
-
-def utc_now() -> datetime:
-    """The clock the verification measures its timeout against, as a seam a
-    test can replace with one that does not actually wait."""
-    return datetime.now(UTC)
 
 
 def fetch_recent_flag_changes(

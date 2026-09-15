@@ -13,7 +13,7 @@ from typing import Any
 
 from argus_core.events import StatusChanged
 from argus_core.models import IncidentStatus
-from argus_incidents.withdrawal import IsStillWanted
+from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import TransitionIncident

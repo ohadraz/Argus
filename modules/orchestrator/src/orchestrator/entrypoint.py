@@ -5,7 +5,7 @@ from collections.abc import Callable
 from argus_core import Connections, get_settings
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus
-from argus_incidents.publishing import events_into_connection, publish_beside
+from argus_incidents import events_into_connection, publish_beside
 from argus_incidents.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph

@@ -1,23 +1,14 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.events import IncidentEvent, parse_event
+from argus_core.events import IncidentEvent, RecordedEvent, parse_event
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel
 
-
-class RecordedEvent(BaseModel):
-    """One event as the log holds it: what was published, and where it sits.
-
-    The place travels with the event because a reader following the log has to
-    keep it. Where `get_by_incident` answers a question about an incident -
-    whose answer is complete the moment it is given - a relay's question is
-    "what has happened since", and the only thing that can be asked again is
-    the place it got to.
-    """
-
-    seq: int
-    event: IncidentEvent
+# `RecordedEvent` is a kernel contract, named here as well because this is the
+# table it is read from and every caller of `get_since` already has this module
+# open. The relay that follows the log names it from the kernel instead - it
+# has no business holding a repository to hold a row.
+__all__ = ["RecordedEvent", "get_by_incident", "get_since", "record"]
 
 
 def record(conn: psycopg.Connection, event: IncidentEvent) -> None:

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from agent_mitigation.tools import utc_now
-from argus_core import to_iso
+from argus_core import to_iso, utc_now
 from argus_core.events import CandidateSelected, Publisher, nobody, publish
 from argus_core.models import Attempt, IncidentStatus
 

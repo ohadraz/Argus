@@ -5,6 +5,17 @@ from datetime import UTC, datetime
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
+def utc_now() -> datetime:
+    """Now, in UTC - and a seam a test can replace with a clock that does not
+    actually wait.
+
+    Here rather than in whichever module first needed to know the time. Two
+    agents and a page all measure against the same instant, and a clock kept
+    inside one of them is a clock the others import an agent to read.
+    """
+    return datetime.now(UTC)
+
+
 def to_iso(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime(TIMESTAMP_FORMAT)
 

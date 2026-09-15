@@ -429,6 +429,27 @@ def parse_event(row: dict[str, Any]) -> IncidentEvent:
     return _events.validate_python(row)
 
 
+class RecordedEvent(BaseModel):
+    """One event as the log holds it: what was published, and where it sits.
+
+    The place travels with the event because a reader following the log has to
+    keep it. Where `get_by_incident` answers a question about an incident -
+    whose answer is complete the moment it is given - a relay's question is
+    "what has happened since", and the only thing that can be asked again is
+    the place it got to.
+
+    Here rather than with the table it is read from, because the relay that
+    follows the log names it as well, and a type kept inside the repository is
+    one a reader has to install the repository to name. It sits in `events`
+    rather than in `models` for the plainest of reasons: it holds an
+    `IncidentEvent`, and `events` already reaches `models` - the other way
+    round would be a circle.
+    """
+
+    seq: int
+    event: IncidentEvent
+
+
 class Publisher(Protocol):
     """Where an event goes. Says nothing about how it travels.
 
