@@ -19,7 +19,11 @@ from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.routes import FIXING_ROUTE, INVESTIGATING_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState, status_after
 
-from ..framework.builders import a_determined_hypothesis, a_random_id, an_undetermined_hypothesis
+from orchestrator_test.framework.builders import (
+    a_determined_hypothesis,
+    a_random_id,
+    an_undetermined_hypothesis,
+)
 
 # How many times one incident may be investigated. Stated rather than read:
 # the node is told its budget now, and a test taking the number from the

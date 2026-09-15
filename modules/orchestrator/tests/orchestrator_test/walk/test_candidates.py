@@ -5,7 +5,7 @@ from argus_core.models import Attempt, CauseType, Evidence, Hypothesis
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.candidates import the_next_worth_trying
 
-from ..framework.builders import (
+from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     a_random_id,
     an_undetermined_hypothesis,

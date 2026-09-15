@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
 
+from agent_codefix import propose_fix
 from agent_investigator import changes_over, logs_over, metrics_over
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
@@ -54,6 +55,7 @@ from orchestrator.walk.ports import (
     CompleteAction,
     FetchFlagChanges,
     Investigate,
+    ProposeFix,
     RecordAction,
     RecordHypothesis,
     RecordOutcome,
@@ -87,6 +89,7 @@ class Collaborators:
     already_taken: ActionAlreadyTaken
     claimed_at: ActionClaimedAt
     change_landed: ChangeLanded
+    propose_fix: ProposeFix
     write_postmortem: WritePostmortem
     record_postmortem: RecordPostmortem
     transition_incident: TransitionIncident
@@ -193,6 +196,10 @@ def against(connections: Connections,
         change_landed=partial(
             argus_changed_flag_since, settings=mitigation, fetch=flag_history
         ),
+        # A stub today, and named here for the same reason the real agents are:
+        # what the walk does with the answer is the walk's business, and a node
+        # reaching for the agent itself is a node no test can hand a fix to.
+        propose_fix=propose_fix,
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id,
             connections=connections,

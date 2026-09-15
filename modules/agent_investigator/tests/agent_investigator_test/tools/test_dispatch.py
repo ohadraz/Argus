@@ -29,9 +29,12 @@ from argus_core.models import ToolResult
 from argus_core.replay import CallType, Replay, ReplayEntry
 from argus_testkit import Assertion, Kept, Scenario, all_of, calling
 
-from ..framework.assertions.tool_results import the_result_answers, the_result_failed
-from ..framework.builders.configuration import some_investigation_settings
-from ..framework.builders.dispatcher import (
+from agent_investigator_test.framework.assertions.tool_results import (
+    the_result_answers,
+    the_result_failed,
+)
+from agent_investigator_test.framework.builders.configuration import some_investigation_settings
+from agent_investigator_test.framework.builders.dispatcher import (
     A_SERVICE,
     AN_ALERT_TIME,
     AN_ONSET,

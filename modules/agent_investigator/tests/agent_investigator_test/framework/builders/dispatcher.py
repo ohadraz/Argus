@@ -14,7 +14,7 @@ from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetch
 from agent_investigator.tools import Dispatcher
 from argus_core.models import ToolCall
 
-from .configuration import some_investigation_settings
+from agent_investigator_test.framework.builders.configuration import some_investigation_settings
 
 # The incident every tool test is about. The onset sits five minutes before
 # the alert, which is the ordinary shape: something started, and a rule

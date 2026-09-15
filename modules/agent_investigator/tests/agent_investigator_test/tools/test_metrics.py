@@ -9,7 +9,11 @@ from agent_investigator.tools.metrics import metrics_tool
 from argus_core.models import MetricBucket, ToolDefinition, ToolResult
 from argus_testkit import Assertion, Scenario
 
-from ..framework.builders.dispatcher import AN_ALERT_TIME, a_call_to, a_dispatcher
+from agent_investigator_test.framework.builders.dispatcher import (
+    AN_ALERT_TIME,
+    a_call_to,
+    a_dispatcher,
+)
 
 """The metrics channel: the minutes the onset was measured from.
 

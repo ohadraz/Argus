@@ -12,7 +12,7 @@ from argus_core.mcp_transport import McpClient
 from argus_testkit import Assertion, Scenario, all_of, calling
 from write_mcp_client import write_mcp
 
-from .framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG
+from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG
 
 """Whether Argus can recognise its own change in the provider's log.
 

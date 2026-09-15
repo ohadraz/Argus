@@ -32,7 +32,11 @@ from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, NEXT_CANDIDATE_ROUTE, RESOLVED_ROUTE
 from orchestrator.walk.state import IncidentState
 
-from ..framework.builders import a_determined_hypothesis, a_random_id, an_incident_state
+from orchestrator_test.framework.builders import (
+    a_determined_hypothesis,
+    a_random_id,
+    an_incident_state,
+)
 
 """Performing the action the gate admitted, and recording what came of it.
 

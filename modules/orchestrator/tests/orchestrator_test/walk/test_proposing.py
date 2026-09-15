@@ -12,7 +12,7 @@ from orchestrator.walk.ports import FetchFlagChanges
 from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.state import IncidentState
 
-from ..framework.builders import a_determined_hypothesis, an_incident_state
+from orchestrator_test.framework.builders import a_determined_hypothesis, an_incident_state
 
 """Choosing the reversible action that answers the hypothesis, and only that.
 

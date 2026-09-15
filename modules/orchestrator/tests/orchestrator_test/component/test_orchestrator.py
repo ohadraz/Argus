@@ -42,7 +42,7 @@ from orchestrator.walk.graph import (
 )
 from orchestrator.walk.state import IncidentState
 
-from ..framework.builders import a_random_id
+from orchestrator_test.framework.builders import a_random_id
 
 """The whole walk, through the graph the Orchestrator actually assembles.
 
@@ -95,6 +95,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         already_taken=lambda incident_id, hypothesis_id: None,
         claimed_at=lambda incident_id, hypothesis_id: None,
         change_landed=_a_change_that_never_landed(),
+        propose_fix=lambda dont_care_hypothesis: None,
         write_postmortem=lambda dont_care_incident: _a_document(),
         record_postmortem=lambda dont_care_incident, dont_care_document: None,
         transition_incident=transition_incident,

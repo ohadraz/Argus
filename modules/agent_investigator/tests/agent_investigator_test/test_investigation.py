@@ -28,23 +28,23 @@ from argus_core.models import Ask, Attempt, Evidence, MetricBucket, RetrievalCha
 from argus_core.replay import CallType, ReplayEntry
 from argus_testkit import Assertion, Kept, Scenario, all_of, calling
 
-from .framework.builders.budget import (
+from agent_investigator_test.framework.builders.budget import (
     a_budget,
     a_clock_that_runs_out_after,
     a_clock_that_runs_out_after_one_look,
 )
-from .framework.builders.configuration import (
+from agent_investigator_test.framework.builders.configuration import (
     some_investigation_settings,
     some_thresholds,
 )
-from .framework.builders.incident import (
+from agent_investigator_test.framework.builders.incident import (
     a_steady_window,
     a_window_that_starts_calm,
     an_alert,
     the_onset_of,
 )
-from .framework.builders.investigation import Investigation, an_investigation
-from .framework.builders.model import (
+from agent_investigator_test.framework.builders.investigation import Investigation, an_investigation
+from agent_investigator_test.framework.builders.model import (
     CHANGES_TOOL,
     LOGS_TOOL,
     WINDOW_END_ARG,

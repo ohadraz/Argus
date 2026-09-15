@@ -201,6 +201,21 @@ class TransitionIncident(Protocol):
     ) -> None: ...
 
 
+class ProposeFix(Protocol):
+    """A permanent fix for the cause, or `None` where there is none to offer.
+
+    Positional-only, and the hypothesis in words is the whole of it: what
+    Code-Fix works from is the conclusion the walk reached, and an agent handed
+    the incident could investigate it a second time and reach a different one.
+
+    `None` is an answer - looked for, not found - and the node reports it as
+    one. That is the difference between an incident a human is told nothing
+    could be done about and an incident nobody looked at.
+    """
+
+    def __call__(self, hypothesis: str, /) -> str | None: ...
+
+
 class WritePostmortem(Protocol):
     # Positional-only: the incident is all this is called with, and the real
     # one carries a recorder behind it that a stand-in has no use for.

@@ -10,7 +10,12 @@ from argus_core import get_settings, parse_iso, to_iso
 from argus_core.models import ToolResult
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 
-from ..framework.builders.dispatcher import A_SERVICE, AN_ONSET, a_call_to, a_dispatcher
+from agent_investigator_test.framework.builders.dispatcher import (
+    A_SERVICE,
+    AN_ONSET,
+    a_call_to,
+    a_dispatcher,
+)
 
 """The change channel: what changed, over a window the logs could not afford.
 

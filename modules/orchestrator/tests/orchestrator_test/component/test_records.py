@@ -9,7 +9,7 @@ from argus_incidents.repository import events, hypotheses, incidents, taken_acti
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.records import Records
 
-from ..framework.builders import a_determined_hypothesis
+from orchestrator_test.framework.builders import a_determined_hypothesis
 
 """That a decision and the account of it are one write.
 

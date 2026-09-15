@@ -21,7 +21,11 @@ from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
 from orchestrator.walk.state import IncidentState
 
-from ..framework.builders import a_determined_hypothesis, a_random_id, an_incident_state
+from orchestrator_test.framework.builders import (
+    a_determined_hypothesis,
+    a_random_id,
+    an_incident_state,
+)
 
 """The one thing standing between a proposed action and the call that performs it.
 

@@ -24,8 +24,8 @@ from orchestrator.walk.investigating import investigator_node, route_after_inves
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
-from ..framework.assertions import assert_that, the_result_at, the_result_is
-from ..framework.builders import (
+from orchestrator_test.framework.assertions import assert_that, the_result_at, the_result_is
+from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     an_incident_state,
     an_undetermined_hypothesis,

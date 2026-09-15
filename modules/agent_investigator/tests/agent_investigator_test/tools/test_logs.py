@@ -10,8 +10,13 @@ from argus_core import get_settings, parse_iso, to_iso
 from argus_core.models import ToolResult
 from argus_testkit import Assertion, Scenario, all_of
 
-from ..framework.assertions.tool_results import the_result_failed
-from ..framework.builders.dispatcher import AN_ALERT_TIME, AN_ONSET, a_call_to, a_dispatcher
+from agent_investigator_test.framework.assertions.tool_results import the_result_failed
+from agent_investigator_test.framework.builders.dispatcher import (
+    AN_ALERT_TIME,
+    AN_ONSET,
+    a_call_to,
+    a_dispatcher,
+)
 
 """The log channel: the window the model asked for, and the one it did not.
 

@@ -20,12 +20,12 @@ from argus_core import new_id
 from argus_core.events import Publisher, nobody
 from argus_core.models import Alert, Attempt, ChangeEvent, MetricBucket
 
-from .budget import a_budget
-from .configuration import (
+from agent_investigator_test.framework.builders.budget import a_budget
+from agent_investigator_test.framework.builders.configuration import (
     some_investigation_settings,
     some_thresholds,
 )
-from .incident import an_alert
+from agent_investigator_test.framework.builders.incident import an_alert
 
 NO_LOGS: list[str] = []
 
