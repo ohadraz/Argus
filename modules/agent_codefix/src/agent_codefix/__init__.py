@@ -2,12 +2,16 @@
 
 The last thing tried, and the only one that outlives the incident - a reverted
 flag is a change somebody has to come back to, and a fix is the reason they do
-not. Still a stub (spec §7.4): it answers that it has nothing to propose, which
-is an answer rather than an absence, and the walk reports what it said.
+not (spec §7.4).
+
+It reads the service's source over the read tier, writes a patch to a branch of
+its own over the write tier, and opens a draft pull request. That is as far as
+it goes, by construction rather than by restraint: merging is a deploy, and the
+tool for it exists nowhere on either server (§13).
 """
 
 from __future__ import annotations
 
-from agent_codefix.proposing import propose_fix
+from agent_codefix.proposing import FixSettings, fixes_over, propose_fix
 
-__all__ = ["propose_fix"]
+__all__ = ["FixSettings", "fixes_over", "propose_fix"]

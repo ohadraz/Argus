@@ -94,7 +94,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
         change_landed=_a_change_that_never_landed(),
-        propose_fix=lambda dont_care_hypothesis: None,
+        propose_fix=lambda dont_care_hypothesis, dont_care_incident_id: None,
         write_postmortem=lambda dont_care_incident: _a_document(),
         record_postmortem=lambda dont_care_incident, dont_care_document: None,
         transition_incident=transition_incident,

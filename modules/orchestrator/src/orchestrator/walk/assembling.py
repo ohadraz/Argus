@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
 
-from agent_codefix import propose_fix
+from agent_codefix import FixSettings, fixes_over
 from agent_investigator import changes_over, logs_over, metrics_over
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
@@ -193,10 +193,10 @@ def against(connections: Connections,
         change_landed=partial(
             argus_changed_flag_since, settings=mitigation, fetch=flag_history
         ),
-        # A stub today, and named here for the same reason the real agents are:
-        # what the walk does with the answer is the walk's business, and a node
-        # reaching for the agent itself is a node no test can hand a fix to.
-        propose_fix=propose_fix,
+        # Both tiers, because proposing a fix is the one act that spans them:
+        # the repository is read from the process that cannot write, and the
+        # branch and the draft pull request come from the one that can (§13).
+        propose_fix=fixes_over(read, write, FixSettings.of(settings)),
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id,
             connections=connections,

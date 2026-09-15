@@ -13,24 +13,40 @@ from orchestrator.walk.state import IncidentState
 def codefix_node(state: IncidentState, propose_fix: ProposeFix) -> StateDelta:
     """Looks for a permanent fix, once no reversible action is left (spec §7.4).
 
-    What the agent answered is what this reports. It used to call Code-Fix and
-    discard the reply while stating that no fix was found, which was true of
-    today's stub and would have gone on being stated the day the agent proposed
-    something - a graph escalating past a fix it had been handed, failing in a
-    way that would read as the agent's bug rather than as a node that never
-    listened.
+    What the agent answered is what this reports, and where the proposal can be
+    read is the whole of the report: this is the one step in the walk that ends
+    with somebody else's turn, and a line describing a fix without saying where
+    it is would leave everyone hunting for a branch.
 
     The agent is asked even when the walk concluded nothing, about nothing.
     "I looked and found no fix" and "nobody looked" reach the same human and
     only one of them would be true.
 
-    Reporting either answer is the other half of it: an incident that reached
-    here and said nothing ended the graph still marked `fixing`, which is a
-    status nothing was working on.
+    Three outcomes rather than two, because a proposal that could not be *made*
+    is a different thing from one that was not warranted - and the difference
+    matters to whoever reads it: "no fix was found" is a verdict on the code,
+    where "the repository refused" is something somebody can go and repair
+    before asking again.
     """
-    fix = propose_fix(state.hypothesis.summary if state.hypothesis else "")
+    try:
+        proposed = propose_fix(
+            state.hypothesis.summary if state.hypothesis else "", state.incident_id
+        )
+    except Exception as error:
+        # Caught deliberately, and caught broadly. What opens a pull request is
+        # a tool on another process, so what arrives here is whatever the
+        # transport raised - and an incident that failed at this step would
+        # never reach the human it was on its way to, taking everything the
+        # investigation learned with it. A bad afternoon, not a lost incident.
+        return StateDelta(
+            fix_found=False,
+            narration=Narration(
+                action="no code-level fix could be proposed",
+                detail=f"the fix could not be proposed: {error}",
+            ),
+        )
 
-    if fix is None:
+    if proposed is None:
         return StateDelta(
             fix_found=False,
             narration=Narration(
@@ -41,7 +57,10 @@ def codefix_node(state: IncidentState, propose_fix: ProposeFix) -> StateDelta:
 
     return StateDelta(
         fix_found=True,
-        narration=Narration(action="a code-level fix was proposed", detail=fix),
+        narration=Narration(
+            action="a code-level fix was proposed",
+            detail=f"a draft pull request is open at {proposed.url}",
+        ),
     )
 
 

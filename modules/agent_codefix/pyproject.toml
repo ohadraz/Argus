@@ -4,12 +4,25 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    "argus-argus_core",
+    # The `llm` extra because this agent reasons: it reads the repository and
+    # writes a patch, which is a conversation with a model rather than a lookup.
+    "argus-argus_core[llm,mcp]",
+    "argus-read_mcp_client",
+    "argus-write_mcp_client",
+]
+
+
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
 ]
 
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-read_mcp_client = { workspace = true }
+argus-write_mcp_client = { workspace = true }
+argus-argus_testkit = { workspace = true }
 
 
 [build-system]

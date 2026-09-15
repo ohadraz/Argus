@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     # assemble it from two settings could assemble a different one.
     github_api_url: str = Field(default="https://api.github.com")
     github_repository: str = Field(default="")
+    # The branch a fix is cut from and proposed onto - the one that is actually
+    # deployed, since a fix against anything else patches a repository nobody
+    # is running.
+    github_base_branch: str = Field(default="main")
+    # How many turns Code-Fix gets to read the repository before it has to
+    # answer. A bound rather than a budget, and never expressed to the model:
+    # one it could ask to extend would not be a bound (spec §9).
+    codefix_max_turns: int = Field(default=12, gt=0)
     # The credential `argus-read-mcp` reads the Target Service's source with. It
     # can read a repository and cannot push to one, which is what lets the
     # source be read from a process that must remain incapable of mutation

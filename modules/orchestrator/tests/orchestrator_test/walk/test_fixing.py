@@ -1,14 +1,15 @@
 """Looking for a permanent fix, and reporting what came back.
 
-Code-Fix is still a stub that offers nothing, so most of what happens here is
-an incident admitting there is no fix and going to a human. What is asserted is
-the reporting rather than the stub: the node says what the agent answered, so
-that the day the agent answers something the graph carries it - rather than
-going on reporting no fix while the agent quietly proposes one.
+Code-Fix now proposes a real draft pull request, so what the node carries is an
+address rather than a sentence: this is the one step in the walk that ends with
+somebody else's turn, and an incident that could not say where to go would have
+proposed nothing anybody can find.
 
-Silence is the other failure, and the older one: an incident that reached here
-and said nothing ended the graph still marked `fixing`, which is a status
-nothing was working on.
+Three outcomes, not two. A fix was proposed; no fix was found, which is a real
+conclusion and the one every flag scenario reaches; or the proposal could not be
+made at all - the repository refused, or was unreachable. The third must not
+take the walk down with it: an incident that failed here would never reach the
+human it was on its way to, and the investigation behind it would be lost.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.models import Alert, Hypothesis, IncidentStatus
+from argus_core.models import Alert, Hypothesis, IncidentStatus, OpenedPullRequest
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
@@ -32,8 +33,8 @@ DONT_CARE_INCIDENT_ID = "buki-123"
 
 @pytest.mark.unit
 def test_an_agent_with_no_fix_to_offer_is_reported_as_finding_none() -> None:
-    # The only answer today's stub gives, and a real one: no fix found is what
-    # carries the incident on to a human.
+    # A real conclusion, not a failure. Every flag scenario reaches it: the code
+    # is working as written and the fault was in what somebody switched on.
     Scenario() \
         .given(
             an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
@@ -50,14 +51,10 @@ def test_an_agent_with_no_fix_to_offer_is_reported_as_finding_none() -> None:
 
 @pytest.mark.unit
 def test_a_fix_the_agent_proposed_is_reported_as_found() -> None:
-    # The answer nothing could give before: the node called Code-Fix and threw
-    # the reply away, so an agent that proposed a fix would have had the graph
-    # report no fix and escalate - a failure that would read as an agent bug
-    # rather than as a node that never listened.
     Scenario() \
         .given(
             an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
-            an_agent_with_a_fix := _an_agent_offering("widen the retry window")
+            an_agent_with_a_fix := _an_agent_offering(a_pull_request())
         ) \
         .when(
             lambda: codefix_node(an_incident_being_fixed, an_agent_with_a_fix)
@@ -66,6 +63,68 @@ def test_a_fix_the_agent_proposed_is_reported_as_found() -> None:
             _the_updates_carry("fix_found", True),
             _the_work_was_narrated()
         ))
+
+
+@pytest.mark.unit
+def test_what_is_narrated_is_where_the_proposal_can_be_read() -> None:
+    # THE POINT OF THE WHOLE STEP. What reaches a human - on the page, in Slack,
+    # in the postmortem - is this line, and a line that described the fix
+    # without saying where it is would leave everyone hunting for a branch.
+    some_url = "https://github.invalid/io-shop/target/pull/41"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            an_agent_with_a_fix := _an_agent_offering(a_pull_request(url=some_url))
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_with_a_fix)
+        ) \
+        .then(
+            _the_narration_mentions(some_url)
+        )
+
+
+@pytest.mark.unit
+def test_a_proposal_that_could_not_be_made_does_not_fail_the_walk() -> None:
+    # An unreachable repository is a bad afternoon, not a lost incident. If this
+    # raised, the walk would fail here and the incident would never reach the
+    # human it was on its way to - along with everything the investigation
+    # learned on the way.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            an_agent_that_could_not := _an_agent_that_fails(
+                RuntimeError("the repository refused the pull request")
+            )
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_that_could_not)
+        ) \
+        .then(all_of(
+            _the_updates_carry("fix_found", False),
+            _the_work_was_narrated()
+        ))
+
+
+@pytest.mark.unit
+def test_a_proposal_that_could_not_be_made_says_so_rather_than_saying_none_was_found() -> None:
+    # The two are different things to the person who reads them. "No fix was
+    # found" is a verdict on the code; "the fix could not be pushed" is a thing
+    # somebody can go and repair, and then ask again.
+    some_failure = "the repository refused the pull request"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            an_agent_that_could_not := _an_agent_that_fails(RuntimeError(some_failure))
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_that_could_not)
+        ) \
+        .then(
+            _the_narration_mentions(some_failure)
+        )
 
 
 @pytest.mark.unit
@@ -87,6 +146,26 @@ def test_the_agent_is_asked_about_the_hypothesis_the_walk_reached() -> None:
         ) \
         .then(
             _the_agent_was_asked_about(the_agent, a_hypothesis.summary)
+        )
+
+
+@pytest.mark.unit
+def test_the_agent_is_told_which_incident_it_is_fixing() -> None:
+    # It names the branch after it, so two incidents patching the same file do
+    # not write over each other's proposal - and a branch found weeks later says
+    # which incident produced it.
+    some_incident = "buki-123"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_asked_for_incident(the_agent, some_incident)
         )
 
 
@@ -125,7 +204,7 @@ def test_route_after_codefix_escalates_an_incident_it_could_not_fix() -> None:
 
 
 class _AnAgentRememberingWhatItWasAsked:
-    """Code-Fix as a seam, holding on to the one thing it was told.
+    """Code-Fix as a seam, holding on to what it was told.
 
     A small class rather than `create_autospec`, because the test reads the
     question back afterwards and a named attribute says what is being read more
@@ -134,19 +213,44 @@ class _AnAgentRememberingWhatItWasAsked:
 
     def __init__(self) -> None:
         self.hypothesis: str | None = None
+        self.incident_id: str | None = None
 
-    def propose(self, hypothesis: str) -> str | None:
+    def propose(self,
+                hypothesis: str,
+                incident_id: str) -> OpenedPullRequest | None:
         self.hypothesis = hypothesis
+        self.incident_id = incident_id
 
         return None
 
 
-def _an_agent_offering(fix: str | None) -> ProposeFix:
+def _an_agent_offering(proposal: OpenedPullRequest | None) -> ProposeFix:
     """Code-Fix, answering the same thing however it is asked."""
-    def propose(dont_care_hypothesis: str) -> str | None:
-        return fix
+    def propose(dont_care_hypothesis: str,
+                dont_care_incident_id: str) -> OpenedPullRequest | None:
+        return proposal
 
     return propose
+
+
+def _an_agent_that_fails(failure: Exception) -> ProposeFix:
+    """Code-Fix, unable to propose at all.
+
+    The failure is an arbitrary exception rather than a named type: what opens a
+    pull request in production is a tool on another process, so what arrives
+    here is whatever the transport raised - and a node catching one specific
+    class would let every other way that call fails take the walk down.
+    """
+    def propose(dont_care_hypothesis: str,
+                dont_care_incident_id: str) -> OpenedPullRequest | None:
+        raise failure
+
+    return propose
+
+
+def a_pull_request(url: str = "https://github.invalid/dont-care/dont-care/pull/1"
+                   ) -> OpenedPullRequest:
+    return OpenedPullRequest(number=1, url=url, branch="argus/fix-buki-123")
 
 
 def _an_incident_in(status: IncidentStatus,
@@ -165,6 +269,21 @@ def _the_agent_was_asked_about(
             raise AssertionError(
                 f"Expected Code-Fix to be asked about [{hypothesis}], "
                 f"it was asked about [{agent.hypothesis}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_agent_was_asked_for_incident(
+    agent: _AnAgentRememberingWhatItWasAsked, incident_id: str
+) -> Assertion[StateDelta]:
+    def assertion(_updates: StateDelta) -> bool:
+        if agent.incident_id != incident_id:
+            raise AssertionError(
+                f"Expected Code-Fix to be told incident [{incident_id}], "
+                f"it was told [{agent.incident_id}]."
             )
 
         return True
@@ -200,6 +319,31 @@ def _the_work_was_narrated() -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected the node to narrate what it did, it returned "
                 f"{updates.narration!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_narration_mentions(said: str) -> Assertion[StateDelta]:
+    """What the narration says, where saying it is the node's whole output.
+
+    The exception to `_the_work_was_narrated` above: an address and a failure
+    are both things a human acts on, so here the words are a promise.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        narration = updates.narration
+
+        if not isinstance(narration, Narration):
+            raise AssertionError(
+                f"Expected the node to narrate, it returned {narration!r}."
+            )
+
+        if said not in f"{narration.action} {narration.detail}":
+            raise AssertionError(
+                f"Expected the narration to mention [{said!r}], it said "
+                f"[{narration.action!r} / {narration.detail!r}]."
             )
 
         return True

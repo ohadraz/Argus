@@ -22,6 +22,7 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    OpenedPullRequest,
     PostmortemDocument,
     Reading,
     UndoDescriptor,
@@ -211,18 +212,27 @@ class TransitionIncident(Protocol):
 
 
 class ProposeFix(Protocol):
-    """A permanent fix for the cause, or `None` where there is none to offer.
+    """A draft pull request proposing a permanent fix, or `None` where there is
+    none to offer.
 
-    Positional-only, and the hypothesis in words is the whole of it: what
-    Code-Fix works from is the conclusion the walk reached, and an agent handed
-    the incident could investigate it a second time and reach a different one.
+    Positional-only. The hypothesis in words is what Code-Fix works from - the
+    conclusion the walk reached, rather than the incident itself, which an agent
+    could investigate a second time and reach a different answer about. The
+    incident id goes with it because the proposal is named after it: two
+    incidents patching the same file must not write over each other's branch.
+
+    What comes back is an address, not a sentence. This is the one step in the
+    walk that ends with somebody else's turn, so what it hands on has to be
+    something a person can open.
 
     `None` is an answer - looked for, not found - and the node reports it as
     one. That is the difference between an incident a human is told nothing
     could be done about and an incident nobody looked at.
     """
 
-    def __call__(self, hypothesis: str, /) -> str | None: ...
+    def __call__(self,
+                 hypothesis: str,
+                 incident_id: str, /) -> OpenedPullRequest | None: ...
 
 
 class WritePostmortem(Protocol):

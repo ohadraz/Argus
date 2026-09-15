@@ -108,11 +108,25 @@ name = "argus-agent-codefix"
 version = "0.1.0"
 source = { editable = "modules/agent_codefix" }
 dependencies = [
-    { name = "argus-argus-core" },
+    { name = "argus-argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-read-mcp-client" },
+    { name = "argus-write-mcp-client" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-argus-core", editable = "modules/argus_core" }]
+requires-dist = [
+    { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
+    { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
+    { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
 name = "argus-agent-communicator"
