@@ -31,6 +31,7 @@ from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.postmortem import Postmortem, PostmortemDocument
+from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
 from argus_core.models.reading import Reading, RetrievalChannel
 from argus_core.models.refusal import Refusal
@@ -73,6 +74,7 @@ __all__ = [
     "Incident",
     "IncidentStatus",
     "MetricBucket",
+    "OpenedPullRequest",
     "Outcome",
     "Postmortem",
     "PostmortemDocument",
