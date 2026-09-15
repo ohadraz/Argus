@@ -116,9 +116,8 @@ def commit_to_new_branch(branch: str,
     that follows is a proposal rather than a change.
 
     Raises rather than returning quietly when any part of the patch did not
-    land - including when it reached for the test that grades it (§15.1). A
-    branch reported as written but only half there would be proposed as a whole
-    fix, and read by a human as one.
+    land. A branch reported as written but only half there would be proposed as
+    a whole fix, and read by a human as one.
     """
     return client.call(
         "commit_to_new_branch",

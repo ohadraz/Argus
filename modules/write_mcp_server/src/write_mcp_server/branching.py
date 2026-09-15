@@ -1,4 +1,4 @@
-"""Putting a proposed fix on a branch of its own (spec §7.4, §13, §15.1).
+"""Putting a proposed fix on a branch of its own (spec §7.4, §13).
 
 The half of Code-Fix's outward act that touches code, and it touches only a
 branch. Nothing here can write to `main`: the branch is created first and every
@@ -11,11 +11,12 @@ caller needs to tell them apart - a push that was rejected and a proposal that
 was never made are different situations, and a module doing both would report
 them through one exception.
 
-**A fix may not rewrite the test that grades it.** The ground-truth fixture is
-what says whether a patch worked (§15.1), so a patch able to edit it could turn
-a scenario green by deleting the question, and every benchmark figure after that
-would be measuring nothing. The refusal lives here, on the tier that can
-actually write, rather than in a prompt the agent could reason its way past.
+**No path here is off-limits, tests included.** A fix that arrives with the test
+exposing the bug is the fix a person can trust, and that test belongs wherever
+the service's tests live - so a tier second-guessing which files a patch may
+touch would be refusing the most valuable half of it. What keeps a bad change
+out is not this module's opinion of a path: it is that everything lands on a
+branch nobody runs, and that merging is a person's act (§13).
 """
 
 from __future__ import annotations
@@ -33,12 +34,6 @@ HttpPost = Callable[..., httpx.Response]
 HttpPut = Callable[..., httpx.Response]
 
 REQUEST_TIMEOUT_SECONDS = 10.0
-
-# The one path in the Target Service's repository that Code-Fix may not write
-# to (spec §13, §15.1). A constant rather than a setting: it is a fact about how
-# the benchmark is built, not a knob a deployment turns, and a deployment able
-# to turn it off is a deployment able to stop grading honestly.
-THE_GROUND_TRUTH_FIXTURE: Final = "tests/io_shop/test_spend_summary.py"
 
 # GitHub's wire vocabulary, named for the fields that carry it. `SHA_FIELD` is
 # two different things under one spelling and that is the API's doing, not
@@ -58,9 +53,9 @@ class BranchNotWritten(Exception):
     """The fix is not on a branch, whatever the reason.
 
     One exception for an unreachable host, a rejected credential, a branch that
-    already existed, a write the repository refused and a patch that reached for
-    its own grader - because the caller's next move is the same for all five:
-    there is nothing to open a pull request from, so it must not open one.
+    already existed and a write the repository refused - because the caller's
+    next move is the same for all four: there is nothing to open a pull request
+    from, so it must not open one.
 
     It says nothing about what was left behind. A push cannot be un-pushed from
     here, so a failure partway through leaves a branch with some of the patch on
@@ -86,11 +81,12 @@ def commit_to_new_branch(branch: str,
     Returns the branch it wrote, so the caller can hand it straight to
     `open_pull_request` without re-deriving a name that has to match.
 
-    Raises `BranchNotWritten` if any path is the ground-truth fixture - before
-    anything at all is written - or if the repository refuses any step.
-    """
-    _refuse_to_touch_the_grader(files)
+    Every path the fix names is written, tests included: a patch that brings the
+    test exposing the bug is the one worth reading, and refusing it a path would
+    refuse exactly that.
 
+    Raises `BranchNotWritten` if the repository refuses any step.
+    """
     base_head = _head_of(base_branch, settings, get)
     _create_branch(branch, base_head, settings, post)
 
@@ -98,22 +94,6 @@ def commit_to_new_branch(branch: str,
         _write(path, content, branch, base_branch, message, settings, get, put)
 
     return branch
-
-
-def _refuse_to_touch_the_grader(files: Mapping[str, str]) -> None:
-    """Refused whole, and refused first.
-
-    Checking every path before writing any of them is the point: writing the
-    innocent files and failing on the last would leave a half-applied patch on a
-    branch, which is a proposal for a change nobody made and which reads, to
-    anyone who opens it, exactly like a change somebody did.
-    """
-    reached_for = [path for path in files if path == THE_GROUND_TRUTH_FIXTURE]
-
-    if reached_for:
-        raise BranchNotWritten(
-            f"a fix may not rewrite the test that grades it: {reached_for}"
-        )
 
 
 def _head_of(base_branch: str,

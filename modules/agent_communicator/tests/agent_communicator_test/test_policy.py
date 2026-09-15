@@ -33,6 +33,7 @@ from argus_core.events import (
     ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
+    FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
@@ -50,7 +51,9 @@ from argus_core.models import (
     Actor,
     Alert,
     CauseType,
+    FixOutcome,
     IncidentStatus,
+    OpenedPullRequest,
     Refusal,
     RetrievalChannel,
     Undone,
@@ -161,6 +164,29 @@ def test_a_postmortem_is_filed_rather_than_announced() -> None:
         ) \
         .when(lambda: how_it_is_said(the_write_up)) \
         .then(_it_is_said(Register.FILED))
+
+
+@pytest.mark.unit
+def test_what_code_fix_concluded_is_said_in_the_incident_s_own_conversation() -> None:
+    # The step that ends with somebody else's turn, so it has to reach them.
+    # Followed rather than announced: it belongs to the incident being worked,
+    # and the ending that does interrupt already carries where things stand.
+    # Said whichever way it went - "I read the code and there is nothing to
+    # change" and "the repository refused" are both things the people watching
+    # this incident are waiting to hear.
+    a_proposal = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.PROPOSED,
+        pull_request=OpenedPullRequest(
+            number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"
+        ),
+        detail="dont care what it said"
+    )
+
+    Scenario() \
+        .given(a_proposal) \
+        .when(lambda: how_it_is_said(a_proposal)) \
+        .then(_it_is_said(Register.FOLLOWED))
 
 
 @pytest.mark.unit

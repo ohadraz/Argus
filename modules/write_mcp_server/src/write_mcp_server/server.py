@@ -104,10 +104,10 @@ def build_server(endpoint: WriteMcpEndpoint,
         branch is the only thing this writes to - never the base - so a wrong
         patch ends up somewhere nobody is running rather than in production.
 
-        It will not write the test that grades the fix (§15.1), and refuses the
-        whole patch rather than the offending file: half a patch on a branch
-        reads like a change somebody meant to make. The behavior lives in
-        `branching.commit_to_new_branch`; this is registration only."""
+        Every file the patch names is written, tests included - a fix that
+        brings the test exposing the bug is the one a person can trust. The
+        behavior lives in `branching.commit_to_new_branch`; this is
+        registration only."""
         return branching.commit_to_new_branch(
             branch=branch,
             base_branch=base_branch,

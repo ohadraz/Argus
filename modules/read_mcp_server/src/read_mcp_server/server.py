@@ -172,6 +172,24 @@ def build_server(endpoint: ReadMcpEndpoint,
         return flags.enabled_flags(toggles)
 
     @mcp.tool()
+    def search_repository(query: str, ref: str) -> list[str]:
+        """Returns every line in the Target Service's repository at `ref` that
+        contains `query`, as `path:line: text`.
+
+        How a fault actually gets localized. The investigation names a cause - a
+        flag, a function, a message out of a log line - and this is what turns
+        that name into a place to look. Search for it before listing anything:
+        a listing is forty paths to guess between, and this is the file.
+
+        Substring, not a regular expression: what matches nothing is a fact
+        about the repository, where a pattern that will not compile is a fact
+        about the query. Raises rather than answering emptily when the source
+        could not be read at all - "no matches" and "could not look" are
+        opposite things and must not arrive looking alike. The behavior lives in
+        `repository.search_repository`; this is registration only."""
+        return repository.search_repository(query, ref, repository_settings)
+
+    @mcp.tool()
     def list_repository_files(ref: str) -> list[str]:
         """Returns every file in the Target Service's repository at `ref`, as
         paths from its root - directories left out.

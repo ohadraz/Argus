@@ -17,7 +17,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.models import Alert, Hypothesis, IncidentStatus, OpenedPullRequest
+from agent_codefix.proposing import FixNotAnswered
+from argus_core.events import FixAttempted, IncidentEvent
+from argus_core.models import Alert, FixOutcome, Hypothesis, IncidentStatus, OpenedPullRequest
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
@@ -125,6 +127,126 @@ def test_a_proposal_that_could_not_be_made_says_so_rather_than_saying_none_was_f
         .then(
             _the_narration_mentions(some_failure)
         )
+
+
+@pytest.mark.unit
+def test_what_code_fix_found_is_published_as_an_event_of_its_own() -> None:
+    # The node narrates, and on the path that matters nobody writes it down: a
+    # mitigated incident is mitigated whether a fix was proposed or not, so the
+    # status never changes here and the narration handed up is discarded
+    # unwritten. This step would then be the one step in the walk that leaves
+    # no account of itself - which is exactly what happened, and it took the
+    # checkpoint tables to find out why.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_with_a_fix := _an_agent_offering(the_proposal := a_pull_request())
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_with_a_fix,
+                                 publisher=published.append)
+        ) \
+        .then(_exactly_one_attempt_was_announced(
+            FixOutcome.PROPOSED, the_proposal, published
+        ))
+
+
+@pytest.mark.unit
+def test_a_fix_that_was_not_warranted_is_published_as_the_finding_it_is() -> None:
+    # "I read the code and there is nothing here to change" is a conclusion a
+    # human acts on. Published with no pull request, because there is none -
+    # and distinguishable from the failure below, because the outcome says so
+    # rather than the absence.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_with_nothing := _an_agent_offering(None)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_with_nothing,
+                                 publisher=published.append)
+        ) \
+        .then(_exactly_one_attempt_was_announced(
+            FixOutcome.NOT_WARRANTED, None, published
+        ))
+
+
+@pytest.mark.unit
+def test_a_proposal_that_could_not_be_made_is_published_as_a_failure() -> None:
+    # The outcome somebody can go and repair, and the one this whole event
+    # exists for: a repository that refused reached the timeline looking
+    # identical to a model that had read the code and found it clean. What
+    # stopped it travels on the event, because the next question is always why.
+    published: list[IncidentEvent] = []
+    what_stopped_it = "could not create branch: 403 Forbidden"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_could_not := _an_agent_raising(RuntimeError(what_stopped_it))
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_could_not,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            _exactly_one_attempt_was_announced(
+                FixOutcome.NOT_POSSIBLE, None, published
+            ),
+            _the_attempt_says_why(what_stopped_it, published)
+        ))
+
+
+@pytest.mark.unit
+def test_an_agent_that_never_answered_is_not_reported_as_having_found_nothing() -> None:
+    # The distinction a live incident cost us. Code-Fix spent every turn it had
+    # reading, never submitted, and the incident recorded "no code-level fix
+    # found" - which reads as a verdict on the service and was a statement
+    # about the budget. One of those is somebody's cue to widen the bound; the
+    # other closes the question.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_never_answered := _an_agent_raising(
+                FixNotAnswered("read for 12 turns without submitting a fix")
+            )
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_never_answered,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            _exactly_one_attempt_was_announced(
+                FixOutcome.NOT_ANSWERED, None, published
+            ),
+            _the_updates_carry("fix_found", False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_node_nobody_is_listening_to_still_does_its_work() -> None:
+    # Publishing is an account, never a participant (spec §4 principle 6). A
+    # node that behaved differently with no subscriber would make every test
+    # above a test of a different code path than production runs.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_with_a_fix := _an_agent_offering(a_pull_request())
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_with_a_fix)
+        ) \
+        .then(_the_updates_carry("fix_found", True))
 
 
 @pytest.mark.unit
@@ -362,6 +484,58 @@ def _the_route_is(expected: str) -> Assertion[str]:
     def assertion(route: str) -> bool:
         if route != expected:
             raise AssertionError(f"Expected the route [{expected}], got [{route}].")
+
+        return True
+
+    return assertion
+
+
+def _an_agent_raising(error: Exception) -> ProposeFix:
+    """A repository that refused, said as the agent raising what it raised."""
+    def refuse(dont_care_hypothesis: str, dont_care_incident_id: str) -> Any:
+        raise error
+
+    return refuse
+
+
+def _exactly_one_attempt_was_announced(
+    outcome: FixOutcome,
+    proposal: OpenedPullRequest | None,
+    published: list[IncidentEvent]
+) -> Assertion[StateDelta]:
+    """One account of the step, saying which of the three things happened."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        attempts = [
+            event for event in published if isinstance(event, FixAttempted)
+        ]
+        if len(attempts) != 1:
+            raise AssertionError(
+                f"Expected one fix attempt announced, got {len(attempts)}."
+            )
+
+        announced = attempts[0]
+        if (announced.outcome, announced.pull_request) != (outcome, proposal):
+            raise AssertionError(
+                f"Expected [{outcome}] carrying [{proposal}], got "
+                f"[{announced.outcome}] carrying [{announced.pull_request}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_says_why(reason: str,
+                          published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The failure's own words, because the next question is always why."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = [
+            event.detail for event in published if isinstance(event, FixAttempted)
+        ]
+        if not any(reason in detail for detail in said):
+            raise AssertionError(
+                f"Expected an attempt mentioning [{reason}], got {said}."
+            )
 
         return True
 

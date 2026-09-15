@@ -196,7 +196,7 @@ def against(connections: Connections,
         # Both tiers, because proposing a fix is the one act that spans them:
         # the repository is read from the process that cannot write, and the
         # branch and the draft pull request come from the one that can (§13).
-        propose_fix=fixes_over(read, write, FixSettings.of(settings)),
+        propose_fix=fixes_over(read, write, FixSettings.of(settings), recorder),
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id,
             connections=connections,

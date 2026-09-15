@@ -32,6 +32,7 @@ from argus_core.events import (
     ChangesRetrieved,
     ChangeUndone,
     CommunicationFailed,
+    FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
@@ -51,9 +52,11 @@ from argus_core.models import (
     ChangeEvent,
     ChangeKind,
     Evidence,
+    FixOutcome,
     FlagChange,
     IncidentStatus,
     MetricBucket,
+    OpenedPullRequest,
     Refusal,
     RetrievalChannel,
     Undone,
@@ -536,6 +539,72 @@ def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
                      _the_only_line_mentions("USD 1240.50"),
                      _the_only_line_mentions("34 engineer minutes"),
                      _the_lines_are_credited_to(["Postmortem Agent"])))
+
+
+@pytest.mark.unit
+def test_a_proposed_fix_is_said_as_the_place_it_can_be_read() -> None:
+    # Argus's last act on a bug is to hand the work to somebody, so the line is
+    # the address. The URL is the marked word because it is the only part a
+    # reader does anything with - everything else on the line explains why they
+    # are being sent there.
+    where_it_can_be_read = "https://example.invalid/pull/7"
+
+    a_proposal = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.PROPOSED,
+        pull_request=OpenedPullRequest(
+            number=7, url=where_it_can_be_read, branch="argus/fix-abc"
+        ),
+        detail="dont care what the node said"
+    )
+
+    Scenario() \
+        .given(a_proposal) \
+        .when(lambda: build_narration([a_proposal])) \
+        .then(all_of(_the_only_line_marks(where_it_can_be_read),
+                     _the_only_line_mentions("draft"),
+                     _the_lines_are_credited_to(["Code-Fix Agent"])))
+
+
+@pytest.mark.unit
+def test_a_fix_that_was_not_warranted_reads_as_a_verdict_on_the_code() -> None:
+    # The true answer for every incident a flag caused, and a useful one: the
+    # code was read and there was nothing in it to change. A line that merely
+    # said "no pull request" would describe the absence rather than the finding.
+    nothing_to_change = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_WARRANTED,
+        pull_request=None,
+        detail="dont care what the node said"
+    )
+
+    Scenario() \
+        .given(nothing_to_change) \
+        .when(lambda: build_narration([nothing_to_change])) \
+        .then(all_of(_the_only_line_mentions("no code-level fix"),
+                     _the_lines_are_credited_to(["Code-Fix Agent"])))
+
+
+@pytest.mark.unit
+def test_a_fix_that_could_not_be_proposed_says_what_stopped_it() -> None:
+    # The one outcome somebody can act on before asking again, so the reason is
+    # the line rather than a detail behind it. This is the case that cost a
+    # session: a repository that refused reached the timeline looking exactly
+    # like a model that had read the code and found it clean.
+    what_stopped_it = "could not create branch [argus/fix-abc]: 403 Forbidden"
+
+    a_refusal = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_POSSIBLE,
+        pull_request=None,
+        detail=what_stopped_it
+    )
+
+    Scenario() \
+        .given(a_refusal) \
+        .when(lambda: build_narration([a_refusal])) \
+        .then(all_of(_the_only_line_mentions(what_stopped_it),
+                     _the_lines_are_credited_to(["Code-Fix Agent"])))
 
 
 def _an_alert() -> Alert:

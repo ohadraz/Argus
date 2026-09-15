@@ -35,6 +35,7 @@ from argus_core.events import (
     ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
+    FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
@@ -52,6 +53,7 @@ from argus_core.models import (
     ActionType,
     Actor,
     ChangeEvent,
+    FixOutcome,
     FlagChange,
     IncidentStatus,
     Refusal,
@@ -313,6 +315,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # room should be able to find it without reading the line.
             emphasis = event.outcome.upper()
             text = f"Judged the action {emphasis}"
+        case FixAttempted():
+            who = _CODEFIX
+            emphasis, text = _what_came_of_looking_at_the_code(event)
         case PostmortemWritten():
             who = _POSTMORTEM
             # The cause is marked because it is what a reader scanning a list
@@ -454,6 +459,35 @@ def _also_carrying(line: NarrationLine, event: HypothesisFormed) -> NarrationLin
 
 def _how_many_candidates(formed: int) -> str:
     return f"Formed {formed} candidate cause{'s' if formed != 1 else ''}, best first:"
+
+
+def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
+    """What Code-Fix found, and the one word on the line worth marking.
+
+    Three sentences rather than one with the outcome appended, because the
+    three are read by different people for different reasons: a proposal sends
+    somebody to a pull request, a verdict on the code closes the question, and
+    a refusal is a thing to go and repair. The marked word follows the same
+    logic - the address where there is one, the reason where there is not, and
+    nothing at all where the finding is the whole line.
+    """
+    match event.outcome:
+        case FixOutcome.PROPOSED:
+            # The URL rather than the number: a number identifies a pull
+            # request to the API that issued it and to nobody reading this.
+            where = event.pull_request.url if event.pull_request else ""
+            return where, f"Proposed a fix as a draft pull request - {where}"
+        case FixOutcome.NOT_WARRANTED:
+            return "", "Read the code and found no code-level fix to make"
+        case FixOutcome.NOT_POSSIBLE:
+            return event.detail, f"Could not propose a fix - {event.detail}"
+        case FixOutcome.NOT_ANSWERED:
+            # Said as what it is: the looking stopped, not the question. A
+            # reader who took this for "there is nothing to fix" would close an
+            # incident on code nobody finished reading.
+            return "", "Ran out of turns before proposing a fix"
+
+    return "", event.detail
 
 
 def _the_postmortem_in_short(event: PostmortemWritten) -> str:

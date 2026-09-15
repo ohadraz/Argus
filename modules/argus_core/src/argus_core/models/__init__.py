@@ -25,6 +25,7 @@ from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.evidence import Evidence
 from argus_core.models.findings import Findings
+from argus_core.models.fix import FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
@@ -68,6 +69,7 @@ __all__ = [
     "Evidence",
     "Exchange",
     "Findings",
+    "FixOutcome",
     "FlagChange",
     "FlagUndo",
     "Hypothesis",

@@ -82,6 +82,15 @@ class Settings(BaseSettings):
     # (§13) - the same argument that keeps the flag evaluation token there and
     # the admin token out.
     github_read_token: str = Field(default="")
+    # Which directories of that repository hold the service itself, comma
+    # separated. Empty is the whole repository, and is right whenever the
+    # repository is nothing but the service.
+    #
+    # The demo's is not: `Argus-Demo-Target-App` ships the shop beside the rig
+    # that stages incidents against it, and a fix agent reading the rig is
+    # reading how its own incidents are generated. A real deployment points
+    # Argus at a service repository and leaves this empty.
+    github_source_paths: str = Field(default="")
     # The credential that can push a branch and open a pull request. Scoped to
     # the repository above and to nothing else: "Argus cannot touch its own
     # codebase" is a property of what this token reaches, not of what the agent

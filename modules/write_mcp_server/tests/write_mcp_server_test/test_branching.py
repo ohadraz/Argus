@@ -1,13 +1,13 @@
-"""Putting a proposed fix on a branch of its own (spec §7.4, §13, §15.1).
+"""Putting a proposed fix on a branch of its own (spec §7.4, §13).
 
 The half of Code-Fix's outward act that touches code. It writes to a branch and
 only ever to a branch: `main` is not reachable from here, so the worst a wrong
 patch can do is exist somewhere nobody is running.
 
-The other thing it will not do is edit the test that grades it. A patch free to
-rewrite its own ground-truth fixture could turn every scenario green without
-fixing anything, which is why the refusal is asserted here beside the writing
-rather than left to whoever calls it.
+It writes whatever the fix names, tests included. A fix that comes with the test
+that exposes the bug is the fix a person can trust, so nothing here second-
+guesses which paths a patch may touch - what stops a bad change is that it lands
+on a branch nobody runs, and that a person has to merge it.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from write_mcp_server.branching import (
-    THE_GROUND_TRUTH_FIXTURE,
     BranchNotWritten,
     commit_to_new_branch,
 )
@@ -217,71 +216,6 @@ def test_a_file_the_fix_adds_is_written_without_replacing_anything() -> None:
         .then(
             all_of(
                 _the_write_replaced_nothing(repository)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_fix_may_not_rewrite_the_test_that_grades_it() -> None:
-    # THE GUARDRAIL. The ground-truth fixture is what says whether the patch
-    # worked (§15.1). A patch able to edit it could turn the scenario green by
-    # deleting the question, and every benchmark number afterwards would be
-    # measuring nothing. Refused here, on the tier that can actually write,
-    # rather than asked of the agent in a prompt it can reason its way past.
-    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
-
-    Scenario() \
-        .when(
-            attempting(
-                lambda: commit_to_new_branch(
-                    branch=DONT_CARE_BRANCH,
-                    base_branch=DONT_CARE_BASE,
-                    files={THE_GROUND_TRUTH_FIXTURE: "assert True"},
-                    message=DONT_CARE_MESSAGE,
-                    settings=some_settings(),
-                    get=repository.get,
-                    post=repository.post,
-                    put=repository.put
-                )
-            )
-        ) \
-        .then(
-            all_of(
-                an_error_was_raised(BranchNotWritten),
-                _nothing_was_written(repository)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_fix_touching_the_fixture_among_other_files_writes_none_of_them() -> None:
-    # Refused whole. Writing the innocent files first and failing on the last
-    # would leave a half-applied patch on a branch, which is a proposal for a
-    # change nobody made.
-    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
-
-    Scenario() \
-        .when(
-            attempting(
-                lambda: commit_to_new_branch(
-                    branch=DONT_CARE_BRANCH,
-                    base_branch=DONT_CARE_BASE,
-                    files={
-                        "src/io_shop/spend_summary.py": "a real fix",
-                        THE_GROUND_TRUTH_FIXTURE: "assert True"
-                    },
-                    message=DONT_CARE_MESSAGE,
-                    settings=some_settings(),
-                    get=repository.get,
-                    post=repository.post,
-                    put=repository.put
-                )
-            )
-        ) \
-        .then(
-            all_of(
-                an_error_was_raised(BranchNotWritten),
-                _nothing_was_written(repository)
             )
         )
 

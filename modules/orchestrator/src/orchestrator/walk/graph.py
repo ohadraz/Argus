@@ -153,7 +153,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     graph.add_node(
         CODEFIX_NODE,
         deciding_status(
-            partial(codefix_node, propose_fix=collaborators.propose_fix)
+            partial(codefix_node,
+                    propose_fix=collaborators.propose_fix,
+                    publisher=collaborators.publisher)
         )
     )
     graph.add_node(

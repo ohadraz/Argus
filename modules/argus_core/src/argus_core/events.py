@@ -28,9 +28,11 @@ from argus_core.models.alert import Alert
 from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.evidence import Evidence
+from argus_core.models.fix import FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
@@ -342,6 +344,35 @@ class ChangeUndone(_Event):
     detail: str
 
 
+class FixAttempted(_Event):
+    """Argus looked at the code, and this is what came of it (spec §7.4).
+
+    The one step whose outcome the status cannot carry. A mitigated incident is
+    mitigated whether a fix was proposed, was not warranted, or could not be
+    proposed at all (§10) - so without this, the only step that ends with
+    somebody else's turn leaves no account of itself, and "Argus read the code
+    and found nothing to change" arrives looking exactly like "Argus could not
+    reach the repository".
+
+    The pull request travels whole rather than as a link, because what a reader
+    does next is open it, and the number alone identifies it to the API that
+    issued it and to nobody else. It is absent for both of the outcomes that
+    proposed nothing, which is why the outcome is a value of its own rather
+    than something derived from whether this field is set.
+
+    `detail` is what happened said once, in the words of whichever branch
+    produced it - the address for a proposal, the refusal for a failure. It is
+    not the sentence a destination shows: that is the renderer's, and three
+    destinations rendering the same event differently is the point of keeping
+    them apart.
+    """
+
+    kind: Literal["fix-attempted"] = "fix-attempted"
+    outcome: FixOutcome
+    pull_request: OpenedPullRequest | None = None
+    detail: str
+
+
 class PostmortemWritten(_Event):
     """The incident written up, in the few lines somebody would read first.
 
@@ -411,6 +442,7 @@ type IncidentEvent = Annotated[
         | VerdictReached
         | MitigationResumed
         | ChangeUndone
+        | FixAttempted
         | PostmortemWritten
         | CommunicationFailed
     ),

@@ -153,7 +153,7 @@ The obvious check - read the flag and see whether it still holds what Argus wrot
 
 ### 7.4 Code-Fix agent
 
-Invoked when mitigation fails, or the scenario is bug/config-drift from the start. RAG over the Target Service repo to localize the bug, drafts a patch **plus a regression test**, opens a branch + PR via `argus-write-mcp`'s `open_pull_request`. Writing tests is normal for this agent - unrestricted except for one path: the **seeded ground-truth fixture test** that grades its patch (§15.2; §13 explains why it's protected). Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence).
+Invoked when mitigation fails, and again when one succeeds - a reverted flag buys time without ending a cause. Searches the Target Service repo to localize the bug, drafts a patch **plus the test that exposes it**, opens a branch + draft PR via `argus-write-mcp`'s `open_pull_request`. It writes tests freely and no path is withheld from it: the test that fails before the fix and passes after is the most valuable half of the proposal, and a repo with a file the agent may not touch is one where the fix cannot carry its own evidence. Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence) - what keeps a bad patch out of service is that a person merges it.
 
 ### 7.5 Communicator agent
 
@@ -541,7 +541,7 @@ Enforced redundantly at four layers:
 | **MCP server boundary** | `argus-read-mcp` (§12.1) has no code path to mutate anything, and holds no credential that could authorize one - enforced at the server, not the caller. The tier split *is* the process split, so "read-only" is a property of the running process, not a convention. |
 | **LangGraph node tool binding** | Each node's tool list is scoped at graph-definition time (§12.1). Code-Fix has no `merge_pull_request` function bound - because it doesn't exist anywhere in `argus-write-mcp`. |
 | **Orchestrator gate node** | Before any `ACTION` with `tier=reversible` reaches its MCP call, a gate node requires a populated `undo_descriptor` (§11.1). `tier=irreversible` actions go straight to "notify human," never to a mutating call. |
-| **Path-scoped write access** | `argus-write-mcp`'s git write functions are restricted per calling agent to specific file-path patterns. Code-Fix has normal write access across the repo (including its own regression tests) - except the seeded **ground-truth fixture test** for the active scenario, which protects **evaluation integrity**: without this, nothing would stop it from "passing" by weakening the grading test instead of fixing the bug. |
+| **Branch-scoped write access** | `argus-write-mcp`'s git write functions only ever write to a branch cut for the incident, never to the deployed branch, and every write names that branch explicitly. No path is withheld - Code-Fix writes source and tests alike, because a fix that cannot bring the test exposing the bug is a claim rather than evidence. What bounds the blast radius is the branch and the human merge, not a list of protected files. |
 
 This four-layer redundancy is what lets the eval suite (§21) claim "zero irreversible actions without human approval" as a hard, testable metric.
 
@@ -562,7 +562,7 @@ A real, small, runnable app (e.g. a toy checkout/orders API) in its own repo, `a
 - **Business logic** - real endpoints with real feature-flag checkpoints, reading live flag state from Unleash's evaluation API (§12) at the moment each request needs it, so a flag changed by anyone - a human in Unleash's console, or Mitigation through `argus-write-mcp` - takes effect on the next request without this service being told.
 - **A log endpoint** - `GET /logs`, returns the full log with no filtering; windowing/capping logic lives in `argus-read-mcp` (§16), not the adapter.
 - **A deploy-history endpoint**, shaped like Argo CD's own application API (`status.history[]` - revision, when it went live, where it came from), so the change-event channel (§16) has a real vendor response to map rather than a shape invented for the demo. It takes no time parameters, exactly as Argo CD's does not - filtering to the window is the adapter's job.
-- **A committed test suite**, including, per scenario, a **ground-truth fixture test** that fails against the seeded "bad" commit and passes once correctly patched. This is what Code-Fix's PRs are graded against, and the one file it can't modify (§13) - everything else, including new tests it adds, is unrestricted.
+- **A committed test suite that is green against the seeded "bad" commit.** The fault is present and no test covers it, which is the ordinary condition of real code and the condition Code-Fix is built to meet. A patch is judged on whether it arrives with a test that fails before it and passes after - checkable from outside the repo, against any pair of commits, with nothing in the repo that Argus is forbidden to write.
 - **A scenario-control module**, under its own route prefix (e.g. `/demo-control/*`), structurally separate from business-logic routes so the business logic never needs to know a control panel exists.
 
 Dedicated repo rather than a subfolder, because: GitHub's PR machinery is repo-scoped; the GitHub PAT can be scoped to exactly this one repo (least privilege - "Argus cannot touch its own codebase"); and the repo can be reset to a known commit between benchmark runs without touching Argus's own history.
@@ -675,7 +675,7 @@ Enforced in layers - narrower than originally envisioned:
 | Instruction file | A committed `AGENTS.md` at the repo root states the policy for any coding agent; per-module `AGENTS.md` files land as each module is scaffolded. |
 | Tool-level block (Claude Code) | `.claude/settings.json` + a `PreToolUse` hook hard-block Claude's `Write`/`Edit`/`NotebookEdit` from any `tests/` path (module-level and root) - the one real technical guarantee. Claude's `Bash`/`PowerShell` calls are **not** blocked, nor is any other AI tool or a human editing the repo directly - those rely on `AGENTS.md` and human vigilance only. |
 
-This policy doesn't apply to Argus's own runtime Code-Fix agent (§7.4), and is unrelated to the Target Service repo rule (§13, §15.1) - different agent, different thing protected (evaluation integrity vs. development-process integrity).
+This policy doesn't apply to Argus's own runtime Code-Fix agent (§7.4), which writes tests freely in the Target Service repo - different agent, different repo, and the opposite intent: here a human's tests are the specification a coding agent must not weaken, there the agent's test is the evidence its patch actually works.
 
 ### 18.4 Per-module CI
 
@@ -918,7 +918,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Change events | Argo CD's application API for deploys, one source per change type, mapped to a vendor-neutral `ChangeEvent` (§16) | A cause is an event, not a rate, and can precede its symptoms by an unbounded lag - no log lookback reaches it reliably. Parsing is deterministic code, never a model: a hallucinated deploy is a fabricated cause |
 | Investigation bounds | Three independent budgets - tool calls, cumulative tokens, wall-clock seconds - enforced by the loop and never expressed to the model (§9) | They fail differently and none implies the others; a bound the model could ask to extend is not a bound |
 | Repository structure | `uv` workspace, one `pyproject.toml` per module (§20) | Independent versioning/deployment inside one repo |
-| Testing discipline | TDD in Argus's own repo - the coding agent never writes/edits/deletes tests there (§18.3). Separately, the runtime Code-Fix agent writes tests freely in the Target Service repo, except one protected ground-truth fixture (§13) | Two distinct rules, two agents, two reasons: development process integrity vs. evaluation grading integrity |
+| Testing discipline | TDD in Argus's own repo - the coding agent never writes/edits/deletes tests there (§18.3). Separately, the runtime Code-Fix agent writes tests freely in the Target Service repo, with no path withheld | Two distinct rules, two agents, two reasons: development process integrity, versus a proposed fix being able to carry the evidence that it works |
 | Model selection | Per-task model class, spread across free-tier providers (§17) | Matches call volume/reasoning needs and avoids one provider's rate limit stalling a demo |
 | Backoffice access | No login (§14) | Deliberate scope limit for a single-team, non-internet-exposed, demo-scale admin surface |
 

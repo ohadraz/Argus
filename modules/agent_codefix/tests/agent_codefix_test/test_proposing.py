@@ -22,10 +22,13 @@ from agent_codefix.proposing import (
     BranchWriter,
     FileLister,
     FileReader,
+    FixNotAnswered,
     FixSettings,
     PullRequestOpener,
+    SourceSearcher,
     propose_fix,
 )
+from agent_investigator.reasoning import a_conversation_recorded_for
 from argus_core.models import (
     Ask,
     OpenedPullRequest,
@@ -35,6 +38,7 @@ from argus_core.models import (
     Transcript,
     Turn,
 )
+from argus_core.replay import Recorder
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 
@@ -94,6 +98,125 @@ def test_a_request_to_list_the_repository_is_answered_with_its_files() -> None:
                 _the_model_was_told(model, "README.md")
             )
         )
+
+
+@pytest.mark.unit
+def test_a_search_is_answered_with_where_the_cause_appears() -> None:
+    # The tool that turns a named cause into a place to look. Without it the
+    # model has a flag name and forty paths, and the only way to connect them
+    # is to open files and hope - which is exactly what it did, for twelve
+    # turns, without ever reaching the file the fault was in.
+    where_the_flag_is = "src/io_shop/spend_summary.py:8: behind monthly-spend-feature"
+    repository = a_repository(where=[where_the_flag_is])
+    model = a_model_that(
+        asks_to_search_for("monthly-spend-feature"),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, where_the_flag_is))
+
+
+@pytest.mark.unit
+def test_a_search_is_made_at_the_branch_the_fix_is_cut_from() -> None:
+    # The deployed branch, as every other read here is. A search against
+    # anything else finds the cause in code nobody is running, and the fix is
+    # written against a file that has since moved.
+    the_deployed_branch = "release"
+    repository = a_repository()
+    model = a_model_that(
+        asks_to_search_for("dont care"), submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(base_branch=the_deployed_branch),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_search_was_made_at(repository, the_deployed_branch))
+
+
+@pytest.mark.unit
+def test_the_model_is_told_to_search_before_it_reads() -> None:
+    # An instruction rather than a hope. A model given three tools and no order
+    # to use them in reaches for the one it is most used to, and a listing is
+    # the familiar one - so the opening message says which is first, and the
+    # tool that costs a whole reading budget says it is not.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, "search"))
+
+
+@pytest.mark.unit
+def test_the_model_is_told_that_a_change_which_exposed_a_fault_is_not_the_fault() -> None:
+    # The failure this instruction exists to stop, seen in a live run: the
+    # model searched, found the code, read it, and submitted nothing - because
+    # a flag being switched on reads as "the cause was a configuration change,
+    # so there is nothing here to fix". It is the wrong conclusion and an
+    # attractive one, and the whole point of the step is the opposite: a flag
+    # that broke the service exposed code that could not survive it, and the
+    # job is to make it safe to switch back on.
+    #
+    # Reverting bought time. It is not a fix, and an agent that treats it as
+    # one leaves the fault in place behind a toggle nobody dares move.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(all_of(
+            _the_model_was_told(model, "exposed"),
+            _the_model_was_told(model, "safe to turn back on")
+        ))
+
+
+def _the_search_was_made_at(repository: _Repository,
+                            ref: str) -> Assertion[OpenedPullRequest | None]:
+    """The search ran against the branch a fix is cut from."""
+    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+        asked = repository.search.call_args
+
+        if asked is None or asked.args[1:2] != (ref,):
+            raise AssertionError(
+                f"Expected a search at ref [{ref}], got [{asked}]."
+            )
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.unit
@@ -266,19 +389,54 @@ def test_a_fix_proposing_no_files_writes_nothing_and_proposes_nothing() -> None:
 
 
 @pytest.mark.unit
-def test_a_model_that_never_submits_proposes_nothing() -> None:
-    # Bounded, like the investigation is. A model reading file after file
-    # without ever answering is a run that has to end somewhere, and it ends
-    # having proposed nothing rather than by reading the repository forever.
+def test_a_model_that_never_submits_says_so_rather_than_proposing_nothing() -> None:
+    # Bounded, like the investigation is: a model reading file after file
+    # without ever answering is a run that has to end somewhere. What it must
+    # not do is end looking like an answer.
+    #
+    # "I read the code and there is nothing to change" and "I never finished
+    # reading" reach the same human and only one of them is a conclusion. Told
+    # apart here because nothing downstream can tell them apart afterwards - a
+    # live run spent twelve turns exploring, returned nothing, and was recorded
+    # as having found no fix, which was a statement about the budget dressed as
+    # a verdict on the code.
     repository = a_repository()
     model = a_model_that(*[asks_to_list_files()] * 4)
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_turns=3),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_model_that_submits_no_files_has_answered() -> None:
+    # The other half of the same distinction, and a real conclusion: the code
+    # was read and there is nothing in it to change. No branch, no proposal,
+    # and no failure either - a human acts on this.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching())
 
     Scenario() \
         .when(
             lambda: propose_fix(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
-                settings=some_settings(max_turns=3),
+                settings=some_settings(),
                 converse=model.converse,
                 **repository.ports()
             )
@@ -323,6 +481,95 @@ def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> N
                 an_error_was_raised(RuntimeError)
             )
         )
+
+
+@pytest.mark.unit
+def test_the_conversation_a_real_fix_has_is_recorded_against_its_incident() -> None:
+    # Code-Fix was the one agent whose calls went nowhere, and it cost three
+    # diagnoses in a row: a rejected request, an empty patch and a model that
+    # declined, none of which left a transcript to read. What it spends is the
+    # largest of any agent here - a repository in the context, resent every
+    # turn - so an incident that cannot say what its fix cost cannot be costed
+    # at all.
+    #
+    # Built here rather than bound by `fixes_over`, for the reason the
+    # investigation's is: a recorded conversation needs the incident, and the
+    # incident is not known until the fix is asked for.
+    some_incident_id = "an-incident-being-fixed"
+    conversations = create_autospec(a_conversation_recorded_for, instance=False)
+    conversations.return_value = a_model_that(
+        submits_a_fix_touching(SOME_PATH)
+    ).converse
+    recorder = create_autospec(Recorder, instance=True)
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                some_incident_id,
+                settings=some_settings(),
+                recorder=recorder,
+                conversations=conversations,
+                **a_repository().ports()
+            )
+        ) \
+        .then(_the_conversation_was_recorded_for(conversations,
+                                                 some_incident_id,
+                                                 recorder))
+
+
+@pytest.mark.unit
+def test_a_scripted_conversation_never_reaches_the_real_client() -> None:
+    # The seam that keeps every test above offline. A caller injecting a
+    # conversation must not touch the construction behind it, or a unit test
+    # would read configuration and build a vendor SDK to ask a double a
+    # question.
+    conversations = create_autospec(a_conversation_recorded_for, instance=False)
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=a_model_that(submits_a_fix_touching(SOME_PATH)).converse,
+                conversations=conversations,
+                **a_repository().ports()
+            )
+        ) \
+        .then(_no_conversation_was_built(conversations))
+
+
+def _the_conversation_was_recorded_for(
+    conversations: Any, incident_id: str, recorder: Any
+) -> Assertion[OpenedPullRequest | None]:
+    """The transcript is filed against the incident that caused it."""
+    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+        asked = conversations.call_args
+
+        if asked is None or asked.args != (incident_id, recorder):
+            raise AssertionError(
+                f"Expected a conversation built for [{incident_id}] with the "
+                f"recorder, got [{asked}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_conversation_was_built(conversations: Any
+                               ) -> Assertion[OpenedPullRequest | None]:
+    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+        if conversations.called:
+            raise AssertionError(
+                f"Expected no conversation to be built, got "
+                f"[{conversations.call_args}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_model_was_told(model: _Model, said: str) -> Assertion[Any]:
@@ -457,6 +704,10 @@ def asks_to_list_files() -> Turn:
     return _a_turn_calling("list_repository_files", {})
 
 
+def asks_to_search_for(query: str) -> Turn:
+    return _a_turn_calling("search_repository", {"query": query})
+
+
 def asks_to_read(path: str) -> Turn:
     return _a_turn_calling("read_repository_file", {"path": path})
 
@@ -538,9 +789,12 @@ class _Repository:
     `get_log_lines`.
     """
 
-    def __init__(self, holding: list[str], whose_source_is: str) -> None:
+    def __init__(self, holding: list[str], whose_source_is: str, found: list[str]) -> None:
         self.list_files: Any = create_autospec(
             FileLister, instance=True, return_value=holding
+        )
+        self.search: Any = create_autospec(
+            SourceSearcher, instance=True, return_value=found
         )
         self.read_file: Any = create_autospec(
             FileReader, instance=True, return_value=whose_source_is
@@ -559,7 +813,7 @@ class _Repository:
         )
 
     def ports(self) -> dict[str, Any]:
-        """The four seams, as the keywords `propose_fix` takes them by.
+        """The five seams, as the keywords `propose_fix` takes them by.
 
         Handed over as one mapping because every test needs all four and only
         ever cares about one - naming the other three at ten call sites would
@@ -567,6 +821,7 @@ class _Repository:
         """
         return {
             "list_files": self.list_files,
+            "search": self.search,
             "read_file": self.read_file,
             "write_branch": self.write_branch,
             "open_pull_request": self.open_pull_request
@@ -574,8 +829,13 @@ class _Repository:
 
 
 def a_repository(holding: list[str] | None = None,
-                 whose_source_is: str = SOME_SOURCE) -> _Repository:
-    return _Repository(holding or [SOME_PATH], whose_source_is)
+                 whose_source_is: str = SOME_SOURCE,
+                 where: list[str] | None = None) -> _Repository:
+    return _Repository(
+        holding or [SOME_PATH],
+        whose_source_is,
+        where if where is not None else [f"{SOME_PATH}:8: the flag is read here"]
+    )
 
 
 def some_settings(base_branch: str = "main", max_turns: int = 12) -> FixSettings:

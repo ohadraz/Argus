@@ -18,6 +18,7 @@ from argus_core.events import (
     AgentInvoked,
     CandidateSelected,
     ChangeUndone,
+    FixAttempted,
     IncidentEvent,
     LogsRetrieved,
     MitigationResumed,
@@ -30,6 +31,8 @@ from argus_core.events import (
 from argus_core.ids import new_id
 from argus_core.models.action import Verdict
 from argus_core.models.actor import Actor
+from argus_core.models.fix import FixOutcome
+from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
@@ -279,6 +282,77 @@ def test_publishing_reaches_nobody_by_default() -> None:
         .then(_nothing_was_raised())
 
 
+@pytest.mark.unit
+def test_the_fix_argus_looked_for_is_said_however_it_turned_out() -> None:
+    # Code-Fix is the one step whose whole outcome is invisible in the status:
+    # a mitigated incident is mitigated whether a fix was proposed, was not
+    # warranted, or could not be proposed at all. Nothing else in the log
+    # distinguishes those, so without this event "Argus looked at the code and
+    # found nothing" and "Argus could not reach the repository" reach a reader
+    # looking identical - and one of them is somebody's to go and fix.
+    #
+    # The outcome travels as the value rather than as a sentence, for the
+    # reason a verdict does: three answers this system already names, and a
+    # reader matching on prose is a reader who will one day match none of them.
+    some_incident_id = new_id()
+    the_proposal = OpenedPullRequest(number=7, url="https://example.invalid/pull/7",
+                                     branch="argus/fix-abc")
+
+    Scenario() \
+        .given(some_incident_id) \
+        .when(
+            lambda: FixAttempted(incident_id=some_incident_id,
+                                 outcome=FixOutcome.PROPOSED,
+                                 pull_request=the_proposal,
+                                 detail="dont care what it said")
+        ) \
+        .then(
+            all_of(
+                _it_belongs_to(some_incident_id),
+                _it_reports(FixOutcome.PROPOSED),
+                _it_carries_the_proposal(the_proposal)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_that_was_not_possible_is_not_a_fix_that_was_not_warranted() -> None:
+    # Two outcomes with no pull request between them, and they mean opposite
+    # things: one is a verdict on the code, the other is a repository somebody
+    # can go and repair before asking again. A reader told only that there is
+    # no proposal cannot tell which happened.
+    Scenario() \
+        .given(some_incident_id := new_id()) \
+        .when(
+            lambda: FixAttempted(incident_id=some_incident_id,
+                                 outcome=FixOutcome.NOT_POSSIBLE,
+                                 pull_request=None,
+                                 detail="the repository refused the branch")
+        ) \
+        .then(
+            all_of(
+                _it_reports(FixOutcome.NOT_POSSIBLE),
+                _it_carries_the_proposal(None)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_attempt_is_read_back_as_what_it_was_published_as() -> None:
+    # The log is read by a page, a relay and a postmortem, none of which
+    # published it. A row that came back as a dictionary would have every one
+    # of them matching on strings to work out what happened.
+    an_attempt = FixAttempted(incident_id=new_id(),
+                              outcome=FixOutcome.NOT_WARRANTED,
+                              pull_request=None,
+                              detail="no code-level fix was warranted")
+
+    Scenario() \
+        .given(an_attempt) \
+        .when(lambda: parse_event(an_attempt.model_dump(mode="json"))) \
+        .then(_it_reports(FixOutcome.NOT_WARRANTED))
+
+
 def _a_publisher_having_a_bad_day() -> Publisher:
     """A subscriber that throws on everything it is handed."""
     def raise_on_everything(dont_care_event: IncidentEvent) -> None:
@@ -413,6 +487,36 @@ def _nothing_was_raised() -> Assertion[Exception | None]:
         if raised is not None:
             raise AssertionError(
                 f"Expected the work to survive, got [{type(raised).__name__}]: {raised}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_reports(outcome: FixOutcome) -> Assertion[IncidentEvent]:
+    """Which of the three things happened, as the value rather than the word."""
+    def assertion(event: IncidentEvent) -> bool:
+        reported = getattr(event, "outcome", None)
+        if reported != outcome:
+            raise AssertionError(
+                f"Expected the attempt to report [{outcome}], got [{reported}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_carries_the_proposal(
+    proposal: OpenedPullRequest | None
+) -> Assertion[IncidentEvent]:
+    """The address a person goes to, or nothing where there is nowhere to go."""
+    def assertion(event: IncidentEvent) -> bool:
+        carried = getattr(event, "pull_request", None)
+        if carried != proposal:
+            raise AssertionError(
+                f"Expected the attempt to carry [{proposal}], got [{carried}]."
             )
 
         return True

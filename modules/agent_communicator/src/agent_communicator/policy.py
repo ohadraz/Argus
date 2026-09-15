@@ -27,6 +27,7 @@ from argus_core.events import (
     ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
+    FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
@@ -106,6 +107,18 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # silence in an incident, and a conversation that went quiet for
             # six minutes without saying it was waiting reads as one that
             # stopped.
+            return Register.FOLLOWED
+        case FixAttempted():
+            # The one step that ends with somebody else's turn, so the people
+            # following the incident have to hear how it went - a draft pull
+            # request is work handed over, and nobody collects work they were
+            # not told about.
+            #
+            # Said whichever way it went. "I read the code and there is nothing
+            # to change" closes the question; "the repository refused" is a
+            # thing somebody can go and repair. Only the third case is good
+            # news, and a policy that said only the good news would be a
+            # channel that goes quiet exactly when something is wrong.
             return Register.FOLLOWED
         case PostmortemWritten():
             # The one line that is not about the incident being worked but

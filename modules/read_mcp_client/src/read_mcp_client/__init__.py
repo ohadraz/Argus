@@ -13,6 +13,7 @@ from read_mcp_client.client import (
     list_repository_files,
     read_mcp,
     read_repository_file,
+    search_repository,
 )
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "list_repository_files",
     "read_mcp",
     "read_repository_file",
+    "search_repository",
 ]

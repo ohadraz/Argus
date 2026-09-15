@@ -12,6 +12,11 @@ tool for it exists nowhere on either server (§13).
 
 from __future__ import annotations
 
-from agent_codefix.proposing import FixSettings, fixes_over, propose_fix
+from agent_codefix.proposing import (
+    FixNotAnswered,
+    FixSettings,
+    fixes_over,
+    propose_fix,
+)
 
-__all__ = ["FixSettings", "fixes_over", "propose_fix"]
+__all__ = ["FixNotAnswered", "FixSettings", "fixes_over", "propose_fix"]

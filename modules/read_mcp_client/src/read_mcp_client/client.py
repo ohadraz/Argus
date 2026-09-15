@@ -116,6 +116,28 @@ def get_enabled_flags(*, client: McpClient) -> list[str]:
     return client.call("get_enabled_flags", _FLAG_NAMES.validate_python)
 
 
+def search_repository(query: str, ref: str, *, client: McpClient) -> list[str]:
+    """Reads every line in the Target Service's repository at `ref` holding
+    `query`, as `path:line: text`.
+
+    What turns a named cause into a place to look (spec §7.4). The
+    investigation hands Code-Fix a flag, a function or a message; without this
+    the only way to act on that name is to list every path and open files by
+    guessing, which spends a reading budget on the wrong files.
+
+    Raises rather than returning nothing when the source could not be read: a
+    query that matches nothing is a fact about the repository and a useful one,
+    where a repository that could not be fetched is not, and answered the same
+    way it teaches a caller the cause is not in the code.
+    """
+    return client.call(
+        "search_repository",
+        _FILE_PATHS.validate_python,
+        query=query,
+        ref=ref,
+    )
+
+
 def list_repository_files(ref: str, *, client: McpClient) -> list[str]:
     """Reads every file in the Target Service's repository at `ref`.
 

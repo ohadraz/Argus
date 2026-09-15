@@ -34,8 +34,17 @@ from argus_core.models import (
     ToolResults,
     Turn,
 )
+
+# Aliased because `replay`'s no-op sink is called `nobody`, as `events`' is, and
+# this module has no use for the other one to be confused with.
+from argus_core.replay import Recorder
+from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
-from read_mcp_client import list_repository_files, read_repository_file
+from read_mcp_client import (
+    list_repository_files,
+    read_repository_file,
+    search_repository,
+)
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
 from agent_codefix.prompting import (
@@ -43,7 +52,11 @@ from agent_codefix.prompting import (
     SUBMIT_TOOL_NAME,
     SubmittedFix,
 )
-from agent_codefix.reasoning import Conversation, converse
+from agent_codefix.reasoning import (
+    Conversation,
+    Conversations,
+    a_conversation_recorded_for,
+)
 
 # What the loop asks of the repository, said as the shape it calls with rather
 # than as the function that answers today. `Protocol` rather than a `Callable`
@@ -52,6 +65,25 @@ from agent_codefix.reasoning import Conversation, converse
 # introspectable - and specing against the client functions would be specing
 # against the wrong shape, since those take the connection they are asked over
 # and the loop is asked about a repository.
+
+
+class FixNotAnswered(Exception):
+    """The agent never answered within the turns it had.
+
+    Not a verdict on the code. "I read it and there is nothing to change" is a
+    conclusion a human acts on; this is a run that stopped mid-sentence, and the
+    two reached the same caller as `None` until a live incident spent twelve
+    turns exploring and was recorded as having found no fix - a statement about
+    the budget dressed as a statement about the service.
+
+    Raised rather than returned because the caller's move differs: a verdict
+    ends the question, where this is a job that did not get done and may be
+    worth more turns, a narrower cause, or a person.
+    """
+
+
+class SourceSearcher(Protocol):
+    def __call__(self, query: str, ref: str, /) -> list[str]: ...
 
 
 class FileLister(Protocol):
@@ -94,10 +126,12 @@ class Fixer(Protocol):
                  incident_id: str, /) -> OpenedPullRequest | None: ...
 
 
+SEARCH_TOOL = "search_repository"
 LIST_FILES_TOOL = "list_repository_files"
 READ_FILE_TOOL = "read_repository_file"
 
 PATH_ARGUMENT = "path"
+QUERY_ARGUMENT = "query"
 
 
 class FixSettings(SettingsSlice):
@@ -112,12 +146,34 @@ class FixSettings(SettingsSlice):
     codefix_max_turns: int
 
 
+SEARCH = ToolDefinition(
+    name=SEARCH_TOOL,
+    description=(
+        "Find where something appears in the service's source. Answers with "
+        "every matching line as 'path:line: text'. START HERE: the "
+        "investigation has already named the cause, so search for it - the "
+        "flag, the function, the message from the log line - and the answer "
+        "tells you which files to read. Plain text, not a regular expression."
+    ),
+    properties={
+        QUERY_ARGUMENT: {
+            "type": "string",
+            "description": (
+                "The text to look for. Something distinctive from the cause - "
+                "a flag name, a function name, an error message."
+            )
+        }
+    },
+    required=[QUERY_ARGUMENT]
+)
+
 LIST_FILES = ToolDefinition(
     name=LIST_FILES_TOOL,
     description=(
         "List every file in the service's repository, as paths from its root. "
-        "Call this first: it names the whole repository in one call, and what "
-        "you read afterwards is chosen out of it."
+        "A fallback for when searching found nothing and you need to see the "
+        f"shape of the repository - prefer {SEARCH_TOOL}, which tells you "
+        "which file to open rather than leaving you to guess from names."
     ),
     properties={},
     required=[]
@@ -139,12 +195,13 @@ READ_FILE = ToolDefinition(
     required=[PATH_ARGUMENT]
 )
 
-TOOLS = [LIST_FILES, READ_FILE, SUBMIT_FIX]
+TOOLS = [SEARCH, LIST_FILES, READ_FILE, SUBMIT_FIX]
 
 
 def fixes_over(read: McpClient,
                write: McpClient,
-               settings: FixSettings) -> Fixer:
+               settings: FixSettings,
+               recorder: Recorder = records_nothing) -> Fixer:
     """The fix channel, over a connection to each tier it needs.
 
     Two clients rather than one, because the two halves of proposing a fix are
@@ -159,11 +216,12 @@ def fixes_over(read: McpClient,
     return partial(
         propose_fix,
         settings=settings,
+        search=partial(search_repository, client=read),
         list_files=partial(list_repository_files, client=read),
         read_file=partial(read_repository_file, client=read),
         write_branch=partial(commit_to_new_branch, client=write),
         open_pull_request=partial(open_pull_request, client=write),
-        converse=converse
+        recorder=recorder
     )
 
 
@@ -171,18 +229,24 @@ def propose_fix(hypothesis: str,
                 incident_id: str,
                 *,
                 settings: FixSettings,
+                search: SourceSearcher,
                 list_files: FileLister,
                 read_file: FileReader,
                 write_branch: BranchWriter,
                 open_pull_request: PullRequestOpener,
-                converse: Conversation) -> OpenedPullRequest | None:
+                converse: Conversation | None = None,
+                recorder: Recorder = records_nothing,
+                conversations: Conversations = a_conversation_recorded_for
+                ) -> OpenedPullRequest | None:
     """Proposes a fix for `hypothesis` as a draft pull request, or nothing.
 
-    `None` has two meanings and they are both honest answers: the model
-    submitted a patch with no files in it - "the fault is not in the code",
-    which is true of every flag scenario - or it never submitted at all within
-    its turns. Neither is an error, and neither opens a pull request: an empty
-    proposal sends a human to read a diff with nothing in it.
+    `None` means the model answered and had nothing to change - "the fault is
+    not in the code", which is a real conclusion and the one a human acts on. No
+    pull request is opened for it: an empty proposal sends somebody to read a
+    diff with nothing in it.
+
+    Raises `FixNotAnswered` when the model never submitted within its turns,
+    which is a different thing entirely and used to arrive looking identical.
 
     Raises whatever the repository raised. A push that was refused and a fix
     that was not found reach the same human, and only one of them is something
@@ -190,17 +254,32 @@ def propose_fix(hypothesis: str,
 
     The collaborators are keyword seams: the real tool calls in production,
     doubles in a test, and no monkeypatching either way.
+
+    `converse` is the exception among them, and defaults to nothing rather than
+    to the real call. A conversation that files its receipts has to be built
+    from this incident and this recorder, and neither is known until here - so
+    what a caller omitting it gets is built below, and a caller injecting a
+    scripted one never reaches the construction or the SDK behind it.
+
+    `recorder` changes nothing about the answer and everything about what can be
+    said afterwards. Code-Fix spends more than any other agent here and is the
+    hardest to second-guess from outside: a patch it declined to write leaves
+    nothing behind at all.
     """
     submitted = _what_the_model_submitted(
         hypothesis,
         settings=settings,
+        search=search,
         list_files=list_files,
         read_file=read_file,
-        converse=converse
+        converse=converse or conversations(incident_id, recorder)
     )
 
     if submitted is None:
-        return None
+        raise FixNotAnswered(
+            f"the agent read for {settings.codefix_max_turns} turns without "
+            f"submitting a fix"
+        )
 
     patch = submitted.patch()
 
@@ -228,6 +307,7 @@ def propose_fix(hypothesis: str,
 def _what_the_model_submitted(hypothesis: str,
                               *,
                               settings: FixSettings,
+                              search: SourceSearcher,
                               list_files: FileLister,
                               read_file: FileReader,
                               converse: Conversation) -> SubmittedFix | None:
@@ -251,7 +331,7 @@ def _what_the_model_submitted(hypothesis: str,
 
         transcript.append(
             ToolResults(results=[
-                _answer(call, settings, list_files, read_file)
+                _answer(call, settings, search, list_files, read_file)
                 for call in turn.tool_calls
             ])
         )
@@ -282,6 +362,7 @@ def _the_submission_in(turn: Turn) -> SubmittedFix | None:
 
 def _answer(call: ToolCall,
             settings: FixSettings,
+            search: SourceSearcher,
             list_files: FileLister,
             read_file: FileReader) -> ToolResult:
     """One tool call, answered - including when answering it failed.
@@ -292,7 +373,10 @@ def _answer(call: ToolCall,
     which is already an answer this loop knows how to report.
     """
     try:
-        return ToolResult(call_id=call.id, content=_ran(call, settings, list_files, read_file))
+        return ToolResult(
+            call_id=call.id,
+            content=_ran(call, settings, search, list_files, read_file)
+        )
     except Exception as error:
         return ToolResult(
             call_id=call.id,
@@ -303,8 +387,20 @@ def _answer(call: ToolCall,
 
 def _ran(call: ToolCall,
          settings: FixSettings,
+         search: SourceSearcher,
          list_files: FileLister,
          read_file: FileReader) -> str:
+    if call.name == SEARCH_TOOL:
+        found = search(
+            str(call.arguments.get(QUERY_ARGUMENT, "")), settings.github_base_branch
+        )
+
+        # Said rather than left as an empty answer. A model handed nothing
+        # reads it as a tool that failed and tries again with the same query;
+        # told the repository does not contain the string, it searches for
+        # something else, which is the move that finds the file.
+        return "\n".join(found) if found else "no line in the repository matches that"
+
     if call.name == LIST_FILES_TOOL:
         return "\n".join(list_files(settings.github_base_branch))
 
@@ -333,14 +429,29 @@ def _the_opening_message(hypothesis: str) -> str:
         "",
         f"What the investigation concluded: {hypothesis}",
         "",
-        "Read the repository until you have found the fault, then call "
-        f"{SUBMIT_TOOL_NAME} with every file you are changing, in full.",
+        f"Start by searching. Take what is named above - the flag, the "
+        f"function, the message - and {SEARCH_TOOL} for it: the answer names "
+        f"the files the fault is in, which is what you would otherwise be "
+        f"guessing at. Read those, then call {SUBMIT_TOOL_NAME} with every "
+        f"file you are changing, in full.",
         "",
-        "Two things worth knowing. A mitigation may already have hidden the "
-        "symptom - a flag turned off, a version rolled back - so the code you "
-        "are reading is the code that was broken, whether or not anything is "
-        "broken right now. And if the cause is not in the code at all, submit "
-        "no files and say so: that is a real answer and a useful one."
+        "A mitigation has probably already hidden the symptom - a flag turned "
+        "off, a version rolled back - so the code you are reading is the code "
+        "that was broken, whether or not anything looks broken right now.",
+        "",
+        "A change that exposed a fault is not the fault. If switching a flag "
+        "on broke the service, the fault is the code that could not survive "
+        "that flag being on, and your job is to make it safe to turn back on. "
+        "The same goes for a deploy, a config change or a new kind of input: "
+        "something changed, and the code did not cope. Fix the not coping. "
+        "Reverting was somebody buying time - it left the fault in place "
+        "behind a switch nobody now dares touch, which is what you are here "
+        "to end.",
+        "",
+        "Submit no files only if you have read the code and there is genuinely "
+        "nothing in it to change - never merely because a configuration change "
+        "triggered the incident. That is the common case and it is still a "
+        "code fault."
     ])
 
 

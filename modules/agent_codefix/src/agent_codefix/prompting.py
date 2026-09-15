@@ -127,8 +127,10 @@ SUBMIT_FIX = ToolDefinition(
         "Submit the code fix for this incident. Give every file you are "
         "changing in full - its entire new contents, not a diff and not an "
         "excerpt - because what you send is written to the branch exactly as "
-        "it stands. Read a file before you rewrite it. If the fault is not in "
-        "the code, submit no files and say so in the summary."
+        "it stands. Read a file before you rewrite it. Submit no files only "
+        "if you have read the code and there is genuinely nothing in it to "
+        "change - a flag or a deploy that exposed a fault is still a fault in "
+        "the code that could not survive it."
     ),
     properties={
         SUMMARY_FIELD: {
@@ -166,9 +168,13 @@ SUBMIT_FIX = ToolDefinition(
                 "required": [PATH_FIELD, CONTENT_FIELD]
             },
             "description": (
-                "Every file the fix changes or adds, each in full. Bring a "
-                "regression test with the fix where one can be written. Empty "
-                "is a valid answer and means no code change is warranted."
+                "Every file the fix changes or adds, each in full - including "
+                "the test. Bring the test that exposes the bug: the case that "
+                "was failing, asserted to pass, alongside the service's other "
+                "tests. A fix without one is a claim; a fix with one is "
+                "evidence. Empty means you read the code and found nothing to "
+                "change, which is rare: an incident traced to a cause in this "
+                "service usually has one."
             )
         }
     },
