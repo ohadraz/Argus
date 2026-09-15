@@ -20,6 +20,7 @@ members = [
     "argus-argus-testkit",
     "argus-argus-web",
     "argus-exchange-rate-source",
+    "argus-github-double",
     "argus-oncall-source",
     "argus-orchestrator",
     "argus-read-mcp-client",
@@ -403,6 +404,21 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+
+[[package]]
+name = "argus-github-double"
+version = "0.1.0"
+source = { editable = "modules/github_double" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
 
 [[package]]
 name = "argus-oncall-source"

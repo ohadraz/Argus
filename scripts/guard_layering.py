@@ -46,7 +46,9 @@ FRONT_DOOR_CONTRACT = "the kernel is reached through its front doors, not by mod
 # and a contract naming them would be a contract about the suites. Stated here
 # rather than read from `noxfile.py`, because that list is about test discovery
 # and the two happening to agree today is not a reason to couple them.
-NOT_LAYERED = frozenset({"argus_testkit", "anthropic_double", "slack_double"})
+NOT_LAYERED = frozenset({
+    "argus_testkit", "anthropic_double", "slack_double", "github_double"
+})
 
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests
 # the modules behind the front doors, and a test that could only reach them

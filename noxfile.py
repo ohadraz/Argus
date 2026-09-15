@@ -24,7 +24,9 @@ import nox
 nox.options.default_venv_backend = "none"
 
 
-EXCLUDED_FROM_TESTS: set[str] = {"argus_testkit", "anthropic_double", "slack_double"}
+EXCLUDED_FROM_TESTS: set[str] = {
+    "argus_testkit", "anthropic_double", "slack_double", "github_double"
+}
 
 
 def _discover_modules() -> list[str]:
@@ -930,6 +932,7 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # installed, and a noxfile that fails to import takes every session with it.
 _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 _SLACK_DOUBLE_BASE_URL = "http://localhost:8094"
+_GITHUB_DOUBLE_BASE_URL = "http://localhost:8096"
 
 # Where the sessions that can run beside an e2e stack put the things that would
 # otherwise collide with it. Every collision is a port or a database: a second
@@ -1131,6 +1134,28 @@ _SLACK_AT_THE_DOUBLE = {
     "SLACK_RELAY_POLL_SECONDS": "0.5"
 }
 
+# Where both tiers find "GitHub" when a suite is running. The one double
+# standing in for a service Argus writes to, which is why this is not a
+# convenience: a pull request opened by a suite is a real pull request, numbered
+# out of a counter that never goes back, and `e2e_replay` runs on every push.
+#
+# Not shared with `stack`, for the reason Slack is not: a demo of Argus handing
+# work to a person is not a demo if the pull request it hands over is a fixture.
+_GITHUB_AT_THE_DOUBLE = {
+    "GITHUB_API_URL": _GITHUB_DOUBLE_BASE_URL,
+    # Fixture names the double accepts as it accepts any. Set rather than left
+    # empty because both tiers refuse to start without a repository to address.
+    "GITHUB_REPOSITORY": "ohadraz/repository",
+    # Placeholders the double never reads, one per tier - the split is the point
+    # of two tokens (spec §12.1) and a suite that collapsed them would stop
+    # noticing if the read tier were handed the credential that can write.
+    "GITHUB_TOKEN": "the-double-never-reads-this",
+    "GITHUB_READ_TOKEN": "the-double-never-reads-this-either",
+    # The same scoping a deployment sets, so the suite exercises the filter
+    # rather than a repository that happens to hold only service files.
+    "GITHUB_SOURCE_PATHS": "src/io_shop,tests/io_shop"
+}
+
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     "anthropic_double",
     ["-m", "anthropic_double.server"],
@@ -1141,6 +1166,12 @@ _SLACK_DOUBLE: tuple[str, list[str], str] = (
     "slack_double",
     ["-m", "slack_double.server"],
     f"{_SLACK_DOUBLE_BASE_URL}/health"
+)
+
+_GITHUB_DOUBLE: tuple[str, list[str], str] = (
+    "github_double",
+    ["-m", "github_double.server"],
+    f"{_GITHUB_DOUBLE_BASE_URL}/health"
 )
 
 _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
@@ -1154,6 +1185,12 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
     # Slack, for a stack that has no workspace and wants none. Up before the
     # relay, which posts to it from its first pass.
     _SLACK_DOUBLE,
+    # GitHub, for a stack that has no repository and must not touch one. The
+    # only double here standing in for a service Argus *writes* to, which is
+    # what makes it necessary rather than tidy: without it a free, keyless,
+    # offline suite opened a real draft pull request on every run, and a pull
+    # request number, once spent, is spent for good.
+    _GITHUB_DOUBLE,
     (
         # Bound to every interface, not just loopback: the Target Environment's
         # monitoring posts its alerts from inside a container, and a server
@@ -1198,15 +1235,22 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
 def _the_services_for(slack_stands_in: bool) -> list[tuple[str, list[str], str | None]]:
     """The local services to start, minus the ones this run has no use for.
 
-    Only the Slack double moves. A run posting to the real workspace has
-    nothing to say to it, and starting it anyway leaves a process on 8094 that
-    nobody talks to - the kind of leftover somebody later mistakes for the
-    thing under test.
+    Two doubles move together, on the one flag that says whether this is a
+    suite or a demo. A suite wants both - no workspace to clutter, no
+    repository to leave branches on. A demo wants neither: an incident reaching
+    a person and a fix a person can open are the two things being demonstrated,
+    and both are stand-ins if either double is in the way.
+
+    Starting an unwanted double is not harmless. It leaves a process on a port
+    nobody talks to, which is the kind of leftover somebody later mistakes for
+    the thing under test.
     """
     if slack_stands_in:
         return _LOCAL_SERVICES
 
-    return [service for service in _LOCAL_SERVICES if service is not _SLACK_DOUBLE]
+    standing_in = (_SLACK_DOUBLE, _GITHUB_DOUBLE)
+
+    return [service for service in _LOCAL_SERVICES if service not in standing_in]
 
 
 def _run_against_the_stack(
@@ -1251,12 +1295,12 @@ def _run_against_the_stack(
     # pytest process that times them - which is the only way the two cannot
     # disagree about how long Argus waits.
     os.environ.update(_E2E_SETTINGS)
-    # A suite posts at the double; a demo posts wherever `.env` says. Set here
+    # A suite posts at the doubles; a demo posts wherever `.env` says. Set here
     # rather than defaulted into `_E2E_SETTINGS`, so that a stack somebody is
-    # watching cannot be silently pointed away from the workspace they are
-    # watching it in.
+    # watching cannot be silently pointed away from the workspace - or the
+    # repository - they are watching it in.
     if slack_stands_in:
-        os.environ.update(_SLACK_AT_THE_DOUBLE)
+        os.environ.update(_SLACK_AT_THE_DOUBLE | _GITHUB_AT_THE_DOUBLE)
     try:
         # `--build` because the Target Service image is built from a sibling
         # working copy, not pulled: without it Compose reuses whatever was
