@@ -114,6 +114,47 @@ def test_every_tool_is_offered_strictly() -> None:
 
 
 @pytest.mark.unit
+def test_an_object_nested_inside_a_tools_arguments_is_strict_too() -> None:
+    # A tool whose argument is a list of records - a patch of whole files, each
+    # a path and its contents - carries an object the caller wrote rather than
+    # one this rendering built. The API demands the same strictness of that one,
+    # and refuses the entire request when it does not get it: one tool with a
+    # permissive nested object takes every other tool in the call down with it.
+    #
+    # So the rendering stamps it wherever an object appears, for the reason it
+    # stamps the outer one - a caller writing `additionalProperties` at every
+    # depth is a caller who will one day write it at all but one.
+    a_patch_of_whole_files = {
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    }
+
+    Scenario() \
+        .given(
+            some_tool := a_tool_definition(properties=a_patch_of_whole_files,
+                                           required=["files"])
+        ) \
+        .when(
+            lambda: some_tool.to_wire()
+        ) \
+        .then(
+            all_of(
+                _the_schema_forbids_anything_else(),
+                _every_nested_object_forbids_anything_else()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_tool_that_takes_nothing_is_still_offered_as_an_object() -> None:
     # A tool with no arguments is a real case - the answer tool aside, a
     # retrieval call can legitimately take its defaults. Its schema still has
@@ -244,6 +285,53 @@ def _the_schema_forbids_anything_else() -> Assertion[dict[str, Any]]:
         return True
 
     return assertion
+
+
+def _every_nested_object_forbids_anything_else() -> Assertion[dict[str, Any]]:
+    """Strictness all the way down, not only at the top.
+
+    The API refuses a schema whose nested objects are permissive, and it refuses
+    the whole request rather than the one tool - so a tool carrying a nested
+    object takes every other tool down with it, and reports an HTTP status
+    rather than the omission.
+    """
+    def assertion(offer: dict[str, Any]) -> bool:
+        permissive = _objects_that_permit_anything(offer.get(INPUT_SCHEMA_KEY, {}))
+        if permissive:
+            raise AssertionError(
+                f"Expected every object in the schema to forbid unlisted "
+                f"arguments, got {permissive} without it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _objects_that_permit_anything(node: Any) -> list[Any]:
+    """Every object anywhere in the schema that did not say `false`."""
+    if isinstance(node, dict):
+        found = [
+            permissive
+            for value in node.values()
+            for permissive in _objects_that_permit_anything(value)
+        ]
+
+        if node.get(TYPE_KEY) == OBJECT_TYPE and node.get(
+            ADDITIONAL_PROPERTIES_KEY
+        ) is not False:
+            found.append(node)
+
+        return found
+
+    if isinstance(node, list):
+        return [
+            permissive
+            for value in node
+            for permissive in _objects_that_permit_anything(value)
+        ]
+
+    return []
 
 
 def _the_schema_describes_an_object() -> Assertion[dict[str, Any]]:

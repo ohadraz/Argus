@@ -75,15 +75,48 @@ class ToolDefinition(BaseModel):
         it declared - and `additionalProperties: false` is the half of that
         which is easiest to leave out, which is why it is written here rather
         than asked of every caller.
+
+        Strict at every depth, not only at the top. A tool taking a list of
+        records - a patch of whole files, each a path and its contents -
+        carries objects the caller wrote, and the API demands the same of those.
+        It refuses the whole request over one of them, so a nested object left
+        permissive takes every other tool in the call down with it.
         """
         return {
             _NAME_KEY: self.name,
             _DESCRIPTION_KEY: self.description,
             _STRICT_KEY: True,
-            _INPUT_SCHEMA_KEY: {
-                _TYPE_KEY: _OBJECT_TYPE,
-                _PROPERTIES_KEY: self.properties,
-                _REQUIRED_KEY: self.required,
-                _ADDITIONAL_PROPERTIES_KEY: False
-            }
+            _INPUT_SCHEMA_KEY: _strictly(
+                {
+                    _TYPE_KEY: _OBJECT_TYPE,
+                    _PROPERTIES_KEY: self.properties,
+                    _REQUIRED_KEY: self.required
+                }
+            )
         }
+
+
+def _strictly(schema: Any) -> Any:
+    """The same schema, with every object in it forbidding what it did not name.
+
+    A copy rather than an edit in place: `properties` is the caller's own
+    fragment, usually a module-level constant, and stamping it where it lies
+    would rewrite the definition somebody wrote rather than the offer being
+    sent.
+
+    Set rather than defaulted, so a fragment that said `true` is corrected
+    rather than honoured. There is no tool here for which permissive is the
+    right answer, and one arriving that way is a mistake rather than a choice.
+    """
+    if isinstance(schema, dict):
+        stamped = {key: _strictly(value) for key, value in schema.items()}
+
+        if stamped.get(_TYPE_KEY) == _OBJECT_TYPE:
+            stamped[_ADDITIONAL_PROPERTIES_KEY] = False
+
+        return stamped
+
+    if isinstance(schema, list):
+        return [_strictly(item) for item in schema]
+
+    return schema
