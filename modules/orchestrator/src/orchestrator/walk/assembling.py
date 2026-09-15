@@ -34,7 +34,7 @@ from agent_mitigation import (
 from argus_core import Connections, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import Publisher
-from argus_core.llm import get_llm_client
+from argus_core.llm import build_llm_client
 from argus_core.mcp_transport import McpClient
 from argus_core.replay import Recorder
 from argus_incidents import (
@@ -201,7 +201,7 @@ def against(connections: Connections,
             incident_id,
             connections=connections,
             sources=sources,
-            client_for=get_llm_client,
+            client_for=build_llm_client,
             recorder=recorder),
         record_postmortem=records.postmortem,
         transition_incident=records.transition,

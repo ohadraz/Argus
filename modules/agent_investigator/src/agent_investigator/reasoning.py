@@ -20,13 +20,13 @@ def _llm_client() -> LLMClient:
     """The one client the whole process shares.
 
     Built on first use rather than at import, and the import is deferred with
-    it: choosing a client pulls in a vendor's SDK, and a module that only ever
+    it: building a client pulls in a vendor's SDK, and a module that only ever
     injects a double - every unit test of the loop - must pay for neither the
     import nor the settings the client reads at construction.
     """
-    from argus_core.llm import get_llm_client
+    from argus_core.llm import build_llm_client
 
-    return get_llm_client()
+    return build_llm_client()
 
 
 def converse(transcript: Transcript, tools: list[ToolDefinition]) -> Turn:
@@ -48,13 +48,13 @@ def _a_recording_client(replay: Replay) -> LLMClient:
     """The real client, wrapped so it keeps a receipt for this incident.
 
     Imported inside for the same reason `_llm_client` defers its import:
-    choosing a client pulls in a vendor's SDK, and the loop's unit tests -
+    building a client pulls in a vendor's SDK, and the loop's unit tests -
     which inject a scripted conversation and never reach here - should pay for
     neither the import nor the configuration it reads on the way up.
     """
-    from argus_core.llm import get_llm_client
+    from argus_core.llm import build_llm_client
 
-    return get_llm_client(replay)
+    return build_llm_client(replay)
 
 
 def a_conversation_recorded_for(incident_id: str,

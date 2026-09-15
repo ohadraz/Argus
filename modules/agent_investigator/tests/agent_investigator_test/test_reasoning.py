@@ -137,7 +137,7 @@ class _AClientThatAnswers:
 
 
 class _AClientAskedFor:
-    """A stand-in for `get_llm_client`, remembering the `Replay` it was handed.
+    """A stand-in for `build_llm_client`, remembering the `Replay` it was handed.
 
     The seam this file exists to check. The real one builds an SDK client from
     configuration, which a unit test has none of and should not need: what is

@@ -98,6 +98,6 @@ class LLMClient(Protocol):
 # Here rather than beside either caller: the investigator's loop and the
 # postmortem's gathering both name this, which makes it a contract, and a
 # contract kept inside one of the parties is one the other reaches into.
-# `client.py` rather than `client_selection.py` so that naming the factory
-# costs nothing - selecting a client is what imports a vendor's SDK.
+# `client.py` rather than `building.py` so that naming the factory costs
+# nothing - building a client is what imports a vendor's SDK.
 type ClientFor = Callable[[Replay], LLMClient]

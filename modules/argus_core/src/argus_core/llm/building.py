@@ -1,10 +1,14 @@
-"""Which `LLMClient` a caller gets when it does not bring its own.
+"""Building the `LLMClient` a caller gets when it brings none of its own.
 
 The one module here that is allowed to know both sides: the port next door
 states what Argus needs from a model, the adapters below say how one vendor
-answers, and choosing between them is neither's business. Keeping the choice
-out of `client.py` is what lets a caller name the interface - or a failure it
+answers, and binding one to the other is neither's business. Keeping that out
+of `client.py` is what lets a caller name the interface - or a failure it
 handles - without the SDK arriving with it.
+
+Building, not selecting. There is one adapter and no alternative to weigh it
+against, and a module named for a choice it does not make sends a reader
+looking for the switch.
 """
 
 from __future__ import annotations
@@ -16,8 +20,13 @@ from argus_core.llm.recorded_client import RecordedLLMClient
 from argus_core.replay import Replay
 
 
-def get_llm_client(replay: Replay | None = None) -> LLMClient:
-    """The client agents get by default, keeping a receipt when asked to.
+def build_llm_client(replay: Replay | None = None) -> LLMClient:
+    """Builds the client agents get by default, keeping a receipt when asked to.
+
+    Built rather than fetched, and named so: each call constructs a client
+    of its own, and two callers that asked are holding two. Nothing here
+    chooses between alternatives - there is one adapter, and the only
+    question is whether it is wrapped in a recorder.
 
     Returned as the Protocol rather than as the adapter, so that a caller
     holding one cannot reach past the interface into whatever answered.

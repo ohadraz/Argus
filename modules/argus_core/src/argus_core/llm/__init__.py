@@ -10,6 +10,7 @@ The vendor lives behind `adapters/` and is not exported. What a caller names is
 `LLMClient`; which SDK answers it is the composition root's business.
 """
 
+from argus_core.llm.building import build_llm_client
 from argus_core.llm.client import (
     AnswerTruncated,
     ClientFor,
@@ -18,7 +19,6 @@ from argus_core.llm.client import (
     ModelRefused,
     TurnPaused,
 )
-from argus_core.llm.client_selection import get_llm_client
 from argus_core.llm.escapes import with_escapes_resolved
 from argus_core.llm.line_breaks import on_one_line
 from argus_core.llm.recorded_client import RecordedLLMClient
@@ -31,7 +31,7 @@ __all__ = [
     "ModelRefused",
     "RecordedLLMClient",
     "TurnPaused",
-    "get_llm_client",
+    "build_llm_client",
     "on_one_line",
     "with_escapes_resolved"
 ]

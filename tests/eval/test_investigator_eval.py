@@ -10,7 +10,7 @@ from agent_investigator import Findings, investigate
 from agent_investigator.budget import Bound, Budget, InvestigationSettings
 from argus_core import get_settings, new_id, parse_iso
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.llm import get_llm_client
+from argus_core.llm import build_llm_client
 from argus_core.models import (
     Alert,
     CauseType,
@@ -492,7 +492,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
     findings and what they cost, and a run that also filed receipts would be
     measuring the same model through more code.
     """
-    client = get_llm_client()
+    client = build_llm_client()
 
     def speak(transcript: Transcript, tools: list[ToolDefinition]) -> Turn:
         return client.converse(transcript, tools)
