@@ -10,7 +10,9 @@ from read_mcp_client.client import (
     get_enabled_flags,
     get_log_lines,
     get_metrics_summary,
+    list_repository_files,
     read_mcp,
+    read_repository_file,
 )
 
 __all__ = [
@@ -18,5 +20,7 @@ __all__ = [
     "get_enabled_flags",
     "get_log_lines",
     "get_metrics_summary",
+    "list_repository_files",
     "read_mcp",
+    "read_repository_file",
 ]

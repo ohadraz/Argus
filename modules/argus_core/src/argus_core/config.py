@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # assemble it from two settings could assemble a different one.
     github_api_url: str = Field(default="https://api.github.com")
     github_repository: str = Field(default="")
+    # The credential `argus-read-mcp` reads the Target Service's source with. It
+    # can read a repository and cannot push to one, which is what lets the
+    # source be read from a process that must remain incapable of mutation
+    # (§13) - the same argument that keeps the flag evaluation token there and
+    # the admin token out.
+    github_read_token: str = Field(default="")
     # The credential that can push a branch and open a pull request. Scoped to
     # the repository above and to nothing else: "Argus cannot touch its own
     # codebase" is a property of what this token reaches, not of what the agent

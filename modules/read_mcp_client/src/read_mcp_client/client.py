@@ -15,6 +15,8 @@ _LOG_LINES: Final = TypeAdapter(list[str])
 _METRIC_BUCKETS: Final = TypeAdapter(list[MetricBucket])
 _CHANGE_EVENTS: Final = TypeAdapter(list[ChangeEvent])
 _FLAG_NAMES: Final = TypeAdapter(list[str])
+_FILE_PATHS: Final = TypeAdapter(list[str])
+_SOURCE: Final = TypeAdapter(str)
 
 # Where the server's tools are served, under the address the endpoint names.
 # Here rather than at each call because it is the read tier's own spelling of
@@ -112,3 +114,40 @@ def get_enabled_flags(*, client: McpClient) -> list[str]:
     with nothing to revert.
     """
     return client.call("get_enabled_flags", _FLAG_NAMES.validate_python)
+
+
+def list_repository_files(ref: str, *, client: McpClient) -> list[str]:
+    """Reads every file in the Target Service's repository at `ref`.
+
+    The first half of localizing a fault (spec §7.4): one call names the whole
+    repository, and what a fix needs to read next is picked out of it.
+
+    Raises rather than returning a short list when the repository could not be
+    listed in full - a listing missing files reads exactly like a repository
+    that does not have them, and the fix goes to the wrong file.
+    """
+    return client.call(
+        "list_repository_files",
+        _FILE_PATHS.validate_python,
+        ref=ref,
+    )
+
+
+def read_repository_file(path: str, ref: str, *, client: McpClient) -> str:
+    """Reads what one file in the Target Service's repository says, at `ref`.
+
+    On the read client because reading source is reading: the credential behind
+    this call cannot push, so the repository becoming visible to Argus does not
+    make the read tier capable of changing it (§13). Writing a fix is the write
+    tier's `commit_to_new_branch`.
+
+    Raises rather than answering emptily for a path that is not there. A file
+    that exists and says nothing is a real thing a repository holds, and a model
+    that cannot tell the two apart patches a module it never read.
+    """
+    return client.call(
+        "read_repository_file",
+        _SOURCE.validate_python,
+        path=path,
+        ref=ref,
+    )

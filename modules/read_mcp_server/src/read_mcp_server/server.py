@@ -17,7 +17,7 @@ from argus_core import ReadMcpEndpoint, get_settings
 from argus_core.models import ChangeEvent, MetricBucket
 from mcp.server.fastmcp import FastMCP
 
-from read_mcp_server import flags, retrieval
+from read_mcp_server import flags, repository, retrieval
 from read_mcp_server.argocd import (
     ArgocdSettings,
     fetch_argocd_application,
@@ -25,6 +25,7 @@ from read_mcp_server.argocd import (
 )
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.flags import FlagReadSettings
+from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.window import RetrievalSettings
 
@@ -33,7 +34,8 @@ def build_server(endpoint: ReadMcpEndpoint,
                  retrieval_settings: RetrievalSettings,
                  target_service: TargetServiceSettings,
                  flag_settings: FlagReadSettings,
-                 argocd_settings: ArgocdSettings) -> FastMCP:
+                 argocd_settings: ArgocdSettings,
+                 repository_settings: RepositoryReadSettings) -> FastMCP:
     """Registers every read tool against one deployment's configuration.
 
     A function rather than module-level code, so that importing this module -
@@ -169,6 +171,40 @@ def build_server(endpoint: ReadMcpEndpoint,
         only."""
         return flags.enabled_flags(toggles)
 
+    @mcp.tool()
+    def list_repository_files(ref: str) -> list[str]:
+        """Returns every file in the Target Service's repository at `ref`, as
+        paths from its root - directories left out.
+
+        How a fault gets localized: read the paths, recognise the module the
+        evidence points at, then `read_repository_file` it. Cheap enough to call
+        first, since one call names the whole repository.
+
+        Raises rather than returning a short list when the repository could not
+        be listed in full - including when the API truncated its own answer. A
+        listing that is missing files is indistinguishable from a repository
+        that does not have them, and a fix would be written for the wrong file.
+        The behavior lives in `repository.list_repository_files`; this is
+        registration only."""
+        return repository.list_repository_files(ref, repository_settings)
+
+    @mcp.tool()
+    def read_repository_file(path: str, ref: str) -> str:
+        """Returns what one file in the Target Service's repository says, as
+        text, at `ref`.
+
+        The other half of localizing a fault. Reading is all it does: this
+        process holds no credential that could change what it reads, so a
+        repository arriving in the read tier does not make the read tier capable
+        of writing (§13). Proposing a change is a different tool on a different
+        server.
+
+        Raises for a path that is not there rather than answering emptily - a
+        file that exists and says nothing is a real thing, and the two must not
+        arrive looking alike. The behavior lives in
+        `repository.read_repository_file`; this is registration only."""
+        return repository.read_repository_file(path, ref, repository_settings)
+
     return mcp
 
 
@@ -187,7 +223,8 @@ def main() -> None:
         RetrievalSettings.of(settings),
         TargetServiceSettings.of(settings),
         FlagReadSettings.of(settings),
-        ArgocdSettings.of(settings)
+        ArgocdSettings.of(settings),
+        RepositoryReadSettings.of(settings)
     ).run(transport="streamable-http")
 
 
