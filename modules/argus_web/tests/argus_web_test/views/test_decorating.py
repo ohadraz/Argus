@@ -14,8 +14,19 @@ from __future__ import annotations
 
 import pytest
 from argus_core import new_id
-from argus_core.events import ActionTaken, OnsetDetected, StatusChanged, VerdictReached
-from argus_core.models import IncidentStatus, Verdict
+from argus_core.events import (
+    ActionTaken,
+    FixAttempted,
+    OnsetDetected,
+    StatusChanged,
+    VerdictReached,
+)
+from argus_core.models import (
+    FixOutcome,
+    IncidentStatus,
+    OpenedPullRequest,
+    Verdict,
+)
 from argus_narration import NarrationLine, a_narration_line
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.decorating import DecoratedLine, decorated
@@ -117,6 +128,48 @@ def test_a_line_that_read_a_channel_points_at_nothing() -> None:
 
 
 @pytest.mark.unit
+def test_a_proposed_fix_makes_the_address_it_marked_clickable() -> None:
+    # The whole point of the line is to send somebody to the pull request, and a
+    # URL a reader has to select and paste is one more reason not to look.
+    where_it_can_be_read = "https://example.invalid/pull/7"
+
+    Scenario() \
+        .given(
+            the_proposal := a_narration_line(
+                FixAttempted(
+                    incident_id=new_id(),
+                    outcome=FixOutcome.PROPOSED,
+                    pull_request=OpenedPullRequest(
+                        number=7, url=where_it_can_be_read, branch="argus/fix-abc"
+                    ),
+                    detail="dont care what the node said"
+                )
+            )
+        ) \
+        .when(lambda: decorated(the_proposal)) \
+        .then(_the_marked_word_is_a_link_to(where_it_can_be_read))
+
+
+@pytest.mark.unit
+def test_a_fix_that_proposed_nothing_marks_a_word_that_is_not_a_link() -> None:
+    # The marked word here is the refusal - prose, not an address. Linking it
+    # would hand a reader "the repository refused the branch" to click on.
+    Scenario() \
+        .given(
+            could_not := a_narration_line(
+                FixAttempted(
+                    incident_id=new_id(),
+                    outcome=FixOutcome.NOT_POSSIBLE,
+                    pull_request=None,
+                    detail="the repository refused the branch"
+                )
+            )
+        ) \
+        .when(lambda: decorated(could_not)) \
+        .then(_the_marked_word_is_a_link_to(""))
+
+
+@pytest.mark.unit
 def test_everything_the_line_already_said_is_still_said() -> None:
     # Dressing a line adds to it and changes nothing: the page shows the same
     # sentence, split the same way, as every other destination.
@@ -154,6 +207,19 @@ def _it_points_at(target: str, label: str) -> Assertion[DecoratedLine]:
             raise AssertionError(
                 f"expected a link to [{target}] reading [{label}], got "
                 f"[{line.link_target}] reading [{line.link_label}]"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_marked_word_is_a_link_to(expected: str) -> Assertion[DecoratedLine]:
+    def assertion(line: DecoratedLine) -> bool:
+        if line.emphasis_href != expected:
+            raise AssertionError(
+                f"expected the marked word linking to [{expected}], "
+                f"got [{line.emphasis_href}]"
             )
 
         return True

@@ -179,6 +179,25 @@ def reports_tokens_spent(expected: int) -> Assertion[PostmortemDocument]:
     return assertion
 
 
+def proposes_the_fix_at(expected: str | None) -> Assertion[PostmortemDocument]:
+    """Where the fix can be read, or that the document offers nowhere.
+
+    The address rather than the number, and carried rather than written: a
+    reader's next move is to open it, and a document that merely mentioned a
+    pull request in its prose would depend on the model having chosen to.
+    """
+    def assertion(document: PostmortemDocument) -> bool:
+        proposed = document.pull_request.url if document.pull_request else None
+
+        if proposed != expected:
+            raise AssertionError(
+                f"expected the fix proposed at [{expected}], got [{proposed}]")
+
+        return True
+
+    return assertion
+
+
 def reports_a_responder_cost_of(expected: Decimal) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.responder_cost_estimate != expected:

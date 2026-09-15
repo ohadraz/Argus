@@ -42,6 +42,7 @@ from agent_postmortem.sources import (
 from argus_core.llm import LLMClient
 from argus_core.models import (
     MetricBucket,
+    OpenedPullRequest,
     PostmortemDocument,
     ToolCall,
     ToolDefinition,
@@ -98,11 +99,17 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        candidates: list[str] | None = None,
                        actions: list[str] | None = None,
                        log_lines: list[str] | None = None,
-                       tokens_spent: int = DONT_CARE_TOKENS_SPENT) -> IncidentEvidence:
+                       tokens_spent: int = DONT_CARE_TOKENS_SPENT,
+                       pull_request: OpenedPullRequest | None = None
+                       ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
     An onset by default, because an incident with one is the ordinary case and
     the only one that can be costed. The tests about its absence say so.
+
+    No pull request by default, because most incidents end without one - a flag
+    put back is the whole fix as often as not, and a bundle that always carried
+    a proposal would make the exception look like the rule.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -114,7 +121,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         candidates=candidates if candidates is not None else ["dont care"],
         actions=actions if actions is not None else ["dont care"],
         log_lines=log_lines if log_lines is not None else ["dont care"],
-        tokens_spent=tokens_spent
+        tokens_spent=tokens_spent,
+        pull_request=pull_request
     )
 
 

@@ -32,13 +32,14 @@ from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import EngagedResponder
-from argus_core.models import PostmortemDocument
+from argus_core.models import OpenedPullRequest, PostmortemDocument
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (
     estimates_a_loss_of,
     is_marked_complete,
     is_marked_incomplete,
+    proposes_the_fix_at,
     reports_a_cost_ranging_from,
     reports_a_responder_cost_of,
     reports_engineer_minutes,
@@ -290,6 +291,57 @@ def test_the_tokens_the_incident_spent_come_from_its_evidence() -> None:
         ) \
         .then(
             reports_tokens_spent(some_tokens_spent)
+        )
+
+
+@pytest.mark.unit
+def test_the_fix_that_was_proposed_is_carried_onto_the_document() -> None:
+    # Carried, not written. The walk already opened the pull request and
+    # recorded where; a document that relied on the model mentioning it in its
+    # prose would lose the address on every run where the prose read fine
+    # without one - which is what happened.
+    where_it_can_be_read = "https://example.invalid/pull/7"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                pull_request=OpenedPullRequest(
+                    number=7, url=where_it_can_be_read, branch="argus/fix-abc"
+                )
+            )
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            proposes_the_fix_at(where_it_can_be_read)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_that_proposed_no_fix_offers_nowhere_to_read_one() -> None:
+    # The ordinary ending: the flag went back and there was nothing in the code
+    # to change. An empty link on the page would read as a proposal whose
+    # address went missing.
+    Scenario() \
+        .given(evidence := an_evidence_bundle()) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            proposes_the_fix_at(None)
         )
 
 

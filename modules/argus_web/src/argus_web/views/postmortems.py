@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from argus_core.models import Postmortem
+from argus_core.models import OpenedPullRequest, Postmortem
 from pydantic import BaseModel
 
 
@@ -31,6 +31,10 @@ class PostmortemView(BaseModel):
     tokens_spent: int | None
     assumptions: list[str] | None
     executive_summary: str | None
+    # Where the fix can be read, for the incidents that produced one - the one
+    # thing on this page a reader goes on to do something with. `None` for the
+    # ordinary ending, where a flag went back and the code was left alone.
+    pull_request: OpenedPullRequest | None
     checklist_complete: bool
     created_at: datetime
 
@@ -51,6 +55,7 @@ def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
         tokens_spent=postmortem.tokens_spent,
         assumptions=postmortem.assumptions,
         executive_summary=postmortem.executive_summary,
+        pull_request=postmortem.pull_request,
         checklist_complete=postmortem.checklist_complete,
         created_at=postmortem.created_at,
     )

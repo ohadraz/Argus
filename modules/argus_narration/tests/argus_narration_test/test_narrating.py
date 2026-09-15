@@ -567,6 +567,47 @@ def test_a_proposed_fix_is_said_as_the_place_it_can_be_read() -> None:
 
 
 @pytest.mark.unit
+def test_a_proposed_fix_names_the_address_it_can_be_read_at() -> None:
+    # Said as a value, not as markup: the page makes it a link, Slack makes it
+    # a link of its own, and a destination with neither reads the sentence. The
+    # line already spells the URL out for that last reader - this is how the
+    # other two know that the word they are marking is somewhere to go.
+    where_it_can_be_read = "https://example.invalid/pull/7"
+
+    a_proposal = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.PROPOSED,
+        pull_request=OpenedPullRequest(
+            number=7, url=where_it_can_be_read, branch="argus/fix-abc"
+        ),
+        detail="dont care what the node said"
+    )
+
+    Scenario() \
+        .given(a_proposal) \
+        .when(lambda: build_narration([a_proposal])) \
+        .then(_the_only_line_names_the_address(where_it_can_be_read))
+
+
+@pytest.mark.unit
+def test_a_fix_that_proposed_nothing_names_no_address() -> None:
+    # The marked word on a failed attempt is the refusal, which is prose. A
+    # destination that took every marked word for an address would turn "could
+    # not reach the repository" into a link to nowhere.
+    could_not = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_POSSIBLE,
+        pull_request=None,
+        detail="the repository refused the branch"
+    )
+
+    Scenario() \
+        .given(could_not) \
+        .when(lambda: build_narration([could_not])) \
+        .then(_the_only_line_names_the_address(""))
+
+
+@pytest.mark.unit
 def test_a_fix_that_was_not_warranted_reads_as_a_verdict_on_the_code() -> None:
     # The true answer for every incident a flag caused, and a useful one: the
     # code was read and there was nothing in it to change. A line that merely
@@ -821,6 +862,26 @@ def _the_only_line_moved(was: str, now: str) -> Assertion[list[NarrationLine]]:
             raise AssertionError(
                 f"Expected a move from [{was}] to [{now}], "
                 f"got [{line.moved_from}] to [{line.moved_to}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_names_the_address(expected: str) -> Assertion[list[NarrationLine]]:
+    """Where the line points, carried as the value it is.
+
+    Separate from the marked word on purpose: they are the same string on a
+    proposal and different things on every other outcome, and a destination
+    linking whatever happens to be marked is the bug this exists to prevent.
+    """
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.names_url != expected:
+            raise AssertionError(
+                f"Expected the line to name [{expected}], got [{line.names_url}]."
             )
 
         return True

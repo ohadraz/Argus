@@ -19,9 +19,9 @@ from datetime import datetime
 import psycopg
 from agent_postmortem import IncidentEvidence, Sources, write_postmortem
 from argus_core import Connections, parse_iso, to_iso
-from argus_core.events import LogsRetrieved, OnsetDetected
+from argus_core.events import FixAttempted, LogsRetrieved, OnsetDetected
 from argus_core.llm import ClientFor
-from argus_core.models import PostmortemDocument
+from argus_core.models import OpenedPullRequest, PostmortemDocument
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from argus_incidents.repository import (
@@ -92,8 +92,30 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         candidates=_what_was_considered(conn, incident_id),
         actions=_what_was_done(conn, incident_id),
         log_lines=_what_was_read(conn, incident_id),
-        tokens_spent=replay.get_tokens_spent(conn, incident_id)
+        tokens_spent=replay.get_tokens_spent(conn, incident_id),
+        pull_request=_what_was_proposed(conn, incident_id)
     )
+
+
+def _what_was_proposed(conn: psycopg.Connection,
+                       incident_id: str) -> OpenedPullRequest | None:
+    """The fix Code-Fix opened, as it published it.
+
+    Off the event's own field rather than off the event's presence: the step
+    publishes whether or not it proposed anything, and "Argus read the code and
+    found nothing to change" is a finding rather than a missing proposal (§10).
+    An incident with a `FixAttempted` and no pull request has to come back with
+    none, or the document offers a reader a link to nowhere.
+
+    The last one, for the same reason the walk loops at all: an incident that
+    went back to investigate can reach the code twice, and what a reader wants
+    is the proposal that stands rather than the one that was superseded.
+    """
+    proposed = [event.pull_request
+                for event in events.get_by_incident(conn, incident_id)
+                if isinstance(event, FixAttempted) and event.pull_request]
+
+    return proposed[-1] if proposed else None
 
 
 def _when_it_actually_began(conn: psycopg.Connection,

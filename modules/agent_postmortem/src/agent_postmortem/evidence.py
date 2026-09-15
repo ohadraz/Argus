@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from argus_core.models import OpenedPullRequest
 from pydantic import BaseModel
 
 
@@ -46,3 +47,8 @@ class IncidentEvidence(BaseModel):
     actions: list[str]
     log_lines: list[str]
     tokens_spent: int
+    # The fix Code-Fix proposed, where it proposed one. Structured rather than
+    # left in `timeline` for the model to notice: the address is what a reader
+    # of the finished document goes on to open, and a summary is free to be
+    # written well without mentioning it.
+    pull_request: OpenedPullRequest | None = None

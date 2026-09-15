@@ -176,6 +176,12 @@ class NarrationLine(BaseModel):
     # link: a destination with a table of minutes points at the row, and one
     # without simply reads the sentence.
     names_minute: str = ""
+    # The address this line is about, where it is about one - so far, the pull
+    # request a proposed fix can be read at. Carried for the same reason as the
+    # minute, and separate from the marked word for a sharper one: on a failed
+    # attempt the marked word is the refusal, so a destination that linked
+    # whatever a line happened to mark would offer a reader prose to click on.
+    names_url: str = ""
     # How many identical looks this line stands for. The wait polls every few
     # seconds and says the same thing each time; a dozen rows saying it is
     # noise, and none at all is a page that looks stuck.
@@ -379,6 +385,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         moved_from=moved_from,
         moved_to=moved_to,
         names_minute=event.onset if isinstance(event, OnsetDetected) else "",
+        names_url=_the_address_it_names(event),
         buckets=(
             [a_bucket_row(bucket) for bucket in event.buckets]
             if isinstance(event, MetricsRetrieved)
@@ -459,6 +466,19 @@ def _also_carrying(line: NarrationLine, event: HypothesisFormed) -> NarrationLin
 
 def _how_many_candidates(formed: int) -> str:
     return f"Formed {formed} candidate cause{'s' if formed != 1 else ''}, best first:"
+
+
+def _the_address_it_names(event: IncidentEvent) -> str:
+    """Somewhere a reader can go, where the line offers one.
+
+    Read off the pull request rather than off the sentence: the URL is already
+    a field on the event, and a destination recovering it by scanning the prose
+    for something beginning `http` would be parsing its own output.
+    """
+    if isinstance(event, FixAttempted) and event.pull_request:
+        return event.pull_request.url
+
+    return ""
 
 
 def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:

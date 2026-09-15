@@ -53,6 +53,12 @@ class DecoratedLine(NarrationLine):
     # a reader to find that minute is only half an account.
     link_target: str = ""
     link_label: str = ""
+    # Where the marked word itself goes, when the marked word is an address.
+    # Distinct from the link beside a line: that one is furniture the page adds
+    # and names ("show the minute"), this one is the word already in the
+    # sentence, made usable. A reader asked to select a URL and paste it has
+    # been given a reason not to look.
+    emphasis_href: str = ""
 
 
 def decorated(line: NarrationLine) -> DecoratedLine:
@@ -63,8 +69,23 @@ def decorated(line: NarrationLine) -> DecoratedLine:
         **line.model_dump(),
         emphasis_class=_dressed_as(line),
         link_target=target,
-        link_label=label
+        link_label=label,
+        emphasis_href=_the_marked_word_goes_to(line)
     )
+
+
+def _the_marked_word_goes_to(line: NarrationLine) -> str:
+    """The address behind the marked word, where the two are the same string.
+
+    Both conditions, because either alone is wrong. A line naming an address
+    but marking something else would put the link around the wrong word, and a
+    marked word on a line naming no address is prose - the refusal a failed fix
+    reports - which is exactly the thing a reader must not be invited to click.
+    """
+    if not line.names_url or line.emphasis != line.names_url:
+        return ""
+
+    return line.names_url
 
 
 def _dressed_as(line: NarrationLine) -> str:

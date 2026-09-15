@@ -19,7 +19,7 @@ from decimal import Decimal
 
 import pytest
 from argus_core import new_id
-from argus_core.models import Postmortem
+from argus_core.models import OpenedPullRequest, Postmortem
 from argus_testkit import Assertion, Scenario
 from argus_web.views.postmortems import PostmortemView, build_postmortem_view
 
@@ -49,6 +49,31 @@ def test_a_postmortem_that_costed_nothing_comes_across_costing_nothing() -> None
         .then(_it_carries_every_field_of(some_postmortem_with_nothing_costed))
 
 
+@pytest.mark.unit
+def test_the_page_is_told_where_the_proposed_fix_can_be_read() -> None:
+    # The one thing on this page a reader acts on. Named explicitly rather than
+    # left to the field-by-field check above, which reads the view's own fields
+    # and so would pass a view that had quietly dropped this one.
+    some_postmortem = _a_postmortem_with_a_distinct_value_in_every_field()
+
+    Scenario() \
+        .given(some_postmortem) \
+        .when(lambda: build_postmortem_view(some_postmortem)) \
+        .then(_it_proposes_the_fix_at("https://github.invalid/ohadraz/io-shop/pull/7"))
+
+
+@pytest.mark.unit
+def test_a_postmortem_with_no_fix_proposed_offers_the_page_nowhere_to_send_anyone() -> None:
+    # The ordinary ending. A link rendered from nothing would read as a
+    # proposal whose address went missing.
+    some_postmortem_proposing_nothing = _a_postmortem_with_nothing_filled_in()
+
+    Scenario() \
+        .given(some_postmortem_proposing_nothing) \
+        .when(lambda: build_postmortem_view(some_postmortem_proposing_nothing)) \
+        .then(_it_proposes_no_fix())
+
+
 def _a_postmortem_with_a_distinct_value_in_every_field() -> Postmortem:
     """One postmortem whose fields cannot be confused with one another.
 
@@ -71,9 +96,38 @@ def _a_postmortem_with_a_distinct_value_in_every_field() -> Postmortem:
         tokens_spent=81_402,
         assumptions=["responder pay taken from the published band"],
         executive_summary="A ramp left a fallback off and checkout failed for 47 minutes.",
+        pull_request=OpenedPullRequest(
+            number=7,
+            url="https://github.invalid/ohadraz/io-shop/pull/7",
+            branch="argus/fix-abc"
+        ),
         checklist_complete=True,
         created_at=datetime(2026, 8, 30, 11, 2, tzinfo=UTC)
     )
+
+
+def _it_proposes_the_fix_at(expected: str) -> Assertion[PostmortemView]:
+    def assertion(view: PostmortemView) -> bool:
+        proposed = view.pull_request.url if view.pull_request else None
+
+        if proposed != expected:
+            raise AssertionError(
+                f"expected the fix proposed at [{expected}], got [{proposed}]")
+
+        return True
+
+    return assertion
+
+
+def _it_proposes_no_fix() -> Assertion[PostmortemView]:
+    def assertion(view: PostmortemView) -> bool:
+        if view.pull_request is not None:
+            raise AssertionError(
+                f"expected no fix proposed, got [{view.pull_request}]")
+
+        return True
+
+    return assertion
 
 
 def _a_postmortem_with_nothing_filled_in() -> Postmortem:
@@ -114,10 +168,15 @@ def _it_carries_every_field_of(postmortem: Postmortem) -> Assertion[PostmortemVi
     """
     def assertion(view: PostmortemView) -> bool:
         carried = view.model_dump()
+        # Both sides dumped, so a field holding a model is compared as the same
+        # shape on each: a row's `OpenedPullRequest` and a view's dict of it are
+        # the same value, and comparing the two directly reports every nested
+        # field as wrong.
+        recorded = postmortem.model_dump()
         differing = {
-            name: (getattr(postmortem, name), value)
+            name: (recorded[name], value)
             for name, value in carried.items()
-            if getattr(postmortem, name) != value
+            if recorded[name] != value
         }
 
         if differing:

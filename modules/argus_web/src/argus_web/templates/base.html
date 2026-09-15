@@ -511,6 +511,17 @@
   .repeated { margin-left: 8px; opacity: .7; font-variant-numeric: tabular-nums; }
   .jump { margin-left: 8px; font-size: .78em; letter-spacing: .06em;
           text-transform: uppercase; }
+  /* A word in the sentence that leads off the page, rather than a jump to a
+     row below it. Underlined because that is the one convention a reader does
+     not have to be taught, and left at the sentence's own size: this is the
+     address the line is about, not a label beside it. */
+  .went { text-decoration: underline; text-underline-offset: 2px;
+          word-break: break-all; }
+  /* Said beside the link rather than left for the reader to discover on
+     GitHub: what Argus proposed is not what anybody shipped, and the page
+     must not let the two be confused (spec §13). */
+  .draft { margin-left: 8px; font-size: .78em; letter-spacing: .06em;
+           text-transform: uppercase; color: var(--amber); }
 
   .buckets, .logs-table { font-variant-numeric: tabular-nums; }
   /* The same red the shop's console reddens an elevated minute in. */

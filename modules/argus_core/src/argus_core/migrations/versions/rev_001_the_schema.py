@@ -216,6 +216,19 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- null list would be the one place the explanations could go missing
     -- without the figures doing so.
     assumptions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- Where the permanent fix can be read, for the incidents that produced
+    -- one. Stored rather than left to the summary's prose: the address is what
+    -- a reader of this document goes on to open, and a well-written summary is
+    -- free not to mention it.
+    --
+    -- Whole rather than a URL column, because a pull request is read as one
+    -- thing - the number names it in conversation, the address opens it - and
+    -- splitting it here would let a row carry half of one.
+    --
+    -- Null for the ordinary ending, where a flag went back and there was
+    -- nothing in the code to change: an empty object would read as a proposal
+    -- whose address went missing.
+    pull_request JSONB,
     executive_summary TEXT,
     checklist_complete BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()

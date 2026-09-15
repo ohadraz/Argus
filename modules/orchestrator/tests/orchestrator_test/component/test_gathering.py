@@ -32,6 +32,8 @@ from agent_postmortem import IncidentEvidence, Sources
 from argus_core import connect_from_env, new_id, parse_iso
 from argus_core.events import (
     AlertAcknowledged,
+    FixAttempted,
+    IncidentEvent,
     LogsRetrieved,
     OnsetDetected,
     StatusChanged,
@@ -40,8 +42,10 @@ from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
     Alert,
     CauseType,
+    FixOutcome,
     Hypothesis,
     IncidentStatus,
+    OpenedPullRequest,
     PostmortemDocument,
     ToolCall,
     ToolDefinition,
@@ -237,6 +241,70 @@ def test_an_incident_whose_onset_was_never_found_carries_none(a_clean_database: 
 
 
 @pytest.mark.component
+def test_the_evidence_carries_the_fix_that_was_proposed(a_clean_database: None) -> None:
+    # Read off the event rather than left in the timeline for the model to
+    # notice. The walk opened the pull request and recorded where; a document
+    # that depended on the summary mentioning it loses the address on every run
+    # whose prose reads perfectly well without one.
+    where_it_can_be_read = "https://github.invalid/ohadraz/io-shop/pull/7"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(
+                    conn,
+                    incident_id,
+                    FixAttempted(
+                        incident_id=incident_id,
+                        outcome=FixOutcome.PROPOSED,
+                        pull_request=OpenedPullRequest(
+                            number=7,
+                            url=where_it_can_be_read,
+                            branch="argus/fix-abc"
+                        ),
+                        detail="dont care what the node said"
+                    )
+                )
+            ) \
+            .then(
+                _carries_the_proposal_at(where_it_can_be_read)
+            )
+
+
+@pytest.mark.component
+def test_an_incident_that_read_the_code_and_changed_nothing_carries_no_fix(
+    a_clean_database: None
+) -> None:
+    # The ordinary ending, and a real one: the flag went back and there was
+    # nothing in the code to change. The step still published its event, so an
+    # evidence bundle reading "there was a fix" off the event's presence rather
+    # than off its pull request would invent a proposal.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(
+                    conn,
+                    incident_id,
+                    FixAttempted(
+                        incident_id=incident_id,
+                        outcome=FixOutcome.NOT_WARRANTED,
+                        pull_request=None,
+                        detail="dont care what the node said"
+                    )
+                )
+            ) \
+            .then(
+                _carries_no_proposal()
+            )
+
+
+@pytest.mark.component
 def test_a_postmortem_is_written_from_the_sources_it_was_handed(
     a_clean_database: None
 ) -> None:
@@ -419,7 +487,7 @@ def _one_client_was_asked_for(
 
 def _the_evidence_after_publishing(conn: psycopg.Connection,
                                    incident_id: str,
-                                   event: OnsetDetected) -> IncidentEvidence:
+                                   event: IncidentEvent) -> IncidentEvidence:
     events.record(conn, event)
 
     return gather_evidence(conn, incident_id)
@@ -443,6 +511,30 @@ def _carries_no_onset() -> Assertion[IncidentEvidence]:
                 f"Expected no onset where none was published, got "
                 f"[{evidence.onset_at}] - the alert's own time would date the "
                 f"loss from after the damage began.")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_proposal_at(expected: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        proposed = evidence.pull_request.url if evidence.pull_request else None
+
+        if proposed != expected:
+            raise AssertionError(
+                f"expected the fix proposed at [{expected}], got [{proposed}]")
+
+        return True
+
+    return assertion
+
+
+def _carries_no_proposal() -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.pull_request is not None:
+            raise AssertionError(
+                f"expected no fix proposed, got [{evidence.pull_request}]")
 
         return True
 

@@ -28,6 +28,7 @@
         {% if line.emphasis %}
           {{ line.before_emphasis }}<!--
           -->{% if line.emphasis_class %}<span class="{{ line.emphasis_class }}">{{ line.emphasis }}</span>
+             {% elif line.emphasis_href %}<a class="went" href="{{ line.emphasis_href }}" target="_blank" rel="noopener noreferrer">{{ line.emphasis }}</a>
              {% else %}<em>{{ line.emphasis }}</em>{% endif %}<!--
           -->{{ line.after_emphasis }}
         {% else %}

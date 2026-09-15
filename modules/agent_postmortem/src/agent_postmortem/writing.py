@@ -91,6 +91,10 @@ def write_postmortem(evidence: IncidentEvidence,
         responder_cost_maximum=measured.cost.maximum if measured.cost else None,
         responder_cost_currency=measured.cost.currency if measured.cost else None,
         tokens_spent=evidence.tokens_spent,
+        # Carried across, never asked for: the walk recorded where the fix can
+        # be read, and a document that waited for the model to mention it would
+        # lose the address on any run whose prose read well without one.
+        pull_request=evidence.pull_request,
         assumptions=disclose(answer, measured, sources.working_hours_a_year),
         checklist_complete=not faults
     )

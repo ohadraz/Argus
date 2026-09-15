@@ -6,6 +6,7 @@ import psycopg
 from argus_core.models import Postmortem, PostmortemDocument
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
+from pydantic import BaseModel
 
 # Neither statement below names a column. Both are built from the models' own
 # field names, which is what `class_row` already required of the SELECT and what
@@ -27,11 +28,17 @@ _SELECT: Final = (
 def _written(document: PostmortemDocument, field: str) -> object:
     """What one field is worth to postgres.
 
-    The list-valued fields are JSONB columns, and psycopg sends a bare list as a
-    postgres array. Decided by the value rather than by a list of field names,
-    so a list added to the document arrives as JSON without being enrolled here.
+    The list- and model-valued fields are JSONB columns. psycopg sends a bare
+    list as a postgres array, and refuses a pydantic model outright - so both
+    are wrapped, and both are decided by the value rather than by a list of
+    field names: a field added to the document arrives as JSON without being
+    enrolled here.
     """
     value = getattr(document, field)
+
+    if isinstance(value, BaseModel):
+        return Jsonb(value.model_dump())
+
     return Jsonb(value) if isinstance(value, list) else value
 
 

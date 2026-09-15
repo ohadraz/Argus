@@ -24,6 +24,17 @@
 <p class="executive-summary">{{ postmortem.executive_summary }}</p>
 {% endif %}
 
+{# The one thing on this page a reader acts on, so it is a heading rather than
+   a line inside the summary - and absent entirely where no fix was proposed,
+   since a heading over nothing reads as a proposal whose link went missing. #}
+{% if postmortem.pull_request %}
+<h2>The fix it proposed</h2>
+<p class="proposed-fix">
+  <a class="went" href="{{ postmortem.pull_request.url }}" target="_blank" rel="noopener noreferrer">#{{ postmortem.pull_request.number }} {{ postmortem.pull_request.url }}</a>
+  <span class="draft">draft - nobody has merged it</span>
+</p>
+{% endif %}
+
 {% if postmortem.assumptions %}
 <h2>Assumptions</h2>
 <ul class="assumptions">

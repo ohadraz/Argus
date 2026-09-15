@@ -25,6 +25,7 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 from argus_core.ids import UuidStr
+from argus_core.models.pull_request import OpenedPullRequest
 
 
 class PostmortemDocument(BaseModel):
@@ -69,6 +70,17 @@ class PostmortemDocument(BaseModel):
     responder_cost_currency: str | None = None
     tokens_spent: int | None
     assumptions: list[str]
+    # Where the permanent fix can be read, for the incidents that produced one.
+    # A field rather than a sentence the model was asked to include: the walk
+    # opened the pull request and recorded the address, so a document that
+    # depended on the prose mentioning it would lose the one thing a reader
+    # goes on to do - and would lose it silently, on the runs where the summary
+    # read perfectly well without it.
+    #
+    # `None` for the ordinary ending, where a flag went back and there was
+    # nothing in the code to change. An empty address would read as a proposal
+    # whose link went missing.
+    pull_request: OpenedPullRequest | None = None
     checklist_complete: bool
 
 
