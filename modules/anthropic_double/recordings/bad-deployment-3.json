@@ -2,7 +2,7 @@
   "container": null,
   "content": [
     {
-      "signature": "CAISqwQKjgEIERgCKkCXTLjVsq4zPD8ldZugsC1T56G+l5ORei+WpsV4ZT+Z7ak4/+o0cuivPxJHutDIq1/GbiJMf9UwTzqCmOLoojceMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAZyTp9UGEgzthe7Nbf1ZNSywPC4aDNkmySwWE/6QJP4sXiIwmA+PDXxEPvCaKd8nwLKeWXroHHt15cBcpjVVmCSGXqHZkLq7I6ibcRLYfTl2IahGKskCdaknXqMNkxM4TA3cQvCl7w70oxtAcHCArYqkSGNWkDY03Kg3jDVa2rxZ7PYHKfc82+v9fdYDQEeyfN1m+PlMsL7jeHVfphPenPxLahy0m0dAgxGv+M72tBm3CWMGfNNwvqcXhlV2+TiH5c/kHrXp1CLCHrsW0AODZsijsppKqnRg8A1J1/FOv5WJ76kqtGiAuxmpbWo+DAI7LLPLqXQAFQLZzZfW8MsQFQL/yYH6Tx2r1i+OLUM8bNMI4LNCevmj7Xwudpc5mw4AzvleBD02MCYgBC4gco+92ssZ2lQhD1utG5XUBy792IbACHkM47l5KDq0ipEDoW3YUk+mRQLzETQGpnUMIry2hsY/4Qv8PB3tY8zQ7qnGHUSsZ2q1YHC+yxTacAU26MvfzRjgkkbawLYMai6hAD36ae0qTT5Tjk6ZmhIy5G3PEuIYAQ==",
+      "signature": "CAISsAMKjgEIERgCKkAuUXIJUcci50UrI34rpmKexknhOeKL+cIfCnMfXel+Z9acdC6KnlHdidTjzOnGCvdogk4YzRNkIAvotBgsa8zqMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAc7lqtUGEgwpPY5r3wt5zqM8fXEaDHU8SmlPwn0lvwgK0SIw2u6r31+b4SUJw3+p02+vEFYUWl89OcYrPeuqboQwqFaDU0G6hubJxydt2/85P0jMKs4BFM7+2P4FQnqQjjJkclYd9HerYIqzPnpR0PAmWNI/RFhYz11pO53byWE7i+4rwVkLO9i+y2lZj4aKWVCbLIAEA5x+pD3hb3fvyesaWeVsjDp69CQJyrxdv++pVXEALYuxGKBmmaoqxEaEDePfvT00laPj9PKOZrFMFiQ3E7jVp4PIWIXk5+75XrtJkl85C0Hd94eY8C8ivl3ku8vkHtkP5jPwPaJ7Wrc4jzbnRi5zoMZyGtUQTTLcsnkLsVHNRCDHYbt3yG34tXgGy0q2SU8YAQ==",
       "thinking": "",
       "type": "thinking"
     },
@@ -10,39 +10,35 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_016PGkM7au57wKUvRKiiWNii",
+      "id": "toolu_01WdUNPLSv1RKsfsAm759fjp",
       "input": {
         "hypotheses": [
           {
             "cause_type": "bad-deployment",
-            "confidence": 0.82,
+            "confidence": 0.85,
             "from_state": null,
             "subject": "9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e",
-            "summary": "A deploy of revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e at 22:38 immediately preceded a latency regression: p95 rose from a 220ms baseline to 900ms in the next minute, then to 1800ms and 5000ms timeouts, with error rate climbing 0.01 -> 0.12. It is the only recorded change in the 24h lookback.",
+            "summary": "The deploy of revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e at 15:13 introduced a latency regression: p95 climbs from a 220ms baseline immediately after the deploy (900ms at 15:14, 1800ms at 15:15) and degenerates into 5000ms timeouts and 12% errors by 15:16. It is the only recorded change to io-shop in the week before onset.",
             "supporting_evidence": [
               {
-                "at": "2026-09-15T22:38:00Z",
-                "claim": "deploy: \"deployed revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", actor kuki, source https://github.com/io-shop/k8s-configs/apps/io-shop/production"
-              },
-              {
-                "at": "2026-09-15T22:39:00Z",
-                "claim": "WARN io-shop: p95 latency climbing"
-              },
-              {
-                "at": "2026-09-15T22:40:00Z",
-                "claim": "WARN io-shop: p95 latency at 1800ms, up from a 220ms baseline"
-              },
-              {
-                "at": "2026-09-15T22:41:00Z",
-                "claim": "ERROR io-shop: request timeout after 5000ms"
-              },
-              {
-                "at": "2026-09-15T22:41:00Z",
-                "claim": "metrics bucket error_rate 0.01 -> 0.02 -> 0.04 -> 0.12 and p95 220 -> 900 -> 1800 -> 5000 across 22:38-22:41"
+                "at": "2026-09-16T15:13:00Z",
+                "claim": "\"kind\": \"deploy\", \"occurred_at\": \"2026-09-16T15:13:00Z\", \"summary\": \"deployed revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", \"actor\": \"kuki\""
               },
               {
                 "at": null,
-                "claim": "\"Every recorded change to io-shop from 2026-09-14T22:40:00Z to 2026-09-15T22:40:00Z\" contains only this one deploy"
+                "claim": "Every recorded change to io-shop from 2026-09-09T00:00:00Z to 2026-09-16T15:20:00Z. [ ...only the 15:13 deploy... ]"
+              },
+              {
+                "at": "2026-09-16T15:14:00Z",
+                "claim": "{\"bucket_id\": \"2026-09-16T15:14:00Z\", \"error_rate\": 0.02, \"p50_ms\": 95, \"p95_ms\": 900}"
+              },
+              {
+                "at": "2026-09-16T15:15:00Z",
+                "claim": "2026-09-16T15:15:00Z WARN io-shop: p95 latency at 1800ms, up from a 220ms baseline"
+              },
+              {
+                "at": "2026-09-16T15:16:00Z",
+                "claim": "2026-09-16T15:16:00Z ERROR io-shop: request timeout after 5000ms"
               }
             ],
             "to_state": null
@@ -52,8 +48,13 @@
             "confidence": null,
             "from_state": null,
             "subject": null,
-            "summary": "The evidence records only a deploy and a latency/timeout symptom trail; no flag toggle, dependency error, or saturation detail appears, so an alternative cause (e.g. a downstream dependency slowdown coincident with the deploy) cannot be excluded from what was retrieved. To distinguish it I would have needed dependency/upstream latency logs or a flag-change record in the same window, neither of which exists in these channels.",
-            "supporting_evidence": [],
+            "summary": "Alternatively, the degradation was not caused by the deploy but by something the retrieved evidence does not record - e.g. a dependency slowdown or resource saturation. The logs only report symptoms (latency climbing, timeouts) and name no failing component, so the deploy correlation is temporal rather than directly recorded.",
+            "supporting_evidence": [
+              {
+                "at": "2026-09-16T15:14:00Z",
+                "claim": "2026-09-16T15:14:00Z WARN io-shop: p95 latency climbing - no log line names a code path, flag, dependency or error class"
+              }
+            ],
             "to_state": null
           }
         ]
@@ -62,7 +63,7 @@
       "type": "tool_use"
     }
   ],
-  "id": "msg_011Cf62m8UwoRPoksjV4TRRW",
+  "id": "msg_011Cf7LdiLXuuGoD8sn7NkoS",
   "model": "claude-opus-5",
   "role": "assistant",
   "stop_details": null,
@@ -72,15 +73,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 727
+      "ephemeral_5m_input_tokens": 341
     },
-    "cache_creation_input_tokens": 727,
+    "cache_creation_input_tokens": 341,
     "cache_read_input_tokens": 3680,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 1009,
+    "output_tokens": 1047,
     "output_tokens_details": {
-      "thinking_tokens": 106
+      "thinking_tokens": 70
     },
     "service_tier": "standard"
   }

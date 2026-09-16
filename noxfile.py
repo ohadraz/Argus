@@ -1344,9 +1344,37 @@ def _run_against_the_stack(
         _the_containers_said_this(session)
         raise
     finally:
+        # Before the services stop, because the cleanup talks to the repository
+        # over the network and not to anything in this stack - but after the
+        # work, so a demo is cleaned up only once it is over.
+        #
+        # Only where the repository is real. A suite proposes to the double,
+        # whose whole repository goes when its process does, and calling this
+        # against it would be a request to a port that is about to close.
+        if not slack_stands_in:
+            _put_the_repository_back(session)
         for process in reversed(started):
             _stop_service(process)
         session.run("docker", "compose", "down", "-v", external=True)
+
+
+def _put_the_repository_back(session: nox.Session) -> None:
+    """Closes the pull requests the run opened and deletes the branches under them.
+
+    The half of the reset that is not in the Target Environment: the shop puts
+    its own scenario back, and what Argus left on somebody's repository is left
+    until this runs. A rehearsal is otherwise a dozen open proposals, and the
+    demo everybody watches opens number thirteen.
+
+    Never fails the session. This is a teardown, where the interesting failure
+    is the one that already happened - and a demo that went perfectly is not
+    made worse by a branch that outlived it.
+    """
+    with contextlib.suppress(Exception):
+        session.run(
+            "uv", "run", "python", "-m", "scripts.clean_the_repository",
+            external=True, success_codes=[0, 1]
+        )
 
 
 def _the_containers_said_this(session: nox.Session) -> None:

@@ -31,6 +31,9 @@ from agent_codefix.proposing import (
 from agent_investigator.reasoning import a_conversation_recorded_for
 from argus_core.models import (
     Ask,
+    CauseType,
+    Evidence,
+    Hypothesis,
     OpenedPullRequest,
     ToolCall,
     ToolDefinition,
@@ -42,8 +45,28 @@ from argus_core.replay import Recorder
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 
-DONT_CARE_HYPOTHESIS = "the monthly spend figure divides by an empty month"
 DONT_CARE_INCIDENT = "incident-41"
+
+def a_hypothesis(summary: str, *claims: str) -> Hypothesis:
+    """What the investigation concluded, as Code-Fix is handed it.
+
+    Above the constants rather than below with the other helpers, because one
+    of those constants is built from it and a module runs top to bottom.
+
+    The whole finding rather than its sentence: the evidence is where the log
+    line lives, and a log line from this shop names the file and the line the
+    fault was raised on. A summary alone makes the agent search for what it was
+    already told.
+    """
+    return Hypothesis(
+        incident_id=DONT_CARE_INCIDENT,
+        summary=summary,
+        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        confidence=0.9,
+        supporting_evidence=[Evidence(claim=claim, at=None) for claim in claims]
+    )
+
+DONT_CARE_HYPOTHESIS = a_hypothesis("the monthly spend figure divides by an empty month")
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_SOURCE = "def average_spend_per_item_this_month(account):\n    ...\n"
 SOME_FIXED_SOURCE = "def average_spend_per_item_this_month(account):\n    return 0\n"
@@ -54,7 +77,7 @@ def test_the_model_is_told_what_the_investigation_concluded() -> None:
     # Code-Fix does not investigate again. The cause is settled by the time it
     # is called, and a model asked to find it a second time would spend its
     # reading budget rediscovering what it was already handed.
-    some_hypothesis = "average_spend_per_item_this_month divides by zero"
+    some_hypothesis = a_hypothesis("average_spend_per_item_this_month divides by zero")
     repository = a_repository()
     model = a_model_that(submits_a_fix_touching(SOME_PATH))
 
@@ -70,9 +93,44 @@ def test_the_model_is_told_what_the_investigation_concluded() -> None:
         ) \
         .then(
             all_of(
-                _the_model_was_told(model, some_hypothesis)
+                _the_model_was_told(model, some_hypothesis.summary)
             )
         )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_evidence_the_conclusion_rests_on() -> None:
+    # The summary says what broke; the evidence says where. This shop's own
+    # error boundary records the innermost frame, so a log line among the
+    # evidence names the file and the line - and an agent handed only the
+    # sentence goes searching for a location it was already holding.
+    a_log_line_naming_the_fault = (
+        "ERROR io-shop: account page request failed - ZeroDivisionError: "
+        "division by zero at src/io_shop/spend_summary.py:32"
+    )
+    some_hypothesis = a_hypothesis(
+        "the monthly figure divides by an empty month", a_log_line_naming_the_fault
+    )
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                some_hypothesis,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_told(model, a_log_line_naming_the_fault),
+                _the_model_was_not_told_a_repr(model)
+            )
+        )
+
 
 
 @pytest.mark.unit
@@ -578,6 +636,27 @@ def _the_model_was_told(model: _Model, said: str) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected the model to have been told [{said!r}]; it was not."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_model_was_not_told_a_repr(model: _Model) -> Assertion[Any]:
+    """The finding said in words, not printed as an object.
+
+    A hypothesis rendered into an f-string carries every claim with it, so a
+    test asking only whether the evidence reached the model passes against a
+    prompt that is a pydantic repr. This is what tells the two apart.
+    """
+    def assertion(_: Any) -> bool:
+        told = model.everything_it_was_told()
+
+        for leaked in ("supporting_evidence=", "Hypothesis(", "cause_type="):
+            if leaked in told:
+                raise AssertionError(
+                    f"Expected the model told prose, it was told [{leaked}]."
+                )
 
         return True
 

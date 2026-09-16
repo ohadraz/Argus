@@ -215,9 +215,13 @@ class ProposeFix(Protocol):
     """A draft pull request proposing a permanent fix, or `None` where there is
     none to offer.
 
-    Positional-only. The hypothesis in words is what Code-Fix works from - the
-    conclusion the walk reached, rather than the incident itself, which an agent
-    could investigate a second time and reach a different answer about. The
+    Positional-only. The hypothesis is what Code-Fix works from - the conclusion
+    the walk reached, rather than the incident itself, which an agent could
+    investigate a second time and reach a different answer about. Whole rather
+    than its summary, because the evidence is where a location lives: this
+    service's error boundary records the innermost frame, so one of the log
+    lines the investigation quoted names the file and the line. An agent handed
+    only the sentence searches for what it was already holding. The
     incident id goes with it because the proposal is named after it: two
     incidents patching the same file must not write over each other's branch.
 
@@ -231,7 +235,7 @@ class ProposeFix(Protocol):
     """
 
     def __call__(self,
-                 hypothesis: str,
+                 hypothesis: Hypothesis | None,
                  incident_id: str, /) -> OpenedPullRequest | None: ...
 
 

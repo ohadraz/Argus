@@ -26,7 +26,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 - Log/metrics querying and correlation with recent changes
 - Root-cause hypothesis generation and testing (ReAct loop)
 - Reversible mitigation (flag toggle, deployment rollback)
-- Code-level root cause search + PR generation (RAG over the Target Service codebase)
+- Code-level root cause search + PR generation (agentic search over the Target Service codebase, behind a seam that also admits RAG)
 - Slack integration: reading hints, and reporting an incident as it happens - a thread per incident in a war-room channel
 - Persistent memory: per-incident state + cross-incident knowledge base
 - Postmortem + executive summary generation (with cost estimation)
@@ -153,7 +153,9 @@ The obvious check - read the flag and see whether it still holds what Argus wrot
 
 ### 7.4 Code-Fix agent
 
-Invoked when mitigation fails, and again when one succeeds - a reverted flag buys time without ending a cause. Searches the Target Service repo to localize the bug, drafts a patch **plus the test that exposes it**, opens a branch + draft PR via `argus-write-mcp`'s `open_pull_request`. It writes tests freely and no path is withheld from it: the test that fails before the fix and passes after is the most valuable half of the proposal, and a repo with a file the agent may not touch is one where the fix cannot carry its own evidence. Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence) - what keeps a bad patch out of service is that a person merges it.
+Invoked when mitigation fails, and again when one succeeds - a reverted flag buys time without ending a cause. Searches the Target Service repo to localize the bug, drafts a patch **plus the test that exposes it**, opens a branch + draft PR via `argus-write-mcp`'s `open_pull_request`.
+
+Localizing is **agentic search**: the agent searches and reads the repository as tools across turns, following the code the way a person does - a name in the log leads to a file, that file to the function it calls. It starts from the whole hypothesis rather than its summary, because the evidence is where a location lives: the Target Service's error boundary records the innermost frame, so one of the log lines the investigation quoted names the file and the line the fault was raised on. Retrieval sits behind a seam with room for a second implementation - a RAG retriever over an embedded index of the repository - chosen by configuration rather than by a size threshold, since a threshold would leave the RAG path never running in any benchmark. Which retriever wins on which repository is a dimension the evaluation measures (§21), not a claim this document makes. It writes tests freely and no path is withheld from it: the test that fails before the fix and passes after is the most valuable half of the proposal, and a repo with a file the agent may not touch is one where the fix cannot carry its own evidence. Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence) - what keeps a bad patch out of service is that a person merges it.
 
 ### 7.5 Communicator agent
 
@@ -219,7 +221,8 @@ Normalizing the incoming alert is a boundary/controller responsibility, not doma
 Several patterns, applied to different sub-problems:
 
 - **ReAct** - the Investigator's core loop: observe (query logs/metrics/diff) → reason (form hypothesis) → act (query more, or hand off to Mitigation) → observe result. Detailed in §9.
-- **RAG** - two uses: (1) Code-Fix (§7.4) retrieves relevant code/config to localize a bug; (2) the Investigator (§7.2) retrieves similar past incidents from long-term memory (§11.2) as the first step of its ReAct loop (§9), to seed hypotheses faster.
+- **Agentic search** - how Code-Fix (§7.4) localizes a bug: the model searches and reads the repository as tools across turns, following the code rather than matching a query against it. What it is handed to start from is the whole hypothesis, evidence included - the service's error boundary records the innermost frame, so a log line among that evidence names the file and the line.
+- **RAG** - retrieval by embedding similarity, against the same retrieval seam. Two uses: (1) Code-Fix (§7.4), as the alternative to agentic search - which retriever wins on which repository is a benchmark dimension (§21) rather than an assertion; (2) the Investigator (§7.2) retrieves similar past incidents from long-term memory (§11.2) as the first step of its ReAct loop (§9), to seed hypotheses faster.
 - **Multi-agent orchestration** - the Orchestrator (§7.1) delegates to specialized agents (Investigator, Mitigation, Code-Fix, Postmortem), each with a narrow tool set and prompt, coordinated through shared incident state (§11.1). The Communicator (§7.5) is coordinated through that same state without being delegated to at all: it follows what the others published rather than waiting to be called, which is what keeps an incident reported even when the walk is too busy to say so.
 - **Self-critique / reflection** - before any mitigation or escalation, the agent scores its own confidence against a threshold (§10); after a mitigation, it re-observes state and judges whether its hypothesis was confirmed or refuted (§7.3).
 
@@ -643,7 +646,7 @@ Free-tier terms and rate limits for hosted LLM APIs change often - verify curren
 |---|---|---|---|
 | Investigator ReAct loop | Fast, cheap, large context | High call volume; digesting windowed excerpts, not deep reasoning | Gemini 2.5 Flash / Flash-Lite (no card required, large context) |
 | Slack hint parsing | Fast, cheap | Short inputs, simple structured extraction, high volume | Groq free tier, open-weight model (e.g. Llama 3.3 70B) - low latency, generous cap |
-| Code-Fix (RAG + patch drafting) | Strongest free reasoning/code model | Patch is graded directly against the repo's test; low call volume, tighter cap tolerable | Gemini 2.5 Pro free tier |
+| Code-Fix (agentic search + patch drafting) | Strongest free reasoning/code model | Patch is graded directly against the repo's test; low call volume, tighter cap tolerable | Gemini 2.5 Pro free tier |
 | Postmortem + executive summary | Strong long-form writing | Graded against a completeness checklist; low call volume | Gemini 2.5 Pro free tier |
 
 **Spreading load across providers** (e.g. Gemini for Investigator/Code-Fix/Postmortem, Groq for Slack) means a demo/benchmark burst doesn't exhaust one provider's cap and stall the pipeline. Both are reachable via thin, near-OpenAI-compatible SDKs, so model-per-node is a config value in `argus_core`'s LLM client factory, not a code change.
@@ -891,7 +894,7 @@ The evaluator consumes the §11.1 Postgres tables directly, plus the Target Serv
 | 3 | Webhook → Web Application → Orchestrator → basic Investigator (ReAct loop) | Ingests an alert, produces a ranked hypothesis list from logs |
 | 4 | Mitigation agent + episodic memory | Toggles flags/rolls back deploys, tracks what's been tried, avoids repeats |
 | 5 | Slack integration | Reads hints, posts updates, creates/manages incident channel |
-| 6 | Code-Fix agent (RAG + PR) | Given an unresolved-by-mitigation incident, finds relevant code and opens a draft PR |
+| 6 | Code-Fix agent (agentic search + PR) | Given an unresolved-by-mitigation incident, finds relevant code and opens a draft PR |
 | 7 | Long-term memory + retrieval | Past incidents retrievable and used to seed new investigations |
 | 8 | Postmortem + executive summary generation | Full doc with timeline, root cause, what it cost |
 | 9 | Incident view | A live incident's walk + the history, served by the Web Application (§7.7, §7.9) |

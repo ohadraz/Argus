@@ -27,6 +27,7 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Ask,
     Exchange,
+    Hypothesis,
     OpenedPullRequest,
     ToolCall,
     ToolDefinition,
@@ -122,7 +123,7 @@ class Fixer(Protocol):
     """
 
     def __call__(self,
-                 hypothesis: str,
+                 hypothesis: Hypothesis | None,
                  incident_id: str, /) -> OpenedPullRequest | None: ...
 
 
@@ -225,7 +226,7 @@ def fixes_over(read: McpClient,
     )
 
 
-def propose_fix(hypothesis: str,
+def propose_fix(hypothesis: Hypothesis | None,
                 incident_id: str,
                 *,
                 settings: FixSettings,
@@ -304,7 +305,7 @@ def propose_fix(hypothesis: str,
     )
 
 
-def _what_the_model_submitted(hypothesis: str,
+def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               *,
                               settings: FixSettings,
                               search: SourceSearcher,
@@ -422,12 +423,53 @@ def _a_branch_for(incident_id: str) -> str:
     return f"argus/fix-{incident_id}"
 
 
-def _the_opening_message(hypothesis: str) -> str:
+def _what_it_concluded(hypothesis: Hypothesis | None) -> str:
+    """The finding in a sentence, or that there was none.
+
+    Said rather than left blank, because the agent is asked either way: a walk
+    that reached here having concluded nothing is still worth reading the code
+    over, and "I looked and found nothing" is a different answer from "I never
+    looked". An empty line after "the investigation concluded" reads as the
+    second while claiming to be the first.
+    """
+    if hypothesis is None:
+        return "nothing - no cause was identified, so read the code on its own terms"
+
+    return hypothesis.summary
+
+
+def _and_what_it_rests_on(hypothesis: Hypothesis | None) -> list[str]:
+    """The evidence behind the conclusion, quoted rather than summarised.
+
+    The summary says what broke; the evidence says where. This service's error
+    boundary records the innermost frame, so one of these lines is a log line
+    naming the file and the line the fault was raised on - and an agent handed
+    only the sentence goes searching for a location it was already holding.
+
+    Quoted as the investigation wrote them, because they are quotations: a log
+    line restated in the model's own words is no longer something it can search
+    the repository for.
+
+    Empty where the investigation recorded none, and empty is right - a heading
+    over nothing invites the model to wonder what it is missing.
+    """
+    if hypothesis is None or not hypothesis.supporting_evidence:
+        return []
+
+    return [
+        "",
+        "What that rests on:",
+        *(f"  - {found.claim}" for found in hypothesis.supporting_evidence)
+    ]
+
+
+def _the_opening_message(hypothesis: Hypothesis | None) -> str:
     return "\n".join([
         "An incident has been investigated and traced to a cause in this "
         "service's code. Your job is to fix that cause permanently.",
         "",
-        f"What the investigation concluded: {hypothesis}",
+        f"What the investigation concluded: {_what_it_concluded(hypothesis)}",
+        *_and_what_it_rests_on(hypothesis),
         "",
         f"Start by searching. Take what is named above - the flag, the "
         f"function, the message - and {SEARCH_TOOL} for it: the answer names "
@@ -456,7 +498,7 @@ def _the_opening_message(hypothesis: str) -> str:
 
 
 def _the_case_for(submitted: SubmittedFix,
-                  hypothesis: str,
+                  hypothesis: Hypothesis | None,
                   incident_id: str) -> str:
     """What a person reads before deciding whether to merge.
 
@@ -471,7 +513,7 @@ def _the_case_for(submitted: SubmittedFix,
         "---",
         "",
         f"Proposed by Argus for incident `{incident_id}`.",
-        f"The investigation concluded: {hypothesis}",
+        f"The investigation concluded: {_what_it_concluded(hypothesis)}",
         "",
         "This is a draft. Argus cannot merge it - review it as you would any "
         "change from somebody who has not run the service."

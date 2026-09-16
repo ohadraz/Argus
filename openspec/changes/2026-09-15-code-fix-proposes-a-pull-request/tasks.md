@@ -93,19 +93,17 @@ time, then Code-Fix patches the fault so the flag is safe to turn back on.
 
 ## 6. End to end
 
-- [ ] 6.1 The e2e suites say `mitigated` where they said `resolved`.
-- [ ] 6.2 `e2e_replay`: Code-Fix's turn is seeded with a literal body rather
-      than a recording - "no files, the fault is not in the code", which is the
-      true answer for a flag scenario. Without it the codefix conversation
-      consumes the seed meant for the postmortem, and the postmortem is written
-      from somebody else's answer while the suite still passes.
-- [ ] 6.3 A live run: `nox -s stack`, the flag scenario staged from the shop's
+- [x] 6.1 The e2e suites say `mitigated` where they said `resolved`.
+- [x] 6.2 `e2e_replay` answers Code-Fix's turn from a recording of its own. The
+      recordings were captured again with the step in the walk, against the
+      GitHub double the suite now runs on, so the whole conversation is
+      replayed rather than one turn being stood in for. Seeding a literal body
+      was the plan and would have worked; re-recording is truer, because the
+      answer the postmortem reads is then the answer the model actually gave.
+- [x] 6.3 A live run: `nox -s stack`, the flag scenario staged from the shop's
       console, the flag reverted, the incident `mitigated`, and a draft pull
       request on the demo application's own repository.
-- [ ] 6.4 CI and compose carry the repository settings, once the e2e path
-      reaches these tools.
-
-## 7. Afterwards
-
-- [ ] 7.1 The RAG retriever behind the same seam, and the benchmark dimension
-      that says which retriever wins on which repository.
+- [x] 6.4 CI and compose carry the repository settings, once the e2e path
+      reaches these tools. A suite reaches them at the double rather than at
+      GitHub: a pull request opened by `e2e_replay` is a real one, numbered out
+      of a counter that never goes back, and CI runs it on every push.

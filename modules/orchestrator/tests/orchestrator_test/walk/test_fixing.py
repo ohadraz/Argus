@@ -267,7 +267,7 @@ def test_the_agent_is_asked_about_the_hypothesis_the_walk_reached() -> None:
             lambda: codefix_node(an_incident_with_a_hypothesis, the_agent.propose)
         ) \
         .then(
-            _the_agent_was_asked_about(the_agent, a_hypothesis.summary)
+            _the_agent_was_asked_about(the_agent, a_hypothesis)
         )
 
 
@@ -305,7 +305,7 @@ def test_an_incident_with_no_hypothesis_is_still_asked_about() -> None:
             lambda: codefix_node(an_incident_that_concluded_nothing, the_agent.propose)
         ) \
         .then(
-            _the_agent_was_asked_about(the_agent, "")
+            _the_agent_was_asked_about(the_agent, None)
         )
 
 
@@ -341,11 +341,11 @@ class _AnAgentRememberingWhatItWasAsked:
     """
 
     def __init__(self) -> None:
-        self.hypothesis: str | None = None
+        self.hypothesis: Hypothesis | None = None
         self.incident_id: str | None = None
 
     def propose(self,
-                hypothesis: str,
+                hypothesis: Hypothesis | None,
                 incident_id: str) -> OpenedPullRequest | None:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
@@ -355,7 +355,7 @@ class _AnAgentRememberingWhatItWasAsked:
 
 def _an_agent_offering(proposal: OpenedPullRequest | None) -> ProposeFix:
     """Code-Fix, answering the same thing however it is asked."""
-    def propose(dont_care_hypothesis: str,
+    def propose(dont_care_hypothesis: Hypothesis | None,
                 dont_care_incident_id: str) -> OpenedPullRequest | None:
         return proposal
 
@@ -370,7 +370,7 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
     here is whatever the transport raised - and a node catching one specific
     class would let every other way that call fails take the walk down.
     """
-    def propose(dont_care_hypothesis: str,
+    def propose(dont_care_hypothesis: Hypothesis | None,
                 dont_care_incident_id: str) -> OpenedPullRequest | None:
         raise failure
 
@@ -391,7 +391,7 @@ def _an_incident_in(status: IncidentStatus,
 
 
 def _the_agent_was_asked_about(
-    agent: _AnAgentRememberingWhatItWasAsked, hypothesis: str
+    agent: _AnAgentRememberingWhatItWasAsked, hypothesis: Hypothesis | None
 ) -> Assertion[StateDelta]:
     def assertion(_updates: StateDelta) -> bool:
         if agent.hypothesis != hypothesis:
@@ -492,7 +492,7 @@ def _the_route_is(expected: str) -> Assertion[str]:
 
 def _an_agent_raising(error: Exception) -> ProposeFix:
     """A repository that refused, said as the agent raising what it raised."""
-    def refuse(dont_care_hypothesis: str, dont_care_incident_id: str) -> Any:
+    def refuse(dont_care_hypothesis: Hypothesis | None, dont_care_incident_id: str) -> Any:
         raise error
 
     return refuse

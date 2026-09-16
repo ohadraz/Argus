@@ -2,7 +2,7 @@
   "container": null,
   "content": [
     {
-      "signature": "CAISzQIKjgEIERgCKkA3JQXr488H6mPzGOCM3lWY594Md9Zk287i0Qn5GpHNLzSv9nwT+2q2WLTgdjP74PX1B2y9KDXD5PZqyIQRFxhaMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAeOUp9UGEgxSFtqvNlRLSelq/n4aDG4fsoAapilAROBGwyIwbjVk9VsbuIgi0bcHUiwg3NiOTtlKdguAhPUVmY79A7Wyaj92GQ4cySD+THhPR1/gKmwcDmS0NyY3bOV24E0LNhi5g5aUxKFqXSI/HdU1y32h4RCWn5udb7LkWjq1MTMYhMhBOul+Xx1IeYLttB6vZLKw6EaGptZBLlJ4LSjOQie15x7vkvOvDKlW2nYTR2GuksTO6jrrxg0M8+WzpYIYAQ==",
+      "signature": "CAIS7gIKjgEIERgCKkBZV342UHei2xNqT2brIAJpFUjq7y2xHJyzKi659kow9wGSOZhNmJcJoLJMMEBWE+ZXuXiX4uaijK/pS8N8ZSWUMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAYznqtUGEgzAFGFKHoq4LJbXr0waDDrRLTWgw8sk7tQ0LSIwZjLq6lhxTvcP+aREgEmeI/8pE9ui3j80dbBOZ54LOlQhJ7gHCd7GEK0Y1s5nUDRRKowB10gl5lBRllrkfh3XiLr7Q9x8bf/CIo3s/8vXcIZWg57Em426q1oP0ZAvk3aok27NqhxmoEL2EH5SHScuou42zkxYDo1vivDeyVF7l+Y33fw/dOLp0iDRGC281AieqmdgZwhcYiqu2U4NwCfNiaIwOwKiwVOMx0b2UnJwD7PwiY6tsv11eYrnhLBZHAEYAQ==",
       "thinking": "",
       "type": "thinking"
     },
@@ -10,57 +10,61 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01UPDC3nJHw7hVFWbB3YDvVT",
+      "id": "toolu_01DLE4AJq7pVuRkkqd25HB9i",
       "input": {
         "hypotheses": [
           {
             "cause_type": "feature-flag-toggle",
-            "confidence": 0.93,
+            "confidence": 0.94,
             "from_state": "on",
             "subject": "legacy-checkout-fallback",
-            "summary": "The feature flag `legacy-checkout-fallback` was toggled from on to off at 22:39, at which point account page requests began failing with ZeroDivisionError instead of the pre-existing low-level UpstreamTimeout noise. Error rate jumped from ~0-2% to 12% during the mixed-evaluation minute and 28-32% once all evaluations were off.",
+            "summary": "The feature flag `legacy-checkout-fallback` was flipped from on to off at 2026-09-16T15:14:00Z. With the legacy fallback disabled, account-page requests hit the new spend-summary code path, which raised ZeroDivisionError at src/io_shop/spend_summary.py:32, driving error rate from ~1% to 34%.",
             "supporting_evidence": [
               {
-                "at": "2026-09-15T22:38:00Z",
-                "claim": "INFO io-shop: legacy-checkout-fallback=on - 200 evaluations (every minute from 22:09 through 22:38)"
+                "at": "2026-09-16T15:13:00Z",
+                "claim": "2026-09-16T15:13:00Z INFO io-shop: legacy-checkout-fallback=on - 200 evaluations"
               },
               {
-                "at": "2026-09-15T22:39:00Z",
-                "claim": "INFO io-shop: legacy-checkout-fallback=off 56 / on 144 - 200 evaluations"
+                "at": "2026-09-16T15:14:00Z",
+                "claim": "2026-09-16T15:14:00Z INFO io-shop: legacy-checkout-fallback=off 109 / on 91 - 200 evaluations"
               },
               {
-                "at": "2026-09-15T22:39:00Z",
-                "claim": "ERROR io-shop: account page request failed - ZeroDivisionError: division by zero (first appearance, replacing UpstreamTimeout errors)"
+                "at": "2026-09-16T15:14:00Z",
+                "claim": "2026-09-16T15:14:00Z ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:32"
               },
               {
-                "at": "2026-09-15T22:40:00Z",
-                "claim": "INFO io-shop: legacy-checkout-fallback=off - 200 evaluations"
+                "at": "2026-09-16T15:15:00Z",
+                "claim": "2026-09-16T15:15:00Z INFO io-shop: legacy-checkout-fallback=off - 200 evaluations"
               },
               {
-                "at": "2026-09-15T22:40:00Z",
-                "claim": "error_rate rose from 0.0 at 22:38 to 0.125 at 22:39 and 0.32 at 22:40, with request_volume flat at 1200"
+                "at": "2026-09-16T15:14:00Z",
+                "claim": "error_rate jumps from 0.005 at 15:13 to 0.155 at 15:14 and 0.29 at 15:15, rising to 0.34, with request_volume flat at 1200"
               },
               {
-                "at": "2026-09-15T22:42:00Z",
-                "claim": "WARN io-shop: account page error rate at 32% over the last minute"
+                "at": "2026-09-16T15:13:00Z",
+                "claim": "Before the toggle the only errors were low-rate 'UpstreamTimeout: payment authorization timed out'; the ZeroDivisionError signature appears only from 15:14 onward"
+              },
+              {
+                "at": null,
+                "claim": "Every recorded change to io-shop from 2026-09-15T15:14:00Z to 2026-09-16T15:14:00Z: (nothing changed in this window)"
               }
             ],
             "to_state": "off"
           },
           {
-            "cause_type": null,
-            "confidence": null,
+            "cause_type": "bad-deployment",
+            "confidence": 0.04,
             "from_state": null,
             "subject": null,
-            "summary": "Alternatively, a latent code defect on the non-fallback (new checkout) path was exposed rather than caused by the toggle - the division-by-zero exists in the primary code path and would recur whenever the flag is off. No deploy is recorded in the 24h before onset, so the code itself did not change.",
+            "summary": "Alternatively, the latent divide-by-zero bug in src/io_shop/spend_summary.py was introduced by an earlier code change and only became reachable when the flag ramp exposed it; no deploy is recorded in the 24h before onset, so this remains unsupported by the change log.",
             "supporting_evidence": [
               {
                 "at": null,
-                "claim": "Every recorded change to io-shop from 2026-09-14T22:39:00Z to 2026-09-15T22:39:00Z. (nothing changed in this window)"
+                "claim": "Every recorded change to io-shop from 2026-09-15T15:14:00Z to 2026-09-16T15:14:00Z: (nothing changed in this window)"
               },
               {
-                "at": "2026-09-15T22:41:00Z",
-                "claim": "ERROR io-shop: account page request failed - ZeroDivisionError: division by zero"
+                "at": "2026-09-16T15:15:00Z",
+                "claim": "2026-09-16T15:15:00Z ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:32"
               }
             ],
             "to_state": null
@@ -71,7 +75,7 @@
       "type": "tool_use"
     }
   ],
-  "id": "msg_011Cf631tJ5sCCnWqDUcB4PL",
+  "id": "msg_011Cf7LsjW7mCSpTYPZ5eft1",
   "model": "claude-opus-5",
   "role": "assistant",
   "stop_details": null,
@@ -81,15 +85,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 5633
+      "ephemeral_5m_input_tokens": 5957
     },
-    "cache_creation_input_tokens": 5633,
+    "cache_creation_input_tokens": 5957,
     "cache_read_input_tokens": 9970,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 951,
+    "output_tokens": 1145,
     "output_tokens_details": {
-      "thinking_tokens": 43
+      "thinking_tokens": 58
     },
     "service_tier": "standard"
   }

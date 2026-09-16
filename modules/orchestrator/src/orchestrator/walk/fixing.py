@@ -43,9 +43,7 @@ def codefix_node(state: IncidentState,
     narrator = Narrator(state.incident_id, publisher)
 
     try:
-        proposed = propose_fix(
-            state.hypothesis.summary if state.hypothesis else "", state.incident_id
-        )
+        proposed = propose_fix(state.hypothesis, state.incident_id)
     except FixNotAnswered as error:
         # Caught above the broad clause below, because it is the one failure
         # here that says nothing about the service. The agent read until its
