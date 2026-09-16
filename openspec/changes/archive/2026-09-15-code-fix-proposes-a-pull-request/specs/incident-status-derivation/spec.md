@@ -15,8 +15,6 @@ do.
 - **WHEN** anything asks whether a mitigated incident is still going
 - **THEN** it is told the incident has ended, so a page polling it stops
 
-## MODIFIED Requirements
-
 ### Requirement: The status answers whether the symptom stopped
 The system SHALL derive the status from whether the symptom stopped, asking
 that question before any other. Whether a code fix was found SHALL decide what
@@ -57,3 +55,46 @@ reaching Code-Fix SHALL go on to the postmortem.
 - **GIVEN** an incident that reached Code-Fix having stopped nothing
 - **WHEN** Code-Fix has had its turn
 - **THEN** the incident goes to the postmortem, whatever the outcome was
+
+## MODIFIED Requirements
+
+### Requirement: An incident's status is a pure function of its state
+
+The system SHALL derive an incident's status from its state through a single
+pure function. That function SHALL be total over the states the graph can
+produce, SHALL perform no I/O, and SHALL NOT consult a language model - the
+evidence a status rests on has already been measured, and re-deriving it by
+inference would make the auditable part of an incident depend on a sampled call.
+
+#### Scenario: The same state always yields the same status
+
+- **WHEN** the status is derived from the same incident state twice
+- **THEN** both derivations return the same status, with no call to a model, a
+  database, or a network
+
+#### Scenario: A confirmed action yields mitigated
+
+- **GIVEN** a state whose action outcome is `confirmed`
+- **WHEN** the status is derived
+- **THEN** it is `mitigated` - the symptom stopped, which is as far as a
+  reversible action can take an incident
+
+#### Scenario: A refuted action with a candidate left yields mitigating
+
+- **GIVEN** a state whose action outcome is `refuted` and which has an untried
+  candidate above the mitigate threshold
+- **WHEN** the status is derived
+- **THEN** it is `mitigating`
+
+#### Scenario: A walk out of candidates and rounds yields fixing
+
+- **GIVEN** a state with no untried candidate and no investigation round left
+- **WHEN** the status is derived
+- **THEN** it is `fixing`
+
+#### Scenario: An investigation that found nothing actionable yields escalated
+
+- **GIVEN** a state whose investigation reported no candidate worth trying
+- **WHEN** the status is derived
+- **THEN** it is `escalated`, whether or not investigation rounds remain -
+  the loop has already widened as far as it can within the round
