@@ -99,7 +99,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
                         the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
                         some_confidence_was_given()
                     ),
-                    argus_ended_with_status(IncidentStatus.RESOLVED),
+                    argus_ended_with_status(IncidentStatus.MITIGATED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
                     the_service_returned_to_baseline()
                 ),
@@ -229,7 +229,7 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
         .then(
             eventually(
                 all_of(
-                    argus_ended_with_status(IncidentStatus.RESOLVED),
+                    argus_ended_with_status(IncidentStatus.MITIGATED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
                     # Untouched. Naming one flag is not licence to tidy the
                     # other, and a second revert would be a production change

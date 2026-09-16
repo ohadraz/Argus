@@ -2,7 +2,7 @@
   "container": null,
   "content": [
     {
-      "signature": "CAISugMKjgEIERgCKkDV4iwxxiwWXgAODkno952mES6mDqwUjEbYgz1BWpGfVcJG16l1HFD577DQvCK9MVHVZ/jisqFLURFOqysf4oxdMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAbnznNUGEgxNJ3DPABAsH4T9R9oaDIsw86uX+Op/FYn61iIwr1XkO0xT5WxsrBOHz3xHKklytvzQWm5ZWp0laOLyuTIZyZZZUGuX6FgGMPYJQG/CKtgB+0TGDpIyEYAh+iF/vwibwEgxzaVmaGN+/h+5f3Up2Q6FFrr+4vPuD/AmUWCQgReJFMooIuUOSJl4dDHkHb6PD7Sfxv9wMsnBfsb1+uyFqfIZ7g7XgLE+a7oDxiFgBzyC/UpS3nr/C2kzNzIabKeTDIHLAcBNl/I7A042uPhnTj3DMm37VzlbuNJOpiKA3Y9zrePNUMhblxwqU4lotHlmqY0VPgaYTFuI/omt206ReUSt7ZbocHwM0u3JxDXo8fCztzLyrdx5vbYTai0ezV9vmv9EZkvJxmcHGAE=",
+      "signature": "CAISqwQKjgEIERgCKkCXTLjVsq4zPD8ldZugsC1T56G+l5ORei+WpsV4ZT+Z7ak4/+o0cuivPxJHutDIq1/GbiJMf9UwTzqCmOLoojceMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAZyTp9UGEgzthe7Nbf1ZNSywPC4aDNkmySwWE/6QJP4sXiIwmA+PDXxEPvCaKd8nwLKeWXroHHt15cBcpjVVmCSGXqHZkLq7I6ibcRLYfTl2IahGKskCdaknXqMNkxM4TA3cQvCl7w70oxtAcHCArYqkSGNWkDY03Kg3jDVa2rxZ7PYHKfc82+v9fdYDQEeyfN1m+PlMsL7jeHVfphPenPxLahy0m0dAgxGv+M72tBm3CWMGfNNwvqcXhlV2+TiH5c/kHrXp1CLCHrsW0AODZsijsppKqnRg8A1J1/FOv5WJ76kqtGiAuxmpbWo+DAI7LLPLqXQAFQLZzZfW8MsQFQL/yYH6Tx2r1i+OLUM8bNMI4LNCevmj7Xwudpc5mw4AzvleBD02MCYgBC4gco+92ssZ2lQhD1utG5XUBy792IbACHkM47l5KDq0ipEDoW3YUk+mRQLzETQGpnUMIry2hsY/4Qv8PB3tY8zQ7qnGHUSsZ2q1YHC+yxTacAU26MvfzRjgkkbawLYMai6hAD36ae0qTT5Tjk6ZmhIy5G3PEuIYAQ==",
       "thinking": "",
       "type": "thinking"
     },
@@ -10,35 +10,39 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01HhM1TQmWHmhbkJdVPStKPA",
+      "id": "toolu_016PGkM7au57wKUvRKiiWNii",
       "input": {
         "hypotheses": [
           {
             "cause_type": "bad-deployment",
-            "confidence": 0.85,
+            "confidence": 0.82,
             "from_state": null,
             "subject": "9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e",
-            "summary": "The deploy of revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e at 23:59 is the only recorded change in the week before the incident, and latency began degrading in the very next minute (p95 220ms -> 900ms -> 1800ms -> 5000ms timeouts), so the new revision introduced the latency/timeout regression.",
+            "summary": "A deploy of revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e at 22:38 immediately preceded a latency regression: p95 rose from a 220ms baseline to 900ms in the next minute, then to 1800ms and 5000ms timeouts, with error rate climbing 0.01 -> 0.12. It is the only recorded change in the 24h lookback.",
             "supporting_evidence": [
               {
-                "at": "2026-09-13T23:59:00Z",
+                "at": "2026-09-15T22:38:00Z",
                 "claim": "deploy: \"deployed revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", actor kuki, source https://github.com/io-shop/k8s-configs/apps/io-shop/production"
               },
               {
-                "at": null,
-                "claim": "Only one recorded change to io-shop from 2026-09-07T00:00:00Z to 2026-09-14T00:10:00Z"
+                "at": "2026-09-15T22:39:00Z",
+                "claim": "WARN io-shop: p95 latency climbing"
               },
               {
-                "at": "2026-09-14T00:00:00Z",
-                "claim": "metrics bucket p95_ms 900, p50_ms 95, error_rate 0.02 (baseline p95 220ms the minute before)"
-              },
-              {
-                "at": "2026-09-14T00:01:00Z",
+                "at": "2026-09-15T22:40:00Z",
                 "claim": "WARN io-shop: p95 latency at 1800ms, up from a 220ms baseline"
               },
               {
-                "at": "2026-09-14T00:02:00Z",
+                "at": "2026-09-15T22:41:00Z",
                 "claim": "ERROR io-shop: request timeout after 5000ms"
+              },
+              {
+                "at": "2026-09-15T22:41:00Z",
+                "claim": "metrics bucket error_rate 0.01 -> 0.02 -> 0.04 -> 0.12 and p95 220 -> 900 -> 1800 -> 5000 across 22:38-22:41"
+              },
+              {
+                "at": null,
+                "claim": "\"Every recorded change to io-shop from 2026-09-14T22:40:00Z to 2026-09-15T22:40:00Z\" contains only this one deploy"
               }
             ],
             "to_state": null
@@ -48,7 +52,7 @@
             "confidence": null,
             "from_state": null,
             "subject": null,
-            "summary": "Alternative: the degradation came from something the retrieved evidence does not record - e.g. a dependency slowdown or resource exhaustion coincident with the deploy. The logs only say latency climbed and requests timed out; they name no code path, flag or downstream. I would have needed logs naming a downstream dependency or a flag-evaluation line, or a change record other than the deploy, to distinguish this.",
+            "summary": "The evidence records only a deploy and a latency/timeout symptom trail; no flag toggle, dependency error, or saturation detail appears, so an alternative cause (e.g. a downstream dependency slowdown coincident with the deploy) cannot be excluded from what was retrieved. To distinguish it I would have needed dependency/upstream latency logs or a flag-change record in the same window, neither of which exists in these channels.",
             "supporting_evidence": [],
             "to_state": null
           }
@@ -58,7 +62,7 @@
       "type": "tool_use"
     }
   ],
-  "id": "msg_011Cf2MN1TpdTbuyV8LVvXcq",
+  "id": "msg_011Cf62m8UwoRPoksjV4TRRW",
   "model": "claude-opus-5",
   "role": "assistant",
   "stop_details": null,
@@ -68,15 +72,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 341
+      "ephemeral_5m_input_tokens": 727
     },
-    "cache_creation_input_tokens": 341,
+    "cache_creation_input_tokens": 727,
     "cache_read_input_tokens": 3680,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 900,
+    "output_tokens": 1009,
     "output_tokens_details": {
-      "thinking_tokens": 79
+      "thinking_tokens": 106
     },
     "service_tier": "standard"
   }

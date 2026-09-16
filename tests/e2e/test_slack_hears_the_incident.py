@@ -71,9 +71,9 @@ def test_slack_hears_an_incident_open_work_and_end() -> None:
             argus_returns_status(HttpStatus.ACCEPTED),
             eventually(
                 all_of(
-                    argus_ended_with_status(IncidentStatus.RESOLVED),
+                    argus_ended_with_status(IncidentStatus.MITIGATED),
                     _slack_was_told_the_alert_arrived(said_before, some_alert_name),
-                    _slack_was_told_how_it_ended(said_before, IncidentStatus.RESOLVED),
+                    _slack_was_told_how_it_ended(said_before, IncidentStatus.MITIGATED),
                     _what_argus_did_arrived_as_replies(said_before),
                     _slack_was_not_told_what_argus_read(said_before),
                     _slack_was_given_the_postmortem(said_before)

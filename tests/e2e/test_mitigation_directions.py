@@ -68,7 +68,7 @@ def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
         .then(
             eventually(
                 all_of(
-                    argus_ended_with_status(IncidentStatus.RESOLVED),
+                    argus_ended_with_status(IncidentStatus.MITIGATED),
                     the_flag_provider_reports(THE_FALLBACK_FLAG, enabled=True),
                 ),
                 timeout=MITIGATION_TIMEOUT_SECONDS,
