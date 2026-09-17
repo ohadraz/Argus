@@ -23,6 +23,7 @@ from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
 from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent, ChangeKind
+from argus_core.models.code_search import CodeSearch
 from argus_core.models.evidence import Evidence
 from argus_core.models.findings import Findings
 from argus_core.models.fix import FixOutcome
@@ -66,6 +67,7 @@ __all__ = [
     "CauseType",
     "ChangeEvent",
     "ChangeKind",
+    "CodeSearch",
     "Evidence",
     "Exchange",
     "Findings",

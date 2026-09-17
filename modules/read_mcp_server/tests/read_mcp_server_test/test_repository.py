@@ -15,8 +15,6 @@ survives the repository arriving in it.
 from __future__ import annotations
 
 import base64
-import io
-import tarfile
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -27,6 +25,7 @@ from argus_testkit.scenario import Scenario, attempting
 from read_mcp_server.repository import (
     RepositoryReadSettings,
     RepositoryUnreadable,
+    SourceReader,
     list_repository_files,
     read_repository_file,
     search_repository,
@@ -270,7 +269,7 @@ def test_the_source_is_searched_for_what_the_investigation_named() -> None:
     # it can only open files by guessing at their names. It did: twelve turns
     # of reading, and it never reached the file the fault was in.
     the_flag = "monthly-spend-feature"
-    repository = a_repository_whose_source_is({
+    read_source = a_source_reader_answering({
         "src/io_shop/spend_summary.py": f"# ships behind the `{the_flag}` flag\n",
         "src/io_shop/accounts.py": "def accounts() -> None: ...\n"
     })
@@ -279,7 +278,7 @@ def test_the_source_is_searched_for_what_the_investigation_named() -> None:
         .when(
             lambda: search_repository(
                 query=the_flag, ref=DONT_CARE_REF,
-                settings=some_settings(), get=repository.get
+                settings=some_settings(), read_source=read_source
             )
         ) \
         .then(
@@ -295,7 +294,7 @@ def test_a_hit_says_where_in_the_file_it_is() -> None:
     # A path alone sends the model back to reading the whole file, which is the
     # cost this tool exists to remove. The line number and the line itself are
     # what let it decide whether the file is worth opening at all.
-    repository = a_repository_whose_source_is({
+    read_source = a_source_reader_answering({
         "src/io_shop/spend_summary.py": "first\nsecond\nthe flag is here\nfourth\n"
     })
 
@@ -303,28 +302,10 @@ def test_a_hit_says_where_in_the_file_it_is() -> None:
         .when(
             lambda: search_repository(
                 query="the flag is here", ref=DONT_CARE_REF,
-                settings=some_settings(), get=repository.get
+                settings=some_settings(), read_source=read_source
             )
         ) \
         .then(_a_hit_reads("src/io_shop/spend_summary.py:3: the flag is here"))
-
-
-@pytest.mark.unit
-def test_a_search_reports_paths_the_repository_can_be_read_at() -> None:
-    # The archive prefixes every path with a directory named for the commit.
-    # Reported as-is, every hit would name a path `read_repository_file` calls
-    # missing - the model would be sent to a file that does not exist, and the
-    # tool would look broken rather than mis-prefixed.
-    repository = a_repository_whose_source_is({"src/io_shop/accounts.py": "found\n"})
-
-    Scenario() \
-        .when(
-            lambda: search_repository(
-                query="found", ref=DONT_CARE_REF,
-                settings=some_settings(), get=repository.get
-            )
-        ) \
-        .then(_no_hit_mentions(_THE_ARCHIVE_PREFIX))
 
 
 @pytest.mark.unit
@@ -332,13 +313,13 @@ def test_a_search_that_matches_nothing_is_an_answer_and_not_a_failure() -> None:
     # Unlike a listing that came back short, "that string is not in this
     # repository" is a fact about the repository and a useful one: it is how
     # the model learns the cause is not where it thought.
-    repository = a_repository_whose_source_is({"src/io_shop/accounts.py": "nothing\n"})
+    read_source = a_source_reader_answering({"src/io_shop/accounts.py": "nothing\n"})
 
     Scenario() \
         .when(
             lambda: search_repository(
                 query="a string that is not there", ref=DONT_CARE_REF,
-                settings=some_settings(), get=repository.get
+                settings=some_settings(), read_source=read_source
             )
         ) \
         .then(_exactly_these_files_matched([]))
@@ -350,15 +331,15 @@ def test_a_repository_that_could_not_be_fetched_is_refused_rather_than_empty() -
     # facts about the world. Silent, the second one teaches it the cause is not
     # in the code, which is the conclusion this whole change exists to stop
     # being reached by accident.
-    repository = _Repository()
-    repository.get.side_effect = httpx.ConnectError("no route to host")
+    read_source = create_autospec(SourceReader, instance=True)
+    read_source.side_effect = RepositoryUnreadable("no route to host")
 
     Scenario() \
         .when(
             attempting(
                 lambda: search_repository(
                     query="dont care", ref=DONT_CARE_REF,
-                    settings=some_settings(), get=repository.get
+                    settings=some_settings(), read_source=read_source
                 )
             )
         ) \
@@ -397,7 +378,7 @@ def test_a_search_answers_only_from_the_service_s_own_source() -> None:
     # The same scope, and it matters more here: the harness describes in prose
     # what it stages, so a search for the cause finds the harness explaining the
     # cause. What comes back would be the answer rather than the evidence.
-    repository = a_repository_whose_source_is({
+    read_source = a_source_reader_answering({
         "src/io_shop/spend_summary.py": "the flag guards this\n",
         "src/target_app/scenarios.py": "the flag breaks the page on purpose\n"
     })
@@ -408,7 +389,7 @@ def test_a_search_answers_only_from_the_service_s_own_source() -> None:
                 query="the flag",
                 ref=DONT_CARE_REF,
                 settings=some_settings(source_paths="src/io_shop"),
-                get=repository.get
+                read_source=read_source
             )
         ) \
         .then(_exactly_these_files_matched(["src/io_shop/spend_summary.py"]))
@@ -604,33 +585,12 @@ def some_settings(api_url: str = "https://api.github.invalid",
     )
 
 
-def an_archive_of(files: dict[str, str]) -> httpx.Response:
-    """The repository as GitHub serves it whole - one gzipped tar, one request.
+def a_source_reader_answering(files: dict[str, str]) -> Any:
+    """A stand-in for `repository_source.the_source_at`.
 
-    Every path inside is prefixed with a directory named for the owner, the
-    repository and the commit, which is GitHub's doing and not something a
-    caller asked for. A search that reported those paths would be reporting
-    paths that `read_repository_file` refuses, so the prefix is part of what
-    is under test rather than an accident of this builder.
+    The seam this module actually has. Fetching an archive and unwrapping it
+    belongs to `repository_source` and is tested there; handing a real tarball
+    to a search test would be exercising somebody else's unpacking to reach a
+    subject that is only ever lines of text.
     """
-    archive = io.BytesIO()
-
-    with tarfile.open(fileobj=archive, mode="w:gz") as writing:
-        for path, content in files.items():
-            held = content.encode()
-            entry = tarfile.TarInfo(f"{_THE_ARCHIVE_PREFIX}/{path}")
-            entry.size = len(held)
-            writing.addfile(entry, io.BytesIO(held))
-
-    return httpx.Response(
-        status_code=200,
-        content=archive.getvalue(),
-        request=httpx.Request("GET", "http://github.invalid/")
-    )
-
-
-def a_repository_whose_source_is(files: dict[str, str]) -> _Repository:
-    repository = _Repository()
-    repository.get.return_value = an_archive_of(files)
-
-    return repository
+    return create_autospec(SourceReader, instance=True, return_value=files)

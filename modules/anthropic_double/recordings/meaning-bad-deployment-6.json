@@ -1,0 +1,44 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISgQYKjgEIERgCKkCjgEA1VrAFz8PGT4L7HEof2I42z3o0gzXbiRllWzZ+BCoGUuWo3OtuSTVtropUMcazeiXHea5pybnpzZuqFroBMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAZ3tr9UGEgzo3s3kaMNJTxNm/+QaDHBtPq2rbTRaXSMM1iIwTJOeG/TDvqrjSZLILGzduFWHQXBn1WASlfpU60LV0/k1k8VKXnj5ywt+jEAQTsq1Kp8E02gkB1zLwLXUiomh9LFWkb7cD8m2lL+t4BSjg4zYs/B0jPD4GMt15xcR93wM/Njv+TSe8UhNlMUZXRs39KzpyosNpCRkyFkuutFdu8dYkZcwSmWbUowjmvFxgQtbWXb0oGMD4S4d6qyfxhxOeexQtKz1PjOu6YWm4N3R7DpK1aJ+QcPUVRD1MAuhg0zOT84ha4I8FLnrtIoiJZTSAxDXl9DF/0X6svrDaFXqL1Iu3pOVVFDTCiXHR8AqV5xsPUqMtO3pmrN9G9G+VHsQrLNtGz/GlhtA12gHO7CtsJ0k6/RS0NU6u3AlKUGOwYvtoT7vqaImU0GG7/xXrZ6G7nWgD2vn2AGKq1xc5z4H8ucFbeseB6Az3yDIOTfkE1si4/WJdoNxqrj234YSlRvhQ7GWabjLITBgyNWxvUqwHOKQ89LzN15/XwzmscHq7CkkSbM/lYmRoD1ORALCay8ys/YHk/QLIKf1SMaMX6WtZrliWVc0TBuuHTueWhijYhHlJnGB2+IKfNXKuNamUY8kDk1PMkdeHwCoZl1GLSVM/mWZ6NgRaJ6s7M+W8JaccYqrZAfv9L/MVfy4/fq1fpwPW06IUKp2EfV6kw1igo6vAH8yfHYNDMV6fu6QrxQWlS1bCRwQcDIK5BMeEzR7Jf/CpSyIhbTinTIbmBw+SKubmgdiYVRfjuse0N0K3B4YtrMLDvbm7TvWyH2RX/mMMirMGDI/GAE=",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_016d11vNCnY9uYe44uAQGBe4",
+      "input": {
+        "window_end": "2026-09-17T14:14:00Z",
+        "window_start": "2026-08-17T00:00:00Z"
+      },
+      "name": "get_changes",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf99zARhoDR3v8amqodbr",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 583
+    },
+    "cache_creation_input_tokens": 583,
+    "cache_read_input_tokens": 4006,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 289,
+    "output_tokens_details": {
+      "thinking_tokens": 189
+    },
+    "service_tier": "standard"
+  }
+}

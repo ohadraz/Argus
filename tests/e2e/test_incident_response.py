@@ -44,13 +44,15 @@ from tests.e2e.framework.argus import (
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 
 # What the Target Service authors on every incident it reports: two people
-# paged, neither of them instantly.
-# MIRRORED FROM THE DEMO APP - NOT ARBITRARY VALUES!!! 
-# The first assertion below checks them against what the provider  actually 
+# paged, neither of them instantly - and both counted from the page rather than
+# from the breakage, because nobody responds to an incident before being told
+# about it.
+# MIRRORED FROM THE DEMO APP - NOT ARBITRARY VALUES!!!
+# The first assertion below checks them against what the provider actually
 # answered, so a fixture that moves fails here saying so.
 THE_TARGET_SERVICE_PAGES = {
-    "PDUSERA": timedelta(minutes=4),
-    "PDUSERB": timedelta(minutes=9)
+    "PDUSERA": timedelta(minutes=1),
+    "PDUSERB": timedelta(minutes=2)
 }
 
 A_MINUTE = timedelta(minutes=1)

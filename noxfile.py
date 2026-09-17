@@ -51,6 +51,20 @@ def _discover_modules() -> list[str]:
 
 MODULES: list[str] = _discover_modules()
 
+# Every value `CODE_SEARCH` takes - `argus_core.models.CodeSearch`, spelled out
+# rather than imported. This file is read before anything is installed, and a
+# task runner that cannot list its own sessions until the workspace resolves is
+# the one thing that cannot be used to fix a workspace that does not.
+#
+# The order is the order a sweep of all three runs in, and it is deliberate:
+# `grep` is the cheapest stack to bring up - no store, no model to load - so a
+# mode-independent breakage is reported minutes before the other two have
+# embedded anything.
+_SEARCHING_BY_GREP_ALONE: Final = "grep"
+_CODE_SEARCH_MODES: Final[tuple[str, ...]] = (
+    _SEARCHING_BY_GREP_ALONE, "meaning", "both"
+)
+
 
 @nox.session
 def lint(session: nox.Session) -> None:
@@ -180,11 +194,23 @@ def sweep(session: nox.Session) -> None:
         )
 
 
+# The replayed e2e run a push makes, by the id nox generates for it. Spelled
+# once because two places have to name the same parametrized session - what a
+# sweep starts, and which compose project it has to clean up after - and a
+# parametrization named differently in either is a session nox cannot find or a
+# stack nothing removes.
+_E2E_REPLAY_IN_PRODUCTION_MODE: Final[str] = "e2e_replay(mode='both')"
+
 # What a sweep runs. Every suite that costs nothing and needs no key - the same
 # set CI runs on a push, which is what makes a green sweep mean something
 # before the push rather than after it.
+#
+# One mode of `e2e_replay`, not three: a sweep answers "is this branch good"
+# before a push, and a push runs `both`. The other two modes are the nightly's,
+# where three stacks in sequence cost an hour nobody is waiting through.
 _SWEEP = ["lint", "typecheck", "guard_layering", "guard_e2e_boundary",
-          "guard_module_docstrings", "test_all", "integration", "e2e_replay"]
+          "guard_module_docstrings", "test_all", "integration",
+          _E2E_REPLAY_IN_PRODUCTION_MODE]
 
 # How often a sweep looks at its children. Long enough that watching is free,
 # short enough that a failure stops the others while they still have most of
@@ -279,6 +305,29 @@ def schema(session: nox.Session) -> None:
     and a postgres container, and only some of those are nox.
     """
     session.run("uv", "run", "python", "-m", "argus_core.schema", external=True)
+
+@nox.session
+def index(session: nox.Session) -> None:
+    """
+    Registers `index` as a nox session, i.e., runnable via
+    `uv run python -m nox -s index`.
+    Runs the reconciler that keeps the index of the Target Service's source
+    describing what is deployed: every pass compares the commit the stored
+    passages were built from with the commit the repository is at, and closes
+    the gap. It runs until killed, and most of its passes find nothing to do.
+
+    Needs postgres and Qdrant up, and reaches GitHub. The first pass on an
+    empty store is the backfill and is the slow one - it reads the repository
+    whole and embeds every passage; the passes after it embed only what
+    changed, because a passage's id is derived from what it says.
+
+    A session rather than only a compose service, because an index is the one
+    piece of Argus somebody wants to build against a local checkout without
+    bringing a stack up.
+    """
+    session.run(
+        "uv", "run", "python", "-m", "code_index.reconciling", external=True
+    )
 
 @nox.session
 def guard_layering(session: nox.Session) -> None:
@@ -1010,7 +1059,7 @@ _TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_POR
 _SWEEP_PROJECTS: Final[dict[str, tuple[str, ...]]] = {
     "test_all": ("-p", _TEST_ALL_STACK["COMPOSE_PROJECT_NAME"]),
     "integration": ("-p", _INTEGRATION_STACK["COMPOSE_PROJECT_NAME"]),
-    "e2e_replay": ()
+    _E2E_REPLAY_IN_PRODUCTION_MODE: ()
 }
 
 
@@ -1102,6 +1151,13 @@ _E2E_SETTINGS = {
     # on, so one hiccup there is one red run. No key, because the provider
     # needs none and the stand-in asks for none.
     "EXCHANGE_RATE_BASE_URL": "http://localhost:8080/frankfurter",
+    # How long the reconciler sleeps between passes. Short, because an e2e case
+    # that pushes waits for the index to catch up with it - and the default is
+    # a minute, which is the right pause for a deployment and a minute of a
+    # suite sitting on a row that is already decided. What it does *not* do is
+    # make the index arrive sooner than a suite can observe: a pass costs what
+    # it costs, and this only stops the wait being mostly sleep.
+    "CODE_INDEX_INTERVAL_SECONDS": "5",
     # Where Argus answers, which is what a message in a channel links back to.
     # Set for every stack rather than only the suites: a demo whose postmortem
     # linked nowhere would be a demo of the one thing a reader in a channel
@@ -1153,7 +1209,14 @@ _GITHUB_AT_THE_DOUBLE = {
     "GITHUB_READ_TOKEN": "the-double-never-reads-this-either",
     # The same scoping a deployment sets, so the suite exercises the filter
     # rather than a repository that happens to hold only service files.
-    "GITHUB_SOURCE_PATHS": "src/io_shop,tests/io_shop"
+    "GITHUB_SOURCE_PATHS": "src/io_shop,tests/io_shop",
+    # What a push must be signed with to be believed. A fixture secret, and the
+    # suite signs with this one - which is the whole of what the case proves:
+    # the endpoint is open to the internet, and a delivery nobody signed moves
+    # nothing. Set here rather than in `_E2E_SETTINGS` so a demo keeps the
+    # secret its own webhook is configured with, and real deliveries still
+    # verify.
+    "GITHUB_WEBHOOK_SECRET": "the-suite-signs-its-pushes-with-this"
 }
 
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
@@ -1218,6 +1281,20 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         None
     ),
     (
+        # What keeps the index describing what is deployed. The stack has
+        # already made one pass to completion before any service started, so
+        # this is only ever catching up with what happens during the run - a
+        # push the suite makes, or a fix branch nobody deployed and it
+        # correctly ignores.
+        #
+        # No readiness URL: it listens on nothing, and what it is ready for is
+        # a row in the database rather than a port. The pass that mattered was
+        # the one before the services.
+        "reconciler",
+        ["-m", "code_index.reconciling"],
+        None
+    ),
+    (
         # What tells a human anything. It follows the event log rather than
         # being called by the walk, so a stack without it walks incidents that
         # nobody outside the dashboard ever hears about.
@@ -1251,6 +1328,29 @@ def _the_services_for(slack_stands_in: bool) -> list[tuple[str, list[str], str |
     standing_in = (_SLACK_DOUBLE, _GITHUB_DOUBLE)
 
     return [service for service in _LOCAL_SERVICES if service not in standing_in]
+
+
+# The processes that stand in for somebody else's service. They come up before
+# anything of Argus's does, and before the index is built: what they stand in
+# for is exactly what the rest of the stack reads.
+_THE_STAND_INS: Final = (_ANTHROPIC_DOUBLE, _SLACK_DOUBLE, _GITHUB_DOUBLE)
+
+
+def _start_each_of(services: list[tuple[str, list[str], str | None]],
+                   service_env: dict[str, dict[str, str]],
+                   started: list[subprocess.Popen[bytes]]) -> None:
+    """Starts these services, waits for the ones that listen, and records them.
+
+    Appends to the caller's list rather than answering with its own, because
+    what has to be torn down is everything started so far - including the half
+    that was up when the next one failed.
+    """
+    for name, module_args, ready_url in services:
+        started.append(_start_service(module_args, env=service_env.get(name)))
+        # A service that listens on nothing is waited for by nothing: the
+        # worker's readiness shows up in the queue it drains, not on a port.
+        if ready_url is not None:
+            _wait_for_http(name, ready_url)
 
 
 def _run_against_the_stack(
@@ -1317,12 +1417,32 @@ def _run_against_the_stack(
         session.run(
             "uv", "run", "python", "-m", "argus_core.schema", external=True
         )
-        for name, module_args, ready_url in _the_services_for(slack_stands_in):
-            started.append(_start_service(module_args, env=service_env.get(name)))
-            # A service that listens on nothing is waited for by nothing: the
-            # worker's readiness shows up in the queue it drains, not on a port.
-            if ready_url is not None:
-                _wait_for_http(name, ready_url)
+        services = _the_services_for(slack_stands_in)
+        # The stand-ins before the index, because the index reads a repository
+        # and for a suite the repository is the GitHub double. A pass made
+        # before it answers fails on a refused connection - the stack's own
+        # ordering, reported as a repository that could not be read.
+        _start_each_of(
+            [service for service in services if service in _THE_STAND_INS],
+            service_env,
+            started
+        )
+        # And the index, in the schema's slot and for the same reason. Code-Fix
+        # searches the repository by meaning from its first turn, so a stack
+        # that started Argus and let the reconciler catch up in its own time
+        # would have the first run of a suite race the first pass - and
+        # whichever won would decide what the model was handed. One pass to
+        # completion here; the loop among the services keeps it current after
+        # that.
+        session.run(
+            "uv", "run", "python", "-m", "code_index.reconciling", "--once",
+            external=True
+        )
+        _start_each_of(
+            [service for service in services if service not in _THE_STAND_INS],
+            service_env,
+            started
+        )
         # Anything after `--` goes to pytest, so a single failing case can be
         # re-run against the stack (`-- -k fallback`) instead of the whole
         # suite. Bringing the stack up is the slow part of a green run and the
@@ -1401,8 +1521,8 @@ def _the_containers_said_this(session: nox.Session) -> None:
 def e2e(session: nox.Session) -> None:
     """
     Registers `e2e` as a nox session, i.e., runnable via `uv run python -m nox -s e2e`.
-    Runs the end-to-end suite (plus `tests/integration`) against the full local
-    stack, with `argus_web` talking to the **real Anthropic API**.
+    Runs the end-to-end suite against the full local stack, with the worker
+    talking to the **real Anthropic API**.
 
     This is the paid, manual, pre-merge run: it needs `ANTHROPIC_API_KEY` and
     spends tokens on every incident it drives. It is the only suite in which a
@@ -1410,26 +1530,50 @@ def e2e(session: nox.Session) -> None:
     end, which is what makes it worth the money before a merge that changes the
     investigation path.
 
+    `tests/integration` used to run here too, in the same pytest process. It
+    does not any more, and the reason is the database: that suite brings
+    postgres up, empties it between cases and stops it at the end, and under
+    this session it was doing all of that to the stack's own database with the
+    worker still attached. The visible symptom was a worker dying in a
+    traceback after everything had passed; the invisible one would have been a
+    truncate landing mid-walk. It costs nothing and needs no key, so it runs in
+    `sweep` and in CI on a compose project of its own.
+
     For the free counterpart that checks the same pipeline with every model
     answer replayed from a recording, see `e2e_replay` - that is the one CI
     runs on every push.
     """
-    test_paths = ["tests/e2e"]
-    if Path("tests/integration").exists():
-        test_paths.append("tests/integration")
-
-    _run_against_the_stack(session, test_paths)
+    _run_against_the_stack(session, ["tests/e2e"])
 
 
 @nox.session
-def e2e_replay(session: nox.Session) -> None:
+@nox.parametrize("mode", _CODE_SEARCH_MODES)
+def e2e_replay(session: nox.Session, mode: str) -> None:
     """
-    Registers `e2e_replay` as a nox session, i.e., runnable via
-    `uv run python -m nox -s e2e_replay`.
+    Registers `e2e_replay` as a nox session, parametrized once per way of
+    finding code, i.e., runnable via
+    `uv run python -m nox -s "e2e_replay(mode='both')"` for one mode, or
+    `-s e2e_replay` for all three. The parametrization has to be named, as
+    `test_module`'s does: a trailing `-- <mode>` becomes `session.posargs`,
+    which this session hands to pytest.
     Runs the end-to-end suite against the full local stack with `argus_web`
     pointed at the Anthropic double, so **every model answer is replayed from a
     recording committed to this repo**. No API key, no tokens, no cost - which
     is exactly why this is the version CI runs on every push.
+
+    `mode` is `CODE_SEARCH`, and it decides far more than which tools the model
+    is offered: under `grep` the read tier registers no retrieval-by-meaning
+    tool and opens no store, and the stack's index pass exits before building
+    anything. So each mode is a different stack, walking a different graph, and
+    each answers from **its own recordings** - stored under names this mode
+    prefixes (`grep-feature-flag-toggle`, `both-feature-flag-toggle`). The
+    double is a queue seeded by name and never inspects the request, so a
+    `both` sequence replayed under `grep` would hand the model a call to a tool
+    it was never offered, and the failure would read as an agent bug.
+
+    `both` is what a push runs, being what a deployment runs. The other two are
+    the benchmark's arrangement (§21) and run in the nightly, where an hour is
+    cheap.
 
     What a green run proves: the pipeline works. An alert reaches the webhook,
     the orchestrator's graph drives it, all three retrieval channels answer
@@ -1450,20 +1594,47 @@ def e2e_replay(session: nox.Session) -> None:
     Nothing in the production path knows this session exists: a pipeline that
     behaves differently when observed is not the pipeline.
     """
+    # On the session's own environment, for the reason `_run_against_the_stack`
+    # sets the rest there: the index pass, the read tier, the worker and the
+    # pytest process that seeds the double all have to agree about which mode
+    # this run is, and only an inherited setting cannot disagree.
+    os.environ["CODE_SEARCH"] = mode
     _run_against_the_stack(
         session,
-        ["tests/e2e"],
+        _the_cases_for(mode),
         service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}}
     )
 
 
-@nox.session
-def record(session: nox.Session) -> None:
+# The cases about the index and the push that moves its watermark. Named here
+# because the session, not the suite, is what knows which mode is running.
+_CASES_ABOUT_THE_INDEX: Final = "tests/e2e/test_the_index_follows_the_repository.py"
+
+
+def _the_cases_for(mode: str) -> list[str]:
+    """The suite, less what this mode has no index for.
+
+    Left uncollected rather than skipped inside the case. A skip is a result,
+    and a run that reports the same two every time teaches a reader to read past
+    the line that will one day say something else. Under `grep` there is no
+    store, no watermark and no push to move one - those cases are not pending
+    against this stack, they are about a mechanism it does not have.
     """
-    Registers `record` as a nox session, i.e., runnable via
-    `uv run python -m nox -s record -- <name> [<name> ...]` - for example
-    `-- flag-toggle-red-herring`, or `-- all` for every recording the offline
-    suites rest on.
+    if mode != _SEARCHING_BY_GREP_ALONE:
+        return ["tests/e2e"]
+
+    return ["tests/e2e", f"--ignore={_CASES_ABOUT_THE_INDEX}"]
+
+
+@nox.session
+@nox.parametrize("mode", _CODE_SEARCH_MODES)
+def record(session: nox.Session, mode: str) -> None:
+    """
+    Registers `record` as a nox session, parametrized once per way of finding
+    code, i.e., runnable via
+    `uv run python -m nox -s "record(mode='both')" -- <name> [<name> ...]` -
+    for example `-- flag-toggle-red-herring`, or `-- all` for every recording
+    the offline suites rest on.
     Brings the same stack up as `e2e_replay`, but instead of running tests it
     drives **a real incident per name** through the Anthropic double in record
     mode, so the model's actual answers are stored as replayable recordings.
@@ -1483,7 +1654,16 @@ def record(session: nox.Session) -> None:
     The worker is pointed at the double exactly as in `e2e_replay` - which is
     what puts the double in the path at all - and the double forwards the call
     upstream because it was told to record rather than seeded.
+
+    Parametrized by mode for the reason `e2e_replay` is: a recording is a queue
+    of answers to a walk that was offered a particular set of tools, so a mode
+    is not a label on the recording - it is the world it was captured in. The
+    stack this brings up is the stack that mode runs, and the script stores
+    what it captures under that mode's names. `grep` needs no run of its own
+    unless its recordings are being refreshed: what is stored there is the walk
+    Code-Fix took before retrieval by meaning existed.
     """
+    os.environ["CODE_SEARCH"] = mode
     _run_against_the_stack(
         session,
         test_paths=[],

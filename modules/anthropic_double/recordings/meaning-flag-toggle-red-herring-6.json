@@ -1,0 +1,44 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISvwkKjgEIERgCKkD7gkfV+PsX1G0KMEmSBOuNC6Vs14icHYEa/z7jK4Od73dT1RN+KDGNKZm04ctmuWXpkt7JeM2CFl/BkqSACuujMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAbnxr9UGEgxIzDqxxN0ucZPE340aDHEudHCyh4j7QrMFxSIwfLvjsZsocXGtbjSpK/xKvQpY2jJzMac2nBWjBkoRnTWqoc73UphU76A6zaM7tPNkKt0H37/In+F5abE9IN2kJ1SoGZLs12V8UAYKqK5qYfWEuLIDr2tZJEuPorICMQ5zjpd+h5AHi1L9u3aHIPS6sbpu4Zb0oYG3umsgUaW9h/gwtdklRsk6rh8QO61gwyKUEiVEbTxP6o/uReJQJ090NPmsnrByx79JvQO1tqJICFBS56VmFesYoy0UTkx+/l68NyQBiyXf1oo1gYAUx1SO0RoDKnSOYvZPNB2WrS3IQamj1nd4NgQOaM9GiM6WTtoUbNqBg7u1bq47Bv9b3iKtyThU8CoEy9np3vsk8emCHTFe8Vrv7EoJpjSdfmkw06K2gcro3zcEg8Rf6ow+QDBDVNQy4iJGtJUYM1muIEaMKuSTPwY4iTGpIERMz1sP3C3eZ4ExjhvldrU6P/E1/3QnUQAp+nZVee0VQNEXbgyyWaB41uqDxD3zbkf8fVCIR83ZnMC54Pn8PCof7ZGifHapITMJ7mDdnNjK3xNFd/WA51X7rxQVojQCLqHECOmjVl1QjPyW0d5eEgKY0OcPDl1PUMFFAOWXSayIfoyhLPreSupnfyHIh7UoElb0VQs0CHrTEN6Vp7kpeKnEzYj2d+5K+l4Cf4hHUr+o8eif6mxKGkuCIvwo8d5XF8ADMWduCNPitXMQWBmRmAPwh13AYnGdIus4A99D62RAEwq5hW5zR8N/uBdYVh6JEmH1yvAj4Z75vz5qodrnzlqzJNXJjgtaT/18l6gqJqSkQSBjXmRQQABGZULO4sPkf/Az2P1J/NSGfI4c/nth2rKWYV/JV352zqQ6YfKhgYVwnt3PsJ2v22IUi4k/92aATTeQHPtLJwgDUS/5ZB0UBPMaOQKRo1MoP5TP3yKqFlXqoWAbeW20sAyTDRD0Kybhl/qonQH5fL91ZZznrBBq8DCfCXtsRMqgr+Oh926e5nK3a2hR5tP0N8GuR1dQ+R/wxWBn8MgbBw2p12x7WSODYRYHLsE3uiewplgfidm3r2H50ku4KWi3FHTTn37VCh6aXrxLHdEV/Z4B/C0EG3Gld8jRNpQFXp3ggkk0AS+Q9KPiTGHyWvdLC/3Z5fdMj8IUPEErATLDeLNujE3m9codc36b710fQcrmYbYt2XZ+QexDZ2zETerI8m0vX1hxujf+E00wZwXQLVq+H/39pTMcKpV1iHQ5IPff/XUBt63i/6TnWvY2a7SUvy3sk5Uk81QIQUbpQ8QvDt2rF7gn8B/XN9jWNcf9v88Jy4nu42YYaoOq3+6ZxaBbWj6Yk6vasvSJx9iDY4kBtSZZoX9K3I1C9mOD7YtwWhli272mPIg8PYuxSSM0OehjPmMYAQ==",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01BPb7xhq6jZhx8dey29EVSv",
+      "input": {
+        "window_end": "2026-09-17T14:45:00Z",
+        "window_start": "2026-09-17T14:26:00Z"
+      },
+      "name": "get_logs",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf9AfsR8Lgv8qf8mRxGwd",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 159
+    },
+    "cache_creation_input_tokens": 159,
+    "cache_read_input_tokens": 14094,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 480,
+    "output_tokens_details": {
+      "thinking_tokens": 380
+    },
+    "service_tier": "standard"
+  }
+}

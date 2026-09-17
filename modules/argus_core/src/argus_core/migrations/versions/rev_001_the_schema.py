@@ -337,6 +337,34 @@ CREATE TABLE IF NOT EXISTS event_cursor (
     seq BIGINT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS repository_index (
+    -- `owner/name`, as the API addresses a repository, and the identity a
+    -- deployment configures. One row per repository rather than per index:
+    -- what is indexed is a repository, and the vectors themselves live where
+    -- vectors live.
+    repository TEXT PRIMARY KEY,
+    -- The commit the stored passages describe. Null until the first index has
+    -- finished, which is the absence of a mark rather than a mark that happens
+    -- to differ - the two call for different work, a backfill and a handful of
+    -- changed paths, so they must not arrive looking alike.
+    indexed_sha TEXT,
+    -- The commit the repository is at, as the last push reported it. Null
+    -- before anything has reported one, which is the ordinary state of a first
+    -- deployment: the reconciler asks the provider for the deployed branch's
+    -- head rather than waiting to be told.
+    --
+    -- The difference between this and `indexed_sha` is the whole mechanism -
+    -- the work list, the retry and what a reader is told when what it searched
+    -- is not what is running. Nothing counts attempts, because a pass that
+    -- failed leaves the difference where it was and the next pass finds the
+    -- same work waiting.
+    pending_sha TEXT,
+    -- When the index last finished, which is a different question from when
+    -- the commit it describes was pushed - and the one to ask when an index
+    -- looks stale.
+    indexed_at TIMESTAMPTZ
+);
 """
 
 def upgrade() -> None:

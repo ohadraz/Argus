@@ -116,11 +116,27 @@ jobs:
       - name: Sync workspace
         run: uv sync --all-packages
 
+      # The stack builds the index before it starts a service, so this job
+      # loads the real embedding model. Same cache, same key and the same
+      # spelled-out path `ci.yml` uses - a tilde here would be expanded by the
+      # action and not by Python, and the two would cache different directories.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.fastembed
+          key: fastembed-${{ hashFiles('Argus/uv.lock') }}
+          restore-keys: fastembed-
+
       # Unsharded, because a share can only time the cases it was given. This
       # is the run that sees all of them.
+      #
+      # `both`, because these figures are read by the job that shards `both`.
+      # The modes walk different graphs and take different times, and durations
+      # measured under one would divide the other's suite by fiction.
       - name: e2e (replayed answers), timing every case
-        run: uv run python -m nox -s e2e_replay -- --store-durations
+        run: uv run python -m nox -s "e2e_replay(mode='both')" -- --store-durations
         env:
+          FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed
           # The same fixture credential every job running the stack has to
           # name - see `ci.yml` for why it has no default.
           UNLEASH_ADMIN_TOKEN: "*:*.argus-agent-token"
@@ -145,3 +161,65 @@ jobs:
           # whole by the run, so there is nothing here to conflict with.
           git pull --rebase
           git push
+
+  # The two ways of finding code a deployment does not run. `CODE_SEARCH=grep`
+  # and `=meaning` exist for the benchmark (§21), which compares two retrievers
+  # by taking the choice between them away from the model - and a mode nothing
+  # runs is a mode that has quietly stopped working by the time somebody wants
+  # a figure out of it.
+  #
+  # Here rather than on a push because each is a whole stack of its own, with
+  # recordings of its own, and a push already answers the question it is asking:
+  # `ci.yml` runs `both`, which is what a deployment runs. `both` is not
+  # repeated here - `record-e2e-durations` above is that run.
+  e2e-replay-single-channels:
+    runs-on: ubuntu-latest
+
+    strategy:
+      # A mode that breaks says nothing about the other, and cancelling it would
+      # hide a second, different failure behind the first.
+      fail-fast: false
+      matrix:
+        mode: [grep, meaning]
+
+    defaults:
+      run:
+        working-directory: Argus
+
+    steps:
+      - name: Check out Argus
+        uses: actions/checkout@v7
+        with:
+          path: Argus
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v7
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: Argus-Demo-Target-App
+
+      - uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      # Paid for by `meaning` alone: a `grep` stack builds no index and loads no
+      # model. Restoring a cache it will not read costs seconds, and a matrix
+      # that differed per mode would be two jobs written as one.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.fastembed
+          key: fastembed-${{ hashFiles('Argus/uv.lock') }}
+          restore-keys: fastembed-
+
+      # Unsharded. These runs exist to prove the mode still walks end to end,
+      # and `.test_durations` describes `both` - a share cut by another mode's
+      # figures would put the long case wherever that mode happened to find it.
+      - name: e2e (replayed answers, ${{ matrix.mode }})
+        run: uv run python -m nox -s "e2e_replay(mode='${{ matrix.mode }}')"
+        env:
+          FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed
+          # The same fixture credential every job running the stack has to
+          # name - see `ci.yml` for why it has no default.
+          UNLEASH_ADMIN_TOKEN: "*:*.argus-agent-token"

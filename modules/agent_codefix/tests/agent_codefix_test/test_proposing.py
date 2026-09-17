@@ -24,6 +24,8 @@ from agent_codefix.proposing import (
     FileReader,
     FixNotAnswered,
     FixSettings,
+    IndexNotice,
+    MeaningSearcher,
     PullRequestOpener,
     SourceSearcher,
     propose_fix,
@@ -32,6 +34,7 @@ from agent_investigator.reasoning import a_conversation_recorded_for
 from argus_core.models import (
     Ask,
     CauseType,
+    CodeSearch,
     Evidence,
     Hypothesis,
     OpenedPullRequest,
@@ -270,6 +273,304 @@ def _the_search_was_made_at(repository: _Repository,
         if asked is None or asked.args[1:2] != (ref,):
             raise AssertionError(
                 f"Expected a search at ref [{ref}], got [{asked}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_a_search_by_meaning_is_answered_with_the_passages_it_found() -> None:
+    # The channel for a cause with no name to search for. An investigation
+    # concluding "the discount is divided by a count that can be zero" gives
+    # substring search nothing to match on - the repository may not say
+    # `discount` anywhere - and this finds the code that behaves that way.
+    the_passage = f"{SOME_PATH}:14-16\n    return total / len(purchases)"
+    repository = a_repository(reading_like=[the_passage])
+    model = a_model_that(
+        asks_to_search_by_meaning_for("divides by a count that can be zero"),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, the_passage))
+
+
+@pytest.mark.unit
+def test_a_search_by_meaning_that_matched_nothing_says_so() -> None:
+    # Said rather than left as an empty answer, for the reason the substring
+    # channel says it: a model handed nothing reads it as a tool that failed
+    # and asks again in the same words, where one told the index holds nothing
+    # like that describes the fault differently - which is the move that finds
+    # the file.
+    repository = a_repository(reading_like=[])
+    model = a_model_that(
+        asks_to_search_by_meaning_for("dont care"),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, "reads like that"))
+
+
+@pytest.mark.unit
+def test_a_search_by_meaning_is_made_at_the_branch_the_fix_is_cut_from() -> None:
+    # The deployed branch, as every other read here is. The index may describe
+    # an older commit and says so itself; what must not happen is this channel
+    # quietly asking about a different branch than the one being patched.
+    the_deployed_branch = "release"
+    repository = a_repository()
+    model = a_model_that(
+        asks_to_search_by_meaning_for("dont care"),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(base_branch=the_deployed_branch),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_meaning_search_was_made_at(repository, the_deployed_branch))
+
+
+@pytest.mark.unit
+def test_an_index_that_could_not_be_searched_does_not_end_the_work() -> None:
+    # A store that is down is one turn wasted, not a fix abandoned. The model
+    # is told what failed, in words, and still has substring search, listing
+    # and reading - so the run continues and the failure is something it can
+    # act on rather than an exception the loop dies on.
+    repository = a_repository()
+    repository.search_by_meaning.side_effect = ConnectionError("no route to the store")
+    model = a_model_that(
+        asks_to_search_by_meaning_for("dont care"),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_told(model, "no route to the store"),
+                _a_pull_request_was_opened(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_deployment_with_an_index_offers_both_ways_of_searching() -> None:
+    # They answer different questions and are worth having together: one
+    # matches characters, the other meaning. A cause that has a name is found
+    # faster by the first, and one that only has a description is found at all
+    # by the second.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(retrieval=CodeSearch.BOTH),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_offered(model, "search_repository"),
+                _the_model_was_offered(model, "search_repository_by_meaning"),
+                _the_model_was_offered(model, "read_repository_file"),
+                _the_model_was_offered(model, "submit_fix")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_deployment_with_no_index_offers_no_tool_that_cannot_answer() -> None:
+    # A tool that is offered will be called, and one backed by an index nobody
+    # built answers nothing for every description - which a model reads as a
+    # fact about the code rather than about the deployment.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(retrieval=CodeSearch.GREP),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_offered(model, "search_repository"),
+                _the_model_was_not_offered(model, "search_repository_by_meaning")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_run_of_meaning_alone_offers_no_substring_search() -> None:
+    # What the benchmark's retriever comparison (§21) needs: one channel at a
+    # time, over the same incidents, or the answer is about having both.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(retrieval=CodeSearch.MEANING),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_offered(model, "search_repository_by_meaning"),
+                _the_model_was_not_offered(model, "search_repository")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_index_that_is_behind_is_said_before_the_model_reads_anything() -> None:
+    # Told rather than left to find out. The index is built off any incident's
+    # path, so it can describe an older commit than the one being fixed - and a
+    # model that learns that from a patch against a file that has moved has
+    # learned it after the work was done.
+    what_the_index_says = (
+        "the passages retrievable here describe commit 3f1b9d2, and the "
+        "deployed branch is at 77296ac"
+    )
+    repository = a_repository(whose_index_says=what_the_index_says)
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, what_the_index_says))
+
+
+@pytest.mark.unit
+def test_an_index_that_is_current_adds_nothing_to_what_the_model_is_told() -> None:
+    # A warning printed every run is a warning nobody reads, which is how the
+    # run where it was true goes unnoticed. Current means silent.
+    repository = a_repository(whose_index_says="")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_not_told(model, "index"))
+
+
+def _the_meaning_search_was_made_at(repository: _Repository,
+                                    ref: str) -> Assertion[OpenedPullRequest | None]:
+    """The search by meaning ran against the branch a fix is cut from."""
+    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+        asked = repository.search_by_meaning.call_args
+
+        if asked is None or asked.args[1:2] != (ref,):
+            raise AssertionError(
+                f"Expected a search by meaning at ref [{ref}], got [{asked}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_model_was_offered(model: _Model, tool: str) -> Assertion[Any]:
+    """A tool the model could reach for, which is the whole of what it has."""
+    def assertion(dont_care_result: Any) -> bool:
+        offered = {
+            definition.name
+            for definitions in model.tools_offered
+            for definition in definitions
+        }
+
+        if tool not in offered:
+            raise AssertionError(f"Expected [{tool}] to be offered, got {offered}.")
+
+        return True
+
+    return assertion
+
+
+def _the_model_was_not_offered(model: _Model, tool: str) -> Assertion[Any]:
+    def assertion(dont_care_result: Any) -> bool:
+        offered = {
+            definition.name
+            for definitions in model.tools_offered
+            for definition in definitions
+        }
+
+        if tool in offered:
+            raise AssertionError(f"Expected [{tool}] not to be offered, got {offered}.")
+
+        return True
+
+    return assertion
+
+
+def _the_model_was_not_told(model: _Model, said: str) -> Assertion[Any]:
+    def assertion(dont_care_result: Any) -> bool:
+        everything = model.everything_it_was_told()
+
+        if said in everything:
+            raise AssertionError(
+                f"Expected the model not to be told [{said}], and it was: "
+                f"{everything}"
             )
 
         return True
@@ -791,6 +1092,12 @@ def asks_to_read(path: str) -> Turn:
     return _a_turn_calling("read_repository_file", {"path": path})
 
 
+def asks_to_search_by_meaning_for(description: str) -> Turn:
+    return _a_turn_calling(
+        "search_repository_by_meaning", {"description": description}
+    )
+
+
 def submits_a_fix_touching(*paths: str,
                            summary: str = "a summary",
                            explanation: str = "an explanation") -> Turn:
@@ -825,9 +1132,11 @@ class _Model:
     def __init__(self, turns: list[Turn]) -> None:
         self.turns = list(turns)
         self.transcripts: list[Transcript] = []
+        self.tools_offered: list[list[ToolDefinition]] = []
 
     def converse(self, transcript: Transcript, tools: list[ToolDefinition]) -> Turn:
         self.transcripts.append(list(transcript))
+        self.tools_offered.append(list(tools))
 
         if not self.turns:
             raise AssertionError("The loop asked for more turns than were scripted.")
@@ -859,7 +1168,7 @@ def a_model_that(*turns: Turn) -> _Model:
 
 
 class _Repository:
-    """The four ports the loop reaches the repository through.
+    """The ports the loop reaches the repository through.
 
     Spec'd against the `Protocol`s rather than against the client functions
     those are implemented by: a client function takes the connection it is asked
@@ -868,12 +1177,23 @@ class _Repository:
     `get_log_lines`.
     """
 
-    def __init__(self, holding: list[str], whose_source_is: str, found: list[str]) -> None:
+    def __init__(self,
+                 holding: list[str],
+                 whose_source_is: str,
+                 found: list[str],
+                 reading_like: list[str],
+                 whose_index_says: str) -> None:
         self.list_files: Any = create_autospec(
             FileLister, instance=True, return_value=holding
         )
         self.search: Any = create_autospec(
             SourceSearcher, instance=True, return_value=found
+        )
+        self.search_by_meaning: Any = create_autospec(
+            MeaningSearcher, instance=True, return_value=reading_like
+        )
+        self.index_notice: Any = create_autospec(
+            IndexNotice, instance=True, return_value=whose_index_says
         )
         self.read_file: Any = create_autospec(
             FileReader, instance=True, return_value=whose_source_is
@@ -892,15 +1212,17 @@ class _Repository:
         )
 
     def ports(self) -> dict[str, Any]:
-        """The five seams, as the keywords `propose_fix` takes them by.
+        """The seams, as the keywords `propose_fix` takes them by.
 
-        Handed over as one mapping because every test needs all four and only
-        ever cares about one - naming the other three at ten call sites would
+        Handed over as one mapping because every test needs all of them and
+        only ever cares about one - naming the rest at ten call sites would
         bury the line each test is actually about.
         """
         return {
             "list_files": self.list_files,
             "search": self.search,
+            "search_by_meaning": self.search_by_meaning,
+            "index_notice": self.index_notice,
             "read_file": self.read_file,
             "write_branch": self.write_branch,
             "open_pull_request": self.open_pull_request
@@ -909,20 +1231,44 @@ class _Repository:
 
 def a_repository(holding: list[str] | None = None,
                  whose_source_is: str = SOME_SOURCE,
-                 where: list[str] | None = None) -> _Repository:
+                 where: list[str] | None = None,
+                 reading_like: list[str] | None = None,
+                 whose_index_says: str = "") -> _Repository:
+    """The repository as the loop sees it - indexed, and current unless said.
+
+    `whose_index_says` empty is an index describing the commit being fixed,
+    which is the ordinary state and the one that must add nothing to what the
+    model is told.
+    """
     return _Repository(
         holding or [SOME_PATH],
         whose_source_is,
-        where if where is not None else [f"{SOME_PATH}:8: the flag is read here"]
+        where if where is not None else [f"{SOME_PATH}:8: the flag is read here"],
+        reading_like if reading_like is not None else [
+            f"{SOME_PATH}:4-9\n{SOME_SOURCE}"
+        ],
+        whose_index_says
     )
 
 
-def some_settings(base_branch: str = "main", max_turns: int = 12) -> FixSettings:
+def some_settings(base_branch: str = "main",
+                  max_turns: int = 12,
+                  retrieval: CodeSearch = CodeSearch.BOTH
+                  ) -> FixSettings:
     """What the fix loop is bounded and aimed by.
 
     `base_branch` is what a fix is cut from and proposed onto - the branch that
     is actually deployed. `max_turns` bounds the reading, for the reason the
     investigation's budgets exist: a bound the model could talk its way past is
     not a bound.
+
+    `retrieval` is which ways of finding code the model is offered. Both by
+    default, because a deployment that has an index should use it - and because
+    the tests that care which are offered say so, where the rest are about what
+    happens once something has been found.
     """
-    return FixSettings(github_base_branch=base_branch, codefix_max_turns=max_turns)
+    return FixSettings(
+        github_base_branch=base_branch,
+        codefix_max_turns=max_turns,
+        code_search=retrieval
+    )

@@ -13,11 +13,18 @@ in a comment.
 
 from __future__ import annotations
 
-from argus_core import ReadMcpEndpoint, get_settings
+from argus_core import (
+    Connections,
+    DatabaseSettings,
+    ReadMcpEndpoint,
+    get_settings,
+    open_pool,
+)
 from argus_core.models import ChangeEvent, MetricBucket
+from code_index.embedding import an_embedder
 from mcp.server.fastmcp import FastMCP
 
-from read_mcp_server import flags, repository, retrieval
+from read_mcp_server import flags, meaning, repository, retrieval
 from read_mcp_server.argocd import (
     ArgocdSettings,
     fetch_argocd_application,
@@ -25,6 +32,7 @@ from read_mcp_server.argocd import (
 )
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.flags import FlagReadSettings
+from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.window import RetrievalSettings
@@ -35,7 +43,9 @@ def build_server(endpoint: ReadMcpEndpoint,
                  target_service: TargetServiceSettings,
                  flag_settings: FlagReadSettings,
                  argocd_settings: ArgocdSettings,
-                 repository_settings: RepositoryReadSettings) -> FastMCP:
+                 repository_settings: RepositoryReadSettings,
+                 index_settings: IndexReadSettings,
+                 connections: Connections) -> FastMCP:
     """Registers every read tool against one deployment's configuration.
 
     A function rather than module-level code, so that importing this module -
@@ -223,6 +233,73 @@ def build_server(endpoint: ReadMcpEndpoint,
         `repository.read_repository_file`; this is registration only."""
         return repository.read_repository_file(path, ref, repository_settings)
 
+    # Everything below this line exists only where the deployment keeps an
+    # index. Not a tool that answers "no" when asked: a tool that is offered
+    # will be called, and one backed by an index nobody builds answers nothing
+    # for every description - which a model reads as a fact about the code.
+    # Skipping the registration also skips the store client and the model.
+    if not index_settings.searches_by_meaning:
+        return mcp
+
+    # Bound once, like the fetchers above. The embedder is the odd one: it
+    # loads a model on first use rather than here, so a server that is started
+    # and never asked to search by meaning never pays for it.
+    embed = an_embedder()
+    find_passages = meaning.the_index_at(index_settings)
+    indexed_sha = meaning.the_commit_indexed_for(
+        repository_settings.github_repository, connections
+    )
+
+    @mcp.tool()
+    def get_repository_index_freshness(ref: str) -> str:
+        """Returns what has to be said about the index of the Target Service's
+        source before anything it answers is acted on, or an empty string when
+        there is nothing to say.
+
+        For whoever is assembling a prompt rather than for a model mid-task:
+        the same fact `search_repository_by_meaning` prefixes onto its answers,
+        available before the first one is asked for. An index is built off any
+        incident's path, so it can describe an older commit than the one being
+        fixed - and a model that learns that from a result it has already acted
+        on has learned it a turn too late.
+
+        The behavior lives in `meaning.the_index_notice`; this is registration
+        only."""
+        return meaning.the_index_notice(ref=ref, indexed_sha=indexed_sha)
+
+    @mcp.tool()
+    def search_repository_by_meaning(description: str, ref: str) -> list[str]:
+        """Returns the passages of the Target Service's source nearest a
+        description of what the code does, as `path:start-end` and the source
+        itself.
+
+        The tool for a cause that has no name to search for. An investigation
+        concluding "the discount is divided by a count that can be zero" gives
+        `search_repository` nothing to match on - the repository may not say
+        `discount` anywhere - and this finds the code that behaves that way.
+        Describe the behaviour, not the identifier: this matches meaning, where
+        `search_repository` matches characters, and the two are worth using
+        together.
+
+        Passages, not files. What comes back is source with the lines it spans,
+        ready to read - and `read_repository_file` on the path it names is how
+        to see the rest of it.
+
+        An answer may open with a `note:` line saying the index describes an
+        older commit than the one asked about, in which case code that changed
+        in between may not be findable here yet. Nothing found is a real answer;
+        an index nobody has built yet says so; and a store that could not be
+        reached raises rather than answering emptily. The behavior lives in
+        `meaning.search_repository_by_meaning`; this is registration only."""
+        return meaning.search_repository_by_meaning(
+            description,
+            ref,
+            settings=repository_settings,
+            embed=embed,
+            find=find_passages,
+            indexed_sha=indexed_sha
+        )
+
     return mcp
 
 
@@ -233,17 +310,26 @@ def main() -> None:
     is handed the part of the answer it reads, which is what makes the tier a
     property of the types rather than of what the deployment happened to put in
     the environment.
+
+    A pool rather than a connection, and held open for the life of the process:
+    the index's watermark is read on every search by meaning, and a handshake
+    per question is one a model waits through. It reads one row and writes
+    none - a database arriving in the read tier does not make the read tier
+    capable of writing (§13).
     """
     settings = get_settings()
 
-    build_server(
-        ReadMcpEndpoint.of(settings),
-        RetrievalSettings.of(settings),
-        TargetServiceSettings.of(settings),
-        FlagReadSettings.of(settings),
-        ArgocdSettings.of(settings),
-        RepositoryReadSettings.of(settings)
-    ).run(transport="streamable-http")
+    with open_pool(DatabaseSettings.of(settings)) as pool:
+        build_server(
+            ReadMcpEndpoint.of(settings),
+            RetrievalSettings.of(settings),
+            TargetServiceSettings.of(settings),
+            FlagReadSettings.of(settings),
+            ArgocdSettings.of(settings),
+            RepositoryReadSettings.of(settings),
+            IndexReadSettings.of(settings),
+            pool.connection
+        ).run(transport="streamable-http")
 
 
 if __name__ == "__main__":

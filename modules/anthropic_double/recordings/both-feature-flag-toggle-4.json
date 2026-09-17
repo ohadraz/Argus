@@ -1,0 +1,41 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISvAIKjgEIERgCKkBTzU0E8EAhYpldqk024WiYBWtnIF3/SyDlasY62O3vOIi3tm5lpkyUHqoa004RwBRXw8Rq4mmCR7zNHUyiuMjvMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAe3er9UGEgwkCLp2hA6zm8r3d0saDKHOd1RMQe5qzbpTYyIwHrERFKDI8IdNG0lkIqCtooMwneW5YsmvadFfrl4xNkx9V1k3dhpZ5KEYYItUD5oqKlumwSv1A4FrCTwpwGRs8Pm3DRGMbQWgo6y2FJKPOaLRmyaDWGsPxEOAGJ2LD0a2GOGkGAd+DxvD6FNUd/vWwNE4Kf/oeyeMTHVYKdswcqamMo/fDndUuB5MXqV1GAE=",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01LpQZDzt2SDANLwdek8vsgD",
+      "input": {},
+      "name": "list_repository_files",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf97ekWXta3yVj6Lzn7RJ",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 245
+    },
+    "cache_creation_input_tokens": 245,
+    "cache_read_input_tokens": 2543,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 58,
+    "output_tokens_details": {
+      "thinking_tokens": 28
+    },
+    "service_tier": "standard"
+  }
+}

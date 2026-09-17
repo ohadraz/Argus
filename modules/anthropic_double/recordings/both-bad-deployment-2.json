@@ -1,0 +1,92 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAIS9wkKjgEIERgCKkCkNbVJfdlXTZg/MmTHdQxZELD0RbqLviLa7wZwo+d8Ij3R5PjXzQLrNZQlaaQySMwPBxQYs+azUwjpcnMgWg3EMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAb7fr9UGEgwACHPJkEeeMqr6YK8aDNwKHhECJLP9XnbSayIwqTLNLSpsTF3m3d0+fCt7c7xRjTVBjhTpQyJLD8TSOMq00eUJ+u3GZ2WgLcg4K8HyKpUI3UCh21Tqq5q6CuX+uzB2V6lj1/IdICfLWjLBiD0LsA8d5p2TcWwYBt7LoVO4JZANckL2sMa1lZIFcY1rUvOMn9BTMVKfpQCF4ITfBd2FCdFoNKJ8wlHcSVDdNlu8PAiy/qfLpLHUeiNLusv0ngDYBHoQfVbfFMmuq2NEvIMQt5fRHAWreCr/6ZlHgztZp4zX7JSfA3P/tsWziPmBbCj5ygVAQSy+lqXyfu6IUsARMY82t4Z3u6IxrkM1lgnXDZJxEOQjoVLpa+xF9vWVtOz7wu9DUq8W2DbFXy8zWFbsa/XnS11HBEjPXMBzML3nfU2fKS5y6/wX3ZRlV+oHOwrHbWzbFbzQSY3x0eEVc4b6UoL2zZQ9aVvyHLZMWZAKeLIAjIc19xx2RW2eS1QBj884ylBtsQ8E6MbsVvvbK9RwBdrDW47+FYkSuiJ3qy7cWYPuXHKrFM2YVdv0MMVhCrSJipy7aNUJDhLVMY+y+0AsVgXLwuP88FW9Fj8kPE/knNIDU6gfMHrM89MD5s05IiiVCyYAE0r2BUMEg6ogzUJKPml/KMnLP5UVC4qGtcYNj/FZ1DaBaGM0GZJvU5crcypjNFBZNjAg11gaEbYfd1pHSprHCZ9zcJG4YQrM4Bo/8oNNj3R54PxPVqCXUt7Glc7MxHb8pqDWKut6MPXe6wbgl/momlqnDaclqLKfuh0kfTday1+lkcnbjABfUUXZEFByYVhJeZpoYkzdh4/TuMAIhrA306W2Z12ic442xzCNjytOxIEB9wH0nvieLRBI6iz2rMW/H/a4bmlNVaYeiHaJEo3iuRj9fEoP689xtpSsvREx0XNl2UWTpSAeMH2R/NF5ju/5KWuVHc/SRBnQwnAQJzU9EWiMRzE/sJ4N1XS0q7efv+MOCP+Bxuu4B72eS55FPAgkDs2OYdqGPQ3f6VdzZNNHrISKJ4VnzjtGbOiU/bqu16MlzQvfX9GEEJOmch8XGn3duPw6ZTAxpawGNu0H3cjaOagbED5MwvHEhMQ+vZ/CFER+DVLKagQsZKqzNFO5oM9qHpmrkl4RdMbjhi0Pd/R3SoBvp9pjrIGYHpisNJpmu3N3aDnJUwgDqkkO4qGCruJGDB50MMpz4uwpAhuEAV5BGnGCXLvoTmENxXa/9apc6dxEYl/ThUuwjQ0Qm5kYTyTj5Kmz0t8sRQi7gd+SUUOHKrja9cpWNnUzC8IaNNLK5rRMmzNCbitNf0+Sjj5mqFNK4pFQwRt0JkLW62OUhKUJdiFX5xlFTF0AJhTb3ZmF6q+LIa3xp7b0lF6DsIspTC/W3MX8U9w3TX+etvjIlUFEQBRwOKQeeSAvuYWgzJlPtgA2XX8rgk4KxFj3M2aXNWKMR4ghkc7geW0bkJt03pUouCr6xhgB",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01WoWgUgGELtG17woWEoHhFu",
+      "input": {
+        "hypotheses": [
+          {
+            "cause_type": "bad-deployment",
+            "confidence": 0.82,
+            "from_state": null,
+            "subject": "9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e",
+            "summary": "A deploy of revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e at 13:45Z is the only recorded change in the preceding 24 hours, and latency began degrading in the very next minute (p95 220ms -> 900ms -> 1800ms -> 5000ms, error rate 0.01 -> 0.12), ending in request timeouts. The new revision almost certainly introduced a latency regression.",
+            "supporting_evidence": [
+              {
+                "at": "2026-09-17T13:45:00Z",
+                "claim": "\"kind\": \"deploy\", \"occurred_at\": \"2026-09-17T13:45:00Z\", \"summary\": \"deployed revision 9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e\", \"actor\": \"kuki\""
+              },
+              {
+                "at": null,
+                "claim": "Every recorded change to io-shop from 2026-09-16T13:47:00Z to 2026-09-17T13:47:00Z contains this deploy and nothing else"
+              },
+              {
+                "at": "2026-09-17T13:46:00Z",
+                "claim": "WARN io-shop: p95 latency climbing"
+              },
+              {
+                "at": "2026-09-17T13:47:00Z",
+                "claim": "WARN io-shop: p95 latency at 1800ms, up from a 220ms baseline"
+              },
+              {
+                "at": "2026-09-17T13:48:00Z",
+                "claim": "ERROR io-shop: request timeout after 5000ms"
+              },
+              {
+                "at": "2026-09-17T13:48:00Z",
+                "claim": "{\"bucket_id\": \"2026-09-17T13:48:00Z\", \"error_rate\": 0.12, \"p50_ms\": 320, \"p95_ms\": 5000, \"request_volume\": 1050}"
+              }
+            ],
+            "to_state": null
+          },
+          {
+            "cause_type": null,
+            "confidence": null,
+            "from_state": null,
+            "subject": null,
+            "summary": "Alternatively the degradation came from something not captured in the change log or logs at all (e.g. a feature flag flipped by a separate control plane, a dependency or resource saturation). The evidence shows only symptoms - climbing p95 and timeouts - with no line naming a flag, dependency or config subject; the 13:45 deploy correlation could be coincidental.",
+            "supporting_evidence": [
+              {
+                "at": null,
+                "claim": "Logs from 2026-09-17T13:17:00Z to 2026-09-17T13:48:26Z contain only generic lines: \"request succeeded\", \"p95 latency climbing\", \"request timeout after 5000ms\" - no flag name, config key, dependency or error detail"
+              }
+            ],
+            "to_state": null
+          }
+        ]
+      },
+      "name": "final_answer",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf97kHx2B97CiBeh5isoc",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 583
+    },
+    "cache_creation_input_tokens": 583,
+    "cache_read_input_tokens": 3097,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 1358,
+    "output_tokens_details": {
+      "thinking_tokens": 330
+    },
+    "service_tier": "standard"
+  }
+}

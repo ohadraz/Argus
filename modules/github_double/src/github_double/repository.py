@@ -172,6 +172,23 @@ class Repository:
 
         return self._trees[self._commits[commit]]
 
+    def changed_between(self, base: str, head: str) -> list[str]:
+        """Every path that differs between two refs - arrived, gone or edited.
+
+        Content compared rather than tree shas, because a differing tree says
+        only that something moved and the caller's whole question is what. Both
+        sides go through `files_at`, so either may be named by a branch or by a
+        commit, exactly as the real comparison accepts both.
+
+        A path present on one side only counts as changed. The index has to be
+        told about a file that went as much as about one that arrived -
+        otherwise it answers for years with code the repository no longer has.
+        """
+        was = self.files_at(base)
+        now = self.files_at(head)
+
+        return sorted(path for path in {*was, *now} if was.get(path) != now.get(path))
+
     def written_over(self, base_tree: str, files: dict[str, str]) -> str:
         """A new tree: the base's files, with these written over them.
 

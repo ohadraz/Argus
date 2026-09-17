@@ -6,6 +6,10 @@ dependencies = [
     "argus-argus_core",
     "argus-argus_incidents",
     "argus-argus_narration",
+    # Without `[store]`, deliberately. The push webhook writes one row of the
+    # index's watermark and indexes nothing, so this process installs neither
+    # a vector store nor an embedding model to serve a page.
+    "argus-code_index",
     "fastapi>=0.115",
     "jinja2>=3.1",
     "psycopg[binary]>=3.1",
@@ -26,6 +30,7 @@ dev = [
 argus-argus_core = { workspace = true }
 argus-argus_incidents = { workspace = true }
 argus-argus_narration = { workspace = true }
+argus-code_index = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

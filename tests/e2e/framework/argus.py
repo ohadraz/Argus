@@ -64,8 +64,9 @@ WALK_TIMEOUT_SECONDS = int(
     * get_settings().mitigation_verification_timeout_seconds
 )
 
-# The recordings that answer for the model, by the names they are stored under
-# in modules/anthropic_double/recordings/.
+# The recordings that answer for the model, by the case each one is of. What is
+# on disk is this name under the prefix `stored_as` below applies - a recording
+# belongs to a mode as much as to a case.
 RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
 RECORDED_BAD_DEPLOYMENT = "bad-deployment"
 RECORDED_FALLBACK_DISABLED = "fallback-disabled"
@@ -76,6 +77,25 @@ RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
 
 # Not arbitrary! the Target Service names itself in its own log
 THE_SERVICE_NAME = "io-shop"
+
+
+def stored_as(recording: str) -> str:
+    """The name this run's `CODE_SEARCH` keeps `recording` under.
+
+    A mode is not a label on a recording - it is the world the recording was
+    captured in. Under `grep` the read tier registers no retrieval-by-meaning
+    tool at all, so a walk captured under `both` asked questions this stack
+    cannot be asked, and answers them by calling a tool that was never offered.
+    The double is a queue seeded by name and never inspects the request, so it
+    would serve every one of those answers and the failure would read as an
+    agent bug.
+
+    Read from settings rather than taken as an argument, because nothing in a
+    case chooses it: the session that brought this stack up set `CODE_SEARCH`,
+    and the index pass, the read tier, the worker and this process all answer
+    to that one setting.
+    """
+    return f"{get_settings().code_search.value}-{recording}"
 
 
 def argus_is_triggered_with_alert(
@@ -340,7 +360,7 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
         with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
 
-            for answered_once in _the_answers_recorded_for(recording, control):
+            for answered_once in _the_answers_recorded_for(stored_as(recording), control):
                 control.post(
                     "/double-control/seed",
                     json={"recording": answered_once, "repeat": 1},

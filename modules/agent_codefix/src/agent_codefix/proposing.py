@@ -26,6 +26,7 @@ from argus_core import SettingsSlice
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Ask,
+    CodeSearch,
     Exchange,
     Hypothesis,
     OpenedPullRequest,
@@ -42,9 +43,11 @@ from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
 from read_mcp_client import (
+    get_repository_index_freshness,
     list_repository_files,
     read_repository_file,
     search_repository,
+    search_repository_by_meaning,
 )
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
@@ -85,6 +88,30 @@ class FixNotAnswered(Exception):
 
 class SourceSearcher(Protocol):
     def __call__(self, query: str, ref: str, /) -> list[str]: ...
+
+
+class MeaningSearcher(Protocol):
+    """Finding code by describing what it does rather than by naming it.
+
+    The other retrieval channel, and the same shape as the first on purpose:
+    the loop answers both the same way, and a caller configured for one of
+    them is offering the model a different tool rather than running different
+    code.
+    """
+
+    def __call__(self, description: str, ref: str, /) -> list[str]: ...
+
+
+class IndexNotice(Protocol):
+    """What has to be said about the index before anything it answers is used.
+
+    Asked once, before the conversation starts, rather than read off a search
+    result: a model that learns the index is behind from a result it has
+    already acted on has learned it a turn too late. Empty when there is
+    nothing to say, which is the ordinary state.
+    """
+
+    def __call__(self, ref: str, /) -> str: ...
 
 
 class FileLister(Protocol):
@@ -128,11 +155,13 @@ class Fixer(Protocol):
 
 
 SEARCH_TOOL = "search_repository"
+SEARCH_BY_MEANING_TOOL = "search_repository_by_meaning"
 LIST_FILES_TOOL = "list_repository_files"
 READ_FILE_TOOL = "read_repository_file"
 
 PATH_ARGUMENT = "path"
 QUERY_ARGUMENT = "query"
+DESCRIPTION_ARGUMENT = "description"
 
 
 class FixSettings(SettingsSlice):
@@ -145,6 +174,12 @@ class FixSettings(SettingsSlice):
 
     github_base_branch: str
     codefix_max_turns: int
+    # Which ways of finding code this deployment has, and so which the model
+    # is offered. Both in production, where the model chooses per question;
+    # one alone where the benchmark is comparing them, or where nothing builds
+    # an index and a tool that could only ever answer nothing would teach the
+    # model that the cause is not in the code.
+    code_search: CodeSearch
 
 
 SEARCH = ToolDefinition(
@@ -196,7 +231,57 @@ READ_FILE = ToolDefinition(
     required=[PATH_ARGUMENT]
 )
 
-TOOLS = [SEARCH, LIST_FILES, READ_FILE, SUBMIT_FIX]
+SEARCH_BY_MEANING = ToolDefinition(
+    name=SEARCH_BY_MEANING_TOOL,
+    description=(
+        "Find code by describing what it does, when you have no exact text to "
+        "search for. Answers with passages of the service's source - each one "
+        "'path:start-end' and the lines themselves - nearest in meaning to "
+        f"your description. Use this where {SEARCH_TOOL} cannot help: the "
+        "investigation described a behaviour ('the discount is divided by a "
+        "count that can be zero') and the repository may not contain any of "
+        "those words. Describe the behaviour and the mistake, not an "
+        "identifier. Worth using alongside the other search rather than "
+        "instead of it - one matches characters, this matches meaning."
+    ),
+    properties={
+        DESCRIPTION_ARGUMENT: {
+            "type": "string",
+            "description": (
+                "What the code you are looking for does, in a sentence - the "
+                "behaviour and what is wrong with it, as you would describe "
+                "it to another engineer."
+            )
+        }
+    },
+    required=[DESCRIPTION_ARGUMENT]
+)
+
+
+def tools_for(settings: FixSettings) -> list[ToolDefinition]:
+    """The tools this deployment offers the model, in the order it meets them.
+
+    Both implementations stay present whichever is chosen - what configuration
+    decides is what the model is *offered*, not what this module can do. A
+    channel switched off is one definition missing from a list, so a benchmark
+    run comparing retrievers is running the same code either way.
+
+    Searching comes first because the opening message tells the model to start
+    there, and a list whose order contradicts its instructions is one more
+    thing to be resolved by whichever the model is most used to.
+    """
+    searching = {
+        CodeSearch.GREP: [SEARCH],
+        CodeSearch.MEANING: [SEARCH_BY_MEANING],
+        CodeSearch.BOTH: [SEARCH, SEARCH_BY_MEANING]
+    }
+
+    return [
+        *searching[settings.code_search],
+        LIST_FILES,
+        READ_FILE,
+        SUBMIT_FIX
+    ]
 
 
 def fixes_over(read: McpClient,
@@ -218,6 +303,8 @@ def fixes_over(read: McpClient,
         propose_fix,
         settings=settings,
         search=partial(search_repository, client=read),
+        search_by_meaning=partial(search_repository_by_meaning, client=read),
+        index_notice=partial(get_repository_index_freshness, client=read),
         list_files=partial(list_repository_files, client=read),
         read_file=partial(read_repository_file, client=read),
         write_branch=partial(commit_to_new_branch, client=write),
@@ -231,6 +318,8 @@ def propose_fix(hypothesis: Hypothesis | None,
                 *,
                 settings: FixSettings,
                 search: SourceSearcher,
+                search_by_meaning: MeaningSearcher,
+                index_notice: IndexNotice,
                 list_files: FileLister,
                 read_file: FileReader,
                 write_branch: BranchWriter,
@@ -271,6 +360,8 @@ def propose_fix(hypothesis: Hypothesis | None,
         hypothesis,
         settings=settings,
         search=search,
+        search_by_meaning=search_by_meaning,
+        index_notice=index_notice,
         list_files=list_files,
         read_file=read_file,
         converse=converse or conversations(incident_id, recorder)
@@ -309,6 +400,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               *,
                               settings: FixSettings,
                               search: SourceSearcher,
+                              search_by_meaning: MeaningSearcher,
+                              index_notice: IndexNotice,
                               list_files: FileLister,
                               read_file: FileReader,
                               converse: Conversation) -> SubmittedFix | None:
@@ -319,10 +412,13 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     turn, not failing, and ending here would throw away every file it had read
     correctly up to then.
     """
-    transcript: list[Exchange] = [Ask(text=_the_opening_message(hypothesis))]
+    tools = tools_for(settings)
+    transcript: list[Exchange] = [
+        Ask(text=_the_opening_message(hypothesis, settings, index_notice))
+    ]
 
     for _ in range(settings.codefix_max_turns):
-        turn = converse(transcript, TOOLS)
+        turn = converse(transcript, tools)
         transcript.append(turn)
 
         submitted = _the_submission_in(turn)
@@ -332,7 +428,9 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
 
         transcript.append(
             ToolResults(results=[
-                _answer(call, settings, search, list_files, read_file)
+                _answer(
+                    call, settings, search, search_by_meaning, list_files, read_file
+                )
                 for call in turn.tool_calls
             ])
         )
@@ -364,6 +462,7 @@ def _the_submission_in(turn: Turn) -> SubmittedFix | None:
 def _answer(call: ToolCall,
             settings: FixSettings,
             search: SourceSearcher,
+            search_by_meaning: MeaningSearcher,
             list_files: FileLister,
             read_file: FileReader) -> ToolResult:
     """One tool call, answered - including when answering it failed.
@@ -376,7 +475,9 @@ def _answer(call: ToolCall,
     try:
         return ToolResult(
             call_id=call.id,
-            content=_ran(call, settings, search, list_files, read_file)
+            content=_ran(
+                call, settings, search, search_by_meaning, list_files, read_file
+            )
         )
     except Exception as error:
         return ToolResult(
@@ -389,8 +490,24 @@ def _answer(call: ToolCall,
 def _ran(call: ToolCall,
          settings: FixSettings,
          search: SourceSearcher,
+         search_by_meaning: MeaningSearcher,
          list_files: FileLister,
          read_file: FileReader) -> str:
+    if call.name == SEARCH_BY_MEANING_TOOL:
+        near = search_by_meaning(
+            str(call.arguments.get(DESCRIPTION_ARGUMENT, "")),
+            settings.github_base_branch
+        )
+
+        # Answered in words for the reason the substring channel is, and with
+        # more at stake: an empty answer here is ambiguous between an index
+        # that holds nothing like this and an index that holds nothing at all,
+        # and a model left to guess picks the reading that ends the work.
+        return "\n\n".join(near) if near else (
+            "no passage in the repository reads like that - try describing the "
+            "behaviour differently, or search for an exact string instead"
+        )
+
     if call.name == SEARCH_TOOL:
         found = search(
             str(call.arguments.get(QUERY_ARGUMENT, "")), settings.github_base_branch
@@ -463,19 +580,75 @@ def _and_what_it_rests_on(hypothesis: Hypothesis | None) -> list[str]:
     ]
 
 
-def _the_opening_message(hypothesis: Hypothesis | None) -> str:
+def _how_to_start_looking(settings: FixSettings) -> str:
+    """Which search to reach for first, said in terms of the ones it has.
+
+    An instruction rather than a hope: a model given tools and no order to use
+    them in reaches for the one it is most used to. Which means the sentence
+    has to name tools this deployment actually offers - telling a model to
+    start with a search it was not given is the one way to make an opening
+    message worse than none.
+    """
+    if settings.code_search is CodeSearch.MEANING:
+        return (
+            f"Start by searching. Describe what the broken code does - the "
+            f"behaviour named above and what is wrong with it - and "
+            f"{SEARCH_BY_MEANING_TOOL} for it: the answer is the passages "
+            f"nearest that description, which is what you would otherwise be "
+            f"guessing at."
+        )
+
+    if settings.code_search is CodeSearch.GREP:
+        return (
+            f"Start by searching. Take what is named above - the flag, the "
+            f"function, the message - and {SEARCH_TOOL} for it: the answer "
+            f"names the files the fault is in, which is what you would "
+            f"otherwise be guessing at."
+        )
+
+    return (
+        f"Start by searching, and you have two ways to. Take what is named "
+        f"above - the flag, the function, the message - and {SEARCH_TOOL} for "
+        f"it. Where the conclusion describes a behaviour rather than naming "
+        f"anything the code would contain, {SEARCH_BY_MEANING_TOOL} with that "
+        f"description instead: it answers with the passages nearest it in "
+        f"meaning. Both beat guessing at file names."
+    )
+
+
+def _what_is_known_about_the_index(settings: FixSettings,
+                                   index_notice: IndexNotice) -> list[str]:
+    """What the model has to know about searching by meaning before it does.
+
+    Empty when the index describes the commit being fixed, which is the
+    ordinary state: a warning printed every run is a warning nobody reads, and
+    that is how the run where it was true goes unnoticed.
+
+    Not asked at all where the channel is off. The answer would be true and
+    about a tool the model does not have, which is a paragraph spent teaching
+    it to distrust something it cannot use.
+    """
+    if settings.code_search is CodeSearch.GREP:
+        return []
+
+    notice = index_notice(settings.github_base_branch)
+
+    return ["", notice] if notice else []
+
+
+def _the_opening_message(hypothesis: Hypothesis | None,
+                         settings: FixSettings,
+                         index_notice: IndexNotice) -> str:
     return "\n".join([
         "An incident has been investigated and traced to a cause in this "
         "service's code. Your job is to fix that cause permanently.",
         "",
         f"What the investigation concluded: {_what_it_concluded(hypothesis)}",
         *_and_what_it_rests_on(hypothesis),
+        *_what_is_known_about_the_index(settings, index_notice),
         "",
-        f"Start by searching. Take what is named above - the flag, the "
-        f"function, the message - and {SEARCH_TOOL} for it: the answer names "
-        f"the files the fault is in, which is what you would otherwise be "
-        f"guessing at. Read those, then call {SUBMIT_TOOL_NAME} with every "
-        f"file you are changing, in full.",
+        f"{_how_to_start_looking(settings)} Read the files it names, then "
+        f"call {SUBMIT_TOOL_NAME} with every file you are changing, in full.",
         "",
         "A mitigation has probably already hidden the symptom - a flag turned "
         "off, a version rolled back - so the code you are reading is the code "

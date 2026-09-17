@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISzAIKjgEIERgCKkBaC0awEVBYyJPv6ZYmB5STtYzNksTiPeiyv191jz0LFWqu0Hiak9kfRvPa2bCtEuOHCfzEN8vi+Ahoj1AVNOP6Mg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAa/yr9UGEgz3WS+N5BJYAnbYkM8aDCKJ7BO/vJnyVDAcoiIwY4lVTPeZJn0RyGNORKkEbgeBfXWMop38HY2Kx9XY4eG35G4C6Q928UDOLkeyOY1XKmtCqxQ8lN6Jy4GZZfMcFh0TgWmV+ZnyoN+pUrlcf02HHCeEIkopsTvjSJHUUg1lfAo6bcdffJDgQwiiTlfwjiCMPF48GONqVhDvFsH24WpgkklsKgIF+nPR0OBVX6zpKM2T4+QntQZASqEhBxgB",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01JpMcmwZsznU9sF9Mw8ZUqV",
+      "input": {},
+      "name": "get_changes",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01SHjTG6X2rVJqFyWr3KnM4t",
+      "input": {},
+      "name": "get_logs",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf9ApoawiEYAN4p3pbERu",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 9970
+    },
+    "cache_creation_input_tokens": 9970,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 90,
+    "output_tokens_details": {
+      "thinking_tokens": 38
+    },
+    "service_tier": "standard"
+  }
+}

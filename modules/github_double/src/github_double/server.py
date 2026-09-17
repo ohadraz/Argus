@@ -2,9 +2,10 @@
 
 Two surfaces, the same arrangement `anthropic_double` and `slack_double` have:
 
-- `/repos/{owner}/{repo}/...` - what the read and write tiers talk to. Nine
-  endpoints, which is exactly the nine Argus uses: three to read source, five to
-  build a commit and put a branch on it, one to propose it.
+- `/repos/{owner}/{repo}/...` - what the read and write tiers talk to. Ten
+  endpoints, which is exactly the ten Argus uses: three to read source, one to
+  say what changed between two commits, five to build a commit and put a branch
+  on it, one to propose it.
 - `/double-control/*` - what the *test* talks to, to put the repository back and
   to read what was proposed.
 
@@ -59,6 +60,13 @@ _BASE_FIELD: Final = "base"
 _DRAFT_FIELD: Final = "draft"
 _NUMBER_FIELD: Final = "number"
 _READABLE_AT_FIELD: Final = "html_url"
+_FILES_FIELD: Final = "files"
+_FILENAME_FIELD: Final = "filename"
+
+# How a comparison names its two ends in the path: base first, three dots, head.
+_BETWEEN: Final = "..."
+
+_HEADS_PREFIX: Final = "heads/"
 
 _FILE_ENTRY_TYPE: Final = "blob"
 _FILE_MODE: Final = "100644"
@@ -141,6 +149,77 @@ def download_the_archive(owner: str, repo: str, ref: str) -> Response:
         return _not_found(absent)
 
     return Response(content=archive, media_type="application/gzip")
+
+
+@app.get("/repos/{owner}/{repo}/commits/{ref:path}")
+def read_the_commit_a_ref_points_at(owner: str, repo: str, ref: str) -> JSONResponse:
+    """Where a ref points, as the reconciler asks it.
+
+    The commits API rather than the git-data one two endpoints below, and they
+    are not interchangeable: that one takes a commit id and answers its tree,
+    this one takes anything nameable - `heads/main`, a tag, a sha - and answers
+    which commit it is. A reconciler with no push on record asks this, so a
+    double without it leaves the index unbuildable for exactly the deployment
+    that has no webhook.
+
+    `heads/` is stripped because that is how a branch is named to an endpoint
+    that also takes tags: the caller says `heads/main` precisely so a `main`
+    tag cannot answer for the `main` branch. This double holds no tags, so the
+    prefix is the caller's precision and nothing here has to act on it.
+    """
+    named = ref.removeprefix(_HEADS_PREFIX)
+
+    try:
+        commit = (
+            repository.head_of(named)
+            if named in repository.branches()
+            else repository.tree_of(named) and named
+        )
+    except NoSuchObject as absent:
+        return _not_found(absent)
+
+    return JSONResponse({_SHA_FIELD: commit})
+
+
+@app.get("/repos/{owner}/{repo}/compare/{basehead:path}")
+def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
+    """What changed between two commits - the index's question, not a fix's.
+
+    The one endpoint here that exists for `code_index` rather than for Code-Fix.
+    A reconciler with an index already asks what moved since the commit it was
+    built from and reconsiders only that, so without this the incremental half
+    of spec §11 can never run against a stack - every pass would either backfill
+    or fail, and a suite that pushed would be asserting a gap nothing closes.
+
+    `base...head` in one segment, as GitHub spells it, matched as a path so a
+    branch name carrying a slash survives. Split on the first separator only:
+    neither half of a malformed pair is worth guessing at, and a sha has no
+    dots to be confused by.
+
+    Never truncated, and that is worth saying because the caller defends against
+    it: the real comparison lists at most three hundred files and says nothing
+    about having stopped. The fixture is three, so this double cannot exercise
+    that ceiling and must not pretend to - a `files` list here is complete.
+
+    A rename arrives as both of its paths, since it is a file that went and a
+    file that arrived, which is the same pair the real API reports under
+    `previous_filename`.
+    """
+    base, separator, head = basehead.partition(_BETWEEN)
+
+    if not separator:
+        return _not_found(
+            NoSuchObject(f"no comparison [{basehead}]: expected base{_BETWEEN}head")
+        )
+
+    try:
+        changed = repository.changed_between(base, head)
+    except NoSuchObject as absent:
+        return _not_found(absent)
+
+    return JSONResponse(
+        {_FILES_FIELD: [{_FILENAME_FIELD: path} for path in changed]}
+    )
 
 
 @app.get("/repos/{owner}/{repo}/git/ref/heads/{branch:path}")

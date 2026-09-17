@@ -1,0 +1,54 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISwQUKjgEIERgCKkAgYTcn3t2H5FVzUqpmdyhjzmHaK1hT0KBKVnwRf/WKXs7hUTJW7sIWaGIBynGUiYufupibaMdUzet+46XwbGgvMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAfztr9UGEgwopeOtNXhzN1RUjdIaDKqh3jSr6yyIzeXY9iIwCXqpIQXSPmEwQWH9oN5yghfxgm1qXSdJ9hJaxrSp9ZbK19WboypBUlr9m35p48iVKt8DKEjMPGeLOoWzferh0VivShYtS1pfDS9za/grM8PB+W3MfUnKPBBKmRvAOEUWfNYasTaiCcvfZ9zn7OPzTpmSFQ5FKmgQ1hVKO5IomqUEiOIK3volQ/w5OwprYVKAyl2HD+5nqaHDRhTtL1wJlzws3JsouBbWSI4HiPzCE55sz45Mcp1nQpjJmJltqJlogJ1b8l3qGgbfDQ4w+b9FvKyyeAs1dYh4Gq738TLs2o/+PltZW9RhGEBMUg5YV0rmsTy5voWFr3Oksz31zB60yQuH/m0T4xIjLqEyT2YXQ/zRmr1Nov5t6+fjM02mc3lNmc9vmCEHij0e3vtMVN2O3hspl6bI2kwD+xKXiAbvVCUUH0EqTnTNW6SnXZeCEvIHMM3NACtZTNk3M8ihucQDuP6jlqOuSAvdwfj6PorJ2sCImUtjnoJ85Cfn1Xun59kdcm5j8m1VtnQe9J7r96zNr9Wje0xjs2YszSbTWilRMlglea6Ka8TqBStA1FrRDfqM0KaZIS5rz4ch4wkyXFKznD0v/YJegi+qOHYIqbYMPX8r3Tzwl0Xn6qwX7H4c+iY91082fGucjvK6AcypynHYBFxg3f2QlMSnETIULA5amHCoUfycQmClWTwVZA09HEJYjZAYAQ==",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01YaPnt78avTzaKSM95WrPyC",
+      "input": {
+        "description": "iterating over purchases repeatedly, recomputing totals inside a loop, N+1 lookups per account"
+      },
+      "name": "search_repository_by_meaning",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_015gx8jEfkR6z9r3nqtvCcZz",
+      "input": {
+        "description": "average spend per item divides total by number of purchases, crashes when list is empty"
+      },
+      "name": "search_repository_by_meaning",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf9A7GbjVn9Hnektqt2ch",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 413
+    },
+    "cache_creation_input_tokens": 413,
+    "cache_read_input_tokens": 2729,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 307,
+    "output_tokens_details": {
+      "thinking_tokens": 146
+    },
+    "service_tier": "standard"
+  }
+}

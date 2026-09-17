@@ -18,6 +18,11 @@ captured in is a property of the recording, not a choice. Getting that wrong is
 not a failure - it is a plausible-looking recording of the wrong incident, paid
 for and committed.
 
+What it does *not* take is the mode. `CODE_SEARCH` is a property of the stack
+around this script - which tools the read tier registers, and so which tools the
+walk is offered - so the session that brought that stack up is what decides it,
+and every name captured in a run is stored under that mode's prefix.
+
 Several names in one run share one stack, and `all` is every name. The stack is
 the slow part - a build, a compose up, four local services - and it is brought
 up once by the nox session around this script whether it captures one recording
@@ -52,6 +57,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     THE_SERVICE_NAME,
+    stored_as,
 )
 from tests.e2e.framework.flags import (
     only_the_boot_flags_were_left_in_the_provider,
@@ -379,13 +385,20 @@ def _discard_what_was_not_answered_again(name: str, started_at: float) -> list[P
 
 
 def _capture(recording: _Recording, service: str, replaying: bool) -> None:
-    """Drives the one incident this recording is of, and says what came of it."""
-    print(f"=== {recording.name} ===")
+    """Drives the one incident this recording is of, and says what came of it.
+
+    The name asked for on the command line is the *case*; the name on disk is
+    that case as this run's `CODE_SEARCH` stores it. Converted here rather than
+    in the mapping above, because a run records the world it is in - and the
+    same case captured under two modes is two recordings of two different walks.
+    """
+    stored = stored_as(recording.name)
+    print(f"=== {stored} ===")
 
     if replaying:
-        _replay_from(recording.name)
+        _replay_from(stored)
     else:
-        _arm_the_double(recording.name)
+        _arm_the_double(stored)
 
     # Read before anything is written, and from the clock the files are stamped
     # by: what makes an answer stale is that this run did not write it, and
@@ -405,8 +418,8 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")
 
     if not replaying:
-        discarded = _discard_what_was_not_answered_again(recording.name, started_at)
-        written = [path.stem for path in _the_set_named(recording.name)]
+        discarded = _discard_what_was_not_answered_again(stored, started_at)
+        written = [path.stem for path in _the_set_named(stored)]
         print(f"recorded: {', '.join(written) or 'nothing'}")
         if discarded:
             print(

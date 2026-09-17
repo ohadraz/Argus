@@ -1,0 +1,44 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISnwYKjgEIERgCKkBaCk92VudLEWjTenWyKtAa0HL1aTNV9vqYzPFV5cakbDuOYfds9NvlQEDIgcV6KXmgg9zW0atlIw3ISv0tx7vJMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAd/tr9UGEgxzRwNVLlyRsnUMA74aDCPp0h3WKf7j+p7NTiIwwnd6mrCl9VZhESag7yYnNLYtm/Jl5MYQ8n94qKAvTU3e2B0pDonJln/NnUwVbbTeKr0E+eFKej5G0SAuP3IByJAvQ1pxfS4RhcKjG+OpXLgp9vbI1bmaulD2aOOCp9SrNObSEqWkAquhgQ44oGwDo/d2DxS9OVaRxLZvjSGVU/0S/M1fiE2kO4XGaVx4jk+5ikzLtlrjT386oEc60dCTnBQYXrPvr1N0ZicYi6xyIRRjMHiD/Z4t+BaAE7GU9u5WuhNoiK4FgcxV5YjVTeW9v3CirEVfeI7oSDnXsv2Aq5SuYAdjZCXLgDso+vMVTfVmBgzSfu9yiw6gqzktmqdE60tdVL04v0yiCWQGMYaDZKuL+pUZKueEh/dlp8m4J5ljCX8r5MFfemc4Emqsnp4WyQQM3YKPqgUgbpwbMrbwAXznOZi/Se5JGk9OS4c0khJQSh/WLB1xykJ1LzE1lNsgju5EAdxe3UsHmQ0iHq5hmpPfbppJlepQCQXPHjLDfnkjcTdxZlvFOUtXbELGO1KGxNRpd8v9+YmOO0MIpgNqL3i3anVMhoyb9xYmkpb2R8k3suQPQJ+G8h4ium0aMlSXhhQjVucgd76xTUrwY2M2Oaz5E0YUQKOfevGUqA6rHKPJbFepVVRolxbFN6HU+ftPLXOu9AAauOS0gzkIUNzQxUUzVuGtUdpda+qAbR+iGAyd5aiEkm9HBrQjsp63Yzv32T2gLKaOaA9ybekv0VmhPtbVWG8+vuG7AglmDyZUV/DV0oq2hUYjp2aYBdCQPCFs0zCU1EWm7pczOhS1NpIvubgQWd0aq7L3CiMkEvbjiFhUGAE=",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_017t5XfNe8Uwk48WoUQfpjiN",
+      "input": {
+        "window_end": "2026-09-17T14:17:22Z",
+        "window_start": "2026-06-01T00:00:00Z"
+      },
+      "name": "get_changes",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf9A4pnu5TDRwp7hM7Fzw",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 197
+    },
+    "cache_creation_input_tokens": 197,
+    "cache_read_input_tokens": 4308,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 281,
+    "output_tokens_details": {
+      "thinking_tokens": 181
+    },
+    "service_tier": "standard"
+  }
+}

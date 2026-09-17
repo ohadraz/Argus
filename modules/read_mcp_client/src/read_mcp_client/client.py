@@ -16,6 +16,8 @@ _METRIC_BUCKETS: Final = TypeAdapter(list[MetricBucket])
 _CHANGE_EVENTS: Final = TypeAdapter(list[ChangeEvent])
 _FLAG_NAMES: Final = TypeAdapter(list[str])
 _FILE_PATHS: Final = TypeAdapter(list[str])
+_PASSAGES: Final = TypeAdapter(list[str])
+_NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
 
 # Where the server's tools are served, under the address the endpoint names.
@@ -134,6 +136,54 @@ def search_repository(query: str, ref: str, *, client: McpClient) -> list[str]:
         "search_repository",
         _FILE_PATHS.validate_python,
         query=query,
+        ref=ref,
+    )
+
+
+def get_repository_index_freshness(ref: str, *, client: McpClient) -> str:
+    """Reads what has to be said about the index of the Target Service's source
+    before anything it answers is acted on - empty when there is nothing.
+
+    For assembling a prompt rather than for a model mid-task. The index is
+    built off any incident's path (spec §11), so it can describe an older
+    commit than the one being fixed, and Code-Fix states that up front rather
+    than letting a model discover it from a patch against a file that has
+    moved.
+    """
+    return client.call(
+        "get_repository_index_freshness",
+        _NOTICE.validate_python,
+        ref=ref,
+    )
+
+
+def search_repository_by_meaning(description: str,
+                                 ref: str,
+                                 *,
+                                 client: McpClient) -> list[str]:
+    """Reads the passages of the Target Service's source nearest a description
+    of what the code does, as `path:start-end` and the source itself.
+
+    The channel for a cause with no name to match on (spec §7.4, §11). An
+    investigation concluding "the discount is divided by a count that can be
+    zero" gives `search_repository` nothing to search for - the word may appear
+    nowhere - and this finds the code that behaves that way. The two are worth
+    using together: one matches characters, the other meaning.
+
+    An answer may open with a `note:` line saying the index describes an older
+    commit than `ref`, in which case code that changed in between may not be
+    findable here yet - the index is built off any incident's path, so it can
+    lag the branch it describes.
+
+    Raises rather than answering emptily when the index could not be searched.
+    Nothing near enough is a fact about the repository; a store that could not
+    be reached is not, and answered the same way it teaches a caller that the
+    cause is not in the code.
+    """
+    return client.call(
+        "search_repository_by_meaning",
+        _PASSAGES.validate_python,
+        description=description,
         ref=ref,
     )
 

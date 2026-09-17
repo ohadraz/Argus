@@ -63,9 +63,33 @@ services:
       timeout: 2s
       retries: 15
 
+  qdrant:
+    # Pinned to the version the client resolves to. The two are released
+    # together and a store a minor ahead of its client is a mismatch nobody
+    # sees until a payload field is rejected.
+    image: qdrant/qdrant:v1.19.1
+    ports:
+      # A variable host port for the reason postgres has one: a suite that
+      # brings its own store up under its own compose project must not bind
+      # over another run's, or talk to it. 6333 is the HTTP API; 6334 is gRPC
+      # and nothing here asks for it.
+      - "${ARGUS_QDRANT_PORT:-6333}:6333"
+    volumes:
+      # Named, so the collection belongs to the compose project rather than to
+      # the container - the same reasoning as `postgres-data`, and the same
+      # `down -v` takes it away.
+      - qdrant-data:/qdrant/storage
+    # No healthcheck, and that is the image's doing rather than an omission.
+    # Qdrant ships distroless: no shell, no curl, no wget, so there is nothing
+    # inside the container that can probe it, and Compose has no HTTP probe of
+    # its own. `up --wait` therefore returns when the container is running,
+    # which is a little before it is ready - so readiness is polled from
+    # outside, by whoever brought it up, against `/readyz`.
+
 # One per compose project, which is one per suite: the name is scoped to the
 # project, so `argus-integration` and `argus-modules` get a volume each without
 # either being told about the other.
 volumes:
   postgres-data:
+  qdrant-data:
 

@@ -6,6 +6,8 @@ from typing import Final, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from argus_core.models.code_search import CodeSearch
+
 # The longest single wait inside a walk: Mitigation standing by for the service
 # to answer an action. Named here because two settings are stated in terms of
 # it - the wait itself, and the lease that has to outlast it.
@@ -76,6 +78,21 @@ class Settings(BaseSettings):
     # answer. A bound rather than a budget, and never expressed to the model:
     # one it could ask to extend would not be a bound (spec §9).
     codefix_max_turns: int = Field(default=12, gt=0)
+    # Which ways of finding code this deployment has: `grep`, `meaning` or
+    # `both`. It decides more than what Code-Fix is offered - `grep` builds no
+    # index, opens no vector store and registers no retrieval tool, so a
+    # deployment that will not use RAG does none of that work rather than
+    # doing it for nobody.
+    #
+    # `both` is the production setting. The model is handed both tools and
+    # picks per question, which is the choice it is best placed to make: a
+    # cause with a name is found faster by grep, and one that only has a
+    # description is found at all by meaning.
+    #
+    # The single channels are for the benchmark (§21). Comparing two
+    # retrievers means running each alone over the same incidents, which is
+    # only a comparison if the choice can be taken away from the model.
+    code_search: CodeSearch = Field(default=CodeSearch.BOTH)
     # The credential `argus-read-mcp` reads the Target Service's source with. It
     # can read a repository and cannot push to one, which is what lets the
     # source be read from a process that must remain incapable of mutation
@@ -98,6 +115,53 @@ class Settings(BaseSettings):
     # - a misconfigured write server should fail loudly rather than quietly
     # authenticate as nobody. It can never merge what it opens (§13).
     github_token: str = Field(default="")
+    # The secret GitHub signs its push deliveries with, so Argus can tell a
+    # push from anybody who found the endpoint. Empty accepts nothing rather
+    # than everything: with no secret configured no signature can match, which
+    # is the right way round for a route open to the internet.
+    github_webhook_secret: str = Field(default="")
+
+    # Where that repository's source is kept as something searchable by
+    # meaning, and under what name. A store of its own rather than a table:
+    # what it answers is "which passages are nearest this one", and no amount
+    # of SQL makes that a cheap question.
+    #
+    # Localhost by default, which is the developer's compose file; the
+    # deployment names the service. Qdrant's HTTP port, not its gRPC one -
+    # nothing here asks for gRPC.
+    qdrant_url: str = Field(default="http://localhost:6333")
+    # One collection per deployment, named for what it holds rather than for
+    # the repository: the index describes the Target Service's source, and a
+    # deployment pointed at a different repository is a different index.
+    code_index_collection: str = Field(default="target_service_source")
+    # How often the reconciler looks. A bound on how long the index may
+    # describe yesterday's code while nobody is telling it otherwise, rather
+    # than a performance knob: where a push delivery arrives the gap closes on
+    # the next pass anyway, and where none ever arrives - no tunnel, a webhook
+    # nobody configured - this interval is the whole of what keeps the index
+    # honest.
+    code_index_interval_seconds: float = Field(default=60.0, gt=0.0)
+    # Which model turns a passage of code - and a question about it - into the
+    # vector whose closeness is the whole of what "found by meaning" means.
+    # Configured rather than fixed because it is the one hypothesis the §21
+    # benchmark cannot test any other way: if retrieval by meaning
+    # underperforms, "the model is small" is answered by naming a different one
+    # here and indexing again.
+    #
+    # Changing it is a re-index, not a restart. The width of the collection and
+    # the meaning of every stored vector both follow from the model, so points
+    # embedded by the old one answer nothing sensible to a query embedded by the
+    # new.
+    code_index_embedding_model: str = Field(default="BAAI/bge-small-en-v1.5")
+    # How a file whose structure nothing here understands is cut into passages,
+    # in lines, and how many lines of each window the next one repeats. The
+    # overlap is what keeps a fault straddling a cut whole inside one passage.
+    #
+    # These govern the fallback only. Python is cut at its own definitions,
+    # because a function is as long as it is and one truncated to fit a window
+    # is a passage that stops mid-statement.
+    code_index_max_lines: int = Field(default=60, gt=0)
+    code_index_chunk_overlap: int = Field(default=10, ge=0)
 
     log_initial_lookback_minutes: int = Field(default=30)
     log_initial_lookahead_minutes: int = Field(default=10)
@@ -410,6 +474,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"change_lookback_minutes ({self.change_lookback_minutes}) must be wider than "
                 f"log_max_window_minutes ({self.log_max_window_minutes})"
+            )
+
+        # A window that repeats as much as it advances never advances at all -
+        # the chunker would cut the same lines forever. Caught here rather than
+        # defended against where the cutting happens: it is a contradiction
+        # between two settings, and the process should refuse to start on it.
+        if self.code_index_chunk_overlap >= self.code_index_max_lines:
+            raise ValueError(
+                f"code_index_chunk_overlap ({self.code_index_chunk_overlap}) must be "
+                f"smaller than code_index_max_lines ({self.code_index_max_lines}), or a "
+                f"window repeats everything it was meant to advance past"
             )
 
         return self

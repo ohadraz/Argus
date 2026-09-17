@@ -1,0 +1,44 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "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",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01J1KaxsF9xhi6ZV25AMQZrY",
+      "input": {
+        "window_end": "2026-09-17T14:23:00Z",
+        "window_start": "2026-09-10T00:00:00Z"
+      },
+      "name": "get_changes",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf9AeSzv58Ro88FeWfCA9",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 3744
+    },
+    "cache_creation_input_tokens": 3744,
+    "cache_read_input_tokens": 10191,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 618,
+    "output_tokens_details": {
+      "thinking_tokens": 518
+    },
+    "service_tier": "standard"
+  }
+}

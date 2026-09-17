@@ -4,6 +4,8 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core",
+    "argus-code_index[store]",
+    "argus-repository_source",
     "httpx",
     "mcp>=1.29.0",
 ]
@@ -15,6 +17,8 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-code_index = { workspace = true }
+argus-repository_source = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 [build-system]

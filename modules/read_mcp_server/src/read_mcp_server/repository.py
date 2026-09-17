@@ -22,13 +22,19 @@ from __future__ import annotations
 
 import base64
 import binascii
-import io
-import tarfile
 from collections.abc import Callable
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 import httpx
 from argus_core import SettingsSlice
+from argus_core.source_scope import belongs_to_the_service
+from repository_source import RepositorySourceSettings, the_source_at
+
+# Re-exported under its own name rather than merely imported. This module raises
+# it for failures of its own - a path that is not there, a listing the API
+# truncated - so it is part of what this module offers, and mypy is right to
+# want that said out loud instead of inferred from an import.
+from repository_source import RepositoryUnreadable as RepositoryUnreadable
 
 HttpGet = Callable[..., httpx.Response]
 
@@ -85,16 +91,18 @@ class RepositoryReadSettings(SettingsSlice):
     github_source_paths: str = ""
 
 
-class RepositoryUnreadable(Exception):
-    """The source could not be read, whatever the reason.
-
-    One exception for an unreachable host, a rejected credential, a path that is
-    not there, a listing the API truncated and a file that is not text - because
-    the caller's next move is the same for all five: it does not know what the
-    code says. Every one of them has an innocent-looking empty answer available
-    (no files, no content, no matches), and every one of those would be read as
-    a fact about the repository rather than about the attempt to read it.
-    """
+# The failure this module raises is the one the reader raises, rather than a
+# second class meaning the same thing. A caller that had to catch two would
+# eventually catch one - and which one it missed would depend on whether the
+# source happened to arrive as an archive or as a single file, which is exactly
+# the distinction a caller has no business knowing about.
+#
+# What it covers here is wider than what the reader raises it for: a path that
+# is not there and a listing the API truncated are this module's own, and belong
+# under it for the reason the rest do. The caller's next move is the same for
+# all of them - it does not know what the code says, and every one of them has
+# an innocent-looking empty answer available that would be read as a fact about
+# the repository rather than about the attempt to read it.
 
 
 def list_repository_files(ref: str,
@@ -145,10 +153,27 @@ def list_repository_files(ref: str,
     ]
 
 
+class SourceReader(Protocol):
+    """How this module gets hold of a repository's source.
+
+    The seam is the reader rather than the HTTP call underneath it. Fetching an
+    archive and unwrapping it belongs to `repository_source` and is tested
+    there; what belongs here is what this module does with the files once it has
+    them - match lines, apply the scope, say where a hit is. A test that handed
+    over a real tarball to exercise those three would be re-testing somebody
+    else's unpacking to reach its own subject.
+    """
+
+    def __call__(self,
+                 ref: str,
+                 settings: RepositorySourceSettings,
+                 /) -> dict[str, str]: ...
+
+
 def search_repository(query: str,
                       ref: str,
                       settings: RepositoryReadSettings,
-                      get: HttpGet = httpx.get) -> list[str]:
+                      read_source: SourceReader = the_source_at) -> list[str]:
     """Every line in the repository at `ref` containing `query`.
 
     The channel that turns a named cause into a place to look. Code-Fix is
@@ -180,10 +205,10 @@ def search_repository(query: str,
     facts about the world, and the silent one teaches a model that the cause is
     not in the code.
     """
-    held = _the_whole_repository(ref, settings, get)
+    held = read_source(ref, _the_source_settings(settings))
     hits: list[str] = []
 
-    for path, source in held:
+    for path, source in held.items():
         if not _is_the_service_s_own(path, settings):
             continue
 
@@ -205,85 +230,34 @@ def search_repository(query: str,
     return hits
 
 
-def _the_whole_repository(ref: str,
-                          settings: RepositoryReadSettings,
-                          get: HttpGet) -> list[tuple[str, str]]:
-    """Every readable file at `ref`, as a path and what it says.
+def _the_source_settings(
+    settings: RepositoryReadSettings
+) -> RepositorySourceSettings:
+    """This tier's view of the repository, as the reader asks for it.
 
-    Files that are not text are skipped rather than refused, which is the
-    opposite of what `read_repository_file` does with one - and right for the
-    opposite reason. Asked for a named file, silence about it being an image is
-    a lie; asked to search, a repository's images are simply not where a
-    matching line can be, and refusing the whole search over one of them would
-    make search impossible in any repository holding a logo.
+    A slice of a slice. The reader needs the repository and a credential and
+    has no use for the source paths, which are this module's business and the
+    index's separately.
     """
-    url = f"{settings.github_api_url}/repos/{settings.github_repository}/tarball/{ref}"
-
-    try:
-        response = get(
-            url,
-            headers=_headers(settings),
-            timeout=ARCHIVE_TIMEOUT_SECONDS,
-            follow_redirects=True
-        )
-        response.raise_for_status()
-
-        with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:*") as archive:
-            return [
-                (path, source)
-                for member in archive.getmembers()
-                if member.isfile()
-                for path in [_without_the_archives_own_directory(member.name)]
-                for source in [_the_text_in(archive, member)]
-                if source is not None
-            ]
-    except Exception as error:
-        raise RepositoryUnreadable(
-            f"could not read the source of [{settings.github_repository}] at "
-            f"[{ref}]: {error}"
-        ) from error
+    return RepositorySourceSettings(
+        github_api_url=settings.github_api_url,
+        github_repository=settings.github_repository,
+        github_read_token=settings.github_read_token
+    )
 
 
 def _is_the_service_s_own(path: str, settings: RepositoryReadSettings) -> bool:
     """Whether this path is part of the service, as the deployment says.
 
-    Prefix matching on a comma-separated list, which is what a caller writing
-    `src/io_shop,tests/io_shop` in an environment file means by it. An empty
-    setting admits everything rather than nothing: a deployment that configured
-    no scope has a repository that is all service, and answering it with no
-    files would be reporting an empty repository.
+    The rule itself is the kernel's, because the index asks it too and the two
+    must agree: a file this channel will not match against and a file the index
+    will not embed have to be the same file, or what a model can find depends on
+    which tool it reached for. What stays here is only the reading of this
+    module's own settings slice.
     """
-    scoped = [
-        prefix.strip() for prefix in settings.github_source_paths.split(",")
-        if prefix.strip()
-    ]
-
-    return not scoped or any(path.startswith(prefix) for prefix in scoped)
+    return belongs_to_the_service(path, settings.github_source_paths)
 
 
-def _without_the_archives_own_directory(name: str) -> str:
-    """The path as the repository holds it.
-
-    GitHub wraps an archive in a directory named for the owner, the repository
-    and the commit it was cut at - so every entry arrives prefixed with
-    something no caller asked about and no other tool here accepts.
-    """
-    _, _, path = name.partition("/")
-
-    return path or name
-
-
-def _the_text_in(archive: tarfile.TarFile, member: tarfile.TarInfo) -> str | None:
-    """What one entry says, or `None` where it does not say anything readable."""
-    held = archive.extractfile(member)
-
-    if held is None:
-        return None
-
-    try:
-        return held.read().decode()
-    except (UnicodeDecodeError, OSError):
-        return None
 
 
 def read_repository_file(path: str,

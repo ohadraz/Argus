@@ -17,6 +17,7 @@ from argus_incidents import (
     start_incident,
     withdraw_incident,
 )
+from code_index.records import record_pushed
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +25,13 @@ from fastapi.templating import Jinja2Templates
 
 from argus_web import reads
 from argus_web.grafana import parse_grafana_alert
+from argus_web.pushes import (
+    SIGNATURE_HEADER,
+    PushSettings,
+    PushUnverified,
+    Watermark,
+    receive_push,
+)
 from argus_web.views import IncidentDetail
 
 
@@ -44,6 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     with open_pool(DatabaseSettings.of(get_settings())) as pool:
         app.state.connections = pool.connection
         app.state.publisher = events_into(pool.connection)
+        app.state.push_settings = PushSettings.of(get_settings())
 
         with pool.connection() as conn:
             require_schema(conn)
@@ -73,8 +82,21 @@ def publisher_of(request: Request) -> Publisher:
     return publisher
 
 
+def push_settings_of(request: Request) -> PushSettings:
+    """What the push webhook trusts and watches, read once at startup.
+
+    A dependency for the reason the connections are one: the route says in its
+    signature that it is configured, and a test can hand it a different
+    deployment without an environment anywhere near it.
+    """
+    settings: PushSettings = request.app.state.push_settings
+
+    return settings
+
+
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
 type Publishing = Annotated[Publisher, Depends(publisher_of)]
+type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
 
 # Argus's own mark and the one script the page needs, both shipped with the
 # module and mounted from a path relative to it, so they resolve the same in
@@ -133,6 +155,55 @@ def receive_alert(payload: dict[str, Any],
     alert = parse_grafana_alert(payload)
     incident_id = start_incident(alert, connections, events_into_connection)
     return {"incident_id": incident_id}
+
+
+@app.post("/webhooks/github/push", status_code=202)
+async def receive_github_push(request: Request,
+                              connections: UsingConnections,
+                              settings: UsingPushSettings) -> dict[str, str | None]:
+    """Records that the Target Service's repository has moved (spec §11).
+
+    The edge of an edge-triggered notification, level-triggered reconciliation
+    pair: one row is written and nothing is indexed here. The reconciler
+    closes the gap, so a delivery that never arrives costs a delay rather than
+    a permanently stale index - and indexing in this process would install an
+    ONNX runtime to serve a page.
+
+    Async, unlike every other route here, because the signature is over the
+    bytes that arrived and reading those is the one thing FastAPI will not
+    hand a synchronous handler. The behavior - verification, the ref filter,
+    what gets recorded - lives in `pushes.receive_push`; this is registration
+    only.
+
+    `202` for a push that was recorded and for one there was nothing to record
+    about alike. Both are deliveries that arrived intact, and a webhook that
+    answers an error for news it does not need is one somebody disables."""
+    try:
+        recorded = receive_push(
+            await request.body(),
+            request.headers.get(SIGNATURE_HEADER),
+            settings=settings,
+            record_pushed=_the_watermark_kept_by(connections)
+        )
+    except PushUnverified as refused:
+        raise HTTPException(status_code=401, detail=str(refused)) from refused
+
+    return {"recorded": recorded}
+
+
+def _the_watermark_kept_by(connections: Connections) -> Watermark:
+    """Where a verified push is written down.
+
+    The only line in this process that names the index at all, and it names
+    the row rather than the store: `code_index.records` is Postgres and
+    nothing else, which is what lets the web process record a push without
+    installing a vector store or an embedding model to do it.
+    """
+    def record(repository: str, sha: str, /) -> None:
+        with connections() as conn:
+            record_pushed(conn, repository, sha)
+
+    return record
 
 
 @app.post("/incidents/{incident_id}/withdraw")

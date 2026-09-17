@@ -144,11 +144,30 @@ jobs:
       - name: Sync workspace
         run: uv sync --all-packages
 
+      # The stack builds the index before it starts a service, so this job
+      # loads the real embedding model too. Same cache, same key and the same
+      # spelled-out path as the module matrix uses - a tilde here would be
+      # expanded by the action and not by Python, and the two would cache
+      # different directories.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.fastembed
+          key: fastembed-${{ hashFiles('Argus/uv.lock') }}
+          restore-keys: fastembed-
+
       - name: e2e (replayed answers, no API key)
         # Anything after `--` reaches pytest, which is how this share is
         # selected without the session knowing it is one of several.
-        run: uv run python -m nox -s e2e_replay -- --splits 2 --group ${{ matrix.shard }}
+        #
+        # `both` alone, because `both` is what a deployment runs. The session is
+        # parametrized by `CODE_SEARCH` and each mode is a different stack with
+        # recordings of its own; the other two are the benchmark's arrangement
+        # (§21) and run in the nightly, where three stacks in sequence cost an
+        # hour nobody is waiting on a push for.
+        run: uv run python -m nox -s "e2e_replay(mode='both')" -- --splits 2 --group ${{ matrix.shard }}
         env:
+          FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed
           # The credential that reads flag history and toggles a flag. Not a
           # secret: it is a token the Target Environment's compose seeds into
           # its own Unleash, so it is a fixture value.
@@ -335,5 +354,28 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.0.1  # installs `uv` onto the runner
 
+      # The embedding model is 130MB and `code_index`'s component tests load
+      # the real one - they are about whether code comes back nearer a
+      # description of what it does than unrelated code, which a stand-in
+      # cannot answer. Downloaded on every run that touches the module, that
+      # is 130MB of somebody's bandwidth to assert something the weights have
+      # already settled.
+      #
+      # The path is pinned rather than discovered: fastembed defaults its
+      # cache to a directory under the system temp, which a runner throws away
+      # and `actions/cache` cannot name. `FASTEMBED_CACHE_PATH` is what moves
+      # it somewhere both of them can see - written in full rather than as
+      # `~/...`, because the action expands a tilde and Python does not, and a
+      # cache the tests write to a directory literally named `~` is a cache
+      # that never hits and never says why.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.fastembed
+          key: fastembed-${{ hashFiles('Argus/uv.lock') }}
+          restore-keys: fastembed-
+
       - name: test changed modules
+        env:
+          FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed
         run: uv run python -m nox -s "test_module(module='${{ matrix.module }}')"

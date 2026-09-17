@@ -1,0 +1,49 @@
+{
+  "container": null,
+  "content": [
+    {
+      "text": "I'll start by pulling logs around the onset and the change history leading up to it.",
+      "type": "text"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_011mwFzg4HWFA2RD5XVQjavA",
+      "input": {},
+      "name": "get_logs",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Hc4XbLrrPKFyh3dXXEuWQL",
+      "input": {},
+      "name": "get_changes",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011Cf99wfc4DdAYaxqxcbsti",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 3097
+    },
+    "cache_creation_input_tokens": 3097,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 76,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard"
+  }
+}

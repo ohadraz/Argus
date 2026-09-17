@@ -119,11 +119,13 @@ root_packages = [
     "argus_incidents",
     "argus_narration",
     "argus_web",
+    "code_index",
     "exchange_rate_source",
     "oncall_source",
     "orchestrator",
     "read_mcp_client",
     "read_mcp_server",
+    "repository_source",
     "responder_rate_source",
     "revenue_source",
     "write_mcp_client",
@@ -184,6 +186,7 @@ ignore_imports = [
     "** -> argus_core.replay",
     "** -> argus_core.schema",
     "** -> argus_core.anomaly",
+    "** -> argus_core.source_scope",
     "agent_codefix.** -> argus_core.llm",
     "agent_investigator.** -> argus_core.llm",
     "agent_postmortem.** -> argus_core.llm",
@@ -213,5 +216,12 @@ ignore_imports = [
     "argus_web.** -> argus_incidents",
     "argus_web.** -> argus_incidents.**",
     "argus_web.** -> argus_narration",
+    # The watermark, and nothing else of the index. `code_index.records` is
+    # Postgres alone - one row saying where the repository is - where
+    # `code_index.store` and `code_index.embedding` are a vector store and an
+    # ONNX runtime. Named by module rather than as a package so that the day
+    # somebody reaches for the other half, the contract says so instead of
+    # this process quietly growing an embedding model to serve a page.
+    "argus_web.** -> code_index.records",
 ]
 unmatched_ignore_imports_alerting = "warn"
