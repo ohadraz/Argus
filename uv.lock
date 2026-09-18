@@ -119,6 +119,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-agent-investigator" },
     { name = "argus-argus-testkit" },
 ]
 
@@ -130,7 +131,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+dev = [
+    { name = "argus-agent-investigator", editable = "modules/agent_investigator" },
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+]
 
 [[package]]
 name = "argus-agent-communicator"
@@ -408,7 +412,9 @@ store = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-argus-core", extra = ["migrations"] },
     { name = "argus-argus-testkit" },
+    { name = "argus-code-index", extra = ["store"] },
 ]
 
 [package.metadata]
@@ -421,7 +427,11 @@ requires-dist = [
 provides-extras = ["store"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+dev = [
+    { name = "argus-argus-core", extras = ["migrations"], editable = "modules/argus_core" },
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "argus-code-index", extras = ["store"] },
+]
 
 [[package]]
 name = "argus-exchange-rate-source"
@@ -478,6 +488,7 @@ store = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-incident-memory", extra = ["store"] },
 ]
 
 [package.metadata]
@@ -489,7 +500,10 @@ requires-dist = [
 provides-extras = ["store"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "argus-incident-memory", extras = ["store"] },
+]
 
 [[package]]
 name = "argus-oncall-source"

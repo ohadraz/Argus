@@ -39,7 +39,16 @@ store = [
 
 [dependency-groups]
 dev = [
+    # The schema, because the component tests start from an empty one rather
+    # than adopting whatever the container came up with.
+    "argus-argus_core[migrations]",
     "argus-argus_testkit",
+    # Its own store extra. The component tests open a real Qdrant and load the
+    # real model - they are what the extra exists to be tested through - so the
+    # suite declares it rather than relying on a developer's `.venv` happening
+    # to hold it from an `--all-packages` sync. Without this the module passes
+    # locally and fails on a clean runner, which is the worst way round.
+    "argus-code_index[store]",
 ]
 
 

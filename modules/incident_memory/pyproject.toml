@@ -37,6 +37,10 @@ store = [
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
+    # Its own store extra, for the reason `code_index` declares its: the
+    # component tests write to a real Qdrant and embed with the real model,
+    # which is the only way to answer whether a record written can be found.
+    "argus-incident_memory[store]",
 ]
 
 

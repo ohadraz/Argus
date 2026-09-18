@@ -121,6 +121,13 @@ def test_module(session: nox.Session, module: str) -> None:
         _a_database_for(module) | _a_slack_double_for(module) | _a_qdrant_for(module)
     )
     session.run(
+        # Its own declared dependencies, and deliberately not `--all-extras`.
+        # Installing every optional dependency would make this pass for the one
+        # reason it must not: the extras exist so that a caller who does not
+        # reach the store does not install an ONNX runtime, and a suite that
+        # takes the lot can no longer tell a module that declared what it
+        # imports from one that never did. What a module's tests need, that
+        # module's `dev` group names.
         "uv", "run", "--package", f"argus-{module}",
         "python", "-m", "pytest", f"modules/{module}/tests",
         "-m", "unit or component or integration", "-v",
