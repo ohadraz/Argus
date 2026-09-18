@@ -121,6 +121,7 @@ root_packages = [
     "argus_web",
     "code_index",
     "exchange_rate_source",
+    "incident_memory",
     "oncall_source",
     "orchestrator",
     "read_mcp_client",
@@ -187,6 +188,18 @@ ignore_imports = [
     "** -> argus_core.schema",
     "** -> argus_core.anomaly",
     "** -> argus_core.source_scope",
+    # Narrower than the doors above it, and for the reason `llm` and
+    # `mcp_transport` are narrow: `embedding` is an optional dependency, taken
+    # by the two modules that hold a corpus and by nobody else. A module
+    # reaching it without declaring the extra would work in the workspace venv
+    # and fail wherever that module is resolved on its own.
+    "code_index.** -> argus_core.embedding",
+    "incident_memory.** -> argus_core.embedding",
+    # The walk is the third, and reaches it for a different reason than the two
+    # above: it holds no corpus of its own, it builds the model long-term memory
+    # is written and searched with. It already declares the extra, through
+    # `argus-incident_memory[store]`.
+    "orchestrator.** -> argus_core.embedding",
     "agent_codefix.** -> argus_core.llm",
     "agent_investigator.** -> argus_core.llm",
     "agent_postmortem.** -> argus_core.llm",
@@ -197,6 +210,22 @@ ignore_imports = [
     "orchestrator.** -> argus_core.mcp_transport",
     "read_mcp_client.** -> argus_core.mcp_transport",
     "write_mcp_client.** -> argus_core.mcp_transport",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "incident_memory holds records rather than reading the incident record"
+type = "forbidden"
+source_modules = ["incident_memory"]
+forbidden_modules = ["*"]
+# The kernel and nothing else - in particular not `argus_incidents`. What a
+# past incident tried is composed from actions handed to it, the way
+# `argus_narration` renders events handed to it: the walk already holds a
+# repository, and a second module opening its own connection to the same rows
+# would put the question of which incident's actions these are in two places.
+ignore_imports = [
+    "incident_memory.** -> argus_core",
+    "incident_memory.** -> argus_core.**",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

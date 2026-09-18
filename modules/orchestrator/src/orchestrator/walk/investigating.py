@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from argus_core.events import AgentInvoked, Publisher, nobody, publish
+from argus_core.events import (
+    AgentInvoked,
+    CandidatesReordered,
+    Publisher,
+    nobody,
+    publish,
+)
 from argus_core.models import Actor, Hypothesis, IncidentStatus
 
 # `records_nothing` is aliased because `events` and `replay` each call their
@@ -10,10 +16,12 @@ from argus_core.models import Actor, Hypothesis, IncidentStatus
 # holds both.
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
+from incident_memory.describing import what_it_looked_like
+from incident_memory.ordering import demoting_what_was_refuted
 
 from orchestrator.walk.candidates import the_next_worth_trying
 from orchestrator.walk.deltas import Narration, StateDelta
-from orchestrator.walk.ports import Investigate, RecordHypothesis
+from orchestrator.walk.ports import Investigate, RecallSimilar, RecordHypothesis
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -22,6 +30,7 @@ def investigator_node(
     state: IncidentState,
     record_hypothesis: RecordHypothesis,
     investigate: Investigate,
+    recall_similar: RecallSimilar,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
 ) -> StateDelta:
@@ -56,6 +65,32 @@ def investigator_node(
         already_read=state.already_read,
         already_refuted=state.attempts,
     )
+    # What memory makes of this round's candidates, before anything is chosen
+    # from them. Read once here rather than per candidate: one search, a
+    # deterministic order, and one line accounting for it.
+    #
+    # The description is built from this round's best answer, because that is
+    # what this incident looks like as far as anyone knows yet - the alert's own
+    # words plus what the investigation just concluded.
+    reordered = demoting_what_was_refuted(
+        findings.candidates,
+        recall_similar(
+            what_it_looked_like(state.alert, findings.candidates[0]),
+            state.alert.service
+        )
+    )
+    candidates = reordered.candidates
+
+    if reordered.on_the_strength_of is not None:
+        publish(
+            CandidatesReordered(
+                incident_id=state.incident_id,
+                subject=str(reordered.moved),
+                on_the_strength_of=reordered.on_the_strength_of
+            ),
+            publisher
+        )
+
     # Routing reads the best answer, as it always has. The rest are what the
     # walk moves on to when this one is refuted.
     # The best answer this round has that the walk has not already disproved.
@@ -63,8 +98,8 @@ def investigator_node(
     # because a re-investigation is free to reach the same conclusion as the one
     # that was just refuted, and acting on it again would change the same flag
     # back and forth until the round budget ran out.
-    next_up = the_next_worth_trying(findings.candidates, state.attempts, start=0)
-    hypothesis = next_up[1] if next_up is not None else findings.candidates[0]
+    next_up = the_next_worth_trying(candidates, state.attempts, start=0)
+    hypothesis = next_up[1] if next_up is not None else candidates[0]
     # A named cause is enough to start the walk. Confidence used to gate this,
     # and gating it here was answering the wrong question: a mitigation that is
     # taken alone, confirmed against the service and put back when it does not
@@ -82,12 +117,12 @@ def investigator_node(
     # record should say what was considered as well as what was acted on - a
     # runner-up that never reached the table is a finding a human picking the
     # incident up cannot see Argus ever having had.
-    for candidate in findings.candidates:
+    for candidate in candidates:
         record_hypothesis(candidate)
 
     return StateDelta(
         hypothesis=hypothesis,
-        candidates=findings.candidates,
+        candidates=candidates,
         candidate_index=next_up[0] if next_up is not None else 0,
         # Everything read across this incident, not only this round's, so a
         # third round is told about the first as well as the second.

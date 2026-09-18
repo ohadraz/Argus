@@ -177,7 +177,7 @@ def _what_was_considered(conn: psycopg.Connection, incident_id: str) -> list[str
 
 def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[str]:
     return [
-        f"{taken_action.type or 'action'} on {taken_action.target} - "
+        f"{taken_action.type or 'action'} on {taken_action.subject} - "
         f"{taken_action.outcome or 'no verdict recorded'}"
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]

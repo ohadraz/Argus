@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS action (
     -- identity.
     hypothesis_id UUID REFERENCES hypothesis(id),
     type TEXT,
-    target TEXT,
+    subject TEXT,
     reversible BOOLEAN NOT NULL DEFAULT true,
     tier TEXT,
     undo_descriptor JSONB,

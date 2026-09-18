@@ -33,6 +33,7 @@ from orchestrator.walk.graph import (
     MITIGATION_PROPOSAL_NODE,
     NEXT_CANDIDATE_NODE,
     POSTMORTEM_NODE,
+    REMEMBERING_NODE,
     TIER_GATE_NODE,
     build_graph,
     recursion_limit,
@@ -50,6 +51,7 @@ EVERY_NODE_IN_THE_WALK = [
     MITIGATION_PROPOSAL_NODE,
     NEXT_CANDIDATE_NODE,
     POSTMORTEM_NODE,
+    REMEMBERING_NODE,
     TIER_GATE_NODE
 ]
 
@@ -63,7 +65,7 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     (START, INVESTIGATOR_NODE),
 
     (INVESTIGATOR_NODE, MITIGATION_PROPOSAL_NODE),
-    (INVESTIGATOR_NODE, POSTMORTEM_NODE),
+    (INVESTIGATOR_NODE, REMEMBERING_NODE),
     (INVESTIGATOR_NODE, END),
 
     # The gate stands between the proposal and the call that performs it
@@ -79,7 +81,7 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     # is back, and the fault it exposed is still in the code.
     (MITIGATION_NODE, CODEFIX_NODE),
     (MITIGATION_NODE, NEXT_CANDIDATE_NODE),
-    (MITIGATION_NODE, POSTMORTEM_NODE),
+    (MITIGATION_NODE, REMEMBERING_NODE),
     (MITIGATION_NODE, END),
 
     # The loop. An attempt that settled nothing goes back to the proposal node
@@ -92,9 +94,14 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     (NEXT_CANDIDATE_NODE, CODEFIX_NODE),
     (NEXT_CANDIDATE_NODE, END),
 
-    (CODEFIX_NODE, POSTMORTEM_NODE),
+    (CODEFIX_NODE, REMEMBERING_NODE),
     (CODEFIX_NODE, END),
 
+    # Remembering comes before the write-up rather than after it, so neither
+    # failure can take the other down: this node swallows its own, leaving the
+    # postmortem to be written regardless, and a postmortem that raises cannot
+    # then cost the next incident what this one learned.
+    (REMEMBERING_NODE, POSTMORTEM_NODE),
     (POSTMORTEM_NODE, END)
 })
 
@@ -131,7 +138,7 @@ def test_the_shortest_possible_walk_costs_what_the_graph_says_it_costs() -> None
     Scenario() \
         .given(the_shortest_walk := {"max_rounds": 1, "max_candidates": 1}) \
         .when(lambda: recursion_limit(**the_shortest_walk)) \
-        .then(_the_limit_is(7))
+        .then(_the_limit_is(8))
 
 
 @pytest.mark.unit

@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import agent_investigator
 import pytest
-from argus_core.events import AgentInvoked, IncidentEvent
+from argus_core.events import AgentInvoked, CandidatesReordered, IncidentEvent
 from argus_core.models import (
     Actor,
     Alert,
@@ -29,8 +29,10 @@ from argus_core.models import (
     IncidentStatus,
     Reading,
     RetrievalChannel,
+    Verdict,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Kept, Scenario, all_of, calling
+from incident_memory.records import RememberedIncident, WhatWasTried
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
@@ -71,6 +73,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
         .when(
             lambda: investigator_node(an_investigating_incident,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
@@ -112,6 +115,7 @@ def test_a_doubtful_cause_is_still_offered_as_the_one_to_try(
         .when(
             lambda: investigator_node(an_investigating_incident,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
@@ -145,6 +149,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
         .when(
             lambda: investigator_node(an_investigating_incident,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
@@ -194,6 +199,7 @@ def test_every_candidate_the_investigation_offered_is_recorded(
         .when(
             lambda: investigator_node(an_investigating_incident,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
@@ -229,6 +235,7 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
         .when(
             lambda: investigator_node(a_second_round,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis)
         ) \
         .then(all_of(
@@ -266,6 +273,7 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
         .when(
             lambda: investigator_node(a_round_after_that_flag_was_tried,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis)
         ) \
         .then(the_result_at("nothing_worth_trying", True))
@@ -277,6 +285,194 @@ def test_an_investigation_that_named_none_reaches_a_human() -> None:
         .given(an_escalated_incident := _an_incident_in(IncidentStatus.ESCALATED)) \
         .when(lambda: route_after_investigation(an_escalated_incident)) \
         .then(_the_route_is(ESCALATED_ROUTE))
+
+
+@pytest.mark.unit
+def test_a_subject_an_earlier_incident_refuted_is_tried_last(
+    investigate: MagicMock, record_hypothesis: MagicMock
+) -> None:
+    # The one thing memory is allowed to do to a walk. The model believed the
+    # first candidate more, and an earlier incident says changing that subject
+    # did not help - which is evidence the model had no way to weigh, because
+    # it is not about this incident at all.
+    an_investigating_incident = _an_investigating_incident()
+    the_flag_that_failed_before = "monthly-spend-feature"
+    the_flag_nobody_has_tried = "legacy-checkout-fallback"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                _a_candidate_blaming(an_investigating_incident.incident_id,
+                                     the_flag_that_failed_before),
+                _a_candidate_blaming(an_investigating_incident.incident_id,
+                                     the_flag_nobody_has_tried)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(
+                an_investigating_incident,
+                investigate=investigate,
+                recall_similar=_an_earlier_incident_that_refuted(
+                    the_flag_that_failed_before
+                ),
+                record_hypothesis=record_hypothesis)
+        ) \
+        .then(_the_candidates_are_about([the_flag_nobody_has_tried,
+                                         the_flag_that_failed_before]))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_is_said_on_the_timeline(
+    investigate: MagicMock, record_hypothesis: MagicMock
+) -> None:
+    # A walk that tried its second-best candidate first, with nothing saying
+    # why, is a walk a human reading the incident back cannot account for.
+    an_investigating_incident = _an_investigating_incident()
+    the_flag_that_failed_before = "monthly-spend-feature"
+    the_incident_that_moved_it = "3f2b1a09-0000-4000-8000-00000000000a"
+    published: Kept[IncidentEvent] = Kept()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                _a_candidate_blaming(an_investigating_incident.incident_id,
+                                     the_flag_that_failed_before),
+                _a_candidate_blaming(an_investigating_incident.incident_id,
+                                     "legacy-checkout-fallback")
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(
+                an_investigating_incident,
+                investigate=investigate,
+                recall_similar=_an_earlier_incident_that_refuted(
+                    the_flag_that_failed_before,
+                    incident_id=the_incident_that_moved_it
+                ),
+                record_hypothesis=record_hypothesis,
+                publisher=published.take)
+        ) \
+        .then(_it_was_said_that(published,
+                               the_flag_that_failed_before,
+                               the_incident_that_moved_it))
+
+
+@pytest.mark.unit
+def test_an_order_memory_left_alone_is_not_said(
+    investigate: MagicMock, record_hypothesis: MagicMock
+) -> None:
+    # The ordinary incident, and the one that has to stay silent. A line on
+    # every walk saying the order did not change is a timeline nobody reads.
+    an_investigating_incident = _an_investigating_incident()
+    published: Kept[IncidentEvent] = Kept()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                _a_candidate_blaming(an_investigating_incident.incident_id,
+                                     "monthly-spend-feature")
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(
+                an_investigating_incident,
+                investigate=investigate,
+                recall_similar=_nothing_like_it_has_happened(),
+                record_hypothesis=record_hypothesis,
+                publisher=published.take)
+        ) \
+        .then(_no_reordering_was_said(published))
+
+
+def _an_earlier_incident_that_refuted(
+    flag: str,
+    incident_id: str = "3f2b1a09-0000-4000-8000-00000000000a"
+) -> ports.RecallSimilar:
+    """Memory holding one incident that changed this flag and did not recover.
+
+    Everything a search would have needed to find it is arbitrary: the search
+    already happened by the time a walk reads one, and what it reads is the
+    list of what was tried.
+    """
+    def recall(dont_care_description: str,
+               dont_care_service: str) -> list[RememberedIncident]:
+        return [
+            RememberedIncident(
+                incident_id=incident_id,
+                described_as="an incident that looked like this one",
+                service="kuki-service",
+                alert_name="HighErrorRate",
+                tried=[WhatWasTried(subject=flag, verdict=Verdict.REFUTED)]
+            )
+        ]
+
+    return recall
+
+
+def _the_candidates_are_about(expected: list[str]) -> Assertion[StateDelta]:
+    def assertion(delta: StateDelta) -> bool:
+        if delta.candidates is None:
+            raise AssertionError(
+                f"expected {expected}, the delta carried no candidates"
+            )
+
+        subjects = [candidate.subject for candidate in delta.candidates]
+
+        if subjects != expected:
+            raise AssertionError(f"expected {expected}, got {subjects}")
+
+        return True
+
+    return assertion
+
+
+def _it_was_said_that(published: Kept[IncidentEvent],
+                      subject: str,
+                      on_the_strength_of: str) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        said = [
+            event for event in published.taken
+            if isinstance(event, CandidatesReordered)
+        ]
+
+        if not said:
+            raise AssertionError(
+                f"expected a reordering to be said, got "
+                f"{[event.kind for event in published.taken]}"
+            )
+
+        if said[0].subject != subject:
+            raise AssertionError(
+                f"expected [{subject}] to have moved, got [{said[0].subject}]"
+            )
+
+        if said[0].on_the_strength_of != on_the_strength_of:
+            raise AssertionError(
+                f"expected it said on [{on_the_strength_of}], "
+                f"got [{said[0].on_the_strength_of}]"
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_reordering_was_said(published: Kept[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        said = [
+            event for event in published.taken
+            if isinstance(event, CandidatesReordered)
+        ]
+
+        if said:
+            raise AssertionError(f"expected no reordering to be said, got {said}")
+
+        return True
+
+    return assertion
 
 
 def _an_investigating_incident() -> IncidentState:
@@ -323,6 +519,7 @@ def test_the_graph_says_when_it_invokes_the_investigator(
         .when(
             lambda: investigator_node(an_investigating_incident,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
                                       publisher=published.append)
         ) \
@@ -347,6 +544,7 @@ def test_the_investigation_publishes_to_the_same_place_the_graph_does(
         .when(
             lambda: investigator_node(an_investigating_incident,
                                       investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
                                       publisher=published.append)
         ) \
@@ -417,3 +615,18 @@ def _the_agents_invoked_were(expected: list[Actor],
         return True
 
     return assertion
+
+
+def _nothing_like_it_has_happened() -> ports.RecallSimilar:
+    """Memory with nothing in it, which is what every case here assumes.
+
+    These are cases about what an investigation found and what the walk does
+    with it. What an earlier incident was done about is a different subject with
+    a file of its own, and a recall answering here would put a second reason
+    behind every order these cases assert.
+    """
+    def recall(dont_care_description: str,
+               dont_care_service: str) -> list[RememberedIncident]:
+        return []
+
+    return recall

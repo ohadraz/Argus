@@ -13,7 +13,7 @@ class TakenAction(BaseModel):
     incident_id: UuidStr
     hypothesis_id: UuidStr | None
     type: str | None
-    target: str | None
+    subject: str | None
     reversible: bool
     tier: str | None
     undo_descriptor: UndoDescriptor | None

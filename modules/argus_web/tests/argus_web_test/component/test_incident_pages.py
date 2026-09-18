@@ -670,6 +670,7 @@ def _an_attempt_taken_for(conn: psycopg.Connection,
         incident_id,
         hypothesis_id=hypothesis_id,
         action_type="revert-feature-flag",
+        subject="dont-care",
         outcome=outcome,
         undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True)
     )

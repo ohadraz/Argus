@@ -26,6 +26,10 @@ dependencies = [
 # `argus_core.mcp_transport`, so a module reaching one without the extra fails
 # `guard_layering` rather than at runtime on the day that path is first walked.
 [project.optional-dependencies]
+# The local model that turns text into vectors. An extra because two
+# corpora want one and most callers of this kernel want neither: a module
+# naming a `UuidStr` should not install an ONNX runtime to do it.
+embedding = ["fastembed>=0.8"]
 llm = ["anthropic>=1.0"]
 mcp = ["mcp>=1.29.0"]
 migrations = ["alembic>=1.20.0"]
@@ -34,12 +38,12 @@ migrations = ["alembic>=1.20.0"]
 # test helper this module's suite imports has to be declared here or it is
 # simply absent on CI, however well-populated the local workspace venv is.
 #
-# All three extras, for the same reason: this module's own suite is the one that
+# Every extra, for the same reason: this module's own suite is the one that
 # exercises what is behind every door, so a suite resolved without them fails on
 # CI alone and looks like a code problem.
 [dependency-groups]
 dev = [
-    "argus-argus_core[llm,mcp,migrations]",
+    "argus-argus_core[embedding,llm,mcp,migrations]",
     "argus-argus_testkit",
 ]
 

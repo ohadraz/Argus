@@ -9,6 +9,7 @@ from argus_core import connect_from_env, get_settings
 from argus_incidents.repository import incidents
 from argus_incidents.repository.runs import RunState
 from psycopg import sql
+from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
@@ -104,6 +105,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     _every_run_came_to_a_stop()
     _the_relay_caught_up()
     _every_table_was_emptied()
+    _long_term_memory_was_forgotten()
     _the_target_service_scenario_was_reset()
 
     the_boot_flags_were_put_back()
@@ -245,6 +247,27 @@ def _every_table_was_emptied() -> None:
             )
 
         conn.commit()
+
+
+def _long_term_memory_was_forgotten() -> None:
+    """Drops the collection this stack remembers incidents in.
+
+    The one piece of a case's state that outlives Postgres. A record written by
+    one case is a record the next case's walk recalls, which would couple two
+    cases through a store neither of them mentions - and the corpus a case wants
+    is the one its own `given` put there.
+
+    Dropped rather than emptied: an absent collection reads as an empty corpus
+    everywhere above the store, and the first write makes it again.
+    """
+    settings = get_settings()
+
+    store = QdrantClient(url=settings.qdrant_url)
+
+    try:
+        store.delete_collection(settings.incident_memory_collection)
+    finally:
+        store.close()
 
 
 def _the_target_service_scenario_was_reset() -> None:

@@ -1,0 +1,54 @@
+[project]
+name = "argus-incident_memory"
+version = "0.1.0"
+requires-python = ">=3.14"
+
+dependencies = [
+    "argus-argus_core",
+]
+
+
+# The store and the model, for whoever reaches them. An extra rather than a
+# hard dependency, for the reason `code_index` makes Qdrant and the embedder
+# one: a caller that only names a memory record - the walk assembling its
+# ports, a test composing one from actions - would otherwise install an ONNX
+# runtime to hold a value object.
+#
+# Every caller that writes or searches declares `argus-incident_memory[store]`,
+# and reaching `incident_memory.store` or `incident_memory.embedding` without
+# it is a broken layering contract here rather than an ImportError at the close
+# of a live incident.
+[project.optional-dependencies]
+store = [
+    # Pinned to the minor the server is pinned to in `docker-compose.yml`, and
+    # to the same minor `code_index` pins: one Qdrant serves both collections,
+    # and two clients a minor apart against one server is a mismatch nobody
+    # sees until a payload field is refused.
+    "qdrant-client>=1.19,<1.20",
+    # The same local, free, keyless embedder the repository index uses, and
+    # the same one: it is the kernel's, behind the kernel's door. Chosen for
+    # costing nothing and waiting on nobody rather than for retrieval quality -
+    # and behind a seam, so a benchmark that blames the model can pass a
+    # different one.
+    "argus-argus_core[embedding]",
+]
+
+
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
+]
+
+
+[tool.uv.sources]
+argus-argus_core = { workspace = true }
+argus-argus_testkit = { workspace = true }
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/incident_memory"]

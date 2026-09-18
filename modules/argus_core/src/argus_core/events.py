@@ -398,6 +398,54 @@ class PostmortemWritten(_Event):
     engineer_minutes: int | None = None
 
 
+class CandidatesReordered(_Event):
+    """Long-term memory moved this incident's candidates, and what moved them.
+
+    Written only where the order actually changed. A walk that tried its
+    second-best candidate first, with nothing saying why, is a walk a human
+    reading the incident back cannot account for - and a walk that said so on
+    every incident would be a timeline nobody reads.
+
+    One past incident rather than all of them that matched. This line is read
+    during an incident, and "because of these four" is a list nobody scanning a
+    timeline follows.
+    """
+
+    kind: Literal["candidates-reordered"] = "candidates-reordered"
+    subject: str
+    on_the_strength_of: str
+
+
+class IncidentRemembered(_Event):
+    """What was filed about this incident for the next one to read.
+
+    The subjects rather than the record. What a later walk gets from this is
+    which things were changed and how each turned out, and the description the
+    record is found by is a fact about searching rather than about the incident.
+
+    Its own event rather than a clause on the postmortem's, because the two are
+    written by different steps for different readers: one is a document a person
+    opens, and this is a row nobody reads until an incident like this one
+    happens again.
+    """
+
+    kind: Literal["incident-remembered"] = "incident-remembered"
+    subjects: list[str]
+
+
+class RememberingFailed(_Event):
+    """The incident ended and nothing was filed about what was tried.
+
+    Costs this incident nothing - it is over - and costs the next one an
+    advantage, which is exactly why it is said out loud. Silence here is
+    indistinguishable from an incident that had nothing worth filing, and the
+    two call for different things from whoever reads it.
+    """
+
+    kind: Literal["remembering-failed"] = "remembering-failed"
+    refusal: str
+
+
 class CommunicationFailed(_Event):
     """A line of the account that a destination would not carry, and why.
 
@@ -444,6 +492,9 @@ type IncidentEvent = Annotated[
         | ChangeUndone
         | FixAttempted
         | PostmortemWritten
+        | CandidatesReordered
+        | IncidentRemembered
+        | RememberingFailed
         | CommunicationFailed
     ),
     Field(discriminator="kind")

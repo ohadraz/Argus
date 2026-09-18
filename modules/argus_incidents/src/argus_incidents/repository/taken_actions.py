@@ -11,6 +11,7 @@ def claim(
     incident_id: str,
     hypothesis_id: str,
     action_type: ActionType,
+    subject: str | None,
 ) -> bool:
     """Takes the right to act on one candidate, and says whether it got it
     (spec §11.1, §13).
@@ -24,6 +25,18 @@ def claim(
 
     The row carries no outcome yet, because nothing has happened yet.
     `complete` fills that in.
+
+    `subject` is written here rather than there, and that is the point of its
+    being on the claim: the claim is the write that happens *before* anything
+    is done, and the one case this table exists to answer is a worker that
+    stopped in between. A row found with no outcome has to say what change may
+    be out there, and the alternative - recovering it afterwards from the undo
+    descriptor of an action that may never have reached the provider - is the
+    reconstruction the column exists to avoid.
+
+    Nullable, because a candidate naming no subject is a real candidate: the
+    walk already refuses to act on one, and a row is written for what was
+    claimed rather than for what was well-formed.
 
     `hypothesis_id` is required rather than defaulted, because every caller has
     it: an action is taken *for* a candidate, and the node taking it is holding
@@ -40,11 +53,11 @@ def claim(
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO action (incident_id, hypothesis_id, type, reversible) "
-            "VALUES (%s, %s, %s, %s) "
+            "INSERT INTO action (incident_id, hypothesis_id, type, subject, reversible) "
+            "VALUES (%s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
             "WHERE hypothesis_id IS NOT NULL DO NOTHING",
-            (incident_id, hypothesis_id, action_type, True),
+            (incident_id, hypothesis_id, action_type, subject, True),
         )
         claimed = cursor.rowcount == 1
     conn.commit()
@@ -91,6 +104,7 @@ def record(
     incident_id: str,
     hypothesis_id: str,
     action_type: ActionType,
+    subject: str | None,
     outcome: str,
     undo_descriptor: UndoDescriptor | None,
 ) -> None:
@@ -102,7 +116,7 @@ def record(
     it as the two halves at every call site would spread the ordering rule
     across everything that writes one.
     """
-    claim(conn, incident_id, hypothesis_id, action_type)
+    claim(conn, incident_id, hypothesis_id, action_type, subject)
     complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor)
 
 
@@ -118,7 +132,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     """
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, hypothesis_id, type, target, reversible, "
+            "SELECT id, incident_id, hypothesis_id, type, subject, reversible, "
             "       tier, undo_descriptor, outcome, taken_at, approved_by "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
@@ -138,7 +152,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
     """
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, hypothesis_id, type, target, reversible, "
+            "SELECT id, incident_id, hypothesis_id, type, subject, reversible, "
             "       tier, undo_descriptor, outcome, taken_at, approved_by "
             "  FROM action "
             " WHERE incident_id = %s "

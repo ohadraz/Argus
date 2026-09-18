@@ -70,7 +70,12 @@ def mitigation_node(
     if not record_action(
         state.incident_id,
         hypothesis_id=state.hypothesis.id,
-        action_type=state.proposed_action.action_type
+        action_type=state.proposed_action.action_type,
+        # Written with the claim, while the candidate is still in hand. The row
+        # is the only account of what this attempt changed, and every reader of
+        # it afterwards - the write-up, and the memory the next incident is
+        # ordered by - has nowhere else to ask.
+        subject=state.hypothesis.subject
     ):
         resumed = _what_the_earlier_attempt_left(
             state, already_taken, change_landed, publisher

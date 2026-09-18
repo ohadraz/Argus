@@ -9,6 +9,7 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     PostmortemDocument,
+    TakenAction,
     UndoDescriptor,
     Verdict,
 )
@@ -79,14 +80,16 @@ class Records:
         self,
         incident_id: str,
         hypothesis_id: str,
-        action_type: ActionType
+        action_type: ActionType,
+        subject: str | None
     ) -> bool:
         with self._connections() as conn:
             return taken_actions.claim(
                 conn,
                 incident_id,
                 hypothesis_id=hypothesis_id,
-                action_type=action_type
+                action_type=action_type,
+                subject=subject
             )
 
     def complete_action(
@@ -164,3 +167,15 @@ class Records:
                 estimate_currency=document.estimate_currency,
                 engineer_minutes=document.engineer_minutes
             ), self._publisher_for(conn))
+
+    def actions_taken(self, incident_id: str, /) -> list[TakenAction]:
+        """Every action stored against this incident, with what each reached.
+
+        A read among writes, and the only one here. It belongs beside them
+        because it is the same table the claim and the completion above wrote
+        to, read back once the incident is over - and a second object holding
+        one query against one of these tables would be a second place that
+        knows where an action lives.
+        """
+        with self._connections() as conn:
+            return taken_actions.get_by_incident(conn, incident_id)

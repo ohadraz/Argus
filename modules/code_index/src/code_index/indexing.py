@@ -22,27 +22,25 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Protocol
 from uuid import UUID
 
+# Named here as well as in the kernel, because this is where the index's own
+# callers have always reached for it and the seam did not move when its
+# definition did - it was lifted once a second corpus wanted the same model.
+from argus_core.embedding import Embedder
 from argus_core.source_scope import belongs_to_the_service
 
 from code_index.chunking import DEFAULT_MAX_LINES, DEFAULT_OVERLAP, Chunk, chunks_of
 
-
-class Embedder(Protocol):
-    """What turns passages into vectors.
-
-    A seam rather than a call, because the real one loads a model: a unit test
-    that reached the default would spend its first second in ONNX and its
-    second one deciding what a vector of 384 floats ought to be.
-
-    Takes the whole batch. A single-text signature would make batching the
-    caller's problem and, being the easier thing to write, would quietly become
-    one call per chunk.
-    """
-
-    def __call__(self, texts: list[str], /) -> list[list[float]]: ...
+__all__ = [
+    "Candidate",
+    "Embedder",
+    "Point",
+    "candidates_for",
+    "ids_no_longer_present",
+    "points_for",
+    "points_of"
+]
 
 
 @dataclass(frozen=True)

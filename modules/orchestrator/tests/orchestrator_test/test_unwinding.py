@@ -347,7 +347,7 @@ def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None) -> TakenAct
         incident_id=_DONT_CARE_INCIDENT_ID,
         hypothesis_id=new_id(),
         type="revert-feature-flag",
-        target="dont-care-flag",
+        subject="dont-care-flag",
         reversible=True,
         tier="write",
         undo_descriptor=undo_descriptor,

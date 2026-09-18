@@ -25,6 +25,7 @@ from orchestrator.walk.investigating import (
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.proposing import mitigation_proposal_node
+from orchestrator.walk.remembering import remembering_node
 from orchestrator.walk.routes import (
     ESCALATED_ROUTE,
     FIXING_ROUTE,
@@ -47,16 +48,17 @@ TIER_GATE_NODE: Final = "tier_gate"
 MITIGATION_NODE: Final = "mitigation"
 NEXT_CANDIDATE_NODE: Final = "next_candidate"
 CODEFIX_NODE: Final = "codefix"
+REMEMBERING_NODE: Final = "remembering"
 POSTMORTEM_NODE: Final = "postmortem"
 
 
 # One attempt is four traversals - proposal, gate, mitigation, next_candidate -
-# and an incident nobody could fix ends in two more: codefix, postmortem. Named
-# constants rather than a number in the arithmetic below, because they are
-# facts about the graph a few lines further down, and the day one of them
-# changes is the day this stops being right silently.
+# and an incident nobody could fix ends in three more: codefix, remembering,
+# postmortem. Named constants rather than a number in the arithmetic below,
+# because they are facts about the graph a few lines further down, and the day
+# one of them changes is the day this stops being right silently.
 _NODES_PER_ATTEMPT = 4
-_NODES_ENDING_A_WALK = 2
+_NODES_ENDING_A_WALK = 3
 
 
 def recursion_limit(max_rounds: int, max_candidates: int) -> int:
@@ -106,6 +108,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         deciding_status(
             partial(investigator_node,
                     investigate=collaborators.investigate,
+                    recall_similar=collaborators.recall_similar,
                     record_hypothesis=collaborators.record_hypothesis,
                     publisher=collaborators.publisher,
                     recorder=collaborators.recorder)
@@ -158,6 +161,17 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     publisher=collaborators.publisher)
         )
     )
+    # Not wrapped in `deciding_status`, unlike every node above it. Filing what
+    # was tried changes nothing about where the incident stands - it is already
+    # over - and a status derived again here would be the same status published
+    # twice.
+    graph.add_node(
+        REMEMBERING_NODE,
+        partial(remembering_node,
+                actions_taken=collaborators.actions_taken,
+                remember=collaborators.remember_incident,
+                publisher=collaborators.publisher)
+    )
     graph.add_node(
         POSTMORTEM_NODE,
         deciding_status(
@@ -177,7 +191,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         stopping_when_withdrawn(route_after_investigation),
         {
             MITIGATING_ROUTE: MITIGATION_PROPOSAL_NODE,
-            ESCALATED_ROUTE: POSTMORTEM_NODE,
+            ESCALATED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )
@@ -204,7 +218,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
             # come back to unless the bug gets fixed.
             FIXING_ROUTE: CODEFIX_NODE,
             NEXT_CANDIDATE_ROUTE: NEXT_CANDIDATE_NODE,
-            ESCALATED_ROUTE: POSTMORTEM_NODE,
+            ESCALATED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )
@@ -226,10 +240,15 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         CODEFIX_NODE,
         stopping_when_withdrawn(route_after_codefix),
         {
-            POSTMORTEM_ROUTE: POSTMORTEM_NODE,
+            POSTMORTEM_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )
+    # Remembering comes before the write-up rather than after it, so that
+    # neither failure can take the other down. This node swallows its own,
+    # leaving the postmortem to be written regardless; and a postmortem that
+    # raises cannot then cost the next incident what this one learned.
+    graph.add_edge(REMEMBERING_NODE, POSTMORTEM_NODE)
     graph.add_edge(POSTMORTEM_NODE, END)
 
     return graph.compile(checkpointer=checkpointer)

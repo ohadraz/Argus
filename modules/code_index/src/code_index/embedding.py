@@ -1,70 +1,28 @@
-"""The model that turns passages into vectors.
+"""Which model the repository index embeds its passages with.
 
-It runs in this process. No key, no network, no bill - and those are the reasons
-it was chosen, which is worth saying plainly because retrieval quality is not
-among them. A code-trained hosted model would rank better than a small
-general-purpose English one; what this buys instead is that indexing costs
-nothing, that an incident never waits on a vendor, and that nothing external has
-to be stood in for before a suite can run.
+The model itself is the kernel's (`argus_core.embedding`), because long-term
+memory embeds with one too and a thing two modules both name is a contract.
+What is left here is the only part that belongs to this index: which weights it
+asks for.
 
-Which is why everything above this is written against a seam. If the benchmark
-says retrieval by meaning underperforms, "the model is small" is a hypothesis
-that can be tested by passing a different `Embedder` - and only this module has
-to know.
+Configuration rather than a constant, because it is the one variable a
+retrieval benchmark (§21) cannot hold constant - if the benchmark says retrieval
+by meaning underperforms, "the model is small" is a hypothesis that can be
+tested by naming a different one, and only this line has to change.
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
-from typing import TYPE_CHECKING
-
 from argus_core import get_settings
-
-from code_index.indexing import Embedder
-
-if TYPE_CHECKING:
-    from fastembed import TextEmbedding
-
-@lru_cache(maxsize=1)
-def _the_model(model_name: str) -> TextEmbedding:
-    """The one model this process loads, built on first use.
-
-    Cached because loading it is the expensive part and the weights are the same
-    for every passage; deferred because a process that only ever injects an
-    embedder - which is most of them, and every unit test - should not pay to
-    import an ONNX runtime it will not reach.
-
-    Cached on the name, so naming a different model loads that one rather than
-    handing back the first model this process happened to load.
-    """
-    from fastembed import TextEmbedding
-
-    return TextEmbedding(model_name=model_name)
+from argus_core.embedding import Embedder
+from argus_core.embedding import an_embedder as a_model_named
 
 
 def an_embedder(model_name: str | None = None) -> Embedder:
-    """The real embedder, as the seam everything above is written against.
-
-    Named, or the configured model where nothing names one. Which model it is
-    is a deployment's choice (`CODE_INDEX_EMBEDDING_MODEL`), because it is the
-    one variable the retrieval benchmark cannot hold constant - and the string
-    lives in configuration rather than here so that a suite comparing two of
-    them has somewhere to say so.
+    """The embedder this index uses: the one named, or the one configured.
 
     Read at the call rather than defaulted in the signature: a default argument
     is evaluated at import, which would have this module read the environment to
     be imported at all.
     """
-    named = model_name or get_settings().code_index_embedding_model
-
-    def embed(texts: list[str], /) -> list[list[float]]:
-        """One vector per text, in the order they were given.
-
-        The order is the contract. What comes back is paired with what went in
-        by position and nothing else, so a model that reordered or dropped one
-        would hand every passage its neighbour's meaning - which is why the
-        pairing is zipped strictly where it happens.
-        """
-        return [vector.tolist() for vector in _the_model(named).embed(texts)]
-
-    return embed
+    return a_model_named(model_name or get_settings().code_index_embedding_model)

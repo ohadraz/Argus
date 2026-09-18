@@ -29,6 +29,7 @@ from argus_core.events import (
     AgentInvoked,
     AlertAcknowledged,
     CandidateSelected,
+    CandidatesReordered,
     ChangesRetrieved,
     ChangeUndone,
     CommunicationFailed,
@@ -36,11 +37,13 @@ from argus_core.events import (
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
+    IncidentRemembered,
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
+    RememberingFailed,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
@@ -539,6 +542,71 @@ def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
                      _the_only_line_mentions("USD 1240.50"),
                      _the_only_line_mentions("34 engineer minutes"),
                      _the_lines_are_credited_to(["Postmortem Agent"])))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
+    # A walk that tried its second-best candidate first, with nothing saying
+    # why, is a walk a human reading the incident back cannot account for. The
+    # subject is the marked word because it is what moved; the past incident is
+    # in the sentence, because it is the reason rather than the subject.
+    the_flag_that_was_moved_down = "new-checkout-flow"
+    the_incident_that_moved_it = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    what_memory_did = CandidatesReordered(
+        incident_id=new_id(),
+        subject=the_flag_that_was_moved_down,
+        on_the_strength_of=the_incident_that_moved_it
+    )
+
+    Scenario() \
+        .given(what_memory_did) \
+        .when(lambda: build_narration([what_memory_did])) \
+        .then(all_of(_the_only_line_marks(the_flag_that_was_moved_down),
+                     _the_only_line_mentions(the_incident_that_moved_it),
+                     _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_what_was_filed_about_this_incident_names_what_was_tried() -> None:
+    # The last thing said about an incident, and the only line about a store
+    # nobody reads until the next incident. The subjects are the marked words
+    # because they are the whole content: what a later walk gets from this
+    # record is which things were changed and how each turned out.
+    a_flag_that_did_not_help = "new-checkout-flow"
+    another_flag_that_did_not_help = "payments-fallback"
+
+    what_was_filed = IncidentRemembered(
+        incident_id=new_id(),
+        subjects=[a_flag_that_did_not_help, another_flag_that_did_not_help]
+    )
+
+    Scenario() \
+        .given(what_was_filed) \
+        .when(lambda: build_narration([what_was_filed])) \
+        .then(all_of(_the_only_line_mentions(a_flag_that_did_not_help),
+                     _the_only_line_mentions(another_flag_that_did_not_help),
+                     _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_memory_that_could_not_be_written_says_so_and_why() -> None:
+    # A store that is down costs the next incident an advantage and costs this
+    # one nothing - which is exactly why it has to be said out loud. Silence
+    # here is indistinguishable from an incident that had nothing to file, and
+    # the two call for different things from whoever reads it.
+    why_it_could_not_be_written = "connection refused"
+
+    what_was_not_filed = RememberingFailed(
+        incident_id=new_id(),
+        refusal=why_it_could_not_be_written
+    )
+
+    Scenario() \
+        .given(what_was_not_filed) \
+        .when(lambda: build_narration([what_was_not_filed])) \
+        .then(all_of(_the_only_line_marks(why_it_could_not_be_written),
+                     _the_lines_are_credited_to(["Argus"])))
 
 
 @pytest.mark.unit

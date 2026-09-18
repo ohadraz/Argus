@@ -92,7 +92,7 @@ flowchart LR
         MCPS[MCP tool servers]
         RELAY[Relay - follows the event log]
         PG[(Postgres)]
-        CHROMA[(Chroma)]
+        QDRANT[(Qdrant)]
         VAULT[(HashiCorp Vault)]
         BO[Backoffice]
     end
@@ -108,7 +108,8 @@ flowchart LR
     MCPS -->|reads hints| SLK
     RELAY -->|posts what a human hears| SLK
     RELAY -->|postmortem, exec summary| MAIL
-    MCPS <--> CHROMA
+    ORCH -->|what was tried, and what it was worth| QDRANT
+    MCPS -->|nearest passages| QDRANT
     ORCH <--> PG
     RELAY -->|reads the event log| PG
     MCPS -.->|read secrets| VAULT
@@ -117,9 +118,9 @@ flowchart LR
     BO -.->|writes secrets| VAULT
 ```
 
-**Backend:** `argus_web` as the single HTTP entrypoint (§7.9), the Orchestrator + sub-agents (in-process), Postgres for incident state, Chroma for long-term memory (Investigator + Postmortem agents, §11.2), and the Target Environment (flags, metrics, logs).
+**Backend:** `argus_web` as the single HTTP entrypoint (§7.9), the Orchestrator + sub-agents (in-process), Postgres for incident state, Qdrant for long-term memory (§11.2) and the repository index (§11.5), and the Target Environment (flags, metrics, logs).
 
-**Frontend:** the incident view the Web Application serves (§7.7) plus a separate Backoffice admin surface (§7.8, §14) - neither reaches Postgres or Chroma with SQL of its own.
+**Frontend:** the incident view the Web Application serves (§7.7) plus a separate Backoffice admin surface (§7.8, §14) - neither reaches Postgres or Qdrant with SQL of its own.
 
 ## 7. Component Architecture
 
@@ -136,12 +137,12 @@ Responsibilities:
 - Walk a claimed run's graph, in the worker, and record how the run ended.
 - Run the tier-gate node (§13) before any mutating tool call reaches an MCP server.
 - Own the escalation decision (the round budget, and whether the investigation named anything left to try).
-- Trigger the memory lookup that seeds an investigation (§9).
+- Fix the order candidates are tried in, from what long-term memory says was tried on incidents like this one (§11.2).
 - Sole writer of all incident-domain Postgres state (`Incident.status`, `HYPOTHESIS`, `ACTION`, §11.1) - agents propose changes, the Orchestrator persists them, pairing every state mutation with the `INCIDENT_EVENT` that accounts for it, written on the same connection (§10, §11.1).
 
 ### 7.2 Investigator agent
 
-Runs the ReAct loop (§9, §8). Tools: memory read, metrics read, log read, and flag evaluation - all from `argus-read-mcp` (§12.1). Nothing from `argus-write-mcp` is bound to this node. Hints reach it as published `INCIDENT_EVENT` rows (§11.1), written by the Orchestrator from hints the Communicator (§7.5) surfaces - not via direct Slack access.
+Runs the ReAct loop (§9, §8). Tools: metrics read, log read, and flag evaluation - all from `argus-read-mcp` (§12.1). Long-term memory is not among them: what it holds is what was *done* about earlier incidents, which is not a hypothesis and which this agent could not act on (§11.2). Nothing from `argus-write-mcp` is bound to this node. Hints reach it as published `INCIDENT_EVENT` rows (§11.1), written by the Orchestrator from hints the Communicator (§7.5) surfaces - not via direct Slack access.
 
 ### 7.3 Mitigation agent
 
@@ -185,7 +186,13 @@ It answers by calling `submit_postmortem`, never in prose, so a document is a st
 
 A source that cannot be read leaves its figure absent and says why. Never zero: a zero is a claim that nothing was lost, and the difference between "nothing" and "unknown" is the whole value of the number. An incident nobody acknowledged is the other side of that distinction - a source that answered, measuring a response that did not happen - and is reported as no engagement rather than as an absence.
 
-Afterward it writes a summary + embedding to long-term memory (§11.2).
+It writes nothing to long-term memory. What is remembered of an incident is what was tried and what each attempt reached (§11.2), composed from the incident's own action rows by a step of its own - and a document a person opens is a different job, from a different source, for a different reader. A postmortem that failed to be written would otherwise be a memory that was never filed.
+
+### 7.6a Remembering what was tried
+
+The last thing a walk does before the write-up, and a step rather than an agent: no model, no retrieval, no judgement. It reads the incident's actions, keeps the ones that reached a verdict on a subject they named, and files them where the next incident that looks like this one will find them (§11.2).
+
+Before the postmortem rather than after it, so neither failure can take the other down. This step swallows its own - the incident is over, nothing downstream reads what it produces, and a store that is unreachable must not be the reason an incident ends without its write-up - and a postmortem that raises cannot then cost the next incident what this one learned. A failure here is said on the timeline, because silence is indistinguishable from an incident that had nothing worth filing.
 
 ### 7.7 Incident view
 
@@ -229,7 +236,7 @@ Several patterns, applied to different sub-problems:
 
 - **ReAct** - the Investigator's core loop: observe (query logs/metrics/diff) → reason (form hypothesis) → act (query more, or hand off to Mitigation) → observe result. Detailed in §9.
 - **Agentic search** - how Code-Fix (§7.4) localizes a bug: the model searches and reads the repository as tools across turns, following the code rather than matching a query against it. What it is handed to start from is the whole hypothesis, evidence included - the service's error boundary records the innermost frame, so a log line among that evidence names the file and the line.
-- **RAG** - retrieval by embedding similarity. Two uses, over two different corpora: (1) Code-Fix (§7.4) searches an index of the Target Service's own source (§11.5) for the code a fault is *described* by, alongside the substring search that finds the code a fault is *named* in - the model picks per question, and which retriever wins on which repository is a benchmark dimension (§21) rather than an assertion here; (2) the Investigator (§7.2) retrieves similar past incidents from long-term memory (§11.2) as the first step of its ReAct loop (§9), to seed hypotheses faster.
+- **RAG** - retrieval by embedding similarity. Two uses, over two different corpora: (1) Code-Fix (§7.4) searches an index of the Target Service's own source (§11.5) for the code a fault is *described* by, alongside the substring search that finds the code a fault is *named* in - the model picks per question, and which retriever wins on which repository is a benchmark dimension (§21) rather than an assertion here; (2) the walk retrieves similar past incidents from long-term memory (§11.2) before it proposes an action, and demotes any candidate whose subject was tried on one of them and refuted - a fact about what was *done*, which the incident's own evidence can never supply.
 - **Multi-agent orchestration** - the Orchestrator (§7.1) delegates to specialized agents (Investigator, Mitigation, Code-Fix, Postmortem), each with a narrow tool set and prompt, coordinated through shared incident state (§11.1). The Communicator (§7.5) is coordinated through that same state without being delegated to at all: it follows what the others published rather than waiting to be called, which is what keeps an incident reported even when the walk is too busy to say so.
 - **Self-critique / reflection** - before any mitigation or escalation, the agent scores its own confidence against a threshold (§10); after a mitigation, it re-observes state and judges whether its hypothesis was confirmed or refuted (§7.3).
 
@@ -239,8 +246,7 @@ The `investigating` phase (§10) looks like one node from outside, but runs a Re
 
 ```mermaid
 flowchart TD
-    A[Alert received, T0 known] --> B[Query Chroma for similar past incidents]
-    B --> C[Query get_metrics_summary: one fixed, wide window]
+    A[Alert received, T0 known] --> C[Query get_metrics_summary: one fixed, wide window]
     C --> D{Did any minute leave the baseline?}
     D -->|No| K[Exit to escalated: nothing anomalous to explain]
     D -->|Yes| E[Identify onset: earliest minute that left the baseline and stayed there]
@@ -317,7 +323,7 @@ Work that settles nothing and moves no status is published by the node that did 
 
 ## 11. Memory & Data Architecture
 
-Argus needs two kinds of memory, backed by two different stores (§11.4): **episodic (per-incident) memory**, which stops the agent re-toggling a flag it already ruled out, and **long-term (cross-incident) memory**, which biases a new incident by how similar past ones were resolved.
+Argus needs two kinds of memory, backed by two different stores (§11.4): **episodic (per-incident) memory**, which stops the agent re-toggling a flag it already ruled out, and **long-term (cross-incident) memory**, which tells a new incident what was tried on the ones that looked like it, and what each attempt turned out to be worth.
 
 A third store holds no memory at all. The **repository index** (§11.5) describes the Target Service's source as it stands, so a fault can be found by what it does rather than by what it is called. It is derived state - deletable, rebuildable from the repository at any time - which is what separates it from the two above, and why it lives beside them rather than among them.
 
@@ -460,20 +466,39 @@ An `ACTION` row is written *before* its action is taken, and one incident has at
 
 `REPLAY_LOG` serves a different purpose again: it's Argus's own eval infrastructure (Design Principle 6, §4), not incident-domain state, written at a different granularity - one row per LLM completion or MCP call. It's written inside the Orchestrator's process, from whichever agent node makes the call, via a shared instrumented client in `argus_core` - never by the MCP servers themselves, keeping them as pure as §13's MCP-server-boundary guardrail requires.
 
-### 11.2 Long-term memory (Chroma)
+### 11.2 Long-term memory (Qdrant)
 
-One collection, one record per resolved incident:
+One collection, one record per finished incident:
 
 ```
 {
-  incident_id, embedding(summary_text),
-  metadata: { alert_type, root_cause_category, resolution_type, resolved_at }
+  incident_id, embedding(described_as),
+  service, alert_name,
+  tried: [ { subject, verdict }, ... ]
 }
 ```
 
-After each resolved incident, a summary + embedding is written here. On new incidents, the Investigator retrieves similar past ones to bias its first hypotheses (§9 step B) - this is the RAG component from §8, and a measurable factor in evaluation (§21: does retrieval speed up time-to-hypothesis on repeat scenario types?).
+**What is stored is what was done, not what it was.** A cause is re-derivable: the metrics and the logs of the incident in front of you say what broke, and an investigation given long enough reaches it without help. What was *done* about it is not re-derivable at any budget - that Argus set a particular flag and the service did not recover exists nowhere except in the record of the incident that tried it. So the record carries every subject Argus changed and the verdict each change reached, and carries no opinion about the cause.
 
-Retrieval filters by `alert_type` metadata first, then ranks by embedding similarity - coarse filter, fine ranking - which matters on a small corpus where pure semantic search alone would be noisy. Chroma runs embedded (in-process, persisted volume) for local dev, and as its own container with a persistent volume for the hosted demo.
+Every incident that ends is recorded, not only a resolved one. An escalation after three refutations is the more informative of the two: it says three subjects were changed and the service stayed broken, which is exactly what the ordering rule below consumes. An incident where no attempt reached a verdict on a subject it named writes no record - its content would be empty.
+
+The record is composed from the incident's own `ACTION` rows and the alert that opened it, by a step of the walk that does nothing else (§7.1). Not from the postmortem: that is a document for a person to read, written by a different step from a different source, and deriving one from the other would make an unwritten document into a missing memory.
+
+`described_as` is the text that is embedded and searched. It is assembled rather than written - the alert's own words, then what the investigation concluded and the evidence it cited - so one vector carries both how the monitoring named the incident and what it actually looked like. Assembled rather than composed by a model because its only job is to be matched against, and a join of text already on hand embeds to very nearly the same place at no cost, with no failure mode, and reproducibly.
+
+**Recall informs the order actions are tried in, not the hypotheses.** Before the first action of an incident is proposed, memory is searched with this incident's description; any candidate whose subject was acted on in a similar past incident and refuted is demoted below the ones no record names. The Investigator is not seeded: what is stored is not a hypothesis, and a model told "this flag failed on a different incident" has nothing to do with it. The mitigation side, choosing what to change next, is the one place the fact changes a decision.
+
+Demoted, never removed. A past incident is evidence about a past incident, the same flag can break the service twice, and a walk that refused to try the only candidate it had - on the strength of a different incident's result - would end in an escalation it had the means to avoid. The set of candidates tried is identical with memory and without it; only the order differs. Where memory changed an order, the timeline says so and names the record it was changed on the strength of.
+
+The search narrows by `service` before it ranks by similarity - coarse filter, fine ranking - which matters on a small corpus where pure semantic search alone would be noisy. Whether two incidents happened to the same service is an exact question, and a description that merely mentions a service name is not an answer to it. It narrows by nothing else: matching on the alert's name would defeat the mechanism, since one cause raises differently-named alerts on different days and two alerts meaning the same thing are rarely spelled the same way.
+
+A similarity floor and a result limit bound what one ordering decision reads (§14). The floor is the one that matters: a nearest-neighbour search always answers, so without it a corpus holding one unrelated incident hands it back as the nearest thing it has, and a candidate is demoted on the strength of it.
+
+**Nothing depends on memory.** A store that is empty, unreachable, slow, or switched off is treated identically - as a store that returned nothing - and neither a failed search nor a failed write ever escalates an incident, ends a walk, or prevents an action. Every decision memory informs has an answer without it, and a system that stalled over a cache of old incidents would be worse than one with no memory at all. A failed write is said on the timeline, because silence there is indistinguishable from an incident that had nothing worth filing.
+
+Memory can be switched off entirely, and with it off the system neither writes records nor consults them. That is a real configuration rather than a way of disabling something broken: §21's whole question is what memory is worth, and two runs that differ in exactly one thing are how that is asked.
+
+Qdrant, in a collection of its own beside the repository index (§11.5) rather than a second vector store. The two corpora have nothing to do with each other - one is rewritten continuously as code moves, the other appended to once per incident - but at a few hundred records neither engine has a retrieval advantage worth measuring, and what remains is operational: one store to run, one client to learn, one service in the compose file.
 
 ### 11.3 Configuration (Postgres)
 
@@ -506,7 +531,7 @@ Free text or embeddings-only would fight several requirements above:
 3. Retries or a re-entrant graph run (e.g. after a restart, §7.1) can revisit the same incident; Postgres transactions give the Orchestrator's single-writer updates atomicity for free.
 4. Follows Design Principle 1 (§4) - free-text state would just move "state an LLM has to re-parse" into a database instead of a chat log.
 
-The one place a semantic store is the right tool is where it's already used: "have we seen an alert pattern like this before" has no relational answer - no foreign key from a new alert to similar past ones - which is exactly what Chroma's similarity search is for (§11.2). The design is a deliberate **hybrid**: Postgres for anything the system must count, join, or gate on deterministically; Chroma for anything it must recall by similarity.
+The one place a semantic store is the right tool is where it's already used: "have we seen an alert pattern like this before" has no relational answer - no foreign key from a new alert to similar past ones - which is exactly what similarity search is for (§11.2). The design is a deliberate **hybrid**: Postgres for anything the system must count, join, or gate on deterministically; a vector store for anything it must recall by similarity.
 
 ### 11.5 The repository index (Qdrant)
 
@@ -514,7 +539,7 @@ What Code-Fix searches when it looks for code by meaning (§7.4). One collection
 
 A passage's id is derived from what it says, which is what makes re-indexing cheap: a function that moved because something above it grew is the same passage and is not embedded again. The embedding model runs in Argus's own process - no key, no network, no per-passage bill - and which model it is is configuration, because it is the one variable a retrieval benchmark (§21) cannot hold constant.
 
-Qdrant rather than Chroma, which serves long-term memory (§11.2). Two collections with different access patterns, and the repository index is the one that is rewritten continuously as code moves: it wants a store whose deletes and upserts are cheap and whose filtering is a first-class query, where long-term memory wants nothing more than similarity over a few hundred summaries. Neither store is asked to be the other.
+A collection of its own, beside the one long-term memory keeps (§11.2). Two corpora with different access patterns sharing one server: the repository index is rewritten continuously as code moves and wants cheap deletes, upserts and first-class filtering, where long-term memory is appended to once per incident and wants nothing more than similarity over a few hundred descriptions. Neither collection is asked to be the other.
 
 **The index knows which commit it describes.** One row in Postgres per repository carries two commits: the one the stored passages were built from, and the one the repository is at. Everything follows from their difference. A reconciler compares them and closes the gap - embedding only the paths a comparison says changed, or the whole repository when it is empty or the provider cannot say what changed - and records the new commit only once the work is done, so a pass that failed leaves the same work waiting without anything recording that it is owed. There is no attempt count, no backoff and no queue of unprocessed notifications: the state is the goal, not the history of trying to reach it.
 
@@ -536,7 +561,7 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 | Metrics | **De facto - Prometheus-compatible query API** (PromQL); emission standardized via **OTLP**, but OTel isn't a backend itself | N/A - Argus only reads metrics | Target Service → OTel SDK → local **OTel Collector** → **Prometheus**; `argus-read-mcp` queries Prometheus's HTTP API |
 | Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API - reads via `argus-read-mcp`; the Communicator posts through its own adapter (§7.5) |
 | Email | SMTP is already the standard | - | `argus-write-mcp` via configured SMTP relay |
-| Long-term memory | N/A - internal to Argus | - | Chroma directly - queries via `argus-read-mcp`, writes via `argus-write-mcp` |
+| Long-term memory | N/A - internal to Argus | - | Qdrant directly - written by the step that closes a walk and read by the step that fixes candidate order (§11.2), both inside the Orchestrator's own process. No tool, because no model ever asks for it |
 | Repository index | N/A - internal to Argus | - | Qdrant directly - queried by `argus-read-mcp`; written only by the reconciler that keeps it current (§11.5), which is on no incident's path |
 
 ### 12.1 MCP server topology
@@ -545,8 +570,8 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 
 | Server | Exposes |
 |---|---|
-| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); flag evaluation against the flag provider's evaluation API; Chroma memory query; Slack channel/thread reads; `search_repository_by_meaning(description)` - nearest passages of the Target Service's source from the repository index (§11.5), each with its path and line span, prefixed with a notice where the index is behind the deployed commit; `get_repository_index_freshness(ref)` - the same fact before anything has been asked for, so a prompt can carry it rather than a model learning it from a result it has already acted on |
-| `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**; Chroma memory write |
+| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); flag evaluation against the flag provider's evaluation API; Slack channel/thread reads; `search_repository_by_meaning(description)` - nearest passages of the Target Service's source from the repository index (§11.5), each with its path and line span, prefixed with a notice where the index is behind the deployed commit; `get_repository_index_freshness(ref)` - the same fact before anything has been asked for, so a prompt can carry it rather than a model learning it from a result it has already acted on |
+| `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists** |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
 
@@ -554,7 +579,7 @@ Telling a person something is not a write in this sense, which is why no outboun
 
 A single combined server would collapse that boundary; per-integration servers pay six extra processes for a partition that doesn't line up with any real risk difference. Two is the cut where the guardrail is real and the operational cost isn't.
 
-Each agent's LangGraph node still binds only the individual tool functions its role needs - e.g. the Investigator (§7.2) binds the log, metrics, flag-read and memory-read functions from `argus-read-mcp`, and nothing from `argus-write-mcp`. Tool binding controls what an agent is *offered*; the server split controls what the process is *capable of* - only the second survives a compromised caller, which is why both exist.
+Each agent's LangGraph node still binds only the individual tool functions its role needs - e.g. the Investigator (§7.2) binds the log, metrics and flag-read functions from `argus-read-mcp`, and nothing from `argus-write-mcp`. Tool binding controls what an agent is *offered*; the server split controls what the process is *capable of* - only the second survives a compromised caller, which is why both exist.
 
 **Each server is paired with a typed client package** (§20.1): `read_mcp_client`, `write_mcp_client`. A server is a deployed process; its client is a library installed into whichever agent calls it. The client exposes each tool as a real typed Python function (`get_log_lines(window, filters) -> list[str]`), rather than agents calling a generic `call_tool(name, **kwargs)` with a stringly-typed tool name and an untyped payload - so a mistyped tool name or argument is a static type error, not a runtime failure discovered in an incident. The generic streamable-HTTP transport underneath is shared, and lives once in `argus_core`.
 
@@ -752,8 +777,7 @@ flowchart TB
         MCPS[argus-read-mcp,<br/>argus-write-mcp]
         RELAY[relay<br/>follows the event log, posts what a human hears]
         PG[(Postgres)]
-        CHROMA[(Chroma)]
-        QDRANT[(Qdrant)]
+        QDRANT[(Qdrant<br/>long-term memory + repository index)]
         INDEXER[reconciler<br/>keeps the repository index at the deployed commit]
         BO[Backoffice]
     end
@@ -768,7 +792,7 @@ flowchart TB
     TS -->|webhook| WEB
     WEB --> MCPS
     MCPS -->|replay logs| PG
-    MCPS --> CHROMA
+    WEB -->|what was tried, and what it was worth| QDRANT
     MCPS -->|nearest passages| QDRANT
     INDEXER -->|passages| QDRANT
     INDEXER -->|the commit it describes| PG
@@ -834,6 +858,7 @@ argus/
 │   ├── orchestrator/                # LangGraph graph, FSM, tier-gate node
 │   ├── argus_narration/             # the event-to-sentence renderer every destination reads
 │   ├── code_index/                   # the repository index: chunking, embedding, the store, the watermark, the reconciler
+│   ├── incident_memory/              # what earlier incidents were done about: the record, the text it is found by, the store, and the ordering it informs
 │   ├── repository_source/            # reading a repository at a commit: its source, what changed between two, where a branch points
 │   ├── argus_web/                   # HTTP surface: alert webhook, incident read API, config API
 │   ├── agent_investigator/
@@ -841,9 +866,9 @@ argus/
 │   ├── agent_codefix/
 │   ├── agent_communicator/          # the relay over the event log, its delivery policy and destination adapters
 │   ├── agent_postmortem/
-│   ├── read_mcp_server/             # argus-read-mcp: log, metrics, flag-eval, memory-query, code-search and Slack-read tools
+│   ├── read_mcp_server/             # argus-read-mcp: log, metrics, flag-eval, code-search and Slack-read tools
 │   ├── read_mcp_client/             # typed client for argus-read-mcp, imported by consuming agents
-│   ├── write_mcp_server/            # argus-write-mcp: flag toggle, git revert/PR, memory write
+│   ├── write_mcp_server/            # argus-write-mcp: flag toggle, git revert/PR
 │   ├── write_mcp_client/            # typed client for argus-write-mcp, imported by consuming agents
 │   └── backoffice/                  # admin UI only - no HTTP of its own, calls argus_web's config API
 └── benchmark/                       # scenario runner + evaluator harness, own pyproject.toml
@@ -887,6 +912,10 @@ A library of scripted chaos scenarios injected into the Target Environment (§15
 **Retrieval is a dimension, not a setting.** Code-Fix can find code two ways (§7.4), and which is better is an empirical question about a repository rather than a claim this document makes - so the same scenarios run three times, at `CODE_SEARCH` of `grep`, `meaning` and `both`. Running each alone is the whole point: with both offered, the model chooses, and a comparison of two retrievers where one party picks the retriever measures the choice rather than the retrievers. What the three runs are compared on is already above - whether the patch makes the injected-bug test pass, how long localization took, and what it cost in tokens - plus how often the fix names the file the fault was actually raised in.
 
 The embedding model is a dimension of the same kind, which is why it is configuration (§11.5): "retrieval by meaning underperformed" and "this small local model underperformed" are different findings, and only a run with a different model separates them.
+
+**Long-term memory is a dimension too**, and for the same reason it is a switch (§11.2): the same scenarios run with memory on and with it off, and what is compared is wasted actions per incident and time-to-mitigation. A scenario that was never seen before cannot be helped by memory, so what the comparison needs is a corpus - seeded, through the same writer the walk uses, by whatever stages the run.
+
+One thing the current Target Service cannot show. Its alerts are few and uniformly worded, so a search by similarity and an exact match on the alert's name select the same records, and a run that found memory useful would not say which mechanism earned it. The mechanism is built for the case a real service produces constantly - one cause raising differently-named alerts, subjects renamed and versioned, free-text summaries - and demonstrating *that* needs either a richer fixture or a live system. Stated here rather than discovered at eval time.
 
 ### 21.3 Cost/impact estimation methodology
 
@@ -946,7 +975,7 @@ The evaluator consumes the §11.1 Postgres tables directly, plus the Target Serv
 | 4 | Mitigation agent + episodic memory | Toggles flags/rolls back deploys, tracks what's been tried, avoids repeats |
 | 5 | Slack integration | Reads hints, posts updates, creates/manages incident channel |
 | 6 | Code-Fix agent (agentic search + PR) | Given an unresolved-by-mitigation incident, finds relevant code and opens a draft PR |
-| 7 | Long-term memory + retrieval | Past incidents retrievable and used to seed new investigations |
+| 7 | Long-term memory + retrieval | What earlier incidents were done about is retrievable, and orders the actions a new one tries |
 | 8 | Postmortem + executive summary generation | Full doc with timeline, root cause, what it cost |
 | 9 | Incident view | A live incident's walk + the history, served by the Web Application (§7.7, §7.9) |
 | 10 | Benchmark suite + evaluation run | All §21.1 scenarios scripted and run, metrics collected |
@@ -963,8 +992,8 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Orchestration | LangGraph `StateGraph` over the incident FSM (§7.1, §10) | Conditional edges map directly to the state machine; built-in checkpointing removes bespoke resume logic |
 | Web/API layer | Single Web Application module (`argus_web`) owns all HTTP; everything else called in-process (§7.9, §4) | Keeps transport concerns out of domain logic |
 | Incident view stack | Jinja2/HTMX served by the Web Application itself - no second module, no JS build (§7.7) | One process to start and one HTTP surface; no extra tooling for a read-only UI |
-| Long-term memory | Chroma (§11.2) | Simple to run embedded for dev and as one container for the demo; no managed service needed |
-| Repository index | Qdrant, with the commit it describes kept in Postgres (§11.5) | Two corpora with different access patterns: long-term memory is a few hundred summaries read by similarity, where the code index is rewritten continuously as code moves and wants cheap deletes, upserts and filtering. The watermark is relational because "is what I searched what is running" is an exact comparison, not a nearness |
+| Long-term memory | Qdrant, in a collection of its own beside the repository index (§11.2) | One vector store rather than two. At a few hundred records neither engine has a retrieval advantage worth measuring, so what remains is operational - one store to run, one client to learn, one service in the compose file. What is stored is what was *done* about each incident, because a cause is re-derivable from the incident in front of you and an outcome is not |
+| Repository index | Qdrant, with the commit it describes kept in Postgres (§11.5) | Two corpora with different access patterns: long-term memory is a few hundred descriptions read by similarity, where the code index is rewritten continuously as code moves and wants cheap deletes, upserts and filtering. The watermark is relational because "is what I searched what is running" is an exact comparison, not a nearness |
 | Finding code | Substring search and retrieval by meaning, both offered, chosen per call by the model; `CODE_SEARCH` decides which exist (§7.4) | A cause with a name is found faster by its name and one with only a description is found at all by its description, so the choice belongs to whoever holds the hypothesis. The single channels exist because comparing two retrievers means running each alone (§21) |
 | Keeping the index current | Level-triggered reconciliation against the deployed commit, with a push webhook as an edge that only shortens the wait (§11.5) | The state is the goal rather than the history of reaching it: a failed pass leaves the same work waiting with nothing to record, and a delivery that never arrives costs a delay instead of a permanently stale index |
 | Secrets | HashiCorp Vault (§14) | Real secrets management without hardcoding or committing credentials |

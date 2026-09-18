@@ -31,6 +31,7 @@ from argus_core.events import (
     AlertAcknowledged,
     AwaitingRecovery,
     CandidateSelected,
+    CandidatesReordered,
     ChangesRetrieved,
     ChangeUndone,
     ChannelsUnread,
@@ -39,12 +40,14 @@ from argus_core.events import (
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
+    IncidentRemembered,
     LogsRetrieved,
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
+    RememberingFailed,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
@@ -360,6 +363,32 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # matching them up should not have to read two spellings.
             emphasis = event.flag
             text = f"{emphasis} {_WHAT_BECAME_OF_IT[event.outcome]} - {event.detail}"
+        case CandidatesReordered():
+            who = _ARGUS
+            # The subject, because it is what moved and what a reader is
+            # looking for. The past incident is in the sentence rather than
+            # marked: it is where the reason lives, not what the line is about.
+            emphasis = event.subject
+            text = (
+                f"Moved {emphasis} down the list - it was changed on incident "
+                f"{event.on_the_strength_of} and the service did not recover"
+            )
+        case IncidentRemembered():
+            who = _ARGUS
+            # The subjects, because they are the whole content of what was
+            # filed: a later incident reads this record to find out which
+            # things were changed here, and the description it was found by is
+            # a fact about searching rather than about the incident.
+            emphasis = ", ".join(event.subjects)
+            text = f"Filed what was tried on this incident: {emphasis}"
+        case RememberingFailed():
+            who = _ARGUS
+            # The reason is set apart for the reason a refused message sets one
+            # apart: a store that is down and a store nobody configured are
+            # fixed by different people, and neither is fixed by knowing that
+            # something failed.
+            emphasis = event.refusal
+            text = f"Could not file what was tried - {emphasis}"
         case CommunicationFailed():
             who = _COMMUNICATOR
             # The one line on the page about the page's own rival: everything

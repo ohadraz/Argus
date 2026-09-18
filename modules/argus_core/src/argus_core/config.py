@@ -163,6 +163,31 @@ class Settings(BaseSettings):
     code_index_max_lines: int = Field(default=60, gt=0)
     code_index_chunk_overlap: int = Field(default=10, ge=0)
 
+    # Long-term memory: what earlier incidents were done about (spec §11.2).
+    # The same Qdrant as the index above, in a collection of its own - two
+    # corpora with nothing to do with each other, and one server.
+    incident_memory_collection: str = Field(default="incidents_remembered")
+    # Whether an incident is remembered at all, and whether what is remembered
+    # is consulted. Off is a real configuration rather than a way of disabling a
+    # broken feature: the §21 benchmark's whole question is what memory is
+    # worth, and two runs that differ in exactly one thing are how it is asked.
+    incident_memory_enabled: bool = Field(default=True)
+    # Which model turns an incident's description into the vector a later
+    # incident is compared against. A different corpus from the index's, so a
+    # setting of its own - and changing it, like changing the index's, means
+    # everything already stored answers a new query nonsensically.
+    incident_memory_embedding_model: str = Field(default="BAAI/bge-small-en-v1.5")
+    # How many past incidents inform one ordering decision, and how unlike this
+    # one a record may be and still be consulted.
+    #
+    # Both are starting guesses, stated as plainly as the anomaly thresholds
+    # were before any incident had been measured. The floor is the one that
+    # matters: a nearest-neighbour search always answers, so without it a corpus
+    # holding one unrelated incident hands it back as the nearest thing it has,
+    # and a candidate is demoted on the strength of it.
+    incident_memory_recall_limit: int = Field(default=5, gt=0)
+    incident_memory_similarity_floor: float = Field(default=0.5, ge=0.0, le=1.0)
+
     log_initial_lookback_minutes: int = Field(default=30)
     log_initial_lookahead_minutes: int = Field(default=10)
     # Ceiling on any log window. Widening is how a reasoning caller reaches an 

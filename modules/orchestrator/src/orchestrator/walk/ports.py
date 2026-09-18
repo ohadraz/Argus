@@ -25,6 +25,7 @@ from argus_core.models import (
     OpenedPullRequest,
     PostmortemDocument,
     Reading,
+    TakenAction,
     UndoDescriptor,
 )
 
@@ -33,6 +34,7 @@ from argus_core.models import (
 # holds both.
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
+from incident_memory.records import RememberedIncident
 from pydantic import BaseModel
 
 
@@ -107,7 +109,13 @@ class RecordAction(Protocol):
         # The tag, not a string. Every caller already holds one - the action it
         # is about to take - so the wider type buys nothing except the ability
         # to claim a row for a kind of action no renderer has words for.
-        action_type: ActionType
+        action_type: ActionType,
+        # What the action changes, named while the walk is still holding it.
+        # Everything that reads an incident back asks this of the row - the
+        # write-up says what was done, and long-term memory keeps which
+        # subjects were tried and what each attempt was worth - and neither can
+        # recover it from anywhere else.
+        subject: str | None
     ) -> bool: ...
 
 
@@ -247,3 +255,40 @@ class WritePostmortem(Protocol):
 
 class RecordPostmortem(Protocol):
     def __call__(self, incident_id: str, document: PostmortemDocument, /) -> None: ...
+
+
+class ActionsTaken(Protocol):
+    """Every action stored against an incident, with what each one reached.
+
+    Read back rather than carried in the graph's state: the state holds the
+    attempt in progress and the verdict of the last one, where what is filed
+    for a later incident is all of them - and the rows are already the record
+    of exactly that.
+    """
+
+    def __call__(self, incident_id: str, /) -> list[TakenAction]: ...
+
+
+class RecallSimilar(Protocol):
+    """Past incidents that looked like this one, most alike first.
+
+    Answers with an empty list where there is nothing to recall, where nothing
+    is alike enough, and where the store could not be reached at all - the three
+    are deliberately indistinguishable here, because the walk's answer to all
+    three is the same and an incident that stalled over a cache of old incidents
+    would be worse than one with no memory.
+    """
+
+    def __call__(self, described_as: str, service: str, /) -> list[RememberedIncident]: ...
+
+
+class RememberIncident(Protocol):
+    """Keeps what this incident tried, where a later one will look for it.
+
+    Takes the finished record rather than the incident, because what a record
+    says is `incident_memory`'s to decide and where it goes is a deployment's:
+    a walk with no store configured supplies something that keeps nothing, and
+    the node above cannot tell the difference.
+    """
+
+    def __call__(self, record: RememberedIncident, /) -> None: ...

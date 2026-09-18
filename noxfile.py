@@ -117,7 +117,9 @@ def test_module(session: nox.Session, module: str) -> None:
     the double either of them is talking to. The conftests that bring postgres
     and the double up inherit this environment; none of them is handed one.
     """
-    os.environ.update(_a_database_for(module) | _a_slack_double_for(module))
+    os.environ.update(
+        _a_database_for(module) | _a_slack_double_for(module) | _a_qdrant_for(module)
+    )
     session.run(
         "uv", "run", "--package", f"argus-{module}",
         "python", "-m", "pytest", f"modules/{module}/tests",
@@ -169,10 +171,14 @@ def sweep(session: nox.Session) -> None:
     stops the lot the moment one of them fails.
 
     They can share a machine because none of them shares infrastructure: each
-    brings up a database under a compose project of its own, and the two that
-    want an Anthropic double bind different ports (`_INTEGRATION_STACK`,
-    `_MODULE_SUITE_STACK`). Sequentially this is the better part of half an
-    hour, almost all of it `e2e_replay` waiting on walks.
+    brings up a database under a compose project of its own, and the doubles and
+    stores they publish bind ports of their own (`_INTEGRATION_STACK`,
+    `_MODULE_SUITE_STACK`). A project is not enough on its own - it decides
+    whose container a container is, and the published port is still the host's
+    one address - which is what a vector store on the default 6333 in both
+    `test_all` and `e2e_replay` cost before either had a port here.
+    Sequentially this is the better part of half an hour, almost all of it
+    `e2e_replay` waiting on walks.
 
     Stopping the rest on the first failure is the point rather than a
     convenience. The answer to "is this branch good" is already known once one
@@ -1008,6 +1014,14 @@ _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_ANTHRO
 # that had nothing to do with Slack takes down the run that did.
 _TEST_ALL_SLACK_DOUBLE_PORT = "8095"
 _MODULE_SUITE_SLACK_PORT_BASE = 8100
+# Where a suite's own vector store listens, for the reason its database and its
+# Slack double have ports of their own. Two module suites want one - the code
+# index and long-term memory - and the e2e stack runs a third on 6333, so a
+# sweep is three stores at once and the second to bind dies. A compose project
+# of one's own is not enough here: it makes the *container* somebody else's, and
+# the published port is still the host's one address.
+_TEST_ALL_QDRANT_PORT = "6343"
+_MODULE_SUITE_QDRANT_PORT_BASE = 6350
 
 
 def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
@@ -1042,7 +1056,8 @@ _INTEGRATION_STACK = _a_database_of_its_own(
 # on a real port, because an SDK is what does the reaching - so it gets a port
 # of its own here for the same reason the database does.
 _TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_PORT) | {
-    "SLACK_DOUBLE_PORT": _TEST_ALL_SLACK_DOUBLE_PORT
+    "SLACK_DOUBLE_PORT": _TEST_ALL_SLACK_DOUBLE_PORT,
+    "ARGUS_QDRANT_PORT": _TEST_ALL_QDRANT_PORT
 }
 
 # How to name each swept suite's containers to `docker compose`, for the three
@@ -1089,6 +1104,23 @@ def _a_slack_double_for(module: str) -> dict[str, str]:
     """
     return {
         "SLACK_DOUBLE_PORT": str(_MODULE_SUITE_SLACK_PORT_BASE + MODULES.index(module))
+    }
+
+
+def _a_qdrant_for(module: str) -> dict[str, str]:
+    """One module's own vector store, counted the way its database is.
+
+    Set for every module rather than for the two that open one, for the reason
+    the Slack double is: which modules those are is a fact about their conftests
+    rather than about this file, and a port nobody binds costs nothing.
+
+    The port alone. Both conftests that want a store derive its URL from this
+    and fall back to 6333, so a port published here and not read there would
+    move the container and leave the client talking to whatever else holds the
+    default.
+    """
+    return {
+        "ARGUS_QDRANT_PORT": str(_MODULE_SUITE_QDRANT_PORT_BASE + MODULES.index(module))
     }
 
 # Settings every process in an e2e run shares - the services started here and
@@ -1162,7 +1194,17 @@ _E2E_SETTINGS = {
     # Set for every stack rather than only the suites: a demo whose postmortem
     # linked nowhere would be a demo of the one thing a reader in a channel
     # actually wants to click.
-    "ARGUS_BASE_URL": "http://localhost:8000"
+    "ARGUS_BASE_URL": "http://localhost:8000",
+    # Long-term memory, on. Named here rather than left to the default so that
+    # it is a decision the stack states: what the benchmark (spec 21) compares
+    # is a run with memory against a run without, and a setting nobody writes
+    # down is a variable nobody can turn.
+    "INCIDENT_MEMORY_ENABLED": "true",
+    # A collection of its own per stack, so a suite never recalls an incident a
+    # demo left behind. The corpus a case wants is the one its own `given` put
+    # there, and a record surviving into the next run is the flakiness nobody
+    # can reproduce.
+    "INCIDENT_MEMORY_COLLECTION": "incidents_remembered_under_test"
 }
 
 # Where the relay posts when a suite is running, and where "Slack" is. The

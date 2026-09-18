@@ -23,6 +23,7 @@ from argus_core.events import (
     AlertAcknowledged,
     AwaitingRecovery,
     CandidateSelected,
+    CandidatesReordered,
     ChangesRetrieved,
     ChangeUndone,
     ChannelsUnread,
@@ -31,12 +32,14 @@ from argus_core.events import (
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
+    IncidentRemembered,
     LogsRetrieved,
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
+    RememberingFailed,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
@@ -135,7 +138,9 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             return Register.UNSAID
         case (AgentInvoked() | RetrievalRequested() | MetricsRetrieved()
               | LogsRetrieved() | ChangesRetrieved() | FlagChangesRetrieved()
-              | ChannelsUnread() | RecoveryChecked() | MitigationResumed()):
+              | ChannelsUnread() | RecoveryChecked() | MitigationResumed()
+              | IncidentRemembered() | RememberingFailed()
+              | CandidatesReordered()):
             # Everything that reports a look rather than a finding. Forty log
             # lines read is a fact about the investigation's method, and a
             # channel reporting it would bury the four lines that matter.
@@ -147,6 +152,13 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # walk that reached it, so a follower already has this answer; what
             # this adds is that Argus restarted and caught up, which is again a
             # fact about how Argus is built. The page still shows it.
+            #
+            # The two about long-term memory are here on the same reading, and
+            # the failure as much as the success. What was filed for the next
+            # incident changes nothing for the people following this one, and a
+            # store that could not be written to costs this incident nothing at
+            # all - it is over. Both are on the page, where whoever maintains
+            # Argus reads them.
             return Register.UNSAID
         case _:
             assert_never(event)

@@ -30,7 +30,10 @@ store = [
     # code-trained hosted model would beat. What it buys instead is that
     # indexing costs nothing, that an incident never waits on a vendor, and
     # that no double has to exist for a suite to run.
-    "fastembed>=0.8",
+    #
+    # Taken through the kernel's door rather than declared here, because the
+    # model is the kernel's: long-term memory embeds with one too.
+    "argus-argus_core[embedding]",
 ]
 
 

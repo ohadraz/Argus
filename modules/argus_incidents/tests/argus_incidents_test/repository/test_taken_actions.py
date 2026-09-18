@@ -43,6 +43,7 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
                     incident_id,
                     hypothesis_id=dont_care_hypothesis_id,
                     action_type="revert-feature-flag",
+                    subject="monthly-spend-feature",
                     outcome="confirmed",
                     undo_descriptor=some_undo_descriptor
                 )
@@ -81,12 +82,97 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
                     incident_id,
                     hypothesis_id=dont_care_hypothesis_id,
                     action_type="revert-feature-flag",
+                    subject="dont-care-flag",
                     outcome="escalated",
                     undo_descriptor=None
                 )
             ) \
             .then(
                 the_action_row_carries(incident_id, None)
+            )
+
+
+@pytest.mark.integration
+def test_an_action_names_the_subject_it_changed() -> None:
+    # The row has to say what was changed, not only that something was. Argus
+    # holds the subject at the moment it claims the action - it is the candidate
+    # it is acting on - and a column that is read back but never written is a
+    # question every later reader has to answer by guessing.
+    #
+    # Two readers already depend on it and neither can recover it: the
+    # postmortem's account of what was done renders the action and its subject
+    # in one line, and long-term memory - whose whole content is which subjects
+    # were tried and what each attempt was worth - keeps nothing at all for an
+    # attempt that names none.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_flag_that_was_changed = "monthly-spend-feature"
+
+    with connect_from_env() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_action_row_changed = partial(_the_action_row_changed, conn)
+        the_action_read_back_changed = partial(_the_action_read_back_changed, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject=the_flag_that_was_changed,
+                    outcome="confirmed",
+                    undo_descriptor=FlagUndo(
+                        flag=the_flag_that_was_changed, was_enabled=True
+                    )
+                )
+            ) \
+            .then(all_of(
+                the_action_row_changed(incident_id, the_flag_that_was_changed),
+                the_action_read_back_changed(incident_id, the_flag_that_was_changed)
+            ))
+
+
+@pytest.mark.integration
+def test_an_action_claimed_and_not_yet_finished_already_names_its_subject() -> None:
+    # The subject is written by the claim rather than by the verdict, because
+    # the claim is the write that happens before anything is done - and the one
+    # case this table exists to answer is a worker that stopped in between. A
+    # row found with no outcome has to say what change is out there; recovering
+    # that from the descriptor of an action that may never have reached the
+    # provider is the reconstruction the column was added to avoid.
+    some_alert = Alert(service="io-shop", alert_name="HighLatency")
+    the_flag_that_was_changed = "checkout-v2"
+
+    with connect_from_env() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_action_row_changed = partial(_the_action_row_changed, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject=the_flag_that_was_changed
+                )
+            ) \
+            .then(
+                the_action_row_changed(incident_id, the_flag_that_was_changed)
             )
 
 
@@ -118,6 +204,7 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
                     incident_id,
                     hypothesis_id=hypothesis_id,
                     action_type="revert-feature-flag",
+                    subject="monthly-spend-feature",
                     outcome="refuted",
                     undo_descriptor=FlagUndo(flag="monthly-spend-feature", was_enabled=False)
                 )
@@ -155,6 +242,7 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
                     incident_id,
                     hypothesis_id=candidate,
                     action_type="revert-feature-flag",
+                    subject=the_contested_flag,
                     outcome=outcome,
                     undo_descriptor=FlagUndo(flag=the_contested_flag, was_enabled=True)
                 )
@@ -190,6 +278,7 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
                     incident_id,
                     hypothesis_id=candidate,
                     action_type="revert-feature-flag",
+                    subject="dont-care",
                     outcome=outcome,
                     undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True)
                 )
@@ -236,7 +325,7 @@ def _the_action_row_says(conn: psycopg.Connection,
                          action_type: str,
                          outcome: str) -> Assertion[object]:
     def assertion(_result: object) -> bool:
-        recorded_type, recorded_outcome, _, _ = _the_only_action_row(conn, incident_id)
+        recorded_type, recorded_outcome, _, _, _ = _the_only_action_row(conn, incident_id)
 
         assert recorded_type == action_type, (
             f"Expected type {action_type}, got {recorded_type}."
@@ -254,7 +343,7 @@ def _the_action_row_carries(conn: psycopg.Connection,
                             incident_id: str,
                             undo_descriptor: UndoDescriptor | None) -> Assertion[object]:
     def assertion(_result: object) -> bool:
-        _, _, recorded, _ = _the_only_action_row(conn, incident_id)
+        _, _, recorded, _, _ = _the_only_action_row(conn, incident_id)
         expected = (
             undo_descriptor.model_dump(mode="json")
             if undo_descriptor is not None else None
@@ -273,10 +362,58 @@ def _the_action_row_names(conn: psycopg.Connection,
                           incident_id: str,
                           hypothesis_id: str) -> Assertion[object]:
     def assertion(_result: object) -> bool:
-        _, _, _, recorded = _the_only_action_row(conn, incident_id)
+        _, _, _, recorded, _ = _the_only_action_row(conn, incident_id)
 
         assert str(recorded) == hypothesis_id, (
             f"Expected the action to name hypothesis {hypothesis_id}, got {recorded}."
+        )
+
+        return True
+
+    return assertion
+
+
+def _the_action_row_changed(conn: psycopg.Connection,
+                            incident_id: str,
+                            subject: str) -> Assertion[object]:
+    """What the column holds, asked of the table directly.
+
+    The column rather than the model, because the two failed differently and
+    only one of them was visible: every read here selects `subject` and every
+    write left it NULL, so a model populated from the row agreed with the row
+    perfectly and both were empty.
+    """
+    def assertion(_result: object) -> bool:
+        _, _, _, _, recorded = _the_only_action_row(conn, incident_id)
+
+        assert recorded == subject, (
+            f"Expected the action to have changed {subject}, got {recorded}."
+        )
+
+        return True
+
+    return assertion
+
+
+def _the_action_read_back_changed(conn: psycopg.Connection,
+                                  incident_id: str,
+                                  subject: str) -> Assertion[object]:
+    """The same fact through the repository's own read.
+
+    Both, because this is the one a caller sees. `composing.py` discards an
+    attempt whose `subject` is empty, so a column written and not mapped back
+    onto the model would leave long-term memory exactly as empty as a column
+    never written at all.
+    """
+    def assertion(_result: object) -> bool:
+        read_back = taken_actions.get_by_incident(conn, incident_id)
+
+        assert len(read_back) == 1, (
+            f"Expected exactly one action, got {len(read_back)}."
+        )
+        assert read_back[0].subject == subject, (
+            f"Expected the action read back to name {subject}, "
+            f"got {read_back[0].subject}."
         )
 
         return True
@@ -305,10 +442,10 @@ def _each_action_names_its_own_candidate(conn: psycopg.Connection,
 
 
 def _the_only_action_row(conn: psycopg.Connection,
-                         incident_id: str) -> tuple[Any, Any, Any, Any]:
+                         incident_id: str) -> tuple[Any, Any, Any, Any, Any]:
     with conn.cursor() as cursor:
         cursor.execute(
-            "SELECT type, outcome, undo_descriptor, hypothesis_id "
+            "SELECT type, outcome, undo_descriptor, hypothesis_id, subject "
             "FROM action WHERE incident_id = %s",
             (incident_id,)
         )

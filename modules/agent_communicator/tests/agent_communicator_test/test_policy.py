@@ -29,6 +29,7 @@ from argus_core.events import (
     AlertAcknowledged,
     AwaitingRecovery,
     CandidateSelected,
+    CandidatesReordered,
     ChangesRetrieved,
     ChangeUndone,
     ChannelsUnread,
@@ -37,12 +38,14 @@ from argus_core.events import (
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
+    IncidentRemembered,
     LogsRetrieved,
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
     RecoveryChecked,
+    RememberingFailed,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
@@ -141,6 +144,55 @@ def test_a_failure_to_say_something_is_itself_not_said() -> None:
             )
         ) \
         .when(lambda: how_it_is_said(the_line_that_was_lost)) \
+        .then(_it_is_said(Register.UNSAID))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_is_not_said_either() -> None:
+    # Which order Argus tries its candidates in is a fact about how Argus
+    # works. What the people following the incident hear is which candidate is
+    # being tested now, and that line is said where it is decided.
+    Scenario() \
+        .given(
+            what_memory_did := CandidatesReordered(
+                incident_id=AN_INCIDENT,
+                subject="new-checkout-flow",
+                on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+            )
+        ) \
+        .when(lambda: how_it_is_said(what_memory_did)) \
+        .then(_it_is_said(Register.UNSAID))
+
+
+@pytest.mark.unit
+def test_what_was_filed_for_the_next_incident_is_not_said_in_this_one() -> None:
+    # A fact about how Argus is built rather than about the incident: what was
+    # written into long-term memory changes nothing for the people following
+    # this one, and is read on the page by whoever wonders later.
+    Scenario() \
+        .given(
+            what_was_filed := IncidentRemembered(
+                incident_id=AN_INCIDENT,
+                subjects=["new-checkout-flow"]
+            )
+        ) \
+        .when(lambda: how_it_is_said(what_was_filed)) \
+        .then(_it_is_said(Register.UNSAID))
+
+
+@pytest.mark.unit
+def test_a_memory_that_could_not_be_written_is_not_said_either() -> None:
+    # A store that is down costs the next incident an advantage and costs this
+    # one nothing, and a war room is about this one. It is on the page, where
+    # whoever maintains Argus reads it.
+    Scenario() \
+        .given(
+            what_was_not_filed := RememberingFailed(
+                incident_id=AN_INCIDENT,
+                refusal="connection refused"
+            )
+        ) \
+        .when(lambda: how_it_is_said(what_was_not_filed)) \
         .then(_it_is_said(Register.UNSAID))
 
 

@@ -51,6 +51,7 @@ from orchestrator.walk.graph import (
     MITIGATION_PROPOSAL_NODE,
     NEXT_CANDIDATE_NODE,
     POSTMORTEM_NODE,
+    REMEMBERING_NODE,
     TIER_GATE_NODE,
     build_graph,
     recursion_limit,
@@ -95,6 +96,9 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         already_taken=lambda incident_id, hypothesis_id: None,
         change_landed=_a_change_that_never_landed(),
         propose_fix=lambda dont_care_hypothesis, dont_care_incident_id: None,
+        actions_taken=lambda dont_care_incident: [],
+        recall_similar=lambda dont_care_description, dont_care_service: [],
+        remember_incident=lambda dont_care_record: None,
         write_postmortem=lambda dont_care_incident: _a_document(),
         record_postmortem=lambda dont_care_incident, dont_care_document: None,
         transition_incident=transition_incident,
@@ -121,6 +125,7 @@ def test_an_action_that_helps_ends_the_incident_in_a_postmortem(
                            TIER_GATE_NODE,
                            MITIGATION_NODE,
                            CODEFIX_NODE,
+                           REMEMBERING_NODE,
                            POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.MITIGATED)))
 
@@ -142,7 +147,7 @@ def test_an_investigation_that_names_no_cause_reaches_a_human(
         .when(lambda: _the_walk_of(_an_incident_just_alerted(),
                                    an_investigation_finding_nothing)) \
         .then(all_of(
-            _the_walk_went(INVESTIGATOR_NODE, POSTMORTEM_NODE),
+            _the_walk_went(INVESTIGATOR_NODE, REMEMBERING_NODE, POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 
 
@@ -178,6 +183,7 @@ def test_a_refuted_action_is_followed_by_the_next_explanation(
                            TIER_GATE_NODE,
                            MITIGATION_NODE,
                            CODEFIX_NODE,
+                           REMEMBERING_NODE,
                            POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.MITIGATED)))
 
@@ -204,6 +210,7 @@ def test_a_walk_with_no_action_left_to_try_ends_at_code_fix_and_a_human(
                            TIER_GATE_NODE,
                            NEXT_CANDIDATE_NODE,
                            CODEFIX_NODE,
+                           REMEMBERING_NODE,
                            POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 

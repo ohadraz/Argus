@@ -6,6 +6,10 @@ dependencies = [
     "argus-argus_core[llm,mcp]",
     "argus-argus_incidents",
     "argus-argus_narration",
+    # With the store, because the walk is what writes a record and the walk
+    # is what searches for one. A caller naming only the record type takes
+    # the package bare; nothing here is that caller.
+    "argus-incident_memory[store]",
     "argus-agent_investigator",
     "argus-agent_mitigation",
     "argus-agent_codefix",
@@ -33,6 +37,7 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-incident_memory = { workspace = true }
 argus-argus_incidents = { workspace = true }
 argus-argus_narration = { workspace = true }
 argus-oncall_source = { workspace = true }

@@ -12,6 +12,7 @@ with only the agents and the repositories standing in for themselves.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from functools import partial
 
@@ -31,8 +32,9 @@ from agent_mitigation import (
     take_action,
     undo_change,
 )
-from argus_core import Connections, get_settings
+from argus_core import Connections, Settings, get_settings
 from argus_core.anomaly import AnomalyThresholds
+from argus_core.embedding import an_embedder
 from argus_core.events import Publisher
 from argus_core.llm import build_llm_client
 from argus_core.mcp_transport import McpClient
@@ -44,26 +46,32 @@ from argus_incidents import (
     events_into_connection,
     wanted_via,
 )
+from incident_memory.records import RememberedIncident
 
 from orchestrator.gathering import write_postmortem_for
 from orchestrator.records import Records
 from orchestrator.sources import the_real_sources
 from orchestrator.walk.ports import (
     ActionAlreadyTaken,
+    ActionsTaken,
     ChangeLanded,
     CompleteAction,
     FetchFlagChanges,
     Investigate,
     ProposeFix,
+    RecallSimilar,
     RecordAction,
     RecordHypothesis,
     RecordOutcome,
     RecordPostmortem,
+    RememberIncident,
     Reversible,
     TakeAction,
     TransitionIncident,
     WritePostmortem,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -88,6 +96,9 @@ class Collaborators:
     already_taken: ActionAlreadyTaken
     change_landed: ChangeLanded
     propose_fix: ProposeFix
+    actions_taken: ActionsTaken
+    recall_similar: RecallSimilar
+    remember_incident: RememberIncident
     write_postmortem: WritePostmortem
     record_postmortem: RecordPostmortem
     transition_incident: TransitionIncident
@@ -197,6 +208,9 @@ def against(connections: Connections,
         # the repository is read from the process that cannot write, and the
         # branch and the draft pull request come from the one that can (§13).
         propose_fix=fixes_over(read, write, FixSettings.of(settings), recorder),
+        actions_taken=records.actions_taken,
+        recall_similar=_recalling(settings),
+        remember_incident=_remembering(settings),
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id,
             connections=connections,
@@ -209,4 +223,68 @@ def against(connections: Connections,
         recorder=recorder,
         still_wanted=wanted_via(connections),
         max_rounds=settings.investigation_max_rounds
+    )
+
+
+def _recalling(settings: Settings) -> RecallSimilar:
+    """What earlier incidents this one resembles, or nothing at all.
+
+    Nothing where memory is off, and nothing where the store cannot answer. The
+    two are the same answer on purpose: every decision recall informs has an
+    answer without it, and an incident that stalled because a cache of old
+    incidents was unreachable would be a worse system than one with no memory.
+
+    Deliberately every exception. What can go wrong is a store that is down, a
+    collection that does not exist yet, or a model that will not load, and none
+    of them is a fact about the incident in front of the walk.
+    """
+    if not settings.incident_memory_enabled:
+        return lambda dont_care_description, dont_care_service: []
+
+    from incident_memory.keeping import recalling_from
+    from qdrant_client import QdrantClient
+
+    recall = recalling_from(
+        QdrantClient(url=settings.qdrant_url),
+        settings.incident_memory_collection,
+        an_embedder(settings.incident_memory_embedding_model),
+        limit=settings.incident_memory_recall_limit,
+        floor=settings.incident_memory_similarity_floor
+    )
+
+    def recall_what_it_can(described_as: str, service: str) -> list[RememberedIncident]:
+        try:
+            return recall(described_as, service)
+        except Exception:
+            _logger.warning("long-term memory could not be searched", exc_info=True)
+
+            return []
+
+    return recall_what_it_can
+
+
+def _remembering(settings: Settings) -> RememberIncident:
+    """Where a finished incident's record goes, or nowhere.
+
+    Nowhere is a real configuration rather than a way of switching off something
+    broken. §21's whole question is what memory is worth, and two runs that
+    differ in exactly one thing are how that is asked - so a deployment with
+    memory off keeps nothing, and the node above cannot tell that from a store
+    that was written to.
+
+    The client and the model are built here, once, for the reason every other
+    collaborator is: a walk is not where a process discovers its configuration,
+    and loading an ONNX runtime per incident would be paying for the model at
+    exactly the wrong moment.
+    """
+    if not settings.incident_memory_enabled:
+        return lambda dont_care_record: None
+
+    from incident_memory.keeping import kept_in
+    from qdrant_client import QdrantClient
+
+    return kept_in(
+        QdrantClient(url=settings.qdrant_url),
+        settings.incident_memory_collection,
+        an_embedder(settings.incident_memory_embedding_model)
     )
