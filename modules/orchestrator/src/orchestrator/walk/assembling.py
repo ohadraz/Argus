@@ -35,7 +35,7 @@ from agent_mitigation import (
     take_action,
     undo_change,
 )
-from argus_core import Connections, Settings, get_settings
+from argus_core import Connections, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
 from argus_core.events import Publisher
@@ -118,8 +118,32 @@ class Collaborators:
     max_rounds: int
 
 
+class IncidentMemorySettings(SettingsSlice):
+    """Whether earlier incidents are remembered, where, and how forgivingly.
+
+    Six fields rather than the whole of `Settings`, for the reason every other
+    slice is narrow: what it takes to ask whether an incident like this one has
+    been seen before is a URL, a collection and a model, and nothing that reads
+    only those should be able to name a credential.
+
+    Declared here rather than in `incident_memory`, which reads no
+    configuration at all - it is handed a client, a collection and an embedder,
+    and deciding what those are is this module's whole job. Putting it there
+    would also mean importing a module that imports Qdrant in order to name six
+    strings, which is the deferral in the factories below undone by their own
+    settings.
+    """
+
+    incident_memory_enabled: bool
+    qdrant_url: str
+    incident_memory_collection: str
+    incident_memory_embedding_model: str
+    incident_memory_recall_limit: int
+    incident_memory_similarity_floor: float
+
+
 @contextmanager
-def the_store_for(settings: Settings) -> Generator[QdrantClient | None]:
+def the_store_for(settings: IncidentMemorySettings) -> Generator[QdrantClient | None]:
     """The one vector store a process holds, for as long as it runs. Or none.
 
     Opened where a process starts and closed when it stops, beside the pool and
@@ -180,6 +204,7 @@ def against(connections: Connections,
     """
     settings = get_settings()
     mitigation = MitigationSettings.of(settings)
+    memory = IncidentMemorySettings.of(settings)
     # Asked of the provider four different ways below, over one connection.
     flag_history = flag_changes_over(write)
     # Whether anybody but Argus has been in since it wrote. Bound once because
@@ -258,8 +283,8 @@ def against(connections: Connections,
         # branch and the draft pull request come from the one that can (§13).
         propose_fix=fixes_over(read, write, FixSettings.of(settings), recorder),
         actions_taken=records.actions_taken,
-        recall_similar=_recalling(settings, store),
-        remember_incident=_remembering(settings, store),
+        recall_similar=_recalling(memory, store),
+        remember_incident=_remembering(memory, store),
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id,
             connections=connections,
@@ -275,7 +300,8 @@ def against(connections: Connections,
     )
 
 
-def _recalling(settings: Settings, store: QdrantClient | None) -> RecallSimilar:
+def _recalling(settings: IncidentMemorySettings,
+               store: QdrantClient | None) -> RecallSimilar:
     """What earlier incidents this one resembles, or nothing at all.
 
     Nothing where the process holds no store, and nothing where the store
@@ -312,7 +338,8 @@ def _recalling(settings: Settings, store: QdrantClient | None) -> RecallSimilar:
     return recall_what_it_can
 
 
-def _remembering(settings: Settings, store: QdrantClient | None) -> RememberIncident:
+def _remembering(settings: IncidentMemorySettings,
+                 store: QdrantClient | None) -> RememberIncident:
     """Where a finished incident's record goes, or nowhere.
 
     Nowhere is a real configuration rather than a way of switching off something

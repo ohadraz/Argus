@@ -67,6 +67,12 @@ def the_real_sources(settings: Settings,
     into a postmortem, and one holding the whole of `Settings` would be able to
     read every credential Argus has in order to ask about money.
 
+    Which is why this one takes the whole of it, and is meant to. It is the
+    narrowing itself: four slices come out of here and each goes to the one
+    provider it configures. A slice handed *in* would only move the question
+    of who may read a payment key one call further up, and split the answer
+    across two places.
+
     The read tier arrives as the connection somebody already holds to it, not as
     an address to dial: a postmortem's metrics are one more question asked over
     the session an investigation has been using all along.

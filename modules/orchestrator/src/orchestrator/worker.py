@@ -43,7 +43,7 @@ from write_mcp_client import write_mcp
 
 from orchestrator.entrypoint import graph_for, run_incident
 from orchestrator.unwinding import taken_actions_from, unwind_incident
-from orchestrator.walk.assembling import the_store_for
+from orchestrator.walk.assembling import IncidentMemorySettings, the_store_for
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ def main() -> None:
         open_pool(DatabaseSettings.of(settings)) as pool,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
         write_mcp(WriteMcpEndpoint.of(settings)) as write,
-        the_store_for(settings) as store,
+        the_store_for(IncidentMemorySettings.of(settings)) as store,
     ):
         connections = pool.connection
 
