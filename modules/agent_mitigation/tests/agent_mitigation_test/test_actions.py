@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
-from agent_mitigation import Action, propose_action
+from agent_mitigation import Action, RevertFeatureFlag, propose_action
 from argus_core.models import FailureMode, FlagChange
 from argus_testkit import Assertion, Scenario
 
@@ -283,10 +283,10 @@ def test_no_flag_change_proposes_nothing() -> None:
 
 def _the_action_proposed_sets(flag: str, enabled: bool) -> Assertion[Action | None]:
     def assertion(action: Action | None) -> bool:
-        if action is None:
+        if not isinstance(action, RevertFeatureFlag):
             raise AssertionError(
                 f"Expected an action setting flag [{flag}] to [{enabled}], "
-                f"got none."
+                f"got [{action}]."
             )
 
         if (action.flag, action.enabled) != (flag, enabled):
@@ -302,10 +302,10 @@ def _the_action_proposed_sets(flag: str, enabled: bool) -> Assertion[Action | No
 
 def _the_undo_records(flag: str, was_enabled: bool) -> Assertion[Action | None]:
     def assertion(action: Action | None) -> bool:
-        if action is None or action.undo_descriptor is None:
+        if not isinstance(action, RevertFeatureFlag):
             raise AssertionError(
                 f"Expected an action recording flag [{flag}] as [{was_enabled}], "
-                f"got none."
+                f"got [{action}]."
             )
 
         recorded = (action.undo_descriptor.flag, action.undo_descriptor.was_enabled)

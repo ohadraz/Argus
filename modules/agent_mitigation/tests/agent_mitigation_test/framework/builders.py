@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
-from agent_mitigation.tools import ChangedFromOutside, StillWanted
+from agent_mitigation.tools import ChangedFromOutside, ServiceRestarter, StillWanted
 from argus_core import to_iso_minute
 from argus_core.models import (
     FailureMode,
@@ -12,6 +12,8 @@ from argus_core.models import (
     FlagUndo,
     Hypothesis,
     MetricBucket,
+    RestartedService,
+    RestartService,
     UndoDescriptor,
 )
 
@@ -31,6 +33,12 @@ CALM_RATE = 0.01
 FAILING_RATE = CALM_RATE * 30
 CALM_P50_MS = 80
 CALM_P95_MS = 200
+# What the shop's heap sits at when nothing is accumulating, and where a leak
+# has taken it by the time the incident is visible. Three times rather than a
+# few percent: the departure rule works in units of the baseline's own spread,
+# and a climb that has to be argued about is a different test from this one.
+CALM_MEMORY_BYTES = 440 * 1024**2
+LEAKING_MEMORY_BYTES = CALM_MEMORY_BYTES * 3
 
 
 def an_undo_descriptor_for(flag: str,
@@ -81,6 +89,11 @@ def an_action_setting(flag: str, enabled: bool) -> Action:
     )
 
 
+def an_action_restarting(service: str) -> Action:
+    """The other kind, which carries no way back and has no field for one."""
+    return RestartService(service=service)
+
+
 def an_outcome_reaching(verdict: Verdict) -> Outcome:
     return Outcome(verdict=verdict, detail="dont care")
 
@@ -110,6 +123,19 @@ def dont_care_sleep(seconds: float) -> None:
     return None
 
 
+def dont_care_restart() -> ServiceRestarter:
+    """The restart seam for a test about flags, which must never reach it.
+
+    `take_action` takes a restarter whichever kind of action it is given, so
+    every flag test has to pass one. Raising rather than returning says which:
+    a test that reaches this is not the test it says it is.
+    """
+    def restart(service: str, /) -> RestartedService:
+        raise AssertionError(f"no restart expected here, and {service} was asked for")
+
+    return restart
+
+
 def a_window_ending_at_the_action() -> list[MetricBucket]:
     """Calm, then failing, and nothing after the action - the minute it fell
     inside is still in progress."""
@@ -128,12 +154,52 @@ def a_still_failing_window() -> list[MetricBucket]:
     )
 
 
-def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
+def a_window_where_memory_was_reclaimed() -> list[MetricBucket]:
+    """A leak, and then a restart that actually happened.
+
+    The heap climbed with the incident and is back at the baseline after the
+    action, which is what a new process looks like from the outside.
+    """
+    return a_window_of(
+        error_rates=[CALM_RATE] * CALM_MINUTES
+        + [FAILING_RATE] * FAILING_MINUTES
+        + [CALM_RATE] * 2,
+        memory_bytes=[CALM_MEMORY_BYTES] * CALM_MINUTES
+        + [LEAKING_MEMORY_BYTES] * FAILING_MINUTES
+        + [CALM_MEMORY_BYTES] * 2
+    )
+
+
+def a_window_where_memory_never_fell() -> list[MetricBucket]:
+    """A leak whose symptoms eased and whose heap did not.
+
+    The window a restart that was accepted and never happened produces: the
+    traffic that was failing has moved on, so errors and latency read healthy
+    again, while the process that has been accumulating since before the
+    incident is still the process serving. Judged on symptoms alone this
+    confirms; judged on all three signals it does not.
+    """
+    return a_window_of(
+        error_rates=[CALM_RATE] * CALM_MINUTES
+        + [FAILING_RATE] * FAILING_MINUTES
+        + [CALM_RATE] * 2,
+        memory_bytes=[CALM_MEMORY_BYTES] * CALM_MINUTES
+        + [LEAKING_MEMORY_BYTES] * (FAILING_MINUTES + 2)
+    )
+
+
+def a_window_of(error_rates: list[float],
+                memory_bytes: list[int] | None = None) -> list[MetricBucket]:
+    """A window whose minutes read as the rates given, one minute each.
+
+    Memory is flat at the baseline unless a caller says otherwise, because most
+    windows here are flag scenarios: the fault moves the error rate and leaves
+    the shop's heap where it was. A leak is the case that has to say otherwise,
+    and it says so by handing a reading per minute.
+    """
     dont_care_volume = 1000
     dont_care_started_at = WINDOW_START.timestamp()
-    # Flat: every window here is a flag scenario, whose fault moves the error
-    # rate and leaves the shop's memory where it was.
-    calm_memory_bytes = 440 * 1024**2
+    memory = memory_bytes or [CALM_MEMORY_BYTES] * len(error_rates)
 
     return [
         MetricBucket(
@@ -142,10 +208,12 @@ def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
             p50_ms=CALM_P50_MS,
             p95_ms=CALM_P95_MS,
             request_volume=dont_care_volume,
-            memory_used_bytes=calm_memory_bytes,
+            memory_used_bytes=memory_used,
             process_start_time_seconds=dont_care_started_at
         )
-        for offset, error_rate in enumerate(error_rates)
+        for offset, (error_rate, memory_used) in enumerate(
+            zip(error_rates, memory, strict=True)
+        )
     ]
 
 

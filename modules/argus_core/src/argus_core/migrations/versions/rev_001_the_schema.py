@@ -87,7 +87,14 @@ CREATE TABLE IF NOT EXISTS action (
     -- candidate naming no subject is a real candidate.
     type TEXT NOT NULL,
     subject TEXT,
-    reversible BOOLEAN NOT NULL DEFAULT true,
+    -- Whether an action of this kind leaves a change behind that could be
+    -- put back. Not what admitted it: that is membership of the closed set
+    -- of generic mitigations (§13), which is decided before the row exists
+    -- and is a property of the kind the `type` column already names. This is
+    -- what tells a NULL `undo_descriptor` below apart from a change nobody
+    -- accounted for - a restart leaves nothing to restore, and a flag revert
+    -- that recorded nothing is a write whose fate is unknown.
+    has_a_way_back BOOLEAN NOT NULL,
     undo_descriptor JSONB,
     outcome TEXT,
     taken_at TIMESTAMPTZ NOT NULL DEFAULT now()

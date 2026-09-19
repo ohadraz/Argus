@@ -358,12 +358,14 @@ def _some_mitigation_settings(
 
     The actor and the lookback are what these tests are about - who a change is
     attributed to, and how far back the window reaches. The wait is never
-    reached here, since nothing in this file takes an action.
+    reached here, since nothing in this file takes an action, and neither is
+    the cap - nothing here proposes a second attempt on anything.
     """
     a_wait_nothing_here_reaches = 180.0
 
     return MitigationSettings(
         flag_change_lookback_minutes=int(lookback.total_seconds() // 60),
         unleash_actor=actor,
-        mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches
+        mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches,
+        mitigation_attempts_per_subject=1
     )

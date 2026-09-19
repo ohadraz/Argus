@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final, Literal, assert_never
 
 from pydantic import BaseModel, Field, GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
@@ -108,13 +108,12 @@ class RevertFeatureFlag(BaseModel):
     it" is what lets this one action serve both directions.
 
     `undo_descriptor` is populated at proposal time, before anything is called,
-    and is *required*: this is an action type Argus can put back, and one of
-    these without a way back is not a thing that should be expressible. What
-    §13 refuses to take autonomously is an action of a kind that cannot be
-    undone at all - a per-type fact, which the gate asks the strategy that
-    proposed it rather than reading off an instance. An optional field here
-    would answer the wrong question and would reach a withdrawal hours later as
-    a `None` nobody can act on.
+    and is *required on this action* - not because a way back is what admits an
+    action, which it is not (that is membership of the declared set of generic
+    mitigations, §13), but because this kind of change genuinely leaves
+    something behind. A flag Argus moved is a flag somebody has to be able to
+    move back, and an optional field here would reach a withdrawal hours later
+    as a `None` nobody can act on.
     """
 
     action_type: Literal["revert-feature-flag"] = "revert-feature-flag"
@@ -123,23 +122,124 @@ class RevertFeatureFlag(BaseModel):
     undo_descriptor: FlagUndo
 
 
-# One member today, spelled as the union it is. `action_type` is Argus's own
-# word for what was done - it is a column on the `action` table and a field on
-# the event a reader sees - so it tags the union, where the descriptor's `tool`
-# is the write tier's wire vocabulary and does not.
-type Action = Annotated[RevertFeatureFlag, Field(discriminator="action_type")]
+class RestartService(BaseModel):
+    """Restarting the service, as the first mitigation that puts nothing back.
+
+    The industry's most common first response to a resource leak, and a
+    *generic mitigation* in Google SRE's sense: applied before the cause is
+    known, because what it buys is the service coming back while somebody works
+    out why it went.
+
+    It carries **no undo descriptor, and no field for one**. A restart changes
+    no persistent state - there is no prior value to record and nothing a
+    withdrawal could put back - so a nullable field here would be a hole every
+    reader had to interpret, where an absent one cannot be misread. What tells
+    that apart from a change nobody accounted for is the `action` row's own
+    column, written from the kind.
+
+    The subject is a service rather than a workload, a pod or a deployment.
+    What Argus names is what the alert and the metrics name; how that maps onto
+    a thing that can be restarted belongs to the write tier's adapter, which is
+    the only place that knows whether it is talking to Argo CD, to Kubernetes
+    or to something with no orchestrator at all.
+    """
+
+    action_type: Literal["restart-service"] = "restart-service"
+    service: str
+
+
+# `action_type` is Argus's own word for what was done - it is a column on the
+# `action` table and a field on the event a reader sees - so it tags the union,
+# where the descriptor's `tool` is the write tier's wire vocabulary and does
+# not.
+type Action = Annotated[
+    RevertFeatureFlag | RestartService, Field(discriminator="action_type")
+]
 
 # What any action calls itself. Named separately from the union because the
 # things that render or store an action carry the tag alone: the event says
 # what was done without carrying the proposal, and the row keeps a column.
-type ActionType = Literal["revert-feature-flag"]
+type ActionType = Literal["revert-feature-flag", "restart-service"]
 
-# The tag as a value, for the row and the event that carry it without carrying
-# the action. Here beside the type rather than in the agent that proposes one:
-# the column, the published event and the model would otherwise be three
-# spellings of one word, and only two of them would fail to compile if they
-# disagreed.
+# The tags as values, for the row and the event that carry them without
+# carrying the action. Here beside the type rather than in the agent that
+# proposes one: the column, the published event and the model would otherwise
+# be three spellings of one word, and only two of them would fail to compile if
+# they disagreed.
 REVERT_FEATURE_FLAG: Final[ActionType] = "revert-feature-flag"
+RESTART_SERVICE: Final[ActionType] = "restart-service"
+
+
+class RestartedService(BaseModel):
+    """What a restart did, as the tier that performed it saw it.
+
+    The new process start time is read back rather than assumed, and it is the
+    whole reason this is a value and not a bare acknowledgement: a restart that
+    was accepted and never happened is indistinguishable, from the symptoms
+    alone, from one that happened and did not help. Only the start time moving
+    separates them, and only the tier that performed the restart is in a
+    position to wait for it.
+    """
+
+    service: str
+    process_start_time_seconds: float
+
+# The kinds of action that leave a change behind somebody could put back. A
+# frozen set rather than a `match` over the union, because the question is
+# asked of the *tag* - the row records a kind, and the walk that reads it back
+# hours later has the column and not the action it came from.
+_LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
+    {REVERT_FEATURE_FLAG}
+)
+
+
+def the_subject_of(action: Action) -> str:
+    """What the action acts on, whatever kind of thing that is.
+
+    Here rather than at each caller because three of them ask - the row the
+    claim writes, the event a reader sees, and the attempt a later round is
+    shown - and a union unpacked in three places is three places that grow a
+    branch when a fourth kind arrives, two of which will be found by a bug.
+    """
+    match action:
+        case RevertFeatureFlag():
+            return action.flag
+        case RestartService():
+            return action.service
+        case _:
+            assert_never(action)
+
+
+def the_direction_of(action: Action) -> bool | None:
+    """Which way a two-state action moved its subject, or `None` for an action
+    that has no direction to move in.
+
+    A flag is set on or off, and which of those happened is the half of the
+    sentence a reader can act on. A restart has no such half: there is one
+    thing it does, and reporting it as having been moved to `true` would be a
+    field invented to keep a shape.
+    """
+    match action:
+        case RevertFeatureFlag():
+            return action.enabled
+        case RestartService():
+            return None
+        case _:
+            assert_never(action)
+
+
+def leaves_something_to_put_back(action_type: ActionType) -> bool:
+    """Whether an action of this kind changes state somebody could restore.
+
+    Not what admits an action - that is membership of the set of generic
+    mitigations, and lives with the agent that holds it (spec §13). This is the
+    narrower question the record has to answer afterwards: a row with no undo
+    descriptor against it means one of two very different things, and only the
+    kind can say which. An action of a kind that leaves nothing behind has
+    nothing to put back; one of a kind that does, and carries no descriptor, is
+    a change nobody has accounted for.
+    """
+    return action_type in _LEAVE_SOMETHING_TO_PUT_BACK
 
 
 class Outcome(BaseModel):

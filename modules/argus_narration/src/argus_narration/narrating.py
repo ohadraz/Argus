@@ -95,8 +95,8 @@ _AGENTS = {
 # from the value rather than stored beside it: two sentences that must agree
 # with one enum is one of them eventually disagreeing.
 _WHY_IT_WAS_REFUSED = {
-    Refusal.NO_REVERSIBLE_ACTION: "no reversible action was proposed",
-    Refusal.NOT_REVERSIBLE: "cannot be undone"
+    Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed",
+    Refusal.NOT_A_GENERIC_MITIGATION: "is not a mitigation Argus may take unasked"
 }
 
 # What became of one change an incident made, said after the flag it is about.
@@ -618,6 +618,8 @@ def _an_action_said(action_type: ActionType) -> str:
     match action_type:
         case "revert-feature-flag":
             return "Reverted the feature flag"
+        case "restart-service":
+            return "Restarted"
 
     assert_never(action_type)
 

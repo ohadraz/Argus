@@ -272,7 +272,7 @@ def _an_attempt(incident_id: str,
         hypothesis_id=hypothesis_id,
         type="revert-feature-flag",
         subject=None,
-        reversible=True,
+        has_a_way_back=True,
         undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
         outcome=outcome,
         taken_at=_OPENED_AT + timedelta(minutes=1)

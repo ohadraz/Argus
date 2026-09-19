@@ -124,7 +124,7 @@ def an_action(subject: str,
         hypothesis_id=new_id(),
         type=REVERT_FEATURE_FLAG,
         subject=subject,
-        reversible=True,
+        has_a_way_back=True,
         undo_descriptor=None,
         outcome=verdict,
         taken_at=DONT_CARE_MOMENT

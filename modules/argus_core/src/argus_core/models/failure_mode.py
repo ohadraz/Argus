@@ -25,3 +25,11 @@ from enum import StrEnum
 class FailureMode(StrEnum):
     FEATURE_FLAG_TOGGLE = "feature-flag-toggle"
     BAD_DEPLOYMENT = "bad-deployment"
+    # Consumption that grows without the traffic growing - a heap never
+    # released, a pool never returned, a queue nobody drains, a disk filling
+    # with logs. Named at this level and not two others: `resource-exhaustion`
+    # would also cover a correctly-sized resource meeting more load, which
+    # wants scaling out rather than restarting and looks identical on a latency
+    # graph; `memory-leak` would be one value per resource, each mapping to the
+    # same restart.
+    RESOURCE_LEAK = "resource-leak"

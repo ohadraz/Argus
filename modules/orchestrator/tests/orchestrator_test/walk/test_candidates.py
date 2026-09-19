@@ -14,7 +14,13 @@ twice. Everything else on the list is worth trying, however far down it sits.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import Attempt, Evidence, FailureMode, Hypothesis
+from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    Attempt,
+    Evidence,
+    FailureMode,
+    Hypothesis,
+)
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.candidates import the_next_worth_trying
 
@@ -203,7 +209,10 @@ def _an_attempt_on(flag: str) -> Attempt:
     Everything but the subject is arbitrary: only the subject is read here, and
     an attempt exists on the list at all only because it failed.
     """
-    return Attempt(subject=flag, enabled=False, occurred_at=DONT_CARE_MOMENT)
+    return Attempt(action_type=REVERT_FEATURE_FLAG,
+                   subject=flag,
+                   enabled=False,
+                   occurred_at=DONT_CARE_MOMENT)
 
 
 def _the_candidate_taken_up_is(expected: Hypothesis) -> Assertion[Chosen]:

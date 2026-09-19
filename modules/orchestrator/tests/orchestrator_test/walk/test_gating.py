@@ -3,16 +3,21 @@
 A guarantee enforced by the code it constrains is a convention, not a guarantee,
 so the check lives here rather than inside the agent that does the write.
 
-What it checks is a fact about the *kind* of action, asked of the thing that
-would have to perform the undo. An action of a reversible kind cannot reach this
-node without its way back - the models no longer allow one to be built - so the
-question left to ask is whether Argus knows how to put a change of this sort back
-at all. A kind it does not is what §13 refuses to take autonomously.
+What it checks is a fact about the *kind* of action: whether it belongs to the
+closed set of generic mitigations somebody declared and defended. Nothing about
+a particular action can put its kind in or out of that set, and a kind absent
+from it is what §13 refuses to take autonomously - not because it cannot be
+undone, but because nobody has pre-authorised it.
+
+Membership is not the only question. A mitigation in the set may be applied to
+one subject only so many times within one incident: what a repeatable mitigation
+risks is repetition, not irreversibility, and a restart loop is guarded against
+with a limit rather than with an approval step.
 
 A rejection is about *this* action, not about the incident. The explanations
-after it on the list may be perfectly reversible, so the gate clears the action,
-says why, and moves the incident nowhere - whether anything follows is decided
-one node further on, in one place.
+after it on the list may be answered by a mitigation Argus may take, so the gate
+clears the action, says why, and moves the incident nowhere - whether anything
+follows is decided one node further on, in one place.
 """
 
 from __future__ import annotations
@@ -23,12 +28,17 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from argus_core.events import ActionRefused, IncidentEvent
 from argus_core.models import (
+    RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
     Action,
+    ActionType,
     Alert,
+    Attempt,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
     Refusal,
+    RestartService,
     RevertFeatureFlag,
 )
 from argus_testkit import Assertion, Scenario, all_of
@@ -45,6 +55,10 @@ from orchestrator_test.framework.builders import (
 )
 
 DONT_CARE_FLAG = "dont-care-flag"
+DONT_CARE_SERVICE = "dont-care-service"
+# How many attempts a subject is allowed. Irrelevant to the tests that name it:
+# none of those incidents has tried anything yet, so no cap above zero can bind.
+DONT_CARE_ATTEMPT_CAP = 1
 
 
 @pytest.fixture
@@ -64,20 +78,21 @@ def test_the_gate_lets_an_action_of_a_kind_it_can_put_back_through(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     reversible=_a_kind_that_can_be_put_back())) \
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
 
 
 @pytest.mark.unit
-def test_the_gate_rejects_an_action_of_a_kind_that_cannot_be_put_back(
+def test_the_gate_rejects_an_action_of_a_kind_argus_may_not_take(
     record_outcome: MagicMock
 ) -> None:
     # The guarantee cannot rest on the agent that performs the write also
     # policing itself. The action here is perfectly well formed and carries a
-    # descriptor - what refuses it is the strategy that would have to undo one,
-    # saying that it cannot, which is the last point at which that can still be
-    # heard for free.
+    # descriptor - what refuses it is its kind being absent from the set of
+    # mitigations somebody declared, which is the last point at which that can
+    # still be heard for free.
     published: list[IncidentEvent] = []
 
     Scenario() \
@@ -88,12 +103,14 @@ def test_the_gate_rejects_an_action_of_a_kind_that_cannot_be_put_back(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     reversible=_a_kind_that_cannot_be_put_back(),
+                                     admitted=_a_kind_argus_may_not_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
                      _nothing_was_narrated(),
-                     _the_refusal_was_published(Refusal.NOT_REVERSIBLE, published)))
+                     _the_refusal_was_published(Refusal.NOT_A_GENERIC_MITIGATION,
+                                                published)))
 
 
 @pytest.mark.unit
@@ -102,7 +119,8 @@ def test_the_gate_rejects_an_incident_with_no_proposed_action(
 ) -> None:
     # The walk reaches the gate whether or not a proposal was made: with no
     # candidate there is nothing to answer, and the refusal is still the only
-    # account of why this attempt ended. Reversibility is not what stops this
+    # candidate there is nothing to answer, and the refusal is still the only
+    # account of why this attempt ended. Admissibility is not what stops this
     # one, so the stand-in admits everything - a refusal here has to come from
     # the absence and nothing else.
     published: list[IncidentEvent] = []
@@ -111,12 +129,13 @@ def test_the_gate_rejects_an_incident_with_no_proposed_action(
         .given(a_gated_incident := _a_mitigating_incident()) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     reversible=_a_kind_that_can_be_put_back(),
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
                      _nothing_was_narrated(),
-                     _the_refusal_was_published(Refusal.NO_REVERSIBLE_ACTION,
+                     _the_refusal_was_published(Refusal.NO_MITIGATION_PROPOSED,
                                                 published)))
 
 
@@ -137,9 +156,10 @@ def test_a_candidate_the_gate_refused_is_recorded_as_never_having_been_tried(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     reversible=_a_kind_that_cannot_be_put_back())) \
+                                     admitted=_a_kind_argus_may_not_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(_the_candidate_was_recorded_as_untried(some_candidate,
-                                                     "not reversible",
+                                                     "Argus may take unasked",
                                                      record_outcome))
 
 
@@ -159,7 +179,7 @@ def test_an_admitted_action_is_routed_to_the_node_that_performs_it() -> None:
 def test_a_rejected_action_is_handed_to_the_walk() -> None:
     # The gate clears the action it refused rather than marking the incident
     # escalated: the refusal is about this action, and the explanations after
-    # it on the list may be perfectly reversible. Whether anything follows is
+    # it on the list may be answered by one Argus may take. Whether anything
     # the walk's decision, made in one place - so a rejected action reaches no
     # state-changing call, and no premature ending either.
     Scenario() \
@@ -168,15 +188,149 @@ def test_a_rejected_action_is_handed_to_the_walk() -> None:
         .then(_the_route_is(NEXT_CANDIDATE_ROUTE))
 
 
+@pytest.mark.unit
+def test_a_mitigation_already_tried_on_this_subject_as_often_as_allowed_is_refused(
+    record_outcome: MagicMock
+) -> None:
+    # The risk a repeatable mitigation carries is repetition, not
+    # irreversibility. A restart loop is what operators actually guard against,
+    # and it is guarded with a limit rather than an approval step: nobody is
+    # woken to approve the second restart of a service that did not come back.
+    published: list[IncidentEvent] = []
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            an_incident_that_already_restarted_it := _a_mitigating_incident(
+                proposing=_a_proposed_restart(some_leaking_service),
+                already_tried=[_an_attempt_to(RESTART_SERVICE, some_leaking_service)]
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_that_already_restarted_it,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=1,
+                                     publisher=published.append)) \
+        .then(all_of(_the_action_was_cleared(),
+                     _the_incident_was_moved_nowhere(),
+                     _nothing_was_narrated(),
+                     _the_refusal_was_published(Refusal.ALREADY_TRIED_ENOUGH,
+                                                published)))
+
+
+@pytest.mark.unit
+def test_an_allowance_of_two_lets_the_second_attempt_through(
+    record_outcome: MagicMock
+) -> None:
+    # The cap is a number, not a rule against trying twice. A deployment that
+    # has decided a second restart is worth the noise says so in its
+    # configuration, and the gate reads it rather than holding an opinion.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            an_incident_that_already_restarted_it := _a_mitigating_incident(
+                proposing=_a_proposed_restart(some_leaking_service),
+                already_tried=[_an_attempt_to(RESTART_SERVICE, some_leaking_service)]
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_that_already_restarted_it,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=2)) \
+        .then(all_of(_the_gate_changed_nothing(),
+                     _no_outcome_was_recorded(record_outcome)))
+
+
+@pytest.mark.unit
+def test_restarting_one_service_does_not_spend_another_services_allowance(
+    record_outcome: MagicMock
+) -> None:
+    # The blast radius of a mitigation is the thing it acts on. A cap counted
+    # across the incident rather than per subject would let one unlucky service
+    # use up what every other service in the incident was owed.
+    some_leaking_service = "kuki-service"
+    another_service_entirely = "kuki-payments"
+
+    Scenario() \
+        .given(
+            an_incident_that_restarted_something_else := _a_mitigating_incident(
+                proposing=_a_proposed_restart(some_leaking_service),
+                already_tried=[_an_attempt_to(RESTART_SERVICE, another_service_entirely)]
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_that_restarted_something_else,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=1)) \
+        .then(all_of(_the_gate_changed_nothing(),
+                     _no_outcome_was_recorded(record_outcome)))
+
+
+@pytest.mark.unit
+def test_a_mitigation_of_another_kind_on_the_same_subject_does_not_spend_it(
+    record_outcome: MagicMock
+) -> None:
+    # A flag put back and a service restarted are different experiments that
+    # happen to name the same thing. Counted together, a flag that had already
+    # been tried would refuse the first restart the incident ever asked for.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            an_incident_that_already_moved_a_flag := _a_mitigating_incident(
+                proposing=_a_proposed_restart(some_leaking_service),
+                already_tried=[
+                    _an_attempt_to(REVERT_FEATURE_FLAG, some_leaking_service)
+                ]
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_that_already_moved_a_flag,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=1)) \
+        .then(all_of(_the_gate_changed_nothing(),
+                     _no_outcome_was_recorded(record_outcome)))
+
+
+@pytest.mark.unit
+def test_a_candidate_refused_for_having_been_tried_enough_says_so_in_its_row(
+    record_outcome: MagicMock
+) -> None:
+    # Three rejections reach the same status for different reasons, and the
+    # row is where a human finds out which. "Nobody authorised this" and "this
+    # has been tried already" call for quite different next moves.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            some_candidate := a_determined_hypothesis(a_random_id()),
+            an_incident_that_already_restarted_it := _a_mitigating_incident(
+                proposing=_a_proposed_restart(some_leaking_service),
+                about=some_candidate,
+                already_tried=[_an_attempt_to(RESTART_SERVICE, some_leaking_service)]
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_that_already_restarted_it,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=1)) \
+        .then(_the_candidate_was_recorded_as_untried(some_candidate,
+                                                     "as often as the incident allows",
+                                                     record_outcome))
+
+
 def _a_mitigating_incident(proposing: Action | None = None,
-                           about: Hypothesis | None = None) -> IncidentState:
+                           about: Hypothesis | None = None,
+                           already_tried: list[Attempt] | None = None) -> IncidentState:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
 
     return state.model_copy(
         update={
             "hypothesis": about or a_determined_hypothesis(state.incident_id),
-            "proposed_action": proposing
+            "proposed_action": proposing,
+            "attempts": already_tried or []
         }
     )
 
@@ -195,25 +349,47 @@ def _a_proposed_action() -> Action:
     )
 
 
-def _a_kind_that_can_be_put_back() -> ports.Reversible:
-    def reversible(dont_care_action: Action) -> bool:
+def _a_proposed_restart(service: str = DONT_CARE_SERVICE) -> Action:
+    """The repeatable mitigation, which is what the cap is really about.
+
+    A restart can be taken again and again, each one buying a few minutes, and
+    nothing about the action itself says it has been taken before.
+    """
+    return RestartService(service=service)
+
+
+def _an_attempt_to(action_type: ActionType, subject: str) -> Attempt:
+    """A mitigation this incident already took, and which did not help.
+
+    Only failures reach this list: one that worked ended the incident, and
+    there would be no later round to be capped.
+    """
+    dont_care_moment = "2026-08-20T11:05:00Z"
+
+    return Attempt(action_type=action_type,
+                   subject=subject,
+                   occurred_at=dont_care_moment)
+
+
+def _a_kind_argus_may_take() -> ports.Admitted:
+    def admitted(dont_care_action: Action) -> bool:
         return True
 
-    return reversible
+    return admitted
 
 
-def _a_kind_that_cannot_be_put_back() -> ports.Reversible:
-    """A registered strategy that says it has no way back from what it proposes.
+def _a_kind_argus_may_not_take() -> ports.Admitted:
+    """An action of a kind nobody has pre-authorised.
 
-    The one shape §13's gate exists for. It cannot be expressed as an action any
-    more - every action type Argus has carries its undo - so it is expressed
-    where the truth about it actually lives, which is the strategy that would
-    have to perform the undo.
+    The one shape §13's gate exists for. It cannot be expressed as an action
+    any more - every action type Argus has is in the declared set - so it is
+    expressed where the truth about it actually lives, which is the set the
+    gate is asked about.
     """
-    def reversible(dont_care_action: Action) -> bool:
+    def admitted(dont_care_action: Action) -> bool:
         return False
 
-    return reversible
+    return admitted
 
 
 def _the_gate_changed_nothing() -> Assertion[StateDelta]:

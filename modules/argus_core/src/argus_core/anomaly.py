@@ -262,14 +262,23 @@ def _minutes_still_at_the_incidents_level(
     rule is in units of the baseline's own spread: a service that fails a third
     of its requests and one that doubles its latency have recovered by the same
     proportion and by wildly different amounts.
+
+    All three signals, matching what an onset is found in. A mitigation judged
+    on the symptoms alone would confirm a restart the instant latency eased,
+    with the heap already climbing again behind it - and would judge a leak
+    recovered on the strength of the metric that reacts to it last.
     """
     error_rates = [bucket.error_rate for bucket in buckets]
     latencies = [float(bucket.p95_ms) for bucket in buckets]
+    memory = [float(bucket.memory_used_bytes) for bucket in buckets]
     error_rate_ceiling = _subsided_threshold(error_rates, thresholds)
     latency_ceiling = _subsided_threshold(latencies, thresholds)
+    memory_ceiling = _subsided_threshold(memory, thresholds)
 
     return [
-        bucket.error_rate > error_rate_ceiling or bucket.p95_ms > latency_ceiling
+        bucket.error_rate > error_rate_ceiling
+        or bucket.p95_ms > latency_ceiling
+        or bucket.memory_used_bytes > memory_ceiling
         for bucket in buckets
     ]
 

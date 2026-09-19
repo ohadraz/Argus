@@ -370,20 +370,20 @@ def test_a_refusal_marks_why_the_action_was_not_taken() -> None:
     # The autonomy boundary holding, said as the one thing a reader can act on.
     # Which candidate went untested is on the candidate's own row; what a person
     # scanning the account needs is which of the two refusals this was - an
-    # investigation with nothing reversible to offer, or something to do that
-    # could not be undone. Marked for the reason a refused message marks its
+    # investigation with nothing to offer, or something to do that nobody has
+    # pre-authorised. Marked for the reason a refused message marks its
     # refusal: the reason is the actionable half.
     some_refusal = ActionRefused(
         incident_id=new_id(),
         hypothesis_id=new_id(),
-        refusal=Refusal.NOT_REVERSIBLE
+        refusal=Refusal.NOT_A_GENERIC_MITIGATION
     )
 
     Scenario() \
         .given(some_refusal) \
         .when(lambda: build_narration([some_refusal])) \
         .then(all_of(
-            _the_only_line_marks("cannot be undone"),
+            _the_only_line_marks("is not a mitigation Argus may take unasked"),
             _the_lines_are_credited_to(["Argus"])))
 
 

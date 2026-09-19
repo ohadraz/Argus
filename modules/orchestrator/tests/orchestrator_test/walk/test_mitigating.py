@@ -790,7 +790,7 @@ def _a_candidate_blaming(flag: str) -> Hypothesis:
     return a_determined_hypothesis(a_random_id()).model_copy(update={"subject": flag})
 
 
-def _an_action_with_an_undo_descriptor() -> Action:
+def _an_action_with_an_undo_descriptor() -> RevertFeatureFlag:
     return RevertFeatureFlag(
         flag=DONT_CARE_FLAG,
         enabled=False,

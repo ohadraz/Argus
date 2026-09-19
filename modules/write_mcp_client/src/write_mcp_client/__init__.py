@@ -10,6 +10,7 @@ from write_mcp_client.client import (
     commit_to_new_branch,
     get_recent_flag_changes,
     open_pull_request,
+    restart_service,
     set_feature_flag,
     write_mcp,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "commit_to_new_branch",
     "get_recent_flag_changes",
     "open_pull_request",
+    "restart_service",
     "set_feature_flag",
     "write_mcp",
 ]

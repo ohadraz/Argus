@@ -353,7 +353,7 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
         ActionRefused(
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
-            refusal=Refusal.NOT_REVERSIBLE
+            refusal=Refusal.NOT_A_GENERIC_MITIGATION
         ),
         ActionTaken(
             incident_id=AN_INCIDENT,

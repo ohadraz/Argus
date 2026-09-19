@@ -11,12 +11,13 @@ from agent_mitigation.tools import (
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
+    ServiceRestarter,
 )
 from agent_mitigation.trying import UndoChange
 from argus_core import new_id
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
-from argus_core.models import MetricBucket, UndoDescriptor
+from argus_core.models import MetricBucket, RestartedService, UndoDescriptor
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.assertions import the_verdict_is
@@ -28,8 +29,12 @@ from agent_mitigation_test.framework.builders import (
     a_recovered_window,
     a_still_failing_window,
     a_window_ending_at_the_action,
+    a_window_where_memory_never_fell,
+    a_window_where_memory_was_reclaimed,
+    an_action_restarting,
     an_action_setting,
     an_undo_descriptor_for,
+    dont_care_restart,
     dont_care_sleep,
     metrics_reading,
     nobody_can_say,
@@ -62,6 +67,7 @@ def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -87,6 +93,7 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                 fetch_metrics=metrics_reading(the_service_recovers),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -115,6 +122,7 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
                 fetch_metrics=metrics_reading(the_service_never_recovers),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -143,6 +151,7 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 still_wanted=nobody_still_wants_it,
                 changed_from_outside=nobody_changed_it()
             )
@@ -172,6 +181,7 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -203,6 +213,7 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -233,6 +244,7 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -265,6 +277,7 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -290,6 +303,7 @@ def test_a_confirmed_action_is_left_in_place() -> None:
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -320,6 +334,7 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -351,6 +366,7 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=somebody_changed_it()
             )
         ) \
@@ -380,6 +396,7 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=somebody_changed_it()
             )
         ) \
@@ -410,6 +427,7 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_can_say()
             )
         ) \
@@ -436,6 +454,7 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
+                restart=dont_care_restart(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -468,6 +487,7 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
             sleep=dont_care_sleep,
+            restart=dont_care_restart(),
             undo=undo,
             changed_from_outside=dont_care_outside
         )) \
@@ -594,6 +614,185 @@ def test_the_verdict_is_the_same_whether_or_not_anybody_is_listening() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_taking_a_restart_asks_for_the_service_the_action_names() -> None:
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(restart := _a_restarter_bringing_up(some_leaking_service)) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(some_leaking_service),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(a_window_where_memory_was_reclaimed()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=restart,
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+        .then(
+            _the_service_restarted_was(restart, some_leaking_service)
+        )
+
+
+@pytest.mark.unit
+def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
+    # Both halves of the answer. Either alone is ambiguous: traffic moving on
+    # eases the symptoms of a service nothing was done to, and a heap that fell
+    # says only that a process restarted, not that the incident is over.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            the_heap_came_back_down := a_window_where_memory_was_reclaimed()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(some_leaking_service),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(the_heap_came_back_down),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=_a_restarter_bringing_up(some_leaking_service),
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_mentions(f"restarted [{some_leaking_service}]")
+        ))
+
+
+@pytest.mark.unit
+def test_a_restart_whose_memory_never_fell_is_refuted_though_the_symptoms_eased() -> None:
+    # The case the recovery check grew a third signal for. On latency and
+    # errors alone this confirms the moment the failing traffic moves on - with
+    # the heap still where the leak left it, and the process that has been
+    # accumulating since before the incident still the one serving.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            the_heap_stayed_up := a_window_where_memory_never_fell()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(some_leaking_service),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(the_heap_stayed_up),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=_a_restarter_bringing_up(some_leaking_service),
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.REFUTED)
+        )
+
+
+@pytest.mark.unit
+def test_a_restart_that_could_not_be_taken_escalates_without_a_verdict() -> None:
+    # Nothing was done to the service, so there is nothing to judge. A verdict
+    # here would read a leak still climbing as evidence that restarting a
+    # leaking service does not work.
+    some_leaking_service = "kuki-service"
+    some_failure = "the platform refused the action"
+
+    Scenario() \
+        .given(
+            restart_could_not_be_taken := _a_restarter_that_cannot(some_failure)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(some_leaking_service),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(a_window_where_memory_was_reclaimed()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=restart_could_not_be_taken,
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions(f"restart [{some_leaking_service}]"),
+            _the_detail_mentions(some_failure)
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_restart_puts_nothing_back_and_says_so() -> None:
+    # Not "the undo failed", and not silence. A restart that did not help is a
+    # hypothesis refuted cleanly, and a reader has to be able to tell that from
+    # a flag Argus could not put back.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            nothing_was_ever_written := _a_flag_setter_changing_from(
+                DONT_CARE_FLAG, was_enabled=True)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(some_leaking_service),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=nothing_was_ever_written,
+                fetch_metrics=metrics_reading(a_window_where_memory_never_fell()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=_a_restarter_bringing_up(some_leaking_service),
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_flag_was_written_to(nothing_was_ever_written, times=0),
+            _the_detail_mentions("nothing to put back"),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_a_confirmed_restart_carries_no_way_back_either() -> None:
+    # A withdrawal hours later reads the outcome and does what it says. There
+    # is no prior value a restart could name, so the field is absent rather
+    # than empty - and absent is the only state that cannot be misread.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            the_heap_came_back_down := a_window_where_memory_was_reclaimed()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(some_leaking_service),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(the_heap_came_back_down),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=_a_restarter_bringing_up(some_leaking_service),
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _there_is_nothing_to_put_back()
+        ))
+
+
 def _an_action_is_taken(metrics: list[MetricBucket],
                         publisher: Any = None,
                         clock: Callable[[], datetime] | None = None,
@@ -614,9 +813,34 @@ def _an_action_is_taken(metrics: list[MetricBucket],
         fetch_metrics=metrics_reading(metrics),
         now=clock or a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
+        restart=dont_care_restart(),
         changed_from_outside=nobody_changed_it(),
         **keywords
     )
+
+
+def _a_restarter_bringing_up(service: str) -> MagicMock:
+    """Answers as the real restarter does - with the process that came up.
+
+    The start time it reports is arbitrary here: what makes a restart checkable
+    is that it *moved*, and the tier that performed it is the only thing in a
+    position to have waited for that. By the time an outcome is being judged,
+    the question is what the service did next.
+    """
+    dont_care_start_time = 1_756_000_600.0
+    restart: MagicMock = create_autospec(ServiceRestarter, instance=True)
+    restart.return_value = RestartedService(
+        service=service, process_start_time_seconds=dont_care_start_time
+    )
+
+    return restart
+
+
+def _a_restarter_that_cannot(failure: str) -> MagicMock:
+    restart: MagicMock = create_autospec(ServiceRestarter, instance=True)
+    restart.side_effect = RuntimeError(failure)
+
+    return restart
 
 
 def _a_flag_setter_changing_from(flag: str, was_enabled: bool) -> MagicMock:
@@ -682,6 +906,38 @@ def _the_verdict_matches(other: Outcome) -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected the same verdict either way, got [{outcome.verdict}] "
                 f"with a listener and [{other.verdict}] without."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_service_restarted_was(restart: MagicMock, service: str) -> Assertion[Outcome]:
+    def assertion(dont_care_outcome: Outcome) -> bool:
+        restarted = restart.call_args.args[0] if restart.call_args else None
+        if restarted != service:
+            raise AssertionError(
+                f"Expected [{service}] to be restarted, and [{restarted}] was."
+            )
+
+        return True
+
+    return assertion
+
+
+def _there_is_nothing_to_put_back() -> Assertion[Outcome]:
+    """No descriptor at all, rather than one nobody can act on.
+
+    A withdrawal hours later reads this field and does what it says. An empty
+    descriptor would be a hole every reader had to interpret; an absent one
+    cannot be misread.
+    """
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.undo_descriptor is not None:
+            raise AssertionError(
+                f"Expected the outcome to carry no way back, and it carried "
+                f"[{outcome.undo_descriptor}]."
             )
 
         return True
@@ -837,12 +1093,15 @@ def _some_mitigation_settings() -> MitigationSettings:
     """How Mitigation behaves, as this suite sets it.
 
     The lookback and the actor are named because the attribution tests turn on
-    them; the wait is named because the expiry tests do.
+    them; the wait is named because the expiry tests do. The cap is named only
+    because the slice requires one - how many attempts a subject is allowed is
+    the gate's question, and nothing taken here ever asks it twice.
     """
     return MitigationSettings(
         flag_change_lookback_minutes=60,
         unleash_actor="argus",
-        mitigation_verification_timeout_seconds=A_SHORT_WAIT_IN_SECONDS
+        mitigation_verification_timeout_seconds=A_SHORT_WAIT_IN_SECONDS,
+        mitigation_attempts_per_subject=1
     )
 
 

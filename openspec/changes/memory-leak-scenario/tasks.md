@@ -18,22 +18,22 @@
 
 ## 3. The autonomy tier becomes membership
 
-- [ ] 3.1 Declare the closed set of generic mitigations in `agent_mitigation`, replacing `can_be_undone` as the gate's question
-- [ ] 3.2 Make the undo descriptor optional on an action, with "nothing to put back" a recorded state distinct from "not yet answered for"
-- [ ] 3.3 Leave the unwind path alone for actions that have a descriptor, and make it skip - without reporting a failure - for actions that never had one
-- [ ] 3.4 Add the per-incident, per-subject cap on a repeatable mitigation, with a refusal that names the cap
-- [ ] 3.5 Update the Orchestrator's gate node and the refusal vocabulary to match
-- [ ] 3.6 Propose the test updates in chat for `agent_mitigation` and the Orchestrator's gate
+- [x] 3.1 Declare the closed set of generic mitigations in `agent_mitigation`, replacing `can_be_undone` as the gate's question
+- [x] 3.2 Make the undo descriptor optional on an action, with "nothing to put back" a recorded state distinct from "not yet answered for"
+- [x] 3.3 Leave the unwind path alone for actions that have a descriptor, and make it skip - without reporting a failure - for actions that never had one
+- [x] 3.4 Add the per-incident, per-subject cap on a repeatable mitigation, with a refusal that names the cap **(deferred into group 4: there is no repeatable mitigation to cap until the restart exists)**
+- [x] 3.5 Update the Orchestrator's gate node and the refusal vocabulary to match
+- [x] 3.6 Propose the test updates in chat for `agent_mitigation` and the Orchestrator's gate
 
 ## 4. Restart as a mitigation
 
-- [ ] 4.1 Add a restart tool to `write_mcp_server`, shaped like a platform restart action, returning the service and the new process start time
-- [ ] 4.2 Expose it as a typed function on `write_mcp_client`
-- [ ] 4.3 Return no undo descriptor from it, and say explicitly that nothing was changed that can be restored
-- [ ] 4.4 Add `RESOURCE_LEAK = "resource-leak"` to `FailureMode`, and the strategy mapping it to a restart
-- [ ] 4.5 Verify a restart in two steps: the start time changed (it landed), then memory fell and symptoms eased (it helped) - recorded as different outcomes
-- [ ] 4.6 Confirm a confirmed restart routes to Code-Fix and the incident ends mitigated rather than resolved
-- [ ] 4.7 Propose the test updates in chat for the write tier, the strategy and the verification
+- [x] 4.1 Add a restart tool to `write_mcp_server`, shaped like a platform restart action, returning the service and the new process start time
+- [x] 4.2 Expose it as a typed function on `write_mcp_client`
+- [x] 4.3 Return no undo descriptor from it, and say explicitly that nothing was changed that can be restored
+- [x] 4.4 Add `RESOURCE_LEAK = "resource-leak"` to `FailureMode`, and the strategy mapping it to a restart
+- [x] 4.5 Verify a restart in two steps: the start time changed (it landed), then memory fell and symptoms eased (it helped) - recorded as different outcomes
+- [x] 4.6 Confirm a confirmed restart routes to Code-Fix and the incident ends mitigated rather than resolved
+- [x] 4.7 Propose the test updates in chat for the write tier, the strategy and the verification
 
 ## 5. The Target Service leaks
 
@@ -63,6 +63,7 @@ places, so this is a pass over the whole document, not two sections.
 - [ ] 6.9 §15.2 and §15.3: the leak's row - seeded state, what the anomaly reacts to, that it never stops via a flag, and that correct behaviour is restart then propose a fix
 - [ ] 6.10 §21.1: the leak joins the benchmark scenarios as the first that ramps rather than steps
 - [ ] 6.11 Read the whole document once through for "reversible" and for any claim this change has outgrown
+- [ ] 6.12 The same pass over the code's own prose: seventeen docstrings and comments still argue from reversibility - `proposing.py` and `fixing.py` in their opening lines, `mitigating.py` in both modules, the two MCP tool registrations, `incident_status.py`, `hypothesis.py`, and the incident page's account of `undone`. A flag revert is still reversible and still says so; what has to go is reversibility given as the *reason* an action may be taken unasked
 
 ## 7. End to end
 

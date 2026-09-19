@@ -219,6 +219,15 @@ class Settings(BaseSettings):
         default=_VERIFICATION_TIMEOUT_SECONDS, gt=0.0
     )
 
+    # How often one incident may apply one kind of mitigation to one subject.
+    # The control a repeatable mitigation needs: a restart can be taken again
+    # and again, each one buying a few minutes, and a restart loop is the
+    # failure mode operators actually guard against. One by default, and low on
+    # purpose - a second attempt on a subject the first did not fix is a
+    # hypothesis the evidence has already answered, and the walk has other
+    # candidates to spend its time on.
+    mitigation_attempts_per_subject: int = Field(default=1, gt=0)
+
     # How long a worker waits before asking the queue again, having found it
     # empty. The wait a real alert pays before anything starts on it, so it is
     # short - and it is only paid when there is nothing to do, since a worker
@@ -436,6 +445,19 @@ class Settings(BaseSettings):
     # Empty means no credential is sent at all, rather than an invented one -
     # the stand-in needs none, and a real Argo CD issues these to operators.
     argocd_auth_token: str = Field(default="")
+    # Where a restart is asked for, as the same template. A real Argo CD's is
+    # `/api/v1/applications/{application}/resource/actions/v2` - v2 rather
+    # than the original, which takes the same fields as query parameters and
+    # is deprecated since Argo CD 3.1.
+    argocd_restart_action_path: str = Field(
+        default="/argocd/{application}/resource/actions/v2"
+    )
+    # What the platform calls the thing that gets restarted, which is not what
+    # the alert calls the service. There is no rule producing one from the
+    # other, so it is configured - and the demo's stand-in ignores both, since
+    # it has one service and no namespaces.
+    restart_namespace: str = Field(default="production")
+    restart_resource_name: str = Field(default="io-shop")
 
     # How far back to look for changes. Wide on purpose, and far wider than
     # any log window: a cause precedes its symptoms by an unbounded lag - a

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from argus_core import to_iso, utc_now
 from argus_core.events import CandidateSelected, Publisher, nobody, publish
-from argus_core.models import Attempt, IncidentStatus
+from argus_core.models import (
+    Attempt,
+    IncidentStatus,
+    the_direction_of,
+    the_subject_of,
+)
 
 from orchestrator.walk.candidates import the_next_worth_trying
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -103,11 +108,12 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     nothing a later round could learn from it. Only a change that was made -
     and undone - is evidence about the cause it was made on.
 
-    A cleared action is the whole of that test. It used to ask after the undo
-    descriptor as well, back when an action could carry none; an action of a
-    reversible kind cannot be built without one now, so that half of the
-    condition could only ever be false - and nothing would have said so, since
-    mypy is not asked to warn about unreachable code.
+    A cleared action is the whole of that test, and it is the whole of it for
+    every kind. It used to ask after the undo descriptor as well, which stopped
+    being a question twice over: a flag revert cannot be built without one, and
+    an action that leaves nothing to put back is still an action that changed
+    the running service - a restart that did not help is evidence about the
+    cause exactly as a reverted flag is.
     """
     action = state.proposed_action
 
@@ -116,8 +122,9 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
 
     return [
         Attempt(
-            subject=action.flag,
-            enabled=action.enabled,
+            action_type=action.action_type,
+            subject=the_subject_of(action),
+            enabled=the_direction_of(action),
             occurred_at=to_iso(utc_now())
         )
     ]

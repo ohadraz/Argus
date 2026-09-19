@@ -90,7 +90,7 @@ def _a_row_whose_outcome_is(outcome: str | None) -> dict[str, Any]:
         "hypothesis_id": new_id(),
         "type": "revert_feature_flag",
         "subject": "monthly-spend-feature",
-        "reversible": True,
+        "has_a_way_back": True,
         "undo_descriptor": None,
         "outcome": outcome,
         "taken_at": THE_MOMENT_IT_WAS_CLAIMED

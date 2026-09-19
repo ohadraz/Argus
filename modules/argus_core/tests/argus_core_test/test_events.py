@@ -184,7 +184,7 @@ def test_a_refusal_read_back_names_the_candidate_it_refused() -> None:
             published := ActionRefused(
                 incident_id=new_id(),
                 hypothesis_id=some_candidate,
-                refusal=Refusal.NOT_REVERSIBLE
+                refusal=Refusal.NOT_A_GENERIC_MITIGATION
             )
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \

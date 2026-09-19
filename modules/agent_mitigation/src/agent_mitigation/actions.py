@@ -96,8 +96,8 @@ class UndoAttempt(BaseModel):
 def propose_action(hypothesis: Hypothesis,
                    flag_changes: Sequence[FlagChange],
                    strategies: Strategies = DEFAULT_STRATEGIES) -> Action | None:
-    """The reversible action that answers `hypothesis`, or `None` where none
-    does (spec §7.3).
+    """The action that answers `hypothesis`, or `None` where none does
+    (spec §7.3).
 
     A lookup, and nothing else. What to do about a given cause is the
     strategy's to say; what this adds is that a cause nobody registered one for

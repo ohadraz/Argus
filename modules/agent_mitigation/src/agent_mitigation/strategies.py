@@ -8,12 +8,11 @@ is I/O, it already has its seam in `ActionTaker` and in the Orchestrator's
 `Collaborators`, and a registry built to dispatch between one member would be
 the second action type's machinery bought before the second action type.
 
-Two questions are asked of a strategy, by two different callers holding two
-different things. `propose_action` holds a cause and asks what to do about it.
-The Orchestrator's gate holds an `Action` and asks whether an action of that
-kind can be put back at all - which is a fact about the kind, not about the
-instance, since an instance that reached the gate without a way back is a shape
-the models no longer allow.
+One question is asked of a strategy: `propose_action` holds a cause and asks
+what to do about it. Whether Argus may then take that action unasked is a
+different question with a different answer, and it lives in `admitting` - a
+strategy says what would help, and has no business also saying what is
+permitted.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from argus_core.models import (
+    RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     Action,
     ActionType,
@@ -29,25 +29,26 @@ from argus_core.models import (
     FlagChange,
     FlagUndo,
     Hypothesis,
+    RestartService,
     RevertFeatureFlag,
 )
 
 __all__ = [
     "DEFAULT_STRATEGIES",
     "MitigationStrategy",
+    "RestartServiceStrategy",
     "RevertFeatureFlagStrategy",
-    "Strategies",
-    "can_be_undone"
+    "Strategies"
 ]
 
 
 class MitigationStrategy(Protocol):
-    """One kind of reversible change, and what Argus can say about it.
+    """One generic mitigation, and the cause it answers.
 
-    `action_type` is on the strategy rather than only on what it proposes,
-    because the gate arrives holding an action and no cause: the index it looks
-    up by is derived from this, so a strategy cannot be registered without
-    saying which actions it answers for.
+    `action_type` is on the strategy rather than only on what it proposes, so
+    that a strategy cannot be registered without saying which actions it
+    answers for - and so that the kind a cause maps to can be read without
+    building the action first.
     """
 
     action_type: ActionType
@@ -55,8 +56,6 @@ class MitigationStrategy(Protocol):
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange]) -> Action | None: ...
-
-    def can_be_undone(self) -> bool: ...
 
 
 class RevertFeatureFlagStrategy:
@@ -98,37 +97,48 @@ class RevertFeatureFlagStrategy:
             )
         )
 
-    def can_be_undone(self) -> bool:
-        """A flag Argus set can be set back, in either direction."""
-        return True
+
+class RestartServiceStrategy:
+    """Answering a leak by restarting the thing that is leaking.
+
+    The textbook generic mitigation: it reclaims what accumulated without
+    knowing what accumulated it, which is exactly why it can be applied before
+    the cause is understood - and exactly why it mitigates rather than
+    resolves. The fault is still in the code when the new process comes up, and
+    the climb starts again.
+
+    The service comes from the hypothesis's subject and from nowhere else. A
+    configured service name would hardcode the demo's answer into the agent,
+    and an incident that named no subject is one this has nothing to act on -
+    which is a real outcome rather than a reason to guess at the only service
+    Argus happens to know about.
+    """
+
+    action_type: ActionType = RESTART_SERVICE
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                flag_changes: Sequence[FlagChange]) -> Action | None:
+        """The service to restart, or `None` where the evidence names none.
+
+        The recorded flag changes are not read. A leak is not something a flag
+        did - no toggle causes a heap to grow, and a flag that happened to move
+        during the climb is a coincidence this must not act on. The parameter
+        is still spelled as the protocol spells it: a strategy that renamed
+        what it does not use would be one nobody could call by keyword.
+        """
+        if hypothesis.subject is None:
+            return None
+
+        return RestartService(service=hypothesis.subject)
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
 
 DEFAULT_STRATEGIES: Strategies = {
-    FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy()
+    FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
+    FailureMode.RESOURCE_LEAK: RestartServiceStrategy()
 }
-
-
-def can_be_undone(action: Action,
-                  strategies: Strategies = DEFAULT_STRATEGIES) -> bool:
-    """Whether an action of this kind is one Argus can put back (spec §13).
-
-    What the Orchestrator's gate asks before anything mutating is called. A
-    kind nobody registered a strategy for answers `False`: an action Argus
-    cannot say how to undo is exactly what §13 refuses to take autonomously,
-    and a missing entry is not a reason to assume the best about one.
-
-    The index is derived from what each strategy says it answers for, rather
-    than kept as a second mapping beside the first. Two registries of one fact
-    are two registries that can disagree about it, and the one that disagreed
-    here would be admitting an action nothing can reverse.
-    """
-    for strategy in strategies.values():
-        if strategy.action_type == action.action_type:
-            return strategy.can_be_undone()
-
-    return False
 
 
 def _the_change_to_undo(subject: str | None,

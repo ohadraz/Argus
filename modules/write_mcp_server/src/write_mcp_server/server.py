@@ -5,7 +5,8 @@ split is what makes "read-only" a property of a running process: the read server
 holds no credential that could authorize a change, so a compromised or confused
 caller cannot mutate anything through it, whatever tools it believes it has.
 
-Everything registered here is **reversible tier** (§13). Nothing irreversible -
+Every tool registered here performs a **generic mitigation** (§13) - one of the
+closed, pre-authorised set Argus may take unasked. Nothing outside that set -
 merging a pull request, applying infrastructure - has a function on this server
 at all, which is tier enforcement by absence rather than by a check some future
 caller could skip.
@@ -19,24 +20,38 @@ was in.
 from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
-from argus_core.models import FlagChange, FlagUndo, OpenedPullRequest
+from argus_core.models import (
+    FlagChange,
+    FlagUndo,
+    OpenedPullRequest,
+    RestartedService,
+)
 from mcp.server.fastmcp import FastMCP
 
-from write_mcp_server import branching, flag_history, flag_state, pull_requests
+from write_mcp_server import (
+    branching,
+    flag_history,
+    flag_state,
+    pull_requests,
+    restarting,
+)
 from write_mcp_server.flag_state import FlagWriteSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
+from write_mcp_server.restarting import RestartSettings
 
 
 def build_server(endpoint: WriteMcpEndpoint,
                  flag_settings: FlagWriteSettings,
-                 repository_settings: RepositoryWriteSettings) -> FastMCP:
+                 repository_settings: RepositoryWriteSettings,
+                 restart_settings: RestartSettings) -> FastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Two slices, not one, and not five. The flag tools speak to the provider and
-    the code tool speaks to the repository; every credential named belongs to
-    this tier, and none of them belongs in the other's calls. What keeps the
-    *tiers* apart is that the read server is handed a slice with no field any
-    of these could arrive in - not a check made here.
+    Three slices, not one, and not five. The flag tools speak to the provider,
+    the code tool speaks to the repository, and the restart speaks to the
+    deployment platform; every credential named belongs to this tier, and none
+    of them belongs in another's calls. What keeps the *tiers* apart is that
+    the read server is handed a slice with no field any of these could arrive
+    in - not a check made here.
 
     The tool bodies stay registration only; the behaviour, and the seams a
     decorated function cannot carry, live in `flag_state`, `flag_history` and
@@ -50,6 +65,10 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     def confirm_the_change_landed() -> list[str]:
         return flag_state.evaluated_flags(flag_settings)
+
+    confirm_a_new_process_is_serving = restarting.the_process_start_time(
+        restart_settings
+    )
 
     @mcp.tool()
     def set_feature_flag(flag: str, enabled: bool) -> FlagUndo:
@@ -72,6 +91,28 @@ def build_server(endpoint: WriteMcpEndpoint,
         registration only."""
         return flag_state.set_flag(
             flag, enabled, flag_settings, evaluate=confirm_the_change_landed
+        )
+
+    @mcp.tool()
+    def restart_service(service: str) -> RestartedService:
+        """Restarts a service and returns the start time of the process now
+        serving it.
+
+        A generic mitigation (§13): the industry's most common first response
+        to a resource leak, taken unasked because it is in the declared set of
+        routine responses - not because it can be undone, which it cannot. It
+        changes no persistent state, so it returns no undo descriptor and
+        there is nothing for a withdrawal to put back.
+
+        Returns only once a new process is actually serving, and raises rather
+        than reporting an unrestarted service as restarted: a caller about to
+        judge whether the leak was reclaimed has to know the process it is
+        judging is a new one. The behavior lives in
+        `restarting.restart_service`; this is registration only."""
+        return restarting.restart_service(
+            service,
+            restart_settings,
+            observe=confirm_a_new_process_is_serving
         )
 
     @mcp.tool()
@@ -156,7 +197,8 @@ def main() -> None:
     build_server(
         WriteMcpEndpoint.of(settings),
         FlagWriteSettings.of(settings),
-        RepositoryWriteSettings.of(settings)
+        RepositoryWriteSettings.of(settings),
+        RestartSettings.of(settings)
     ).run(transport="streamable-http")
 
 

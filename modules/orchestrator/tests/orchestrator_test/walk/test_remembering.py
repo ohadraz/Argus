@@ -220,7 +220,7 @@ def _an_action(subject: str, verdict: Verdict) -> TakenAction:
         hypothesis_id=DONT_CARE_HYPOTHESIS_ID,
         type=REVERT_FEATURE_FLAG,
         subject=subject,
-        reversible=True,
+        has_a_way_back=True,
         undo_descriptor=None,
         outcome=verdict,
         taken_at=datetime(2026, 8, 30, 10, 14, tzinfo=UTC)

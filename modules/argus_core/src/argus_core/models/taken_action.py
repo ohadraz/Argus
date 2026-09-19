@@ -15,7 +15,7 @@ class TakenAction(BaseModel):
     hypothesis_id: UuidStr | None
     type: str
     subject: str | None
-    reversible: bool
+    has_a_way_back: bool
     undo_descriptor: UndoDescriptor | None
     outcome: Verdict | UnreadVerdict | None
     taken_at: datetime

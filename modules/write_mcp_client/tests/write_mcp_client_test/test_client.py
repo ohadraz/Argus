@@ -6,12 +6,37 @@ from typing import Any
 import pytest
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.mcp_transport import McpClient
-from argus_core.models import FlagChange, UndoDescriptor
+from argus_core.models import FlagChange, RestartedService, UndoDescriptor
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
-from write_mcp_client import get_recent_flag_changes, set_feature_flag, write_mcp
+from write_mcp_client import (
+    get_recent_flag_changes,
+    restart_service,
+    set_feature_flag,
+    write_mcp,
+)
 
+from write_mcp_client_test.fake_deployment_platform import (
+    FakeDeploymentPlatformHandler,
+    a_running_platform,
+)
 from write_mcp_client_test.fake_feature_flag_provider import FakeUnleashHandler, a_running_write_mcp
+
+SINCE = "2026-08-20T11:00:00Z"
+INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
+DONT_CARE_ACTOR = "dont-care-actor"
+
+
+@pytest.fixture
+def running_write_mcp_over_a_platform() -> Iterator[type[FakeDeploymentPlatformHandler]]:
+    """The same real server, with a fake deployment platform behind it too.
+
+    Nested in this order because the write server reads its settings once, at
+    start-up, from the environment it was launched with - so the platform has
+    to have said where it is listening before the subprocess exists.
+    """
+    with a_running_platform() as platform, a_running_write_mcp():
+        yield platform
 
 
 @pytest.fixture
@@ -123,9 +148,34 @@ def test_a_change_the_client_made_can_be_undone_through_the_same_call(
         )
 
 
-SINCE = "2026-08-20T11:00:00Z"
-INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
-DONT_CARE_ACTOR = "dont-care-actor"
+@pytest.mark.integration
+def test_restarting_a_service_reaches_the_platform_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The second write, over the same path as the first: the typed client, a
+    # real MCP round trip, the tool, the platform adapter, and Argo CD's own
+    # resource-action shape - with only the platform at the far end faked.
+    #
+    # It is also the only test that proves the wait is real end to end. The
+    # fake moves its own gauge when the action runs, so a server that returned
+    # on the POST alone would answer with the process that was serving before,
+    # and the assertion on what is serving now would catch it.
+    some_service = "kuki-service"
+
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: restart_service(
+                some_service, client=client
+            ))
+        ) \
+        .then(all_of(
+            the_platform_was_asked_to_restart(
+                running_write_mcp_over_a_platform, some_service
+            ),
+            the_process_reported_is_the_one_now_serving(
+                running_write_mcp_over_a_platform
+            )
+        ))
 
 
 def _undoing(undo_descriptor: UndoDescriptor,
@@ -210,6 +260,60 @@ def the_changes_are(expected: list[tuple[str, bool]]) -> Assertion[list[FlagChan
         actual = [(change.flag, change.enabled) for change in changes]
         if actual != expected:
             raise AssertionError(f"Expected changes {expected}, got {actual}.")
+
+        return True
+
+    return assertion
+
+
+def the_platform_was_asked_to_restart(
+    handler: type[FakeDeploymentPlatformHandler], service: str
+) -> Assertion[RestartedService]:
+    """The platform's own record of what it was told to do.
+
+    Asserted on the platform rather than on what the client answered, for the
+    reason the flag round trips are: an action Argus reports taking and did not
+    take is the failure that matters.
+    """
+    def assertion(dont_care_restarted: RestartedService) -> bool:
+        asked_for = [
+            action for action in handler.actions_run if service in action["path"]
+        ]
+
+        if not asked_for:
+            raise AssertionError(
+                f"Expected the platform to be asked to restart [{service}], "
+                f"and it was asked for {handler.actions_run}."
+            )
+
+        if asked_for[-1]["asked_for"].get("action") != "restart":
+            raise AssertionError(
+                f"Expected the restart action to be run on [{service}], "
+                f"and {asked_for[-1]['asked_for']} was."
+            )
+
+        return True
+
+    return assertion
+
+
+def the_process_reported_is_the_one_now_serving(
+    handler: type[FakeDeploymentPlatformHandler]
+) -> Assertion[RestartedService]:
+    """What came back is the process the platform is actually serving with.
+
+    The whole reason the tool answers with a value: a start time carried all
+    the way back through the MCP round trip, matching the one the platform now
+    reports, is the only evidence a caller has that the restart happened.
+    """
+    def assertion(restarted: RestartedService) -> bool:
+        serving = handler.process_start_time_seconds
+
+        if restarted.process_start_time_seconds != serving:
+            raise AssertionError(
+                f"Expected the process now serving [{serving}] to be reported, "
+                f"and [{restarted.process_start_time_seconds}] was."
+            )
 
         return True
 

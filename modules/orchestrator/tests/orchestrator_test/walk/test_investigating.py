@@ -20,6 +20,7 @@ import agent_investigator
 import pytest
 from argus_core.events import AgentInvoked, CandidatesReordered, IncidentEvent
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
     Actor,
     Alert,
     Attempt,
@@ -569,7 +570,10 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
 
 
 def _an_attempt_on(subject: str) -> Attempt:
-    return Attempt(subject=subject, enabled=False, occurred_at="2026-08-29T16:00:00Z")
+    return Attempt(action_type=REVERT_FEATURE_FLAG,
+                   subject=subject,
+                   enabled=False,
+                   occurred_at="2026-08-29T16:00:00Z")
 
 
 def _every_candidate_was_recorded(expected: list[Hypothesis],

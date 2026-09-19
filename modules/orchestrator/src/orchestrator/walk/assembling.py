@@ -26,11 +26,12 @@ from agent_investigator.budget import InvestigationSettings
 from agent_mitigation import (
     MitigationSettings,
     argus_changed_flag_since,
-    can_be_undone,
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
+    is_a_generic_mitigation,
     recent_metrics_over,
+    service_restarter_over,
     somebody_else_changed_flag_since,
     take_action,
     undo_change,
@@ -57,6 +58,7 @@ from orchestrator.sources import the_real_sources
 from orchestrator.walk.ports import (
     ActionAlreadyTaken,
     ActionsTaken,
+    Admitted,
     ChangeLanded,
     CompleteAction,
     FetchFlagChanges,
@@ -68,7 +70,6 @@ from orchestrator.walk.ports import (
     RecordOutcome,
     RecordPostmortem,
     RememberIncident,
-    Reversible,
     TakeAction,
     TransitionIncident,
     WritePostmortem,
@@ -95,7 +96,11 @@ class Collaborators:
     record_hypothesis: RecordHypothesis
     fetch_flag_changes: FetchFlagChanges
     record_outcome: RecordOutcome
-    reversible: Reversible
+    admitted: Admitted
+    # How often one incident may apply one kind of mitigation to one
+    # subject. Configuration rather than a constant, because how many
+    # restarts a deployment will tolerate is a deployment's judgement.
+    attempts_per_subject: int
     take: TakeAction
     record_action: RecordAction
     complete_action: CompleteAction
@@ -254,16 +259,18 @@ def against(connections: Connections,
             fetch_recent_flag_changes, mitigation, flag_history
         ),
         record_outcome=records.outcome,
-        # The gate's question, answered by the agent that would have to perform
-        # the undo. Bound here rather than imported by the gate, so that the one
-        # check standing between a proposal and production is asked of something
-        # a test can replace.
-        reversible=can_be_undone,
+        # The gate's question, answered by the agent that holds the set of
+        # mitigations Argus is pre-authorised to take. Bound here rather than
+        # imported by the gate, so that the one check standing between a
+        # proposal and production is asked of something a test can replace.
+        admitted=is_a_generic_mitigation,
+        attempts_per_subject=mitigation.mitigation_attempts_per_subject,
         take=partial(
             take_action,
             settings=mitigation,
             thresholds=thresholds,
             set_state=flag_setter_over(write),
+            restart=service_restarter_over(write),
             fetch_metrics=recent_metrics_over(read),
             changed_from_outside=outside,
             undo=partial(

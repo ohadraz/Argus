@@ -8,6 +8,7 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     FlagChange,
     OpenedPullRequest,
+    RestartedService,
     UndoDescriptor,
     parse_undo_descriptor,
 )
@@ -21,6 +22,8 @@ from pydantic import TypeAdapter
 _FLAG_CHANGES: Final = TypeAdapter(list[FlagChange])
 
 _OPENED_PULL_REQUEST: Final = TypeAdapter(OpenedPullRequest)
+
+_RESTARTED_SERVICE: Final = TypeAdapter(RestartedService)
 
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
@@ -70,6 +73,32 @@ def set_feature_flag(flag: str,
         parse_undo_descriptor,
         flag=flag,
         enabled=enabled,
+    )
+
+
+def restart_service(service: str,
+                    *,
+                    client: McpClient) -> RestartedService:
+    """Restarts a service, returning the start time of the process now serving.
+
+    A generic mitigation of spec §7.3: Mitigation's response to a resource
+    leak. It is taken unasked because its kind is in the declared set (§13),
+    not because it can be reversed - it cannot, and it returns no undo
+    descriptor, because it changed no persistent state for one to describe.
+
+    The start time is what makes the restart checkable. Memory falling is
+    ambiguous on its own - the process restarted, or the traffic dropped - and
+    only a start time that moved says which happened.
+
+    Raises rather than returning quietly when no new process came up. A verdict
+    formed against a service nothing was done to would describe an experiment
+    that never ran, and would read a leak still climbing as evidence that
+    restarting a leaking service does not work.
+    """
+    return client.call(
+        "restart_service",
+        _RESTARTED_SERVICE.validate_python,
+        service=service,
     )
 
 

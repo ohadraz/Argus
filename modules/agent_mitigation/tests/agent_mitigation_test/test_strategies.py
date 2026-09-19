@@ -1,14 +1,21 @@
+"""Which action answers which cause, and nothing about whether it is allowed.
+
+A strategy says what would help. Whether Argus may then do it unasked is a
+different question with a different answer, asked of the closed set in
+`admitting` - so nothing here has an opinion about autonomy, and a strategy
+cannot earn its action a way past the gate by being registered.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import pytest
 from agent_mitigation import (
-    DEFAULT_STRATEGIES,
     Action,
     MitigationStrategy,
+    RestartServiceStrategy,
     Strategies,
-    can_be_undone,
     propose_action,
 )
 from argus_core.models import (
@@ -17,6 +24,8 @@ from argus_core.models import (
     FailureMode,
     FlagChange,
     Hypothesis,
+    RestartService,
+    RevertFeatureFlag,
 )
 from argus_testkit import Assertion, Scenario
 
@@ -79,62 +88,67 @@ def test_a_cause_no_strategy_answers_for_proposes_nothing() -> None:
 
 
 @pytest.mark.unit
-def test_an_action_its_strategy_can_put_back_is_reversible() -> None:
+def test_a_leak_is_answered_by_restarting_the_service_the_cause_names() -> None:
+    # The service comes from the hypothesis and from nowhere else. A configured
+    # name would hardcode the demo's answer into the agent, and the second
+    # deployment would restart the wrong thing while reporting success.
+    some_leaking_service = "kuki-service"
+
     Scenario() \
         .given(
-            an_action_argus_really_takes := an_action_setting(
-                DONT_CARE_FLAG, enabled=False
-            )
+            a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK,
+                                           subject=some_leaking_service)
         ) \
-        .when(
-            lambda: can_be_undone(an_action_argus_really_takes, DEFAULT_STRATEGIES)
-        ) \
-        .then(
-            _it_is_reversible()
-        )
+        .when(lambda: RestartServiceStrategy().propose(a_leak, [])) \
+        .then(_the_service_to_restart_is(some_leaking_service))
 
 
 @pytest.mark.unit
-def test_an_action_whose_strategy_says_it_cannot_be_put_back_is_not_reversible() -> None:
-    # What §13's gate is *for*. Reversibility is a fact about the kind of
-    # change, so it is the strategy that would have to perform the undo that
-    # answers - not a field on the instance, which by now cannot be absent.
-    # An action type with no way back is refused before anything is called.
+def test_a_leak_that_names_no_service_is_answered_with_nothing() -> None:
+    # Nothing to act on is a real outcome, not a reason to guess at the only
+    # service Argus happens to know about. Restarting the wrong thing costs a
+    # service its process and buys the incident nothing.
     Scenario() \
         .given(
-            a_registry_that_cannot_undo_what_it_proposes := {
-                FailureMode.FEATURE_FLAG_TOGGLE: _a_strategy_that_cannot_put_anything_back()
-            }
+            a_leak_naming_nothing := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK)
         ) \
-        .when(
-            lambda: can_be_undone(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
-                a_registry_that_cannot_undo_what_it_proposes
-            )
-        ) \
-        .then(
-            _it_is_not_reversible()
-        )
+        .when(lambda: RestartServiceStrategy().propose(a_leak_naming_nothing, [])) \
+        .then(_nothing_was_proposed())
 
 
 @pytest.mark.unit
-def test_an_action_no_strategy_answers_for_is_not_reversible() -> None:
-    # A missing entry is not a reason to assume the best about an action. If
-    # nothing here knows how to put this kind of change back, then as far as
-    # Argus is concerned it cannot be put back, and the gate refuses it.
+def test_a_flag_that_moved_during_a_leak_does_not_change_what_is_proposed() -> None:
+    # No toggle causes a heap to grow. A flag that happened to move during the
+    # climb is a coincidence, and an agent that reached for it would put back a
+    # change nobody had any reason to suspect and leave the leak running.
+    some_leaking_service = "kuki-service"
+
     Scenario() \
         .given(
-            a_registry_that_answers_for_nothing := _no_strategies()
+            a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK,
+                                           subject=some_leaking_service),
+            a_flag_that_moved_meanwhile := [an_enabling_of(DONT_CARE_FLAG)]
         ) \
         .when(
-            lambda: can_be_undone(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
-                a_registry_that_answers_for_nothing
-            )
+            lambda: RestartServiceStrategy().propose(a_leak, a_flag_that_moved_meanwhile)
         ) \
-        .then(
-            _it_is_not_reversible()
-        )
+        .then(_the_service_to_restart_is(some_leaking_service))
+
+
+@pytest.mark.unit
+def test_the_registry_argus_ships_answers_a_leak_with_a_restart() -> None:
+    # The wiring, asked through the front door. A strategy nothing is
+    # registered against is a strategy that never runs, and the two tests above
+    # would pass just as well with the entry missing.
+    some_leaking_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK,
+                                           subject=some_leaking_service)
+        ) \
+        .when(lambda: propose_action(a_leak, flag_changes=[])) \
+        .then(_the_service_to_restart_is(some_leaking_service))
 
 
 def _no_strategies() -> Strategies:
@@ -147,10 +161,10 @@ def _no_strategies() -> Strategies:
 
 
 class _StandInStrategy:
-    """A strategy built to answer two questions a particular way.
+    """A strategy built to propose one particular thing.
 
     A class rather than `create_autospec`, because what is being stood in for
-    is a `Protocol` carrying an attribute as well as two methods, and the
+    is a `Protocol` carrying an attribute as well as a method, and the
     attribute is half of what the thing under test reads.
 
     It answers for the one action type there is. That is the only one a
@@ -161,32 +175,24 @@ class _StandInStrategy:
 
     action_type: ActionType = REVERT_FEATURE_FLAG
 
-    def __init__(self, proposing: Action | None, undoable: bool) -> None:
+    def __init__(self, proposing: Action | None) -> None:
         self._proposing = proposing
-        self._undoable = undoable
 
     def propose(self,
                 dont_care_hypothesis: Hypothesis,
                 dont_care_flag_changes: Sequence[FlagChange]) -> Action | None:
         return self._proposing
 
-    def can_be_undone(self) -> bool:
-        return self._undoable
-
 
 def _a_strategy_proposing(action: Action) -> MitigationStrategy:
-    return _StandInStrategy(proposing=action, undoable=True)
-
-
-def _a_strategy_that_cannot_put_anything_back() -> MitigationStrategy:
-    return _StandInStrategy(proposing=None, undoable=False)
+    return _StandInStrategy(proposing=action)
 
 
 def _the_action_proposed_names(flag: str) -> Assertion[Action | None]:
     def assertion(action: Action | None) -> bool:
-        if action is None:
+        if not isinstance(action, RevertFeatureFlag):
             raise AssertionError(
-                f"Expected an action naming flag [{flag}], got none."
+                f"Expected an action naming flag [{flag}], got [{action}]."
             )
 
         if action.flag != flag:
@@ -200,36 +206,29 @@ def _the_action_proposed_names(flag: str) -> Assertion[Action | None]:
     return assertion
 
 
+def _the_service_to_restart_is(service: str) -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, RestartService):
+            raise AssertionError(
+                f"Expected a restart of [{service}], got [{action}]."
+            )
+
+        if action.service != service:
+            raise AssertionError(
+                f"Expected a restart of [{service}], "
+                f"got one of [{action.service}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _nothing_was_proposed() -> Assertion[Action | None]:
     def assertion(action: Action | None) -> bool:
         if action is not None:
             raise AssertionError(
                 f"Expected no action to be proposed, got [{action}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_is_reversible() -> Assertion[bool]:
-    def assertion(reversible: bool) -> bool:
-        if not reversible:
-            raise AssertionError(
-                "Expected the action to be reversible, and it was refused."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_is_not_reversible() -> Assertion[bool]:
-    def assertion(reversible: bool) -> bool:
-        if reversible:
-            raise AssertionError(
-                "Expected the action to be refused as irreversible, "
-                "and it was admitted."
             )
 
         return True

@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from datetime import timedelta
 from functools import partial
-from typing import Protocol
+from typing import NamedTuple, Protocol, assert_never
 
 from argus_core import to_iso_minute, utc_now
 from argus_core.anomaly import AnomalyThresholds, has_recovered_since
@@ -21,7 +21,7 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models import UndoDescriptor
+from argus_core.models import RestartService, RevertFeatureFlag, UndoDescriptor
 
 from agent_mitigation.actions import (
     Action,
@@ -37,6 +37,7 @@ from agent_mitigation.tools import (
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
+    ServiceRestarter,
     Sleeper,
     StillWanted,
 )
@@ -48,6 +49,25 @@ __all__ = ["UndoChange", "take_action"]
 # Metrics are aggregated per minute, so a tighter interval only re-reads the
 # same four numbers; a looser one spends the verification budget waiting.
 _SECONDS_BETWEEN_METRIC_READS = 10.0
+
+
+class Performed(NamedTuple):
+    """What performing one action produced, in the two forms everything after
+    it needs.
+
+    `said` is the action in words, and it is built where the action's own
+    fields are still in hand - every verdict below quotes it, and a detail
+    assembled from an action three branches later is one that has to re-derive
+    which kind it was.
+
+    `undo_descriptor` is `None` for an action that changed no persistent state.
+    Absent rather than empty: a restart leaves nothing behind, and there is no
+    honest descriptor for nothing. What tells that apart from a change nobody
+    accounted for is the kind, recorded on the row before the action ran.
+    """
+
+    said: str
+    undo_descriptor: UndoDescriptor | None
 
 
 class UndoChange(Protocol):
@@ -91,16 +111,23 @@ def take_action(action: Action,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody,
                 *,
+                restart: ServiceRestarter,
                 changed_from_outside: ChangedFromOutside,
                 undo: UndoChange | None = None) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
-    Three things happen in order, and the order is the point. The flag is set,
-    which is the only moment production state changes. The service is re-read
-    until a minute that began *after* that moment can be judged - the newest
-    bucket covers the minute in progress, aggregated over seconds that are
-    mostly pre-action, so a verdict read off it describes the incident rather
-    than the mitigation. And a refuted action is put back.
+    Three things happen in order, and the order is the point. The action is
+    performed, which is the only moment production state changes. The service
+    is re-read until a minute that began *after* that moment can be judged -
+    the newest bucket covers the minute in progress, aggregated over seconds
+    that are mostly pre-action, so a verdict read off it describes the incident
+    rather than the mitigation. And a refuted action is put back, where there
+    is anything to put back.
+
+    Which action is performed is the only thing that differs between kinds. The
+    waiting and the judging are identical, and deliberately so: a restart and a
+    flag revert are answered by the same question - did the service return to
+    its baseline - asked of the same numbers by the same rule.
 
     The verdict rests on the same departure rule that located the onset, so
     Mitigation and the Investigator cannot disagree about whether a given
@@ -116,11 +143,11 @@ def take_action(action: Action,
     was invented to hold it.
     """
     try:
-        undo_descriptor = set_state(action.flag, action.enabled)
+        performed = _perform(action, set_state, restart)
     except Exception as error:
         return Outcome(
             verdict=Verdict.ESCALATED,
-            detail=f"could not set flag [{action.flag}]: {error}",
+            detail=f"could not {_what_it_would_have_done(action)}: {error}",
         )
 
     # The undo is composed from the check rather than defaulted beside it: a
@@ -140,11 +167,8 @@ def take_action(action: Action,
     if settled is Verdict.CONFIRMED:
         return Outcome(
             verdict=Verdict.CONFIRMED,
-            detail=(
-                f"set flag [{action.flag}] {state_name(action.enabled)} "
-                f"and the service returned to baseline"
-            ),
-            undo_descriptor=undo_descriptor,
+            detail=f"{performed.said} and the service returned to baseline",
+            undo_descriptor=performed.undo_descriptor,
         )
 
     # Left where it is, carrying what would put it back. Undoing it here would
@@ -155,15 +179,63 @@ def take_action(action: Action,
         return Outcome(
             verdict=Verdict.WITHDRAWN,
             detail=(
-                f"set flag [{action.flag}] {state_name(action.enabled)}, and the "
-                f"incident was withdrawn before the service could answer for it"
+                f"{performed.said}, and the incident was withdrawn before the "
+                f"service could answer for it"
             ),
-            undo_descriptor=undo_descriptor,
+            undo_descriptor=performed.undo_descriptor,
         )
 
-    return _undone(
-        action, undo_descriptor, set_state, changed_from_outside, putting_back
-    )
+    return _undone(performed, set_state, changed_from_outside, putting_back)
+
+
+def _perform(action: Action,
+             set_state: FlagSetter,
+             restart: ServiceRestarter) -> Performed:
+    """Does the one thing this action is, and says what it did.
+
+    The only place the two kinds part company. Each branch names its own write
+    and phrases its own account of it, because the two are one decision: the
+    words a verdict quotes have to describe the call that was actually made.
+
+    `assert_never` on the remaining branch, so that a third kind of action is a
+    type error here rather than an action performed by falling through to
+    whichever branch happened to be last.
+    """
+    match action:
+        case RevertFeatureFlag():
+            return Performed(
+                said=f"set flag [{action.flag}] {state_name(action.enabled)}",
+                undo_descriptor=set_state(action.flag, action.enabled)
+            )
+        case RestartService():
+            restarted = restart(action.service)
+
+            return Performed(
+                said=f"restarted [{restarted.service}]",
+                # Nothing to put back. A restart changes no persistent state,
+                # so there is no prior value to record and no descriptor that
+                # would be true.
+                undo_descriptor=None
+            )
+        case _:
+            assert_never(action)
+
+
+def _what_it_would_have_done(action: Action) -> str:
+    """The action in words, for a failure that happened before it did anything.
+
+    Separate from `Performed.said`, which reports what *was* done. The two
+    differ in tense and in what they may claim: this one is quoted by an
+    escalation, where nothing happened and a sentence saying it did would be a
+    record of a change nobody made.
+    """
+    match action:
+        case RevertFeatureFlag():
+            return f"set flag [{action.flag}] {state_name(action.enabled)}"
+        case RestartService():
+            return f"restart [{action.service}]"
+        case _:
+            assert_never(action)
 
 
 def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
@@ -238,8 +310,7 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         sleep(_SECONDS_BETWEEN_METRIC_READS)
 
 
-def _undone(action: Action,
-            undo_descriptor: UndoDescriptor,
+def _undone(performed: Performed,
             set_state: FlagSetter,
             changed_from_outside: ChangedFromOutside,
             undo: UndoChange) -> Outcome:
@@ -249,14 +320,30 @@ def _undone(action: Action,
     so leaving its change in place would mean production state was altered for
     a cause that was not the cause, with nobody told.
 
+    An action that left nothing behind is refuted with nothing to undo, and the
+    account says so. Not "the undo failed" and not silence: a restart that did
+    not help is a hypothesis refuted cleanly, and a reader has to be able to
+    tell that from a flag Argus could not put back.
+
     The undo itself is `undo_change`; what this adds is what a *verdict* is
     made of. A change left as found is still a refutation - the service did not
     recover, which is what the verdict is about - while a change nobody could
     account for escalates, because an environment Argus cannot describe is
     precisely what a human needs paging for.
     """
+    taken = performed.said
+    undo_descriptor = performed.undo_descriptor
+
+    if undo_descriptor is None:
+        return Outcome(
+            verdict=Verdict.REFUTED,
+            detail=(
+                f"{taken}, the service did not recover, and there was nothing "
+                f"to put back"
+            ),
+        )
+
     was_enabled = undo_descriptor.was_enabled
-    taken = f"set flag [{action.flag}] {state_name(action.enabled)}"
     attempt = undo(undo_descriptor, set_state=set_state)
 
     if attempt.outcome is Undone.NOT_ESTABLISHED:

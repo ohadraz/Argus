@@ -24,7 +24,14 @@ from argus_core.events import (
     OnsetDetected,
     RetrievalRequested,
 )
-from argus_core.models import Ask, Attempt, Evidence, MetricBucket, RetrievalChannel
+from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    Ask,
+    Attempt,
+    Evidence,
+    MetricBucket,
+    RetrievalChannel,
+)
 from argus_core.replay import CallType, ReplayEntry
 from argus_testkit import Assertion, Kept, Scenario, all_of, calling
 
@@ -659,6 +666,7 @@ def test_a_later_round_is_shown_what_was_tried_and_what_was_read() -> None:
                 alert=an_alert(),
                 already_refuted=[
                     Attempt(
+                        action_type=REVERT_FEATURE_FLAG,
                         subject=some_flag_that_did_not_help,
                         enabled=False,
                         occurred_at=some_time_the_flag_was_changed

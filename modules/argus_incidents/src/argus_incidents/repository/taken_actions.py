@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.models import ActionType, TakenAction, UndoDescriptor, Verdict
+from argus_core.models import (
+    ActionType,
+    TakenAction,
+    UndoDescriptor,
+    Verdict,
+    leaves_something_to_put_back,
+)
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 
@@ -55,14 +61,29 @@ def claim(
     where the two halves meet: a spelling Argus can write is a spelling Argus
     reads, so the one state a reader cannot resolve is a row this version did
     not write.
+
+    Whether the action leaves anything to put back is derived from the kind
+    rather than taken as an argument, because it *is* the kind: passing it
+    would let a caller write a row claiming a restart can be restored. It is
+    written with the claim, before anything happens, for the reason `subject`
+    is - the row this table exists for is one a worker stopped after writing,
+    and its `undo_descriptor` is then NULL either because there was never
+    anything to record or because nobody got to record it.
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO action (incident_id, hypothesis_id, type, subject, reversible) "
+            "INSERT INTO action (incident_id, hypothesis_id, type, subject, "
+            "                    has_a_way_back) "
             "VALUES (%s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
             "WHERE hypothesis_id IS NOT NULL DO NOTHING",
-            (incident_id, hypothesis_id, action_type, subject, True),
+            (
+                incident_id,
+                hypothesis_id,
+                action_type,
+                subject,
+                leaves_something_to_put_back(action_type),
+            ),
         )
         claimed = cursor.rowcount == 1
     conn.commit()
@@ -143,7 +164,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     """
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, hypothesis_id, type, subject, reversible, "
+            "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
             "       undo_descriptor, outcome, taken_at "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
@@ -163,7 +184,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
     """
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, hypothesis_id, type, subject, reversible, "
+            "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
             "       undo_descriptor, outcome, taken_at "
             "  FROM action "
             " WHERE incident_id = %s "

@@ -59,16 +59,20 @@ def unwind_incident(incident_id: str,
     run over an incident that had already tidied up after itself, and safe to
     run twice.
 
-    An action carrying no undo descriptor changed nothing: the gate refused it,
-    or it could not be performed at all. Asking the provider about a flag nobody
-    set would be inventing a change to undo.
+    Two kinds of action are passed over here, and they are not the same thing.
+    One leaves nothing to put back at all - a restart changes no persistent
+    state, so there is no change out there and nothing an undo could address.
+    The other is of a kind that does leave something, and recorded no
+    descriptor: the gate refused it, or it never reached the provider. Both are
+    left alone, and neither is reported as an undo that failed - asking the
+    provider about a flag nobody set would be inventing a change to undo.
 
     One flag that cannot be read does not stop the rest. This is the last thing
     that happens to an incident, and a failure that took the remaining changes
     with it would leave more behind rather than less.
     """
     for taken_action in taken_actions_of(incident_id):
-        if taken_action.undo_descriptor is None:
+        if not taken_action.has_a_way_back or taken_action.undo_descriptor is None:
             continue
 
         attempt = undo(taken_action.undo_descriptor)

@@ -11,13 +11,19 @@ saying the same thing.
 """
 
 from argus_core.models.action import (
+    RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     Action,
     ActionType,
     Outcome,
+    RestartedService,
+    RestartService,
     RevertFeatureFlag,
     UnreadVerdict,
     Verdict,
+    leaves_something_to_put_back,
+    the_direction_of,
+    the_subject_of,
 )
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
@@ -57,7 +63,11 @@ from argus_core.models.undo_descriptor import (
 from argus_core.models.undone import Undone
 
 __all__ = [
+    "RESTART_SERVICE",
     "REVERT_FEATURE_FLAG",
+    "leaves_something_to_put_back",
+    "the_direction_of",
+    "the_subject_of",
     "SET_FEATURE_FLAG_TOOL",
     "Action",
     "ActionType",
@@ -88,6 +98,8 @@ __all__ = [
     "Reading",
     "Refusal",
     "RetrievalChannel",
+    "RestartService",
+    "RestartedService",
     "RevertFeatureFlag",
     "TakenAction",
     "ToolCall",

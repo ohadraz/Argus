@@ -138,15 +138,16 @@ class CompleteAction(Protocol):
     ) -> None: ...
 
 
-class Reversible(Protocol):
-    """Whether an action of this kind is one Argus can put back (spec §13).
+class Admitted(Protocol):
+    """Whether Argus may take an action of this kind unasked (spec §13).
 
-    A question about the kind, not the instance: the models no longer allow an
-    action of a reversible kind to exist without its way back, so what is left
-    for the gate to ask is whether Argus knows how to undo actions of this sort
-    at all. The real answer comes from the strategy that would have proposed
-    one; the gate names the question as a type so that it is asked of something
-    a test can replace with a strategy that says no.
+    A question about the kind, not the instance: what admits an action is
+    membership of the closed set of generic mitigations somebody declared and
+    defended, and no property of the particular action can put it in or out.
+    The real answer comes from `agent_mitigation`, which holds the set; the gate
+    names the question as a type so that the one check standing between a
+    proposal and production is asked of something a test can replace with an
+    answer of no.
     """
 
     # Positional-only: the action is the whole question.

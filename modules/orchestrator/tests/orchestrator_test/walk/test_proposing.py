@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from argus_core.events import FlagChangesRetrieved, IncidentEvent
-from argus_core.models import Alert, FlagChange, IncidentStatus
+from argus_core.models import Alert, FlagChange, IncidentStatus, RevertFeatureFlag
 from argus_testkit import Assertion, Scenario, all_of, calling
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import FetchFlagChanges
@@ -136,9 +136,9 @@ def _an_enabling_of(flag: str) -> FlagChange:
 def _the_proposed_action_is_about(flag: str) -> Assertion[StateDelta]:
     def assertion(updates: StateDelta) -> bool:
         proposed = updates.proposed_action
-        if proposed is None:
+        if not isinstance(proposed, RevertFeatureFlag):
             raise AssertionError(
-                f"Expected an action about [{flag}], nothing was proposed."
+                f"Expected an action about [{flag}], got [{proposed}]."
             )
 
         if proposed.flag != flag:
@@ -156,7 +156,7 @@ def _the_proposed_action_turns_the_flag_off() -> Assertion[StateDelta]:
     is the opposite of the change it answers - never a repeat of it."""
     def assertion(updates: StateDelta) -> bool:
         proposed = updates.proposed_action
-        if proposed is None or proposed.enabled is not False:
+        if not isinstance(proposed, RevertFeatureFlag) or proposed.enabled is not False:
             raise AssertionError(
                 f"Expected the action to turn the flag off, it was {proposed!r}."
             )

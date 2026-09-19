@@ -36,6 +36,7 @@ from argus_core.models import (
     IncidentStatus,
     PostmortemDocument,
     Reading,
+    RevertFeatureFlag,
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
@@ -69,6 +70,9 @@ DONT_CARE_ALERT = Alert(service="kuki-service", alert_name="HighErrorRate")
 EVERY_ROUND = get_settings().investigation_max_rounds
 A_GENEROUS_BUDGET = recursion_limit(max_rounds=EVERY_ROUND, max_candidates=4)
 SOME_ROUND_BUDGET = 3
+# The cap is not what any case here turns on, and a walk that reaches it would
+# stop for a reason the test never asked about.
+EVERY_ATTEMPT_A_WALK_MAKES = 99
 
 
 @pytest.fixture
@@ -89,7 +93,8 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         record_hypothesis=lambda dont_care_hypothesis: None,
         fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG)),
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
-        reversible=lambda dont_care_action: True,
+        admitted=lambda dont_care_action: True,
+        attempts_per_subject=EVERY_ATTEMPT_A_WALK_MAKES,
         take=_an_action_that(Verdict.CONFIRMED),
         record_action=lambda *dont_care_args, **dont_care_keywords: True,
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
@@ -332,9 +337,15 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
              still_wanted: Any = None,
              incident_id: str | None = None,
              publisher: Publisher = nobody) -> Outcome:
+        # Only one kind of action leaves anything behind, and the stand-in
+        # hands back exactly what the real one would.
+        the_way_back = (
+            action.undo_descriptor if isinstance(action, RevertFeatureFlag) else None
+        )
+
         return Outcome(verdict=next(answers, last),
                        detail="dont care",
-                       undo_descriptor=action.undo_descriptor)
+                       undo_descriptor=the_way_back)
 
     return take
 

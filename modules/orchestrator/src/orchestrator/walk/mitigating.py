@@ -14,7 +14,12 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models import Actor, IncidentStatus, UnreadVerdict
+from argus_core.models import (
+    Actor,
+    IncidentStatus,
+    UnreadVerdict,
+    the_direction_of,
+)
 from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -98,7 +103,7 @@ def mitigation_node(
             hypothesis_id=state.hypothesis.id,
             action_type=state.proposed_action.action_type,
             subject=state.hypothesis.subject,
-            enabled=state.proposed_action.enabled
+            enabled=the_direction_of(state.proposed_action)
         ),
         publisher
     )
