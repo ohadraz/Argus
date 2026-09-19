@@ -41,7 +41,7 @@ from argus_core.events import (
 from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
     Alert,
-    CauseType,
+    FailureMode,
     FixOutcome,
     Hypothesis,
     IncidentStatus,
@@ -91,7 +91,7 @@ def test_the_evidence_carries_the_candidates_the_investigation_ranked(
     # right and one that ran out of options look identical from their outcome,
     # and the difference is most of what the walk has to say.
     some_cause = "the checkout fallback flag was switched off"
-    some_cause_type = CauseType.FEATURE_FLAG_TOGGLE
+    some_failure_mode = FailureMode.FEATURE_FLAG_TOGGLE
     dont_care_confidence = 0.8
 
     with connect_from_env() as conn:
@@ -101,7 +101,7 @@ def test_the_evidence_carries_the_candidates_the_investigation_ranked(
                 calling(lambda: hypotheses.record(conn, Hypothesis(
                     incident_id=incident_id,
                     summary=some_cause,
-                    cause_type=some_cause_type,
+                    failure_mode=some_failure_mode,
                     confidence=dont_care_confidence,
                     supporting_evidence=[]
                 )))

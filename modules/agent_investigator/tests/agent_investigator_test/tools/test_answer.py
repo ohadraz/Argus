@@ -25,7 +25,7 @@ type _Part = Callable[[ToolDefinition], dict[str, Any]]
 def test_an_explanation_asks_for_every_field_a_hypothesis_is_built_from() -> None:
     built_from = {
         "summary",
-        "cause_type",
+        "failure_mode",
         "confidence",
         "supporting_evidence",
         "subject",

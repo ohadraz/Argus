@@ -7,7 +7,7 @@ from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
 from agent_mitigation.tools import ChangedFromOutside, StillWanted
 from argus_core import to_iso_minute
 from argus_core.models import (
-    CauseType,
+    FailureMode,
     FlagChange,
     FlagUndo,
     Hypothesis,
@@ -44,11 +44,11 @@ def an_undo_descriptor_for(flag: str,
     )
 
 
-def a_hypothesis_blaming(cause_type: CauseType, subject: str | None = None) -> Hypothesis:
+def a_hypothesis_blaming(failure_mode: FailureMode, subject: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=DONT_CARE_INCIDENT_ID,
-        summary=f"dont care - {cause_type}",
-        cause_type=cause_type,
+        summary=f"dont care - {failure_mode}",
+        failure_mode=failure_mode,
         confidence=0.9,
         supporting_evidence=[],
         subject=subject
@@ -59,7 +59,7 @@ def an_undetermined_hypothesis() -> Hypothesis:
     return Hypothesis(
         incident_id=DONT_CARE_INCIDENT_ID,
         summary="no cause determined",
-        cause_type=None,
+        failure_mode=None,
         confidence=None,
         supporting_evidence=[]
     )

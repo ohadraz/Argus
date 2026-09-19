@@ -7,7 +7,7 @@ import pytest
 from agent_mitigation import Outcome, Verdict, mitigate
 from agent_mitigation.actions import ActionTaker
 from agent_mitigation.tools import FlagChangeFetcher
-from argus_core.models import CauseType, FlagChange
+from argus_core.models import FailureMode, FlagChange
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.assertions import the_verdict_is
@@ -32,7 +32,7 @@ def test_mitigating_a_flag_toggle_takes_the_action_proposed_for_it() -> None:
         ) \
         .when(
             lambda: mitigate(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 fetch_flag_changes=the_flag_was_switched_off,
                 take=take
             )
@@ -52,7 +52,7 @@ def test_mitigating_a_cause_with_no_action_escalates_without_touching_anything()
         ) \
         .when(
             lambda: mitigate(
-                a_hypothesis_blaming(CauseType.BAD_DEPLOYMENT),
+                a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
                 fetch_flag_changes=a_flag_did_change,
                 take=take
             )

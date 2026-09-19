@@ -25,7 +25,7 @@ from argus_core.models import (
     REVERT_FEATURE_FLAG,
     Action,
     ActionType,
-    CauseType,
+    FailureMode,
     FlagChange,
     FlagUndo,
     Hypothesis,
@@ -103,10 +103,10 @@ class RevertFeatureFlagStrategy:
         return True
 
 
-Strategies = Mapping[CauseType, MitigationStrategy]
+Strategies = Mapping[FailureMode, MitigationStrategy]
 
 DEFAULT_STRATEGIES: Strategies = {
-    CauseType.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy()
+    FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy()
 }
 
 

@@ -168,7 +168,7 @@ def _what_was_considered(conn: psycopg.Connection, incident_id: str) -> list[str
     what was left on the list.
     """
     return [
-        f"{hypothesis.summary} [{hypothesis.cause_type}, confidence "
+        f"{hypothesis.summary} [{hypothesis.failure_mode}, confidence "
         f"{hypothesis.confidence}, "
         f"{hypothesis.result if hypothesis.tested else 'never tried'}]"
         for hypothesis in hypotheses.get_all_by_incident(conn, incident_id)

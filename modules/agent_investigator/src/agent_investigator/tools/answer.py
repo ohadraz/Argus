@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from argus_core.models import CauseType, ToolDefinition
+from argus_core.models import FailureMode, ToolDefinition
 
 ANSWER_TOOL: Final = "final_answer"
 
@@ -102,7 +102,7 @@ def _a_state(description: str) -> dict[str, Any]:
     A string rather than an enum of `on` and `off`, for the reason `subject` is
     a string: the two ends of a bad deployment are versions, and a schema that
     only admitted a flag's positions would force every other kind of change to
-    answer null. What the words mean is already fixed by `cause_type`.
+    answer null. What the words mean is already fixed by `failure_mode`.
 
     Asked for rather than read back out of the summary. A page recovering the
     transition from the sentence has to decide which of the `on`s and `off`s in
@@ -132,13 +132,13 @@ def _one_explanation() -> dict[str, Any]:
                 "type": _STRING_TYPE,
                 "description": "One or two sentences: what happened and, if known, why."
             },
-            "cause_type": {
+            "failure_mode": {
                 # `anyOf` rather than a union type carrying the enum, which the
                 # API rejects: it checks each enum value against the declared
                 # type and will not accept a list there. The nullable half is
                 # its own branch.
                 "anyOf": [
-                    {"type": _STRING_TYPE, "enum": [cause.value for cause in CauseType]},
+                    {"type": _STRING_TYPE, "enum": [cause.value for cause in FailureMode]},
                     {"type": _NULL_TYPE}
                 ],
                 "description": (
@@ -157,7 +157,7 @@ def _one_explanation() -> dict[str, Any]:
                 ],
                 "description": (
                     "Your probability that this cause is the real one, given this "
-                    "evidence, between 0 and 1. Null exactly when cause_type is null."
+                    "evidence, between 0 and 1. Null exactly when failure_mode is null."
                 )
             },
             "supporting_evidence": {
@@ -191,7 +191,7 @@ def _one_explanation() -> dict[str, Any]:
         },
         "required": [
             "summary",
-            "cause_type",
+            "failure_mode",
             "confidence",
             "supporting_evidence",
             "subject",

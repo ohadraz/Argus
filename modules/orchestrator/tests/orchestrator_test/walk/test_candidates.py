@@ -14,7 +14,7 @@ twice. Everything else on the list is worth trying, however far down it sits.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import Attempt, CauseType, Evidence, Hypothesis
+from argus_core.models import Attempt, Evidence, FailureMode, Hypothesis
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.candidates import the_next_worth_trying
 
@@ -191,7 +191,7 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
 
     return Hypothesis(incident_id=incident_id,
                       summary="kukibuki hypothesis",
-                      cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)

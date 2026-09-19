@@ -14,7 +14,7 @@ from agent_mitigation import (
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
     ActionType,
-    CauseType,
+    FailureMode,
     FlagChange,
     Hypothesis,
 )
@@ -38,7 +38,7 @@ def test_the_strategy_registered_for_a_cause_is_the_one_asked() -> None:
     Scenario() \
         .given(
             a_registry_answering_for_bad_deployments := {
-                CauseType.BAD_DEPLOYMENT: _a_strategy_proposing(
+                FailureMode.BAD_DEPLOYMENT: _a_strategy_proposing(
                     an_action_setting(
                         some_flag_a_strategy_of_its_own_would_name, enabled=False
                     )
@@ -47,7 +47,7 @@ def test_the_strategy_registered_for_a_cause_is_the_one_asked() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.BAD_DEPLOYMENT),
+                a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
                 flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
                 strategies=a_registry_answering_for_bad_deployments
             )
@@ -68,7 +68,7 @@ def test_a_cause_no_strategy_answers_for_proposes_nothing() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
                 strategies=a_registry_that_answers_for_nothing
             )
@@ -103,7 +103,7 @@ def test_an_action_whose_strategy_says_it_cannot_be_put_back_is_not_reversible()
     Scenario() \
         .given(
             a_registry_that_cannot_undo_what_it_proposes := {
-                CauseType.FEATURE_FLAG_TOGGLE: _a_strategy_that_cannot_put_anything_back()
+                FailureMode.FEATURE_FLAG_TOGGLE: _a_strategy_that_cannot_put_anything_back()
             }
         ) \
         .when(

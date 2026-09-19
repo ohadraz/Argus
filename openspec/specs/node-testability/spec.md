@@ -25,7 +25,7 @@ The system SHALL allow `investigator_node` to accept an injectable `investigate`
 - **THEN** it uses `agent_investigator.investigate` exactly as before
 
 #### Scenario: A stub investigate can be injected for testing
-- **GIVEN** a stub `investigate` callable returning a known hypothesis, confidence, and cause_type
+- **GIVEN** a stub `investigate` callable returning a known hypothesis, confidence, and failure_mode
 - **WHEN** `investigator_node` runs with that stub injected
 - **THEN** it uses the stub's return values to determine routing and to persist the hypothesis, without calling the real Target Service
 

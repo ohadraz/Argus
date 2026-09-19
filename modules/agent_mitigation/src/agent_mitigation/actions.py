@@ -117,10 +117,10 @@ def propose_action(hypothesis: Hypothesis,
     because proposing is policy: a caller that had to supply the policy in
     order to ask the question would be answering it.
     """
-    if hypothesis.cause_type is None:
+    if hypothesis.failure_mode is None:
         return None
 
-    strategy = strategies.get(hypothesis.cause_type)
+    strategy = strategies.get(hypothesis.failure_mode)
 
     if strategy is None:
         return None

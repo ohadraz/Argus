@@ -53,7 +53,7 @@ from argus_core.events import (
 from argus_core.models import (
     Actor,
     Alert,
-    CauseType,
+    FailureMode,
     FixOutcome,
     IncidentStatus,
     OpenedPullRequest,
@@ -339,7 +339,7 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
             hypothesis_id=new_id(),
             rank=1,
             summary="the monthly-spend flag was turned on",
-            cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
             confidence=0.8,
             subject="monthly-spend-feature",
             evidence=[]

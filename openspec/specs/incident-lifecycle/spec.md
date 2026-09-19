@@ -127,7 +127,7 @@ has run out of candidates and wider looks - in which last case it leaves for
 #### Scenario: Happy path resolves an incident with a real diagnosed cause
 - **GIVEN** a new `Incident` in `investigating` status, and the `feature-flag-toggle` scenario active on the Target Service
 - **WHEN** the graph runs to completion
-- **THEN** the Investigator determines `cause_type = "feature-flag-toggle"` at a
+- **THEN** the Investigator determines `failure_mode = "feature-flag-toggle"` at a
   confidence >= 0.75, Mitigation turns the flag off and confirms recovery from
   the metrics, and the incident's final status is `resolved`
 

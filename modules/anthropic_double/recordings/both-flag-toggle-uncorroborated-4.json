@@ -14,7 +14,7 @@
       "input": {
         "hypotheses": [
           {
-            "cause_type": "feature-flag-toggle",
+            "failure_mode": "feature-flag-toggle",
             "confidence": 0.93,
             "from_state": "off",
             "subject": "monthly-spend-feature",
@@ -48,7 +48,7 @@
             "to_state": "on"
           },
           {
-            "cause_type": null,
+            "failure_mode": null,
             "confidence": null,
             "from_state": null,
             "subject": null,

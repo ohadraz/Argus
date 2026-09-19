@@ -8,7 +8,7 @@ metrics - undoing the action when that verdict refutes it.
 ## Requirements
 ### Requirement: A reversible action is chosen from the cause, in code
 The Mitigation agent SHALL derive the action to take from the hypothesis's
-`cause_type` and the subject it names, deterministically and without asking a
+`failure_mode` and the subject it names, deterministically and without asking a
 model. A cause with no mapped reversible action SHALL yield no action rather
 than an approximate one.
 

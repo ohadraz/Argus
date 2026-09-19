@@ -22,7 +22,7 @@ from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
-from argus_core.models import CauseType, IncidentStatus
+from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -116,7 +116,7 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
             eventually(
                 all_of(
                     about_the_hypothesis(
-                        the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
+                        the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE),
                     ),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 
 from argus_core.ids import UuidStr, new_id
-from argus_core.models.cause import CauseType
 from argus_core.models.evidence import Evidence
+from argus_core.models.failure_mode import FailureMode
 
 
 class Hypothesis(BaseModel):
@@ -21,7 +21,7 @@ class Hypothesis(BaseModel):
     deliberately absent: it is an audit fact the table records, and nothing in
     the domain reads it.
 
-    `cause_type` is `None` when the evidence did not identify a cause, and
+    `failure_mode` is `None` when the evidence did not identify a cause, and
     `confidence` is `None` with it. The two travel together deliberately: see
     the validator below.
 
@@ -35,7 +35,7 @@ class Hypothesis(BaseModel):
     A plain string, and named for no particular cause, because a `Hypothesis` is
     shared by every cause type: a field called `flag` would be dead weight on a
     bad deployment and a lie on whatever comes next. What the string means is
-    already fixed by `cause_type` beside it.
+    already fixed by `failure_mode` beside it.
 
     `from_state` and `to_state` are what the subject moved between - `off` and
     `on` for a flag, two versions for a deployment. Strings for the same reason
@@ -48,7 +48,7 @@ class Hypothesis(BaseModel):
     id: UuidStr = Field(default_factory=new_id)
     incident_id: UuidStr
     summary: str
-    cause_type: CauseType | None
+    failure_mode: FailureMode | None
     # A probability, so it lives on the scale probabilities live on. Declared
     # here because it is the only place it can be: the answer tool's schema
     # cannot carry `minimum` and `maximum` - a strict tool schema rejects
@@ -81,10 +81,10 @@ class Hypothesis(BaseModel):
         because a correction is a rule every future code path has to remember,
         and nothing makes it.
         """
-        if (self.cause_type is None) != (self.confidence is None):
+        if (self.failure_mode is None) != (self.confidence is None):
             raise ValueError(
                 "a hypothesis has both a cause and a confidence, or neither - "
-                f"got cause_type={self.cause_type!r}, confidence={self.confidence!r}"
+                f"got failure_mode={self.failure_mode!r}, confidence={self.confidence!r}"
             )
 
         return self
@@ -102,10 +102,10 @@ class Hypothesis(BaseModel):
         The reverse is legitimate and deliberately allowed: a cause can name no
         subject, because not every cause has one this system can identify.
         """
-        if self.subject is not None and self.cause_type is None:
+        if self.subject is not None and self.failure_mode is None:
             raise ValueError(
                 "a hypothesis names a subject only for a cause it identified - "
-                f"got subject={self.subject!r} with cause_type=None"
+                f"got subject={self.subject!r} with failure_mode=None"
             )
 
         return self
@@ -147,7 +147,7 @@ class Hypothesis(BaseModel):
         Confidence still decides *order*, and still gates everything a human has
         to approve or be woken for - see `is_confident_enough`.
         """
-        return self.cause_type is not None
+        return self.failure_mode is not None
 
     def is_confident_enough(self, threshold: float) -> bool:
         """Whether this hypothesis is confident enough to put in front of a

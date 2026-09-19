@@ -22,10 +22,10 @@ from argus_core.models.action import (
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
-from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.code_search import CodeSearch
 from argus_core.models.evidence import Evidence
+from argus_core.models.failure_mode import FailureMode
 from argus_core.models.findings import Findings
 from argus_core.models.fix import FixOutcome
 from argus_core.models.flag_change import FlagChange
@@ -65,7 +65,7 @@ __all__ = [
     "Alert",
     "Ask",
     "Attempt",
-    "CauseType",
+    "FailureMode",
     "ChangeEvent",
     "ChangeKind",
     "CodeSearch",

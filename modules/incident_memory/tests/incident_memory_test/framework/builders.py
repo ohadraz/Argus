@@ -18,8 +18,8 @@ from argus_core import new_id
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
     Alert,
-    CauseType,
     Evidence,
+    FailureMode,
     Hypothesis,
     TakenAction,
     Verdict,
@@ -79,7 +79,7 @@ def a_hypothesis(summary: str = DONT_CARE_CONCLUSION,
     return Hypothesis(
         incident_id=SOME_INCIDENT,
         summary=summary,
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=confidence,
         supporting_evidence=[
             Evidence(claim=claim, at=DONT_CARE_MOMENT)

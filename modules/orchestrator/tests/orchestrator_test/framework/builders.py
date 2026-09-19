@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 import string
 
-from argus_core.models import Alert, CauseType, Evidence, Hypothesis, IncidentStatus
+from argus_core.models import Alert, Evidence, FailureMode, Hypothesis, IncidentStatus
 from orchestrator.walk.state import IncidentState
 
 
@@ -33,7 +33,7 @@ def a_determined_hypothesis(incident_id: str, confidence: float = 0.75) -> Hypot
     return Hypothesis(
         incident_id=incident_id,
         summary="kukibuki hypothesis",
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=confidence,
         supporting_evidence=[Evidence(claim="some log line", at=None)]
     )
@@ -49,7 +49,7 @@ def an_undetermined_hypothesis(incident_id: str) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary="no cause determined from the evidence retrieved",
-        cause_type=None,
+        failure_mode=None,
         confidence=None,
         supporting_evidence=[Evidence(claim="some log line", at=None)]
     )

@@ -19,8 +19,8 @@ import pytest
 from argus_core import new_id
 from argus_core.models import (
     Alert,
-    CauseType,
     Evidence,
+    FailureMode,
     FlagUndo,
     Hypothesis,
     Incident,
@@ -253,7 +253,7 @@ def _a_candidate(incident_id: str,
     return Hypothesis(
         incident_id=incident_id,
         summary=f"dont care - {subject}",
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         supporting_evidence=evidence or [],
         subject=subject,

@@ -29,8 +29,8 @@ from argus_core.events import Publisher, nobody
 from argus_core.models import (
     Alert,
     Attempt,
-    CauseType,
     Evidence,
+    FailureMode,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -274,7 +274,7 @@ def _a_candidate_blaming(flag: str) -> Hypothesis:
 
     return Hypothesis(incident_id="dont-care",
                       summary=f"the {flag} flag was switched on",
-                      cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)
@@ -283,7 +283,7 @@ def _a_candidate_blaming(flag: str) -> Hypothesis:
 def _a_candidate_naming_no_cause() -> Hypothesis:
     return Hypothesis(incident_id="dont-care",
                       summary="no cause determined from the evidence retrieved",
-                      cause_type=None,
+                      failure_mode=None,
                       confidence=None,
                       supporting_evidence=[Evidence(claim="some log line", at=None)])
 

@@ -18,7 +18,7 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO hypothesis "
-            "       (id, incident_id, summary, cause_type, confidence, "
+            "       (id, incident_id, summary, failure_mode, confidence, "
             "        supporting_evidence, subject, from_state, to_state, "
             "        rank, tested, result) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
@@ -26,7 +26,7 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                 hypothesis.id,
                 hypothesis.incident_id,
                 hypothesis.summary,
-                hypothesis.cause_type,
+                hypothesis.failure_mode,
                 hypothesis.confidence,
                 # Through pydantic rather than `json.dumps` directly: what a
                 # piece of evidence holds is the model's business, and an
@@ -84,7 +84,7 @@ def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypo
     """
     with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, summary, cause_type, confidence, "
+            "SELECT id, incident_id, summary, failure_mode, confidence, "
             "       supporting_evidence, subject, from_state, to_state, "
             "       rank, tested, result "
             "  FROM hypothesis "
@@ -115,7 +115,7 @@ def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypoth
     """
     with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, summary, cause_type, confidence, "
+            "SELECT id, incident_id, summary, failure_mode, confidence, "
             "       supporting_evidence, subject, from_state, to_state, "
             "       rank, tested, result "
             "  FROM hypothesis "

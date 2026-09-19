@@ -16,8 +16,8 @@ from datetime import datetime
 from argus_core import UuidStr
 from argus_core.models import (
     Alert,
-    CauseType,
     Evidence,
+    FailureMode,
     Hypothesis,
     Incident,
     IncidentStatus,
@@ -47,7 +47,7 @@ class Candidate(BaseModel):
 
     rank: int
     summary: str
-    cause_type: CauseType | None
+    failure_mode: FailureMode | None
     confidence: float | None
     subject: str | None
     # The two ends of the change blamed on that subject, said the way the flag
@@ -179,7 +179,7 @@ def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
     return Candidate(
         rank=hypothesis.rank,
         summary=hypothesis.summary,
-        cause_type=hypothesis.cause_type,
+        failure_mode=hypothesis.failure_mode,
         confidence=hypothesis.confidence,
         subject=hypothesis.subject,
         moved_from=said_as_a_state(hypothesis.from_state),

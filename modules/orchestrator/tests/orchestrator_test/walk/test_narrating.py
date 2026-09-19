@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from argus_core.events import StatusChanged
-from argus_core.models import Actor, Alert, CauseType, Hypothesis, IncidentStatus
+from argus_core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
@@ -294,7 +294,7 @@ def _an_incident_mitigating() -> IncidentState:
 def a_candidate() -> Hypothesis:
     return Hypothesis(incident_id=DONT_CARE_INCIDENT_ID,
                       summary="the monthly-spend flag was switched on",
-                      cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                       confidence=0.8,
                       supporting_evidence=[],
                       subject="monthly-spend-feature")

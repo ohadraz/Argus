@@ -8,7 +8,7 @@ from pydantic import BaseModel
 class ChangeKind(StrEnum):
     """What sort of change an event records.
 
-    A closed set for the same reason `CauseType` is one: a model weighing a
+    A closed set for the same reason `FailureMode` is one: a model weighing a
     deploy against a flag flip needs them to be distinct values it can reason
     about, not free text that happens to differ.
 

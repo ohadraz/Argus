@@ -143,7 +143,7 @@ def _what_the_investigation_did(hypothesis: Hypothesis) -> str:
     the loop read everything it was allowed to and still had nothing - the
     next step there is more evidence, not a second opinion on the first.
     """
-    return "hypothesis formed" if hypothesis.cause_type is not None else "insufficient evidence"
+    return "hypothesis formed" if hypothesis.failure_mode is not None else "insufficient evidence"
 
 
 def route_after_investigation(state: IncidentState) -> str:

@@ -23,7 +23,7 @@ from argus_core.events import (
     MetricsRetrieved,
     OnsetDetected,
 )
-from argus_core.models import Alert, CauseType, IncidentStatus, MetricBucket
+from argus_core.models import Alert, FailureMode, IncidentStatus, MetricBucket
 from argus_incidents.repository import events, incidents
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
@@ -405,7 +405,7 @@ def _a_hypothesis_formed_for(incident_id: str) -> HypothesisFormed:
         incident_id=incident_id,
         hypothesis_id="00000000-0000-0000-0000-0000000000aa",
         summary="dont care",
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         subject="dont-care-flag",
         rank=1

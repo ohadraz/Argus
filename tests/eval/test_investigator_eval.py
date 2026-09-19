@@ -13,9 +13,9 @@ from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import build_llm_client
 from argus_core.models import (
     Alert,
-    CauseType,
     ChangeEvent,
     ChangeKind,
+    FailureMode,
     Hypothesis,
     MetricBucket,
     RetrievalChannel,
@@ -120,7 +120,7 @@ def test_a_flag_toggled_on_before_the_error_spike_is_identified() -> None:
         .then(
             at_least(
                 MUST_IDENTIFY_THE_FLAG_TOGGLE,
-                _a_run_where(the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE)),
+                _a_run_where(the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE)),
             )
         )
 
@@ -169,7 +169,7 @@ def test_a_deploy_before_a_latency_departure_is_identified() -> None:
         .then(
             at_least(
                 MUST_IDENTIFY_THE_BAD_DEPLOYMENT,
-                _a_run_where(the_cause_was_identified_as(CauseType.BAD_DEPLOYMENT)),
+                _a_run_where(the_cause_was_identified_as(FailureMode.BAD_DEPLOYMENT)),
             )
         )
 

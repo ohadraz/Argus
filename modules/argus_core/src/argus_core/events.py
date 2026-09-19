@@ -25,9 +25,9 @@ from argus_core.ids import UuidStr, new_id
 from argus_core.models.action import ActionType, Verdict
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
-from argus_core.models.cause import CauseType
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.evidence import Evidence
+from argus_core.models.failure_mode import FailureMode
 from argus_core.models.fix import FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
@@ -171,7 +171,7 @@ class HypothesisFormed(_Event):
     kind: Literal["hypothesis-formed"] = "hypothesis-formed"
     hypothesis_id: UuidStr
     summary: str
-    cause_type: CauseType | None
+    failure_mode: FailureMode | None
     confidence: float | None
     subject: str | None
     # The two ends of the change the candidate blamed, as the Investigator was

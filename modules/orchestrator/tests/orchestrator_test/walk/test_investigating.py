@@ -23,8 +23,8 @@ from argus_core.models import (
     Actor,
     Alert,
     Attempt,
-    CauseType,
     Evidence,
+    FailureMode,
     Hypothesis,
     IncidentStatus,
     Reading,
@@ -562,7 +562,7 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
 
     return Hypothesis(incident_id=incident_id,
                       summary="kukibuki hypothesis",
-                      cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)

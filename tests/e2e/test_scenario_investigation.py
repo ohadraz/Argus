@@ -22,7 +22,7 @@ Run two ways, and they prove different things:
   retrieved evidence. The seeding step above is inert there, because nothing
   points the web app at the double.
 
-Which is why nothing below asserts on wording. `cause_type` is a closed enum,
+Which is why nothing below asserts on wording. `failure_mode` is a closed enum,
 the final status is what Argus did, and the flag provider's state is what the
 world looks like afterwards; all three hold whichever way this runs, where the
 prose never would.
@@ -40,7 +40,7 @@ from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
-from argus_core.models import CauseType, IncidentStatus
+from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -96,7 +96,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
             eventually(
                 all_of(
                     about_the_hypothesis(
-                        the_cause_was_identified_as(CauseType.FEATURE_FLAG_TOGGLE),
+                        the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE),
                         some_confidence_was_given()
                     ),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
@@ -144,7 +144,7 @@ def test_a_diagnosed_bad_deployment_escalates_because_nothing_can_be_reverted() 
             eventually(
                 all_of(
                     about_the_hypothesis(
-                        the_cause_was_identified_as(CauseType.BAD_DEPLOYMENT),
+                        the_cause_was_identified_as(FailureMode.BAD_DEPLOYMENT),
                         some_confidence_was_given()
                     ),
                     argus_ended_with_status(IncidentStatus.ESCALATED)

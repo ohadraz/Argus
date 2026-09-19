@@ -14,7 +14,7 @@
       "input": {
         "hypotheses": [
           {
-            "cause_type": "bad-deployment",
+            "failure_mode": "bad-deployment",
             "confidence": 0.78,
             "from_state": null,
             "subject": "9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e",
@@ -48,7 +48,7 @@
             "to_state": null
           },
           {
-            "cause_type": null,
+            "failure_mode": null,
             "confidence": null,
             "from_state": null,
             "subject": null,

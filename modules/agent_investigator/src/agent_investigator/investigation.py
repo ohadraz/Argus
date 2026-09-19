@@ -336,7 +336,7 @@ def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResul
             call_id=answering.id,
             content=(
                 f"that answer could not be read: {malformed}. Call final_answer again "
-                f"with one entry per explanation, each carrying a summary, a cause_type "
+                f"with one entry per explanation, each carrying a summary, a failure_mode "
                 f"and confidence that are both null or both set, its supporting "
                 f"evidence, a subject, and a from_state and to_state that are both "
                 f"null or both set."
@@ -366,7 +366,7 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
         Hypothesis(
             incident_id=incident_id,
             summary=on_one_line(explanation["summary"]),
-            cause_type=explanation["cause_type"],
+            failure_mode=explanation["failure_mode"],
             confidence=explanation["confidence"],
             supporting_evidence=[
                 _a_cited_fact(cited)
@@ -495,7 +495,7 @@ def _undetermined(alert: Alert,
                   metric_buckets: list[MetricBucket]) -> Hypothesis:
     """The honest outcome: no cause, and no confidence to go with it.
 
-    Carries no `cause_type` and no `confidence` at all - a hypothesis refuses
+    Carries no `failure_mode` and no `confidence` at all - a hypothesis refuses
     to hold one without the other - so that whoever picks the incident up can
     tell "nothing identified" from a real diagnosis. The summary says *why* it
     stopped, since "I ran out of time" and "I read everything I was allowed to
@@ -506,7 +506,7 @@ def _undetermined(alert: Alert,
         summary=(
             f"no cause determined for {alert.alert_name} on {alert.service}: {reason}"
         ),
-        cause_type=None,
+        failure_mode=None,
         confidence=None,
         supporting_evidence=[]
     )
@@ -529,7 +529,7 @@ def _say_formed(narrator: Narrator, hypothesis: Hypothesis) -> None:
         HypothesisFormed,
         hypothesis_id=hypothesis.id,
         summary=hypothesis.summary,
-        cause_type=hypothesis.cause_type,
+        failure_mode=hypothesis.failure_mode,
         confidence=hypothesis.confidence,
         subject=hypothesis.subject,
         from_state=hypothesis.from_state,

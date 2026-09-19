@@ -3,10 +3,10 @@
 ## Purpose
 TBD - created by archiving change investigator-hypothesis-loop. Update Purpose after archive.
 ## Requirements
-### Requirement: Investigator determines cause_type from the Target Service's current logs
+### Requirement: Investigator determines failure_mode from the Target Service's current logs
 The system SHALL make the `argus-read-mcp` server's `get_log_lines` and
 `get_change_events` tools available to the model during investigation, and SHALL
-dispatch them when the model calls them. It SHALL determine a `cause_type`
+dispatch them when the model calls them. It SHALL determine a `failure_mode`
 by asking a real LLM to judge the evidence it retrieved - metrics, logs and
 changes, whichever of them it chose to read. Deterministic keyword matching SHALL NOT be
 the mechanism, and the model SHALL NOT be the thing that parses a change source's
@@ -17,30 +17,30 @@ threshold.
 #### Scenario: Feature-flag-toggle logs are recognized
 - **GIVEN** the Target Service's active scenario is `feature-flag-toggle`
 - **WHEN** the Investigator investigates the incident
-- **THEN** it determines `cause_type = "feature-flag-toggle"` at a confidence
+- **THEN** it determines `failure_mode = "feature-flag-toggle"` at a confidence
   high enough to route to `mitigating`
 
 #### Scenario: No recognizable logs report an undetermined cause, not a confident one
 - **GIVEN** the Target Service has no active scenario (`get_log_lines`
   returns an empty list)
 - **WHEN** the Investigator investigates the incident
-- **THEN** it records a hypothesis with `cause_type` left undetermined
+- **THEN** it records a hypothesis with `failure_mode` left undetermined
   (`NULL`), at a confidence below the mitigate threshold, and the incident
   routes to `escalated` rather than to `mitigating`
 
 #### Scenario: A cause is determinable without every channel being read
 - **GIVEN** an incident whose change events account for the departure on their own
 - **WHEN** the model answers having read changes and metrics but not logs
-- **THEN** the determined `cause_type` is accepted, and the unread channel is not
+- **THEN** the determined `failure_mode` is accepted, and the unread channel is not
   treated as missing evidence
 
-### Requirement: cause_type is persisted on the hypothesis row
-The system SHALL write the determined `cause_type` (or leave it `NULL` if undetermined) to the `hypothesis` table's `cause_type` column, in addition to `description` and `confidence`.
+### Requirement: failure_mode is persisted on the hypothesis row
+The system SHALL write the determined `failure_mode` (or leave it `NULL` if undetermined) to the `hypothesis` table's `failure_mode` column, in addition to `description` and `confidence`.
 
 #### Scenario: A determined cause is persisted
-- **GIVEN** the Investigator determines `cause_type = "feature-flag-toggle"` for an incident
+- **GIVEN** the Investigator determines `failure_mode = "feature-flag-toggle"` for an incident
 - **WHEN** the hypothesis is recorded
-- **THEN** the `hypothesis` row for that incident has `cause_type = 'feature-flag-toggle'`
+- **THEN** the `hypothesis` row for that incident has `failure_mode = 'feature-flag-toggle'`
 
 
 ### Requirement: The evidence behind a cause determination is recorded

@@ -29,8 +29,8 @@ import pytest
 from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
     Alert,
-    CauseType,
     Evidence,
+    FailureMode,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
@@ -301,7 +301,7 @@ def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
 
     return Hypothesis(incident_id=incident_id,
                       summary="kukibuki hypothesis",
-                      cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)

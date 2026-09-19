@@ -181,7 +181,7 @@ def a_turn_the_model_declined() -> ModelRefused:
 
 
 def an_explanation(summary: str = "a feature flag was toggled on just before the errors began",
-                   cause_type: str | None = "feature-flag-toggle",
+                   failure_mode: str | None = "feature-flag-toggle",
                    confidence: float | None = 0.8,
                    supporting_evidence: list[Evidence] | None = None,
                    subject: str | None = None,
@@ -190,7 +190,7 @@ def an_explanation(summary: str = "a feature flag was toggled on just before the
     """One account of the incident, as the model fills the answer schema in."""
     return {
         "summary": summary,
-        "cause_type": cause_type,
+        "failure_mode": failure_mode,
         "confidence": confidence,
         "supporting_evidence": [
             cited.model_dump(mode="json") for cited in supporting_evidence or []
@@ -205,4 +205,4 @@ def an_explanation_naming_no_cause(
     summary: str = "nothing in the evidence identifies a cause"
 ) -> dict[str, Any]:
     """The honest answer, which carries no cause and no confidence."""
-    return an_explanation(summary=summary, cause_type=None, confidence=None)
+    return an_explanation(summary=summary, failure_mode=None, confidence=None)

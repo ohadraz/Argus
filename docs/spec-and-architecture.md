@@ -352,7 +352,7 @@ erDiagram
     HYPOTHESIS {
         uuid id PK
         uuid incident_id FK
-        text cause_type
+        text failure_mode
         text summary
         text supporting_evidence
         text subject

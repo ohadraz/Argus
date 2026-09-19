@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS incident (
 CREATE TABLE IF NOT EXISTS hypothesis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
-    cause_type TEXT,
+    failure_mode TEXT,
     -- Required, because a candidate with no sentence saying what it is
     -- cannot be read by anybody: the page lists it, the write-up quotes
     -- it, and the model that formed it always says one. Every writer sets

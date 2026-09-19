@@ -10,13 +10,13 @@ test.
 from __future__ import annotations
 
 from argus_core import UuidStr
-from argus_core.models import CauseType, Hypothesis
+from argus_core.models import FailureMode, Hypothesis
 from argus_testkit.assertions import Assertion
 
 
-def the_cause_was_identified_as(expected_cause: CauseType) -> Assertion[Hypothesis]:
+def the_cause_was_identified_as(expected_cause: FailureMode) -> Assertion[Hypothesis]:
     def assertion(hypothesis: Hypothesis) -> bool:
-        actual_cause = hypothesis.cause_type
+        actual_cause = hypothesis.failure_mode
 
         if actual_cause != expected_cause:
             raise AssertionError(
@@ -43,7 +43,7 @@ def no_cause_was_determined() -> Assertion[Hypothesis]:
     """Both halves, because the domain refuses to hold one without the other."""
 
     def assertion(hypothesis: Hypothesis) -> bool:
-        actual_cause = hypothesis.cause_type
+        actual_cause = hypothesis.failure_mode
         actual_confidence = hypothesis.confidence
 
         if actual_cause is not None:

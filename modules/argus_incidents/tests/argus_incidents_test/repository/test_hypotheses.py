@@ -7,7 +7,7 @@ from typing import Any
 import psycopg
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, CauseType, Evidence, Hypothesis
+from argus_core.models import Alert, Evidence, FailureMode, Hypothesis
 from argus_incidents.repository import hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 
@@ -387,7 +387,7 @@ def _a_determined_hypothesis(incident_id: str,
     return Hypothesis(
         incident_id=incident_id,
         summary="a feature flag was toggled on just before the errors began",
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.94,
         supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence],
         subject=subject,
@@ -401,7 +401,7 @@ def _an_undetermined_hypothesis(incident_id: str) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary="no cause determined from the evidence retrieved",
-        cause_type=None,
+        failure_mode=None,
         confidence=None,
         supporting_evidence=[Evidence(
             claim="2026-08-20T11:06:00Z ERROR target-service: request failed", at=None
@@ -419,7 +419,7 @@ def _an_alternative_within(incident_id: str, rank: int) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary="an alternative reading of the same evidence",
-        cause_type=None,
+        failure_mode=None,
         confidence=None,
         supporting_evidence=[],
         rank=rank
@@ -461,10 +461,10 @@ def _the_stored_hypothesis_names_no_cause(
         if stored is None:
             raise AssertionError(f"No hypothesis found for incident [{incident_id}].")
 
-        if stored.cause_type is not None or stored.confidence is not None:
+        if stored.failure_mode is not None or stored.confidence is not None:
             raise AssertionError(
                 f"Expected no cause and no confidence, got "
-                f"cause_type=[{stored.cause_type!r}], confidence=[{stored.confidence!r}]."
+                f"failure_mode=[{stored.failure_mode!r}], confidence=[{stored.confidence!r}]."
             )
 
         return True

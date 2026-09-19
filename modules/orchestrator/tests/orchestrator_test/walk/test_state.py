@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.models import Alert, CauseType, Hypothesis, IncidentStatus
+from argus_core.models import Alert, FailureMode, Hypothesis, IncidentStatus
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from orchestrator.walk.state import IncidentState, status_after
 from pydantic import ValidationError
@@ -346,7 +346,7 @@ def _a_candidate() -> Hypothesis:
     return Hypothesis(
         incident_id="buki-123",
         summary="the monthly-spend flag was switched on",
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.8,
         supporting_evidence=[],
         subject="monthly-spend-feature"

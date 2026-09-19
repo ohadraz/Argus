@@ -19,8 +19,8 @@ import pytest
 from argus_core import connect_from_env
 from argus_core.models import (
     Alert,
-    CauseType,
     Evidence,
+    FailureMode,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
@@ -651,7 +651,7 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
     hypothesis = Hypothesis(
         incident_id=incident_id,
         summary=f"dont care - {subject}",
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence or []],
         subject=subject,

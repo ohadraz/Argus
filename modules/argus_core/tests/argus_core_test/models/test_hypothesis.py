@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 from argus_core.ids import new_id
-from argus_core.models.cause import CauseType
 from argus_core.models.evidence import Evidence
+from argus_core.models.failure_mode import FailureMode
 from argus_core.models.hypothesis import Hypothesis
 from pydantic import ValidationError
 
@@ -14,7 +14,7 @@ def test_a_cause_without_a_confidence_is_rejected() -> None:
         Hypothesis(
             incident_id=new_id(),
             summary="some summary",
-            cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
             confidence=None,
             supporting_evidence=[],
         )
@@ -28,7 +28,7 @@ def test_a_confidence_without_a_cause_is_rejected() -> None:
         Hypothesis(
             incident_id=new_id(),
             summary="some summary",
-            cause_type=None,
+            failure_mode=None,
             confidence=some_confidence,
             supporting_evidence=[],
         )
@@ -39,7 +39,7 @@ def test_a_cause_with_a_confidence_is_accepted() -> None:
     some_confidence = 0.9
 
     hypothesis = an_investigated_hypothesis(
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_confidence
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=some_confidence
     )
 
     assert hypothesis.confidence == some_confidence
@@ -55,7 +55,7 @@ def test_a_confidence_above_one_is_rejected() -> None:
 
     with pytest.raises(ValidationError, match="confidence"):
         an_investigated_hypothesis(
-            cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_confidence_off_the_scale
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=some_confidence_off_the_scale
         )
 
 
@@ -65,7 +65,7 @@ def test_a_confidence_below_zero_is_rejected() -> None:
 
     with pytest.raises(ValidationError, match="confidence"):
         an_investigated_hypothesis(
-            cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_negative_confidence
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=some_negative_confidence
         )
 
 
@@ -75,10 +75,10 @@ def test_certainty_and_impossibility_are_both_inside_the_scale() -> None:
     # which the prompt asks for by name, and a bound that excluded it would
     # reject the best answer the model can give.
     certain = an_investigated_hypothesis(
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=1.0
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=1.0
     )
     impossible = an_investigated_hypothesis(
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=0.0
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.0
     )
 
     assert (certain.confidence, impossible.confidence) == (1.0, 0.0)
@@ -86,14 +86,14 @@ def test_certainty_and_impossibility_are_both_inside_the_scale() -> None:
 
 @pytest.mark.unit
 def test_neither_a_cause_nor_a_confidence_is_accepted() -> None:
-    hypothesis = an_investigated_hypothesis(cause_type=None, confidence=None)
+    hypothesis = an_investigated_hypothesis(failure_mode=None, confidence=None)
 
-    assert hypothesis.cause_type is None
+    assert hypothesis.failure_mode is None
 
 
 @pytest.mark.unit
 def test_an_undetermined_hypothesis_is_never_confident_enough() -> None:
-    hypothesis = an_investigated_hypothesis(cause_type=None, confidence=None)
+    hypothesis = an_investigated_hypothesis(failure_mode=None, confidence=None)
 
     assert not hypothesis.is_confident_enough(0.0)
 
@@ -103,7 +103,7 @@ def test_a_hypothesis_exactly_at_the_threshold_is_confident_enough() -> None:
     some_threshold = 0.75
 
     hypothesis = an_investigated_hypothesis(
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_threshold
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=some_threshold
     )
 
     assert hypothesis.is_confident_enough(some_threshold)
@@ -114,7 +114,7 @@ def test_a_hypothesis_just_below_the_threshold_is_not_confident_enough() -> None
     some_threshold = 0.75
 
     hypothesis = an_investigated_hypothesis(
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=some_threshold - 0.01
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=some_threshold - 0.01
     )
 
     assert not hypothesis.is_confident_enough(some_threshold)
@@ -122,8 +122,8 @@ def test_a_hypothesis_just_below_the_threshold_is_not_confident_enough() -> None
 
 @pytest.mark.unit
 def test_two_hypotheses_built_the_same_way_have_different_ids() -> None:
-    one = an_investigated_hypothesis(cause_type=None, confidence=None)
-    another = an_investigated_hypothesis(cause_type=None, confidence=None)
+    one = an_investigated_hypothesis(failure_mode=None, confidence=None)
+    another = an_investigated_hypothesis(failure_mode=None, confidence=None)
 
     assert one.id != another.id
 
@@ -136,7 +136,7 @@ def test_a_hypothesis_keeps_the_id_it_was_given() -> None:
         id=some_id,
         incident_id=new_id(),
         summary="some summary",
-        cause_type=None,
+        failure_mode=None,
         confidence=None,
         supporting_evidence=[],
     )
@@ -151,7 +151,7 @@ def test_a_hypothesis_carries_the_subject_its_cause_names() -> None:
     some_flag = "monthly-spend-feature"
 
     hypothesis = an_investigated_hypothesis(
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE, confidence=0.9, subject=some_flag
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.9, subject=some_flag
     )
 
     assert hypothesis.subject == some_flag
@@ -163,7 +163,7 @@ def test_a_hypothesis_that_names_no_subject_has_none() -> None:
     # is a real cause with nothing to put here yet - so the field is absent
     # rather than empty, and callers get one thing to check instead of two.
     hypothesis = an_investigated_hypothesis(
-        cause_type=CauseType.BAD_DEPLOYMENT, confidence=0.9
+        failure_mode=FailureMode.BAD_DEPLOYMENT, confidence=0.9
     )
 
     assert hypothesis.subject is None
@@ -181,7 +181,7 @@ def test_a_subject_without_a_cause_is_rejected() -> None:
         Hypothesis(
             incident_id=new_id(),
             summary="some summary",
-            cause_type=None,
+            failure_mode=None,
             confidence=None,
             supporting_evidence=[],
             subject=dont_care_flag,
@@ -197,7 +197,7 @@ def test_a_hypothesis_carries_the_states_its_subject_moved_between() -> None:
     hypothesis = Hypothesis(
         incident_id=new_id(),
         summary="some summary",
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         supporting_evidence=[],
         subject="monthly-spend-feature",
@@ -217,7 +217,7 @@ def test_one_state_without_the_other_is_rejected() -> None:
         Hypothesis(
             incident_id=new_id(),
             summary="some summary",
-            cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
             confidence=0.9,
             supporting_evidence=[],
             subject="monthly-spend-feature",
@@ -237,7 +237,7 @@ def test_a_transition_without_a_subject_is_rejected() -> None:
         Hypothesis(
             incident_id=new_id(),
             summary="some summary",
-            cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
             confidence=0.9,
             supporting_evidence=[],
             subject=None,
@@ -246,13 +246,13 @@ def test_a_transition_without_a_subject_is_rejected() -> None:
         )
 
 
-def an_investigated_hypothesis(cause_type: CauseType | None,
+def an_investigated_hypothesis(failure_mode: FailureMode | None,
                                confidence: float | None,
                                subject: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=new_id(),
         summary="some summary",
-        cause_type=cause_type,
+        failure_mode=failure_mode,
         confidence=confidence,
         supporting_evidence=[Evidence(claim="some log line", at=None)],
         subject=subject,

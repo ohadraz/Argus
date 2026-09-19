@@ -21,7 +21,7 @@ def mitigate(hypothesis: Hypothesis,
     """Answers `hypothesis` with a reversible action and a verdict (spec §7.3).
 
     Takes the whole `Hypothesis` rather than its summary text because
-    `cause_type` is what selects the action - deterministically, in code. A
+    `failure_mode` is what selects the action - deterministically, in code. A
     summary is prose written for a human, and deriving a production write from
     it would mean parsing or a second model call.
 
@@ -34,7 +34,7 @@ def mitigate(hypothesis: Hypothesis,
     if action is None:
         return Outcome(
             verdict=Verdict.ESCALATED,
-            detail=f"no reversible action answers a cause of [{hypothesis.cause_type}]",
+            detail=f"no reversible action answers a cause of [{hypothesis.failure_mode}]",
         )
 
     return take(action)

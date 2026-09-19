@@ -63,7 +63,7 @@ def test_a_change_event_without_a_time_is_rejected() -> None:
 
 @pytest.mark.unit
 def test_a_kind_outside_the_taxonomy_is_rejected() -> None:
-    # The kind is a closed set for the same reason `CauseType` is: a model
+    # The kind is a closed set for the same reason `FailureMode` is: a model
     # weighing a deploy against a flag flip needs the two to be distinct
     # values, not free text that happens to differ.
     dont_care_reference = "9f4c1e7b2a"

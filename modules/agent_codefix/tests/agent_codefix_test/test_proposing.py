@@ -33,9 +33,9 @@ from agent_codefix.proposing import (
 from argus_core.llm import a_conversation_recorded_for
 from argus_core.models import (
     Ask,
-    CauseType,
     CodeSearch,
     Evidence,
+    FailureMode,
     Hypothesis,
     OpenedPullRequest,
     ToolCall,
@@ -64,7 +64,7 @@ def a_hypothesis(summary: str, *claims: str) -> Hypothesis:
     return Hypothesis(
         incident_id=DONT_CARE_INCIDENT,
         summary=summary,
-        cause_type=CauseType.FEATURE_FLAG_TOGGLE,
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         supporting_evidence=[Evidence(claim=claim, at=None) for claim in claims]
     )
@@ -953,7 +953,7 @@ def _the_model_was_not_told_a_repr(model: _Model) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         told = model.everything_it_was_told()
 
-        for leaked in ("supporting_evidence=", "Hypothesis(", "cause_type="):
+        for leaked in ("supporting_evidence=", "Hypothesis(", "failure_mode="):
             if leaked in told:
                 raise AssertionError(
                     f"Expected the model told prose, it was told [{leaked}]."

@@ -14,7 +14,7 @@
       "input": {
         "hypotheses": [
           {
-            "cause_type": "feature-flag-toggle",
+            "failure_mode": "feature-flag-toggle",
             "confidence": 0.92,
             "from_state": "off",
             "subject": "monthly-spend-feature",
@@ -48,7 +48,7 @@
             "to_state": "on"
           },
           {
-            "cause_type": "bad-deployment",
+            "failure_mode": "bad-deployment",
             "confidence": 0.15,
             "from_state": null,
             "subject": "src/io_shop/spend_summary.py",

@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 from agent_mitigation import Action, propose_action
-from argus_core.models import CauseType, FlagChange
+from argus_core.models import FailureMode, FlagChange
 from argus_testkit import Assertion, Scenario
 
 from agent_mitigation_test.framework.builders import (
@@ -28,7 +28,7 @@ def test_a_flag_that_was_switched_on_is_proposed_to_be_switched_off() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=[the_flag_was_switched_on]
             )
         ) \
@@ -51,7 +51,7 @@ def test_a_flag_that_was_switched_off_is_proposed_to_be_switched_on() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=[the_flag_was_switched_off]
             )
         ) \
@@ -73,7 +73,7 @@ def test_undoing_a_switch_on_records_that_the_flag_had_been_on() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=[the_flag_was_switched_on]
             )
         ) \
@@ -90,7 +90,7 @@ def test_undoing_a_switch_off_records_that_the_flag_had_been_off() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=[the_flag_was_switched_off]
             )
         ) \
@@ -114,7 +114,7 @@ def test_a_flag_toggled_more_than_once_is_put_back_to_its_state_before_the_lates
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=it_was_switched_off_then_on
             )
         ) \
@@ -134,7 +134,7 @@ def test_a_cause_with_no_reversible_action_proposes_nothing() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.BAD_DEPLOYMENT),
+                a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
                 flag_changes=[a_flag_did_change]
             )
         ) \
@@ -177,7 +177,7 @@ def test_more_than_one_changed_flag_proposes_nothing_rather_than_guessing() -> N
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=two_flags_changed
             )
         ) \
@@ -205,7 +205,7 @@ def test_the_flag_the_hypothesis_names_is_the_one_proposed() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(
-                    CauseType.FEATURE_FLAG_TOGGLE, subject=some_blamed_flag),
+                    FailureMode.FEATURE_FLAG_TOGGLE, subject=some_blamed_flag),
                 flag_changes=two_flags_changed
             )
         ) \
@@ -228,7 +228,7 @@ def test_the_direction_comes_from_the_recorded_change_not_from_the_hypothesis() 
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(
-                    CauseType.FEATURE_FLAG_TOGGLE, subject=some_blamed_flag),
+                    FailureMode.FEATURE_FLAG_TOGGLE, subject=some_blamed_flag),
                 flag_changes=[the_flag_was_switched_off]
             )
         ) \
@@ -253,7 +253,7 @@ def test_a_named_flag_the_provider_never_recorded_proposes_nothing() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(
-                    CauseType.FEATURE_FLAG_TOGGLE,
+                    FailureMode.FEATURE_FLAG_TOGGLE,
                     subject=a_flag_nobody_recorded_changing
                 ),
                 flag_changes=[a_different_flag_changed]
@@ -272,7 +272,7 @@ def test_no_flag_change_proposes_nothing() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(CauseType.FEATURE_FLAG_TOGGLE),
+                a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=nothing_changed
             )
         ) \

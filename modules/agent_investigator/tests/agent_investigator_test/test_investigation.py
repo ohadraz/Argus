@@ -718,7 +718,7 @@ def _no_cause_was_determined() -> Assertion[Findings]:
         named = [
             candidate.summary
             for candidate in findings.candidates
-            if candidate.cause_type is not None
+            if candidate.failure_mode is not None
         ]
         if named:
             raise AssertionError(f"Expected no cause to be determined, but got {named}.")
