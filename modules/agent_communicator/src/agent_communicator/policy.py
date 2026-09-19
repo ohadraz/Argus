@@ -9,38 +9,33 @@ Here rather than where events are published. A component that knew which of its
 own lines were worth interrupting a person with would be making an editorial
 decision in the middle of doing its job - and the decision would then be made
 once per publisher, differently each time.
+
+And an allow-list rather than an answer about every event there is. What a
+channel says is named below; anything not named is unsaid. Narration has to be
+exhaustive, because an event nobody wrote a sentence for renders as nothing and
+that is a bug - but delivery is the other way round. An event nobody has
+decided about is one a channel stays quiet on, which is the right answer for
+every event added so far and the safe answer for the rest: silence here costs a
+reader a line they can still find on the page, where noise costs them the four
+lines that mattered. Being heard is the thing that has to be asked for.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import assert_never
 
 from argus_core.events import (
     ActionRefused,
     ActionTaken,
-    AgentInvoked,
     AlertAcknowledged,
     AwaitingRecovery,
     CandidateSelected,
-    CandidatesReordered,
-    ChangesRetrieved,
     ChangeUndone,
-    ChannelsUnread,
-    CommunicationFailed,
     FixAttempted,
-    FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
-    IncidentRemembered,
-    LogsRetrieved,
-    MetricsRetrieved,
-    MitigationResumed,
     OnsetDetected,
     PostmortemWritten,
-    RecoveryChecked,
-    RememberingFailed,
-    RetrievalRequested,
     StatusChanged,
     VerdictReached,
 )
@@ -73,10 +68,14 @@ class Register(StrEnum):
 def how_it_is_said(event: IncidentEvent) -> Register:
     """The register one published event is said in, or that it is not said.
 
-    A `match` over the event types rather than a lookup keyed on `kind`, for
-    the reason the narration does it: an event type nobody has decided about is
-    then a type error rather than a line that quietly goes nowhere - and going
-    nowhere is the failure that would never be noticed.
+    A `match` over the event types rather than a lookup keyed on `kind`,
+    because a register is not always a property of the type alone: an incident
+    changing status is announced or merely followed depending on where it got
+    to, and that is read off the event rather than looked up.
+
+    The wildcard at the end is the policy itself, not the place the cases ran
+    out. It is why an event kind added next month reaches the page and the
+    postmortem without anybody having to hold an opinion about Slack.
     """
     match event:
         case AlertAcknowledged():
@@ -130,35 +129,23 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # there - and a team that does not has said so by leaving the
             # channel unset, and gets them in the war room.
             return Register.FILED
-        case CommunicationFailed():
-            # Written because a destination refused a line, and never sent
-            # anywhere itself. Telling Slack that Slack could not be told is
-            # either impossible or noise, and a relay that tried would make a
-            # new failure out of every failure. The page is where this is read.
-            return Register.UNSAID
-        case (AgentInvoked() | RetrievalRequested() | MetricsRetrieved()
-              | LogsRetrieved() | ChangesRetrieved() | FlagChangesRetrieved()
-              | ChannelsUnread() | RecoveryChecked() | MitigationResumed()
-              | IncidentRemembered() | RememberingFailed()
-              | CandidatesReordered()):
-            # Everything that reports a look rather than a finding. Forty log
-            # lines read is a fact about the investigation's method, and a
-            # channel reporting it would bury the four lines that matter.
-            # `agent-invoked` is here for the same reason: which of Argus's
-            # agents is working is a fact about how Argus is built.
-            #
-            # `mitigation-resumed` is here on exactly that reading. The verdict
-            # it carries was written and published in one transaction by the
-            # walk that reached it, so a follower already has this answer; what
-            # this adds is that Argus restarted and caught up, which is again a
-            # fact about how Argus is built. The page still shows it.
-            #
-            # The two about long-term memory are here on the same reading, and
-            # the failure as much as the success. What was filed for the next
-            # incident changes nothing for the people following this one, and a
-            # store that could not be written to costs this incident nothing at
-            # all - it is over. Both are on the page, where whoever maintains
-            # Argus reads them.
-            return Register.UNSAID
         case _:
-            assert_never(event)
+            # Everything else, which today is everything that reports a look
+            # rather than a finding. Forty log lines read is a fact about the
+            # investigation's method, and a channel reporting it would bury the
+            # four lines that matter; which of Argus's agents is working, which
+            # order memory put the candidates in, and what was filed for the
+            # next incident are facts about how Argus is built. A resumed
+            # mitigation is the same again: the verdict it carries was written
+            # and published in one transaction by the walk that reached it, so
+            # a follower already has that answer.
+            #
+            # Two of them are unsaid for a stronger reason than volume.
+            # `communication-failed` is written because a destination refused a
+            # line: telling Slack that Slack could not be told is either
+            # impossible or noise, and a relay that tried would make a new
+            # failure out of every failure. `remembering-failed` costs this
+            # incident nothing at all, because it is over.
+            #
+            # All of it is on the page, which is where evidence is looked for.
+            return Register.UNSAID
