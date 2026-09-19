@@ -1,4 +1,16 @@
-"""Every write a node makes, against one source of connections."""
+"""The door a node writes the incident record through, and only a node.
+
+Not the module's only door to it, and not meant to be. A walk being started, a
+withdrawal undoing what a walk did, and a finished incident being read back for
+its postmortem all reach `argus_incidents.repository` directly - none of them
+happens inside a node, and each says at its own site why it reads what it does.
+Two more siblings reach the repositories for things that are not the incident
+record at all: the run queue and the exchange-rate cache.
+
+So the line this draws is the one a graph cares about. A node is handed its
+collaborators and has to be assertable with no database behind it; the process
+around the graph is where a database is a fact of life.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +46,13 @@ class Records:
 
     Built once where the graph is assembled, from whatever that process holds -
     a pool while Argus is running, a single connection in a script.
+
+    A connection per method, which is what lets a node ask one question without
+    holding anything open between them - and also why `gather_evidence` is not
+    here. Its six reads of one incident are one answer, taken on one connection
+    so that they describe the same moment; through this object they would be
+    six connections and six moments, which is a worse account of an incident
+    for the sake of one idiom.
     """
 
     def __init__(self,
