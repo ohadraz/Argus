@@ -116,7 +116,7 @@ def get_recent(conn: psycopg.Connection) -> list[Incident]:
     """
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, pr_url, created_at, ended_at "
+            "SELECT id, alert_payload, status, created_at, ended_at "
             "  FROM incident "
             "ORDER BY created_at DESC"
         )
@@ -145,7 +145,7 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
 
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, pr_url, created_at, ended_at "
+            "SELECT id, alert_payload, status, created_at, ended_at "
             "  FROM incident "
             "ORDER BY status = ANY(%s), created_at DESC "
             " LIMIT 1",
@@ -157,7 +157,7 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
 def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, pr_url, created_at, ended_at "
+            "SELECT id, alert_payload, status, created_at, ended_at "
             "  FROM incident "
             " WHERE id = %s",
             (incident_id,)

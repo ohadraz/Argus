@@ -391,6 +391,26 @@ def guard_module_docstrings(session: nox.Session) -> None:
     session.run("uv", "run", "python", "scripts/guard_module_docstrings.py", external=True)
 
 @nox.session
+def guard_written_columns(session: nox.Session) -> None:
+    """
+    Registers `guard_written_columns` as a nox session, i.e., runnable via
+    `uv run python -m nox -s guard_written_columns`.
+    Fails if a column the migration chain declares is set by no INSERT, no
+    UPDATE and no DEFAULT anywhere in `modules/*/src`. A column only readers
+    know about is always NULL, and nothing in the system can tell that from a
+    value that happens to be missing - which is what `action.subject` did for
+    the whole of its life, while every test passed on builders that populated
+    what production never wrote.
+
+    The static half of a two-part rule. This says a writer exists; the
+    per-table tests say a writer ran and the value came back. It has no
+    exemption list on purpose, and a statement whose columns it cannot resolve
+    fails rather than passes - a guard that waves through what it cannot read
+    rebuilds the hole it was written to close.
+    """
+    session.run("uv", "run", "python", "scripts/guard_written_columns.py", external=True)
+
+@nox.session
 def contract(session: nox.Session) -> None:
     """
     Registers `contract` as a nox session, i.e., runnable via `uv run python -m nox -s contract`.

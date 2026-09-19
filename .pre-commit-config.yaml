@@ -30,3 +30,9 @@ repos:
         entry: uv run python -m nox -s guard_module_docstrings  # fails if a module's prose sits below its imports, where __doc__ never sees it
         language: system
         pass_filenames: false  # no filenames - it always scans every .py in the repo.
+
+      - id: guard-written-columns
+        name: written columns (via nox)
+        entry: uv run python -m nox -s guard_written_columns  # fails if a column the schema declares is set by no INSERT, UPDATE or DEFAULT
+        language: system
+        pass_filenames: false  # no filenames - the schema and its writers are read together or not at all.

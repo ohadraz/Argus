@@ -91,11 +91,9 @@ def _a_row_whose_outcome_is(outcome: str | None) -> dict[str, Any]:
         "type": "revert_feature_flag",
         "subject": "monthly-spend-feature",
         "reversible": True,
-        "tier": "write",
         "undo_descriptor": None,
         "outcome": outcome,
-        "taken_at": THE_MOMENT_IT_WAS_CLAIMED,
-        "approved_by": None
+        "taken_at": THE_MOMENT_IT_WAS_CLAIMED
     }
 
 

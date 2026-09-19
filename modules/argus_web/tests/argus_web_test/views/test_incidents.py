@@ -239,7 +239,6 @@ def _an_incident(alert: Alert | None = None) -> Incident:
         alert_payload=(alert or Alert(service="io-shop", alert_name="HighErrorRate"))
         .model_dump(mode="json"),
         status=IncidentStatus.INVESTIGATING,
-        pr_url=None,
         created_at=_OPENED_AT,
         ended_at=None
     )
@@ -274,11 +273,9 @@ def _an_attempt(incident_id: str,
         type="revert-feature-flag",
         subject=None,
         reversible=True,
-        tier=None,
         undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
         outcome=outcome,
-        taken_at=_OPENED_AT + timedelta(minutes=1),
-        approved_by=None
+        taken_at=_OPENED_AT + timedelta(minutes=1)
     )
 
 

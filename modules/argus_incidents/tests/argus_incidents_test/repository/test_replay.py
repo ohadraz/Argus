@@ -29,6 +29,8 @@ from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from argus_incidents_test.framework import no_column_is_empty
+
 SOME_MODEL = "claude-opus-5"
 
 
@@ -187,6 +189,25 @@ def test_an_incident_that_called_no_model_spent_nothing_rather_than_nothing_know
 
 def _an_alert() -> Alert:
     return Alert(service="io-shop", alert_name="HighErrorRate")
+
+
+@pytest.mark.integration
+def test_a_recorded_call_leaves_no_column_of_its_row_empty() -> None:
+    # Every field of an entry is a column here rather than a payload with an
+    # index lifted out of it, so every column is a fact a harness aggregates
+    # over. One that arrived empty would not fail a query - it would quietly
+    # leave a call out of the sum.
+    with connect_from_env() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        incident_id = an_incident_created_for(_an_alert())
+
+        Scenario() \
+            .when(
+                lambda: replay.record(conn, _an_entry_for(incident_id))
+            ) \
+            .then(
+                no_column_is_empty(conn, "replay_log", "incident_id", incident_id)
+            )
 
 
 def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:

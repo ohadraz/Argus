@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS incident (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     alert_payload JSONB NOT NULL,
     status TEXT NOT NULL,
-    pr_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- When the incident stopped being one, stamped on the transition that
     -- ended it. Null while it is still being worked - which `fixing` is,
@@ -81,11 +80,9 @@ CREATE TABLE IF NOT EXISTS action (
     type TEXT,
     subject TEXT,
     reversible BOOLEAN NOT NULL DEFAULT true,
-    tier TEXT,
     undo_descriptor JSONB,
     outcome TEXT,
-    taken_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    approved_by TEXT
+    taken_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- What makes one action one action. A partial index rather than a table

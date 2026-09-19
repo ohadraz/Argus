@@ -11,6 +11,8 @@ from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of
 
+from argus_incidents_test.framework import no_column_is_empty
+
 
 @pytest.mark.integration
 def test_create_writes_the_incident_acknowledged() -> None:
@@ -336,6 +338,26 @@ def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
 def test_get_returns_none_for_unknown_incident() -> None:
     with connect_from_env() as conn:
         assert incidents.get(conn, "00000000-0000-0000-0000-000000000000") is None
+
+
+@pytest.mark.integration
+def test_an_incident_that_ended_leaves_no_column_of_its_row_empty() -> None:
+    # Two writes, because no single one fills this row: the insert opens the
+    # incident and the transition that ends it stamps when. Together they are
+    # the complete life of an incident, and what comes of it is what every
+    # reader of the table sees.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+        Scenario() \
+            .when(
+                lambda: incidents.transition(conn, incident_id, IncidentStatus.RESOLVED)
+            ) \
+            .then(
+                no_column_is_empty(conn, "incident", "id", incident_id)
+            )
 
 
 def _the_incident_is(conn: psycopg.Connection,

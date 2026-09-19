@@ -34,7 +34,6 @@ DONT_CARE_DESCRIPTION = "checkout began failing after a flag was switched on"
 # the tier it was taken at belong to the incident record; a memory of what was
 # tried keeps the subject and the verdict and nothing else.
 DONT_CARE_MOMENT = datetime(2026, 8, 30, 10, 14, tzinfo=UTC)
-DONT_CARE_TIER = "reversible"
 
 # What the investigation concluded, where a test is about something else. It is
 # prose in every case that reads it, so one sentence serves them all.
@@ -126,11 +125,9 @@ def an_action(subject: str,
         type=REVERT_FEATURE_FLAG,
         subject=subject,
         reversible=True,
-        tier=DONT_CARE_TIER,
         undo_descriptor=None,
         outcome=verdict,
-        taken_at=DONT_CARE_MOMENT,
-        approved_by=None
+        taken_at=DONT_CARE_MOMENT
     )
 
 

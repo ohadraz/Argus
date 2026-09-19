@@ -26,6 +26,8 @@ from argus_core.models import Actor, Alert, RetrievalChannel
 from argus_incidents.repository import events, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from argus_incidents_test.framework import no_column_is_empty
+
 # Bigger than anything published in these tests. What is under test where this
 # appears is which events come back, not how many of them fit in one batch.
 A_GENEROUS_BATCH = 100
@@ -345,6 +347,27 @@ def test_a_held_back_event_is_delivered_once_its_transaction_lands() -> None:
                                            the_start_of_the_log,
                                            A_GENEROUS_BATCH)) \
             .then(_the_batch_reads(["agent-invoked", "onset-detected"]))
+
+
+@pytest.mark.integration
+def test_a_recorded_event_leaves_no_column_of_its_row_empty() -> None:
+    # `payload` is the record and the columns beside it are what the table is
+    # read by - which means an empty one is not a missing detail but a line of
+    # the account that no reader's query will reach.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+        Scenario() \
+            .when(
+                lambda: events.record(conn, AgentInvoked(
+                    incident_id=incident_id, agent=Actor.INVESTIGATOR
+                ))
+            ) \
+            .then(
+                no_column_is_empty(conn, "incident_event", "incident_id", incident_id)
+            )
 
 
 def _an_investigation_in_three_steps(incident_id: str) -> list[IncidentEvent]:

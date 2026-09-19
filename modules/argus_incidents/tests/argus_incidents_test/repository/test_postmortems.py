@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import psycopg
@@ -9,6 +10,8 @@ from argus_core import connect_from_env
 from argus_core.models import Alert, OpenedPullRequest, PostmortemDocument
 from argus_incidents.repository import incidents, postmortems
 from argus_testkit import Assertion, Scenario, all_of
+
+from argus_incidents_test.framework import no_column_is_empty
 
 SOME_SERVICE = "io-shop"
 
@@ -59,6 +62,49 @@ def test_a_document_that_proposed_no_fix_comes_back_proposing_none() -> None:
             ) \
             .then(
                 _the_stored_postmortem_proposes_nothing(conn, incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> None:
+    # This table cannot leave a column out - both statements are built from the
+    # model's own fields, so the INSERT names whatever the document declares.
+    # What it can do is name a column and write `None` into it every time,
+    # which is what a field nothing ever fills looks like from here: present in
+    # the statement, absent in the row, and unreadable to everybody after.
+    #
+    # So the document is the complete one - every figure the write-up can carry,
+    # and the fix it proposed - and the question is whether a complete document
+    # reaches the table complete.
+    a_complete_document = PostmortemDocument(
+        root_cause="a feature flag was toggled on and the checkout path fell over",
+        executive_summary="one flag, seven minutes, reverted",
+        customer_loss_estimate=Decimal("1840.00"),
+        estimate_currency="usd",
+        engineer_minutes=7,
+        responders=2,
+        responder_titles=["site reliability engineer", "staff engineer"],
+        responder_cost_estimate=Decimal("31.50"),
+        responder_cost_minimum=Decimal("24.00"),
+        responder_cost_maximum=Decimal("39.00"),
+        responder_cost_currency="usd",
+        tokens_spent=48210,
+        assumptions=["the published rate for the day the incident opened"],
+        pull_request=OpenedPullRequest(
+            number=7,
+            url="https://github.invalid/ohadraz/io-shop/pull/7",
+            branch="argus/fix-abc"
+        ),
+        checklist_complete=True
+    )
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_created_in(conn)
+
+        Scenario()             .when(
+                lambda: postmortems.record(conn, incident_id, a_complete_document)
+            )             .then(
+                no_column_is_empty(conn, "postmortem", "incident_id", incident_id)
             )
 
 

@@ -19,6 +19,8 @@ from argus_core.models import (
 from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 
+from argus_incidents_test.framework import no_column_is_empty
+
 
 @pytest.mark.integration
 def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None:
@@ -344,6 +346,49 @@ def test_an_outcome_no_verdict_spells_comes_back_unread_rather_than_absent() -> 
                 _the_outcome_read_back_is(
                     UnreadVerdict(a_verdict_this_version_cannot_spell)
                 )
+            )
+
+
+@pytest.mark.integration
+def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
+    # The other half of the written-columns guard, and the half that can see
+    # what a static reading cannot: a writer that names a column and is never
+    # called, and one that is called and puts NULL there, both satisfy a guard
+    # that only asks whether a writer exists in the source.
+    #
+    # One action with everything an action can have: a claim, a candidate, a
+    # subject, a verdict, and a change with a way back. A row legitimately
+    # lacking one of those is a different case with its own test above; this
+    # asks whether the complete case reaches the table complete.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_flag_that_was_changed = "monthly-spend-feature"
+
+    with connect_from_env() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(some_alert)
+            ) \
+            .given(
+                hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject=the_flag_that_was_changed,
+                    outcome=Verdict.CONFIRMED,
+                    undo_descriptor=FlagUndo(
+                        flag=the_flag_that_was_changed, was_enabled=True
+                    )
+                )
+            ) \
+            .then(
+                no_column_is_empty(conn, "action", "incident_id", incident_id)
             )
 
 

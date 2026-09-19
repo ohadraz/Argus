@@ -16,11 +16,9 @@ class TakenAction(BaseModel):
     type: str | None
     subject: str | None
     reversible: bool
-    tier: str | None
     undo_descriptor: UndoDescriptor | None
     outcome: Verdict | UnreadVerdict | None
     taken_at: datetime
-    approved_by: str | None
 
     @field_validator("outcome", mode="before")
     @classmethod

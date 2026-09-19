@@ -11,6 +11,8 @@ from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from argus_incidents_test.framework import no_column_is_empty
+
 # Long enough that nothing in this test expires on its own: what is being
 # measured here is who gets the run, not what happens when a holder goes quiet.
 A_GENEROUS_LEASE = timedelta(minutes=5)
@@ -157,6 +159,59 @@ def _the_run_is_held_by(worker: str) -> Assertion[Any]:
         return True
 
     return assertion
+
+
+@pytest.mark.integration
+def test_a_claimed_run_leaves_no_column_of_its_row_empty_but_its_failure() -> None:
+    # The first of two, because this table has no row that carries everything:
+    # a run that was claimed has a holder and a lease and has not failed, and
+    # the update that records a failure is the update that clears both.
+    #
+    # `failure_reason` is named here rather than skipped silently, and a column
+    # nobody has thought about is in neither list - so it fails both of these
+    # until something writes it.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_worker = "worker-that-took-it"
+
+    with connect_from_env() as conn:
+        an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_enqueued_run_for(some_alert)
+            ) \
+            .when(
+                lambda: runs.claim(conn, some_worker, A_GENEROUS_LEASE)
+            ) \
+            .then(
+                no_column_is_empty(conn, "incident_run", "incident_id", incident_id,
+                                   except_for=["failure_reason"])
+            )
+
+
+@pytest.mark.integration
+def test_a_failed_run_leaves_no_column_of_its_row_empty_but_its_lease() -> None:
+    # The other half. A run that failed says why, and says nothing about a
+    # holder or a lease - it has neither any more, and a row claiming
+    # otherwise would have a worker still walking an incident nobody is
+    # walking.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_reason = "the walk ran out of tool calls"
+
+    with connect_from_env() as conn:
+        an_enqueued_run_for = partial(_an_enqueued_run_for, conn)
+        incident_id = an_enqueued_run_for(some_alert)
+        claimed = runs.claim(conn, "worker-that-took-it", A_GENEROUS_LEASE)
+        assert claimed is not None
+
+        Scenario() \
+            .when(
+                lambda: runs.fail(conn, claimed.id, some_reason)
+            ) \
+            .then(
+                no_column_is_empty(conn, "incident_run", "incident_id", incident_id,
+                                   except_for=["claimed_by", "leased_until"])
+            )
 
 
 def _an_enqueued_run_for(conn: psycopg.Connection, alert: Alert) -> str:

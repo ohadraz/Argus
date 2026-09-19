@@ -12,7 +12,6 @@ class Incident(BaseModel):
     id: UuidStr
     alert_payload: dict[str, object]
     status: IncidentStatus
-    pr_url: str | None
     created_at: datetime
     # Absent while the incident is still being worked, which is a state it
     # spends most of its life in and `fixing` keeps it in despite reading like

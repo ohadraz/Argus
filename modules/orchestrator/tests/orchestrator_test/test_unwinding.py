@@ -356,9 +356,7 @@ def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None) -> TakenAct
         type="revert-feature-flag",
         subject="dont-care-flag",
         reversible=True,
-        tier="write",
         undo_descriptor=undo_descriptor,
         outcome=_DONT_CARE_VERDICT,
-        taken_at=datetime.now(UTC),
-        approved_by=None,
+        taken_at=datetime.now(UTC)
     )

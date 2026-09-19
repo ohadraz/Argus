@@ -221,11 +221,9 @@ def _an_action(subject: str, verdict: Verdict) -> TakenAction:
         type=REVERT_FEATURE_FLAG,
         subject=subject,
         reversible=True,
-        tier="reversible",
         undo_descriptor=None,
         outcome=verdict,
-        taken_at=datetime(2026, 8, 30, 10, 14, tzinfo=UTC),
-        approved_by=None
+        taken_at=datetime(2026, 8, 30, 10, 14, tzinfo=UTC)
     )
 
 

@@ -144,7 +144,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, reversible, "
-            "       tier, undo_descriptor, outcome, taken_at, approved_by "
+            "       undo_descriptor, outcome, taken_at "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id),
@@ -164,7 +164,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, reversible, "
-            "       tier, undo_descriptor, outcome, taken_at, approved_by "
+            "       undo_descriptor, outcome, taken_at "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",

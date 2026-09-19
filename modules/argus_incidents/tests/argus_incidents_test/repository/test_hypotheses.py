@@ -11,6 +11,8 @@ from argus_core.models import Alert, CauseType, Evidence, Hypothesis
 from argus_incidents.repository import hypotheses, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from argus_incidents_test.framework import no_column_is_empty
+
 
 @pytest.mark.integration
 def test_a_recorded_hypothesis_comes_back_with_the_evidence_it_was_formed_from() -> None:
@@ -336,6 +338,40 @@ def test_an_incident_with_no_candidates_reads_as_empty_rather_than_missing() -> 
 
 def _an_alert() -> Alert:
     return Alert(service="kuki-service", alert_name="HighErrorRate")
+
+
+@pytest.mark.integration
+def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> None:
+    # A determined candidate the walk went on to test: a cause, a subject, the
+    # states it moved between, the evidence it was formed from, and what came
+    # of trying it. Every column the table has, in the one case that fills
+    # them all.
+    some_evidence = ["2026-08-20T11:05:00Z WARN target-service: flag toggled on"]
+
+    with connect_from_env() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        incident_id = an_incident_created_for(_an_alert())
+        the_candidate = _a_determined_hypothesis(
+            incident_id,
+            evidence=some_evidence,
+            subject="monthly-spend-feature",
+            from_state="off",
+            to_state="on"
+        )
+
+        def it_is_recorded_and_then_tested() -> None:
+            hypotheses.record(conn, the_candidate)
+            hypotheses.record_outcome(
+                conn, the_candidate.id, tested=True, result="confirmed"
+            )
+
+        Scenario() \
+            .when(
+                it_is_recorded_and_then_tested
+            ) \
+            .then(
+                no_column_is_empty(conn, "hypothesis", "incident_id", incident_id)
+            )
 
 
 def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:

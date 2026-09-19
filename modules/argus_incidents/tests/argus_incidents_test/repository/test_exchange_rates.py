@@ -23,6 +23,8 @@ from argus_core.models import PublishedRates
 from argus_incidents.repository import exchange_rates
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from argus_incidents_test.framework import no_column_is_empty
+
 SOME_BASE_CURRENCY = "usd"
 ANOTHER_BASE_CURRENCY = "gbp"
 
@@ -129,6 +131,28 @@ def test_rates_held_for_one_base_are_not_answered_for_another() -> None:
             ) \
             .when(lambda: exchange_rates.get_latest_for(conn, ANOTHER_BASE_CURRENCY)) \
             .then(_the_rates_held_are(what_a_pound_buys))
+
+
+@pytest.mark.integration
+def test_a_days_rates_leave_no_column_of_their_rows_empty() -> None:
+    # Every row a day's publication writes, not one of them: a table with one
+    # currency's columns filled and another's half empty is the partial table
+    # this suite exists to refuse.
+    some_day = date.today()
+
+    with connect_from_env() as conn:
+        what_was_published = _rates(SOME_BASE_CURRENCY,
+                                    on=some_day,
+                                    per_unit={"eur": Decimal("0.85"),
+                                              "gbp": Decimal("0.79")})
+
+        Scenario() \
+            .when(
+                lambda: exchange_rates.record(conn, what_was_published)
+            ) \
+            .then(
+                no_column_is_empty(conn, "exchange_rate", "base", SOME_BASE_CURRENCY)
+            )
 
 
 def _rates(base: str, on: date, per_unit: dict[str, Decimal]) -> PublishedRates:
