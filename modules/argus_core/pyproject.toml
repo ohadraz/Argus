@@ -30,6 +30,12 @@ dependencies = [
 # corpora want one and most callers of this kernel want neither: a module
 # naming a `UuidStr` should not install an ONNX runtime to do it.
 embedding = ["fastembed>=0.8"]
+# The store those vectors go into. An extra for the same reason and with
+# the same two callers: the kernel knows how to make a collection exist,
+# and a module naming an `Alert` should not install a vector-store client
+# to do it. Pinned to the minor the server is pinned to in
+# `docker-compose.yml`, as both corpora already pin it.
+vector_store = ["qdrant-client>=1.19,<1.20"]
 llm = ["anthropic>=1.0"]
 mcp = ["mcp>=1.29.0"]
 migrations = ["alembic>=1.20.0"]
@@ -43,7 +49,7 @@ migrations = ["alembic>=1.20.0"]
 # CI alone and looks like a code problem.
 [dependency-groups]
 dev = [
-    "argus-argus_core[embedding,llm,mcp,migrations]",
+    "argus-argus_core[embedding,llm,mcp,migrations,vector_store]",
     "argus-argus_testkit",
 ]
 

@@ -277,10 +277,13 @@ mcp = [
 migrations = [
     { name = "alembic" },
 ]
+vector-store = [
+    { name = "qdrant-client" },
+]
 
 [package.dev-dependencies]
 dev = [
-    { name = "argus-argus-core", extra = ["embedding", "llm", "mcp", "migrations"] },
+    { name = "argus-argus-core", extra = ["embedding", "llm", "mcp", "migrations", "vector-store"] },
     { name = "argus-argus-testkit" },
 ]
 
@@ -294,12 +297,13 @@ requires-dist = [
     { name = "psycopg-pool", specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
+    { name = "qdrant-client", marker = "extra == 'vector-store'", specifier = ">=1.19,<1.20" },
 ]
-provides-extras = ["embedding", "llm", "mcp", "migrations"]
+provides-extras = ["embedding", "vector-store", "llm", "mcp", "migrations"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "argus-argus-core", extras = ["embedding", "llm", "mcp", "migrations"] },
+    { name = "argus-argus-core", extras = ["embedding", "llm", "mcp", "migrations", "vector-store"] },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
 ]
 
@@ -406,7 +410,7 @@ dependencies = [
 
 [package.optional-dependencies]
 store = [
-    { name = "argus-argus-core", extra = ["embedding"] },
+    { name = "argus-argus-core", extra = ["embedding", "vector-store"] },
     { name = "qdrant-client" },
 ]
 
@@ -421,6 +425,7 @@ dev = [
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/argus_core" },
+    { name = "argus-argus-core", extras = ["vector-store"], marker = "extra == 'store'", editable = "modules/argus_core" },
     { name = "argus-repository-source", editable = "modules/repository_source" },
     { name = "qdrant-client", marker = "extra == 'store'", specifier = ">=1.19,<1.20" },
 ]
@@ -481,7 +486,7 @@ dependencies = [
 
 [package.optional-dependencies]
 store = [
-    { name = "argus-argus-core", extra = ["embedding"] },
+    { name = "argus-argus-core", extra = ["embedding", "vector-store"] },
     { name = "qdrant-client" },
 ]
 
@@ -495,6 +500,7 @@ dev = [
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/argus_core" },
+    { name = "argus-argus-core", extras = ["vector-store"], marker = "extra == 'store'", editable = "modules/argus_core" },
     { name = "qdrant-client", marker = "extra == 'store'", specifier = ">=1.19,<1.20" },
 ]
 provides-extras = ["store"]

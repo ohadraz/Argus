@@ -25,6 +25,7 @@ store = [
     # and two clients a minor apart against one server is a mismatch nobody
     # sees until a payload field is refused.
     "qdrant-client>=1.19,<1.20",
+    "argus-argus_core[vector_store]",
     # The same local, free, keyless embedder the repository index uses, and
     # the same one: it is the kernel's, behind the kernel's door. Chosen for
     # costing nothing and waiting on nobody rather than for retrieval quality -

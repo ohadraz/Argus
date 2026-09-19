@@ -18,15 +18,13 @@ from __future__ import annotations
 from typing import Final
 from uuid import UUID, uuid5
 
+from argus_core.vector_store import a_collection_that_exists
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    Distance,
     FieldCondition,
     Filter,
     MatchValue,
-    PayloadSchemaType,
     PointStruct,
-    VectorParams,
 )
 
 from incident_memory.records import RememberedIncident
@@ -38,11 +36,6 @@ from incident_memory.records import RememberedIncident
 # memory a second database.
 SERVICE_FIELD: Final = "service"
 RECORD_FIELD: Final = "record"
-
-# Cosine, because these are sentence embeddings and what matters between two of
-# them is direction rather than magnitude - a long description and a short one
-# about the same incident should not be far apart for being different lengths.
-VECTOR_DISTANCE: Final = Distance.COSINE
 
 # The namespace an incident's id is hashed into to make a point id. Qdrant takes
 # a UUID or an integer and an incident id is neither by guarantee, so the id is
@@ -62,7 +55,9 @@ def remember(client: QdrantClient,
     copies of one incident would count twice in an ordering - a past incident
     given a second vote for having been interrupted.
     """
-    _a_collection_that_exists(client, collection, len(vector))
+    a_collection_that_exists(
+        client, collection, width=len(vector), indexed_field=SERVICE_FIELD
+    )
 
     client.upsert(
         collection_name=collection,
@@ -118,27 +113,3 @@ def recalled(client: QdrantClient,
         RememberedIncident.model_validate((point.payload or {})[RECORD_FIELD])
         for point in found.points
     ]
-
-
-def _a_collection_that_exists(client: QdrantClient,
-                              collection: str,
-                              width: int) -> None:
-    """Makes the collection, and the index on the field every search filters by.
-
-    The payload index is not an optimisation to add later. Every search here
-    narrows by service, and narrowing during the search rather than after it is
-    the whole reason a store like this was chosen - without the index Qdrant has
-    nothing to traverse the filter with and falls back to scanning.
-    """
-    if client.collection_exists(collection):
-        return
-
-    client.create_collection(
-        collection_name=collection,
-        vectors_config=VectorParams(size=width, distance=VECTOR_DISTANCE)
-    )
-    client.create_payload_index(
-        collection_name=collection,
-        field_name=SERVICE_FIELD,
-        field_schema=PayloadSchemaType.KEYWORD
-    )

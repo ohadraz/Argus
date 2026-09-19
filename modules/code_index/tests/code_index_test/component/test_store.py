@@ -24,8 +24,17 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from code_index.chunking import Chunk
 from code_index.indexing import Point
-from code_index.store import Found, chunks_held_for, forget, ids_held_for, nearest, store_points
+from code_index.store import (
+    PATH_FIELD,
+    Found,
+    chunks_held_for,
+    forget,
+    ids_held_for,
+    nearest,
+    store_points,
+)
 from qdrant_client import QdrantClient
+from qdrant_client.models import CollectionInfo, PayloadSchemaType
 
 SOME_COLLECTION = "code_index_component_test"
 
@@ -198,6 +207,23 @@ def test_a_store_that_has_never_been_written_to_finds_nothing(
         .then(_nothing_came_back())
 
 
+@pytest.mark.component
+def test_the_field_every_query_filters_by_is_indexed(store: QdrantClient) -> None:
+    # The property the provisioning exists for, and the one thing here that
+    # nothing else would notice the loss of. Every case above filters by path
+    # and passes either way: without the payload index Qdrant answers the same
+    # questions by scanning the collection instead of traversing an index -
+    # correct, and slower with every file added, which surfaces as a search
+    # that used to be quick rather than as a failure.
+    #
+    # Only a real store can answer this. The in-memory client accepts the call,
+    # warns that payload indexes do nothing locally, and reports no schema.
+    Scenario() \
+        .given(_stored(store, [_a_point(SOME_PATH, SOME_TEXT)])) \
+        .when(lambda: store.get_collection(SOME_COLLECTION)) \
+        .then(_the_payload_field_indexed_is(PATH_FIELD))
+
+
 def _a_point(path: str,
              text: str,
              first_line: int = 1,
@@ -365,3 +391,35 @@ def _nothing_came_back() -> Assertion[list[Found]]:
         return True
 
     return nothing_came_back
+
+
+def _the_payload_field_indexed_is(field: str) -> Assertion[CollectionInfo]:
+    """The store's own account of which field it can filter on cheaply.
+
+    Written here and again in `incident_memory`'s suite, on purpose. The
+    obvious home for it is `argus_testkit` - and putting it there would give
+    the shared test package a `qdrant-client` dependency, which every
+    module's dev environment installs. That is the extra `argus_core`
+    declares narrowly for the two corpora, undone by a helper. Two short
+    assertions are the cheaper of the two prices.
+    """
+    def assertion(described: CollectionInfo) -> bool:
+        indexed = dict(described.payload_schema or {})
+
+        if field not in indexed:
+            raise AssertionError(
+                f"Expected [{field}] to carry a payload index, and the collection "
+                f"indexes {sorted(indexed)} - so every filter on it is answered by "
+                f"scanning."
+            )
+
+        if indexed[field].data_type != PayloadSchemaType.KEYWORD:
+            raise AssertionError(
+                f"Expected [{field}] indexed as a keyword, and it is indexed as "
+                f"[{indexed[field].data_type}] - a filter matching an exact value "
+                f"has nothing to traverse."
+            )
+
+        return True
+
+    return assertion

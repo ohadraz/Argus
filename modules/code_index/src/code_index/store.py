@@ -19,17 +19,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from argus_core.vector_store import a_collection_that_exists
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    Distance,
     FieldCondition,
     Filter,
     MatchValue,
-    PayloadSchemaType,
     PointIdsList,
     PointStruct,
     Record,
-    VectorParams,
 )
 
 from code_index.chunking import Chunk
@@ -43,11 +41,6 @@ PATH_FIELD: Final = "path"
 FIRST_LINE_FIELD: Final = "first_line"
 LAST_LINE_FIELD: Final = "last_line"
 TEXT_FIELD: Final = "text"
-
-# Cosine, because these are sentence embeddings and what matters between two of
-# them is direction rather than magnitude - a long passage and a short one about
-# the same thing should not be far apart for being different lengths.
-VECTOR_DISTANCE: Final = Distance.COSINE
 
 # How many points are read back at once. A page rather than all of them: a file
 # has few chunks and a repository has many, and the one that decides this call's
@@ -85,7 +78,9 @@ def store_points(client: QdrantClient,
     if not points:
         return
 
-    _a_collection_that_exists(client, collection, width)
+    a_collection_that_exists(
+        client, collection, width=width, indexed_field=PATH_FIELD
+    )
 
     client.upsert(
         collection_name=collection,
@@ -171,30 +166,6 @@ def forget(client: QdrantClient, collection: str, ids: list[str]) -> None:
     client.delete(
         collection_name=collection,
         points_selector=PointIdsList(points=list(ids))
-    )
-
-
-def _a_collection_that_exists(client: QdrantClient,
-                              collection: str,
-                              width: int) -> None:
-    """Makes the collection, and the index on the field every query filters by.
-
-    The payload index is not an optimisation to add later. Every query here
-    filters by path, and filtering during the search rather than after it is the
-    whole reason this store was chosen - without the index Qdrant has nothing to
-    traverse the filter with and falls back to scanning.
-    """
-    if client.collection_exists(collection):
-        return
-
-    client.create_collection(
-        collection_name=collection,
-        vectors_config=VectorParams(size=width, distance=VECTOR_DISTANCE)
-    )
-    client.create_payload_index(
-        collection_name=collection,
-        field_name=PATH_FIELD,
-        field_schema=PayloadSchemaType.KEYWORD
     )
 
 

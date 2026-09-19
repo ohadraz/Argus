@@ -25,6 +25,7 @@ store = [
     # two are released together, and a client a minor ahead of its store is a
     # mismatch nobody sees until a payload field is refused.
     "qdrant-client>=1.19,<1.20",
+    "argus-argus_core[vector_store]",
     # The model runs in this process. Chosen for being local, free and
     # dependent on nothing external - not for retrieval quality, which a
     # code-trained hosted model would beat. What it buys instead is that

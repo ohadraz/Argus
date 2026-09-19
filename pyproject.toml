@@ -200,6 +200,12 @@ ignore_imports = [
     # is written and searched with. It already declares the extra, through
     # `argus-incident_memory[store]`.
     "orchestrator.** -> argus_core.embedding",
+    # The store beside the model, and narrow for the same reason: the two
+    # modules that keep a corpus, and nobody else. The walk is not among
+    # them - it builds the embedder, and the collection is made by whoever
+    # writes into one.
+    "code_index.** -> argus_core.vector_store",
+    "incident_memory.** -> argus_core.vector_store",
     "agent_codefix.** -> argus_core.llm",
     "agent_investigator.** -> argus_core.llm",
     "agent_postmortem.** -> argus_core.llm",
