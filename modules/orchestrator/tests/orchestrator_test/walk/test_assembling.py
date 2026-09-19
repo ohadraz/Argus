@@ -29,11 +29,14 @@ def test_assembling_the_collaborators_opens_no_connection() -> None:
     # Everything derived from the connections is a closure over them rather than
     # an open connection - a walk is what opens one, when a node actually runs.
     # A source that refuses to open is both the fixture and the assertion here.
+    # No vector store, for the same reason: what a process opened is handed in,
+    # so assembling with none is assembling with nothing to reach.
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
                               _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached())) \
+                              _a_client_that_must_not_be_reached(),
+                              None)) \
         .then(_every_collaborator_was_supplied())
 
 

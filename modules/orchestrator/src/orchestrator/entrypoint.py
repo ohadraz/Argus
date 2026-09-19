@@ -11,6 +11,7 @@ a run nobody is holding can be picked up by whoever comes next.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from argus_core import Connections, get_settings
 from argus_core.events import StatusChanged
@@ -25,6 +26,9 @@ from orchestrator.walk.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.state import IncidentState
 
+if TYPE_CHECKING:
+    from qdrant_client import QdrantClient
+
 # Where the graph a walk runs on comes from. A parameter rather than a global
 # reached through: the thread a resumed run continues on is the whole of what
 # makes a resume a resume, and it is not assertable through a module-level
@@ -34,7 +38,8 @@ type GraphOf = Callable[[], CompiledStateGraph[IncidentState]]
 
 def graph_for(connections: Connections,
               read: McpClient,
-              write: McpClient) -> GraphOf:
+              write: McpClient,
+              store: QdrantClient | None) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 
     Built lazily and held, because compiling it sets up a checkpointer and the
@@ -43,7 +48,7 @@ def graph_for(connections: Connections,
     the application inside it - are two graphs against two sets of connections
     rather than one that whichever ran first got to decide.
 
-    The two clients are passed through rather than built here, for the same
+    The three clients are passed through rather than built here, for the same
     reason `connections` is: what this function owns is when the graph is
     compiled, not what the process it belongs to has opened.
 
@@ -63,7 +68,9 @@ def graph_for(connections: Connections,
             )
             checkpointer = checkpointer_cm.__enter__()
             checkpointer.setup()
-            graph = build_graph(checkpointer, against(connections, read, write))
+            graph = build_graph(
+                checkpointer, against(connections, read, write, store)
+            )
 
         return graph
 

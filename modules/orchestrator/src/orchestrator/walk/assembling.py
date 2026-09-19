@@ -13,8 +13,11 @@ with only the agents and the repositories standing in for themselves.
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
+from typing import TYPE_CHECKING
 
 from agent_codefix import FixSettings, fixes_over
 from agent_investigator import changes_over, logs_over, metrics_over
@@ -71,6 +74,9 @@ from orchestrator.walk.ports import (
     WritePostmortem,
 )
 
+if TYPE_CHECKING:
+    from qdrant_client import QdrantClient
+
 _logger = logging.getLogger(__name__)
 
 
@@ -112,9 +118,42 @@ class Collaborators:
     max_rounds: int
 
 
+@contextmanager
+def the_store_for(settings: Settings) -> Generator[QdrantClient | None]:
+    """The one vector store a process holds, for as long as it runs. Or none.
+
+    Opened where a process starts and closed when it stops, beside the pool and
+    the two MCP sessions - because that is what it is: a session to a server,
+    and a resource with two openers and no closer is the one nobody owns.
+
+    `None` where this deployment keeps no long-term memory, which is a real
+    configuration rather than a switched-off feature (§21 asks what memory is
+    worth, and two runs differing in exactly one thing are how that is asked).
+    Read here rather than by the factories below, so that whether there is a
+    store to speak of is settled once, by the process, before a graph exists.
+
+    Not a `with` around the client itself: `QdrantClient` closes but is not a
+    context manager, which is the same bargain `code_index`'s reconciler makes.
+    """
+    if not settings.incident_memory_enabled:
+        yield None
+
+        return
+
+    from qdrant_client import QdrantClient
+
+    store = QdrantClient(url=settings.qdrant_url)
+
+    try:
+        yield store
+    finally:
+        store.close()
+
+
 def against(connections: Connections,
             read: McpClient,
-            write: McpClient) -> Collaborators:
+            write: McpClient,
+            store: QdrantClient | None) -> Collaborators:
     """The real ones, for a process that has a database, a model and two tiers.
 
     Built once where the process starts. Everything derived from `connections`
@@ -122,6 +161,16 @@ def against(connections: Connections,
     reaches nothing - a walk is what opens one, when a node actually runs. The
     two clients are the same bargain: each is one session to one server, opened
     by the process that owns it and handed here rather than dialled per call.
+    So is the store, which both memory factories are handed rather than each
+    opening one: `None` there says this process remembers nothing.
+
+    Being handed the store is what keeps a test off the network, and not only
+    tidy. Constructing a `QdrantClient` starts a daemon thread that asks the
+    configured address for its version, and every failure of that thread is
+    swallowed into a warning - so a unit test that built one reached out, and
+    reached out silently. Passing `None`, or a double, is the only way that
+    does not happen, and it is available only because nothing here constructs
+    a client.
 
     Which tier answers which question is decided here and nowhere else. The read
     client serves every retrieval channel and the verification metrics; the write
@@ -209,8 +258,8 @@ def against(connections: Connections,
         # branch and the draft pull request come from the one that can (§13).
         propose_fix=fixes_over(read, write, FixSettings.of(settings), recorder),
         actions_taken=records.actions_taken,
-        recall_similar=_recalling(settings),
-        remember_incident=_remembering(settings),
+        recall_similar=_recalling(settings, store),
+        remember_incident=_remembering(settings, store),
         write_postmortem=lambda incident_id: write_postmortem_for(
             incident_id,
             connections=connections,
@@ -226,26 +275,26 @@ def against(connections: Connections,
     )
 
 
-def _recalling(settings: Settings) -> RecallSimilar:
+def _recalling(settings: Settings, store: QdrantClient | None) -> RecallSimilar:
     """What earlier incidents this one resembles, or nothing at all.
 
-    Nothing where memory is off, and nothing where the store cannot answer. The
-    two are the same answer on purpose: every decision recall informs has an
-    answer without it, and an incident that stalled because a cache of old
-    incidents was unreachable would be a worse system than one with no memory.
+    Nothing where the process holds no store, and nothing where the store
+    cannot answer. The two are the same answer on purpose: every decision
+    recall informs has an answer without it, and an incident that stalled
+    because a cache of old incidents was unreachable would be a worse system
+    than one with no memory.
 
     Deliberately every exception. What can go wrong is a store that is down, a
     collection that does not exist yet, or a model that will not load, and none
     of them is a fact about the incident in front of the walk.
     """
-    if not settings.incident_memory_enabled:
+    if store is None:
         return lambda dont_care_description, dont_care_service: []
 
     from incident_memory.keeping import recalling_from
-    from qdrant_client import QdrantClient
 
     recall = recalling_from(
-        QdrantClient(url=settings.qdrant_url),
+        store,
         settings.incident_memory_collection,
         an_embedder(settings.incident_memory_embedding_model),
         limit=settings.incident_memory_recall_limit,
@@ -263,28 +312,26 @@ def _recalling(settings: Settings) -> RecallSimilar:
     return recall_what_it_can
 
 
-def _remembering(settings: Settings) -> RememberIncident:
+def _remembering(settings: Settings, store: QdrantClient | None) -> RememberIncident:
     """Where a finished incident's record goes, or nowhere.
 
     Nowhere is a real configuration rather than a way of switching off something
-    broken. §21's whole question is what memory is worth, and two runs that
-    differ in exactly one thing are how that is asked - so a deployment with
-    memory off keeps nothing, and the node above cannot tell that from a store
-    that was written to.
+    broken - the process opened no store, and the node above cannot tell that
+    from one that was written to.
 
-    The client and the model are built here, once, for the reason every other
-    collaborator is: a walk is not where a process discovers its configuration,
-    and loading an ONNX runtime per incident would be paying for the model at
-    exactly the wrong moment.
+    The model is built here, once, for the reason every other collaborator is:
+    a walk is not where a process discovers its configuration, and loading an
+    ONNX runtime per incident would be paying for the model at exactly the
+    wrong moment. It is loaded lazily and cached on its name, so naming it
+    here and in `_recalling` is one model, not two.
     """
-    if not settings.incident_memory_enabled:
+    if store is None:
         return lambda dont_care_record: None
 
     from incident_memory.keeping import kept_in
-    from qdrant_client import QdrantClient
 
     return kept_in(
-        QdrantClient(url=settings.qdrant_url),
+        store,
         settings.incident_memory_collection,
         an_embedder(settings.incident_memory_embedding_model)
     )

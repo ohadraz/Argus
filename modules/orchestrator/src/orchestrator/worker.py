@@ -43,6 +43,7 @@ from write_mcp_client import write_mcp
 
 from orchestrator.entrypoint import graph_for, run_incident
 from orchestrator.unwinding import taken_actions_from, unwind_incident
+from orchestrator.walk.assembling import the_store_for
 
 logger = logging.getLogger(__name__)
 
@@ -136,18 +137,22 @@ def work_forever(connections: Connections,
 
 
 def main() -> None:
-    """The process itself: a pool, two sessions, then take runs until killed.
+    """The process itself: a pool, three sessions, then take runs until killed.
 
     Where everything this process needs is built, and the only place that knows
-    a pool exists or that either MCP server has an address. A `main` rather than
-    bare module-level code, so that importing this module - which the tests do -
-    starts nothing and opens nothing.
+    a pool exists, that either MCP server has an address, or that the vector
+    store does. A `main` rather than bare module-level code, so that importing
+    this module - which the tests do - starts nothing and opens nothing.
 
     The clients are held for the life of the worker, which is the point of them:
     one session per tier, reused by every retrieval of every incident this
     process walks, rather than a connection and an MCP handshake per tool call.
     Neither dials anything until the first call, so a worker that finds an empty
     queue and is killed never opened a socket.
+
+    The store is held on the same terms, and by the same owner: one client for
+    both ends of long-term memory, opened here and closed here, or none at all
+    where this deployment remembers nothing.
     """
     logging.basicConfig(level=logging.INFO)
 
@@ -158,6 +163,7 @@ def main() -> None:
         open_pool(DatabaseSettings.of(settings)) as pool,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
         write_mcp(WriteMcpEndpoint.of(settings)) as write,
+        the_store_for(settings) as store,
     ):
         connections = pool.connection
 
@@ -167,7 +173,7 @@ def main() -> None:
         with pool.connection() as conn:
             require_schema(conn)
 
-        graph_of = graph_for(connections, read, write)
+        graph_of = graph_for(connections, read, write, store)
 
         work_forever(
             connections,
