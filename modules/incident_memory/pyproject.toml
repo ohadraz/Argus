@@ -9,10 +9,24 @@ dependencies = [
 
 
 # The store and the model, for whoever reaches them. An extra rather than a
-# hard dependency, for the reason `code_index` makes Qdrant and the embedder
-# one: a caller that only names a memory record - the walk assembling its
-# ports, a test composing one from actions - would otherwise install an ONNX
-# runtime to hold a value object.
+# hard dependency, in the shape `code_index` uses: behind it are a Qdrant
+# client and an ONNX runtime, and naming a memory record is not a reason to
+# install either.
+#
+# Unlike `code_index`'s, this extra narrows nothing that is actually installed,
+# and that is worth stating rather than leaving to be discovered. `code_index`
+# has a dependant that takes it bare - `argus_web` writes the watermark row and
+# never searches - where the only distribution depending on this one is
+# `orchestrator`, with `[store]`. It has no choice: whether memory is used at
+# all is `incident_memory_enabled`, read when the worker starts, and a
+# dependency is resolved long before a process reads anything.
+#
+# What does pay off is the split the extra is drawn along. `records`,
+# `describing`, `ordering` and `composing` reach no store, so the four files in
+# `orchestrator` that import them at module scope load neither Qdrant nor an
+# ONNX runtime; only `keeping` does, and both of its importers are inside the
+# factories that run when the process opened a store. A walk with memory off
+# imports nothing it will not use, even though its wheel contains it.
 #
 # Every caller that writes or searches declares `argus-incident_memory[store]`,
 # and reaching `incident_memory.store` or `incident_memory.embedding` without

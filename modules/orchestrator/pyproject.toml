@@ -7,8 +7,11 @@ dependencies = [
     "argus-argus_incidents",
     "argus-argus_narration",
     # With the store, because the walk is what writes a record and the walk
-    # is what searches for one. A caller naming only the record type takes
-    # the package bare; nothing here is that caller.
+    # is what searches for one - and unconditionally, because whether it does
+    # either is read at runtime while this is resolved at install. A worker
+    # with memory off still carries Qdrant and an ONNX runtime; what it does
+    # not do is import them. `incident_memory`'s own extra says why the trade
+    # is taken this way round.
     "argus-incident_memory[store]",
     "argus-agent_investigator",
     "argus-agent_mitigation",
