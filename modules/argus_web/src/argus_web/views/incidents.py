@@ -31,7 +31,7 @@ from pydantic import BaseModel
 class Attempt(BaseModel):
     """One action the walk took, as a reader sees it."""
 
-    action_type: str | None
+    action_type: str
     outcome: str | None
     undone: bool
     taken_at: datetime

@@ -41,7 +41,11 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
     cause_type TEXT,
-    summary TEXT,
+    -- Required, because a candidate with no sentence saying what it is
+    -- cannot be read by anybody: the page lists it, the write-up quotes
+    -- it, and the model that formed it always says one. Every writer sets
+    -- it today - this is the database agreeing rather than hoping.
+    summary TEXT NOT NULL,
     supporting_evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
     tested BOOLEAN NOT NULL DEFAULT false,
     result TEXT,
@@ -77,7 +81,11 @@ CREATE TABLE IF NOT EXISTS action (
     -- act on one subject twice, a rule about retrying rather than about
     -- identity.
     hypothesis_id UUID REFERENCES hypothesis(id),
-    type TEXT,
+    -- Required for the same reason: the claim is written by a caller
+    -- holding an action it is about to take, so the kind is never in
+    -- doubt. `subject` below is the opposite case and stays nullable - a
+    -- candidate naming no subject is a real candidate.
+    type TEXT NOT NULL,
     subject TEXT,
     reversible BOOLEAN NOT NULL DEFAULT true,
     undo_descriptor JSONB,
