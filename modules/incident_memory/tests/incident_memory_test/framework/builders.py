@@ -128,7 +128,7 @@ def an_action(subject: str,
         reversible=True,
         tier=DONT_CARE_TIER,
         undo_descriptor=None,
-        outcome=verdict.value if verdict is not None else None,
+        outcome=verdict,
         taken_at=DONT_CARE_MOMENT,
         approved_by=None
     )

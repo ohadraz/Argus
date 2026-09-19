@@ -22,17 +22,10 @@ from argus_core.models import (
     Incident,
     IncidentStatus,
     TakenAction,
+    Verdict,
 )
 from argus_narration import said_as_a_state
 from pydantic import BaseModel
-
-# The verdict a reversible action gets when the service did not recover. The
-# walk undoes such an action before returning it - see `agent_mitigation` - so
-# "refuted" is also the record that the change was put back. Named here because
-# that is an inference from the walk's contract rather than something the row
-# states, and if the contract ever changes the fix is to record the revert, not
-# to re-derive it from a different string.
-_REFUTED = "refuted"
 
 
 class Attempt(BaseModel):
@@ -155,11 +148,23 @@ def _an_attempt(taken_action: TakenAction) -> Attempt:
     a moment ago and the service has not answered. That is a state to show, not
     an absence to hide - the same way the shop's console shows a minute still
     in progress.
+
+    Undone is the verdict a reversible action gets when the service did not
+    recover: the walk puts such an action back before returning it - see
+    `agent_mitigation` - so `REFUTED` is also the record that the change was
+    reverted. That is an inference from the walk's contract rather than
+    something the row states, and if the contract changes the fix is to record
+    the revert, not to read it off a different verdict.
+
+    The outcome is shown as the page was handed it, which is the spelling the
+    column holds even where no verdict spells it. A row an older version wrote
+    is still an action a human is looking at, and blanking it would hide the
+    one part of it nobody can otherwise recover.
     """
     return Attempt(
         action_type=taken_action.type,
         outcome=taken_action.outcome,
-        undone=taken_action.outcome == _REFUTED,
+        undone=taken_action.outcome is Verdict.REFUTED,
         taken_at=taken_action.taken_at
     )
 

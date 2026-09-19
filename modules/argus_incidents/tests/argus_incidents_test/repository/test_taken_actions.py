@@ -6,7 +6,16 @@ from typing import Any
 import psycopg
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, CauseType, FlagUndo, Hypothesis, UndoDescriptor
+from argus_core.models import (
+    Alert,
+    CauseType,
+    FlagUndo,
+    Hypothesis,
+    TakenAction,
+    UndoDescriptor,
+    UnreadVerdict,
+    Verdict,
+)
 from argus_incidents.repository import hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -44,7 +53,7 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
                     hypothesis_id=dont_care_hypothesis_id,
                     action_type="revert-feature-flag",
                     subject="monthly-spend-feature",
-                    outcome="confirmed",
+                    outcome=Verdict.CONFIRMED,
                     undo_descriptor=some_undo_descriptor
                 )
             ) \
@@ -83,7 +92,7 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
                     hypothesis_id=dont_care_hypothesis_id,
                     action_type="revert-feature-flag",
                     subject="dont-care-flag",
-                    outcome="escalated",
+                    outcome=Verdict.ESCALATED,
                     undo_descriptor=None
                 )
             ) \
@@ -127,7 +136,7 @@ def test_an_action_names_the_subject_it_changed() -> None:
                     hypothesis_id=dont_care_hypothesis_id,
                     action_type="revert-feature-flag",
                     subject=the_flag_that_was_changed,
-                    outcome="confirmed",
+                    outcome=Verdict.CONFIRMED,
                     undo_descriptor=FlagUndo(
                         flag=the_flag_that_was_changed, was_enabled=True
                     )
@@ -205,7 +214,7 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
                     hypothesis_id=hypothesis_id,
                     action_type="revert-feature-flag",
                     subject="monthly-spend-feature",
-                    outcome="refuted",
+                    outcome=Verdict.REFUTED,
                     undo_descriptor=FlagUndo(flag="monthly-spend-feature", was_enabled=False)
                 )
             ) \
@@ -236,7 +245,7 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
         second = a_hypothesis_recorded_for(incident_id, subject=the_contested_flag, rank=2)
 
         def an_action_is_taken_for_each() -> None:
-            for candidate, outcome in ((first, "refuted"), (second, "confirmed")):
+            for candidate, outcome in ((first, Verdict.REFUTED), (second, Verdict.CONFIRMED)):
                 taken_actions.record(
                     conn,
                     incident_id,
@@ -272,7 +281,7 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
         second = a_hypothesis_recorded_for(incident_id, subject="second", rank=2)
 
         def two_actions_are_taken() -> None:
-            for candidate, outcome in ((first, "refuted"), (second, "confirmed")):
+            for candidate, outcome in ((first, Verdict.REFUTED), (second, Verdict.CONFIRMED)):
                 taken_actions.record(
                     conn,
                     incident_id,
@@ -289,6 +298,52 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
             ) \
             .then(
                 the_actions_read_back_are(incident_id, ["refuted", "confirmed"])
+            )
+
+
+@pytest.mark.integration
+def test_an_outcome_no_verdict_spells_comes_back_unread_rather_than_absent() -> None:
+    # The read every other reader comes through, asked about the row none of
+    # them can spell. Absence is the state it must not collapse into: a claim
+    # with no outcome means the worker died between acting and recording, and
+    # it is the one row whose change may be out there unmeasured - so reading
+    # a finished action as that one sends the walk to ask the provider about a
+    # verdict that was already reached.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    a_verdict_this_version_cannot_spell = "dissolved"
+
+    with connect_from_env() as conn:
+        an_incident_created_for = partial(_an_incident_created_for, conn)
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        an_older_versions_verdict_on = partial(_an_older_versions_verdict_on, conn)
+
+        incident_id = an_incident_created_for(some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="monthly-spend-feature"
+                )
+            ) \
+            .given(
+                an_older_versions_verdict_on(
+                    incident_id, a_verdict_this_version_cannot_spell
+                )
+            ) \
+            .when(
+                lambda: taken_actions.get_action_for_hypothesis(
+                    conn, incident_id, hypothesis_id
+                )
+            ) \
+            .then(
+                _the_outcome_read_back_is(
+                    UnreadVerdict(a_verdict_this_version_cannot_spell)
+                )
             )
 
 
@@ -470,6 +525,61 @@ def _the_actions_read_back_are(conn: psycopg.Connection,
 
         if found != outcomes:
             raise AssertionError(f"Expected outcomes {outcomes}, got {found}.")
+
+        return True
+
+    return assertion
+
+
+def _an_older_versions_verdict_on(conn: psycopg.Connection,
+                                  incident_id: str,
+                                  spelling: str) -> None:
+    """One finished action whose outcome is spelled in a way this version does
+    not know.
+
+    Written in SQL, and the only thing here that is. Everything a writer can
+    produce is produced by the real writer - the claim above this is
+    `taken_actions.claim` for exactly that reason - because a test that seeds
+    the store by hand proves the reader understands a shape the test itself
+    invented, which is how a column read by two modules went its whole life
+    unwritten.
+
+    This row is the exception, and it is the exception because production
+    cannot make one: `complete` takes a `Verdict`, so every spelling Argus
+    writes is a spelling Argus reads. A row that disagrees comes from a version
+    that is gone - a rename, an older deploy mid-migration - and the inability
+    to write one is the behaviour under test, not a corner the seeding cuts.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE action SET outcome = %s WHERE incident_id = %s",
+            (spelling, incident_id)
+        )
+    conn.commit()
+
+
+def _the_outcome_read_back_is(expected: Verdict | UnreadVerdict | None
+                              ) -> Assertion[TakenAction | None]:
+    """What the row's outcome is, as a value and as a type.
+
+    Both, because `UnreadVerdict("refuted")` equals `Verdict.REFUTED` and is
+    not one - and because the type is the whole distinction here: read back as
+    `None`, an unreadable verdict is an action nobody finished, and the
+    resuming walk goes and asks the provider whether a change it already has a
+    verdict for ever landed.
+    """
+    def assertion(action: TakenAction | None) -> bool:
+        if action is None:
+            raise AssertionError(
+                f"Expected an action whose outcome reads back as [{expected!r}], "
+                f"got no row at all."
+            )
+
+        if action.outcome != expected or type(action.outcome) is not type(expected):
+            raise AssertionError(
+                f"Expected the outcome to read back as [{expected!r}], got "
+                f"[{action.outcome!r}]."
+            )
 
         return True
 

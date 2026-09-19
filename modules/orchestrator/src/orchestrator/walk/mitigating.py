@@ -14,7 +14,7 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models import Actor, IncidentStatus
+from argus_core.models import Actor, IncidentStatus, UnreadVerdict
 from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -133,8 +133,6 @@ def mitigation_node(
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
-            # The verdict itself, not the spelling above: the row and the walk's
-            # own state travel as text, and the account travels as the value.
             outcome=result.verdict
         )
     )
@@ -186,11 +184,28 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     A provider that cannot say is treated as the first case, not the second. An
     unanswerable question is not a "no", and acting on it would be acting on a
     guess about whether production has already been changed.
+
+    An outcome nobody here can read is the fourth state, and it escalates
+    without asking the provider anything. A verdict was reached, so the
+    question this node asks a claim carrying nothing - did the change land -
+    is not the question: a "yes" would describe an unmeasured change that was
+    in fact measured, and a "no" would be read as licence to act again on a
+    subject somebody already settled.
     """
     assert state.hypothesis is not None and state.proposed_action is not None
 
     claimed = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
     outcome = claimed.outcome if claimed is not None else None
+
+    if isinstance(outcome, UnreadVerdict):
+        return StateDelta(
+            status=IncidentStatus.ESCALATED,
+            narration=Narration(
+                action="mitigation resumed",
+                detail=f"an earlier attempt already acted on this explanation, and "
+                       f"recorded an outcome this version cannot read: {outcome}"
+            )
+        )
 
     if outcome is not None:
         # The account of the gap, and not of the verdict: that was published by

@@ -36,6 +36,7 @@ from argus_core.models import (
     Outcome,
     RevertFeatureFlag,
     UndoDescriptor,
+    UnreadVerdict,
     Verdict,
 )
 from argus_incidents.withdrawal import IsStillWanted
@@ -559,6 +560,50 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
 
 
 @pytest.mark.unit
+def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # A verdict was reached and this version cannot say which. The row comes
+    # from a writer that is gone - a rename, an older deploy - and every
+    # answer available here is wrong: reporting it hands a spelling to a walk
+    # whose whole downstream reads verdicts, and acting again changes a
+    # subject somebody already settled. So it stops, the way it stops for a
+    # provider that will not answer.
+    #
+    # Not by asking whether the change landed, either. That question belongs
+    # to a claim carrying nothing, and this one carries an outcome.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action,
+                already_taken,
+                UnreadVerdict("dissolved")
+            )),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      change_landed=change_landed,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(_the_action_was_not_taken(take),
+                     _the_incident_was_escalated(),
+                     _the_provider_was_never_asked(change_landed)))
+
+
+@pytest.mark.unit
 def test_an_action_that_stopped_the_symptom_goes_on_to_look_for_a_fix() -> None:
     # The path that did not exist before. A mitigation that worked used to end
     # the incident at the postmortem, which meant the fault it exposed was
@@ -768,7 +813,7 @@ def _this_walk_holds_the_claim(record_action: MagicMock) -> None:
 def _an_earlier_attempt_holds_the_claim(
         record_action: MagicMock,
         already_taken: MagicMock,
-        nothing_recorded: Verdict | None,
+        nothing_recorded: Verdict | UnreadVerdict | None,
         written_at: datetime = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN) -> None:
     """The claim was written by a worker that is gone.
 
@@ -1093,3 +1138,26 @@ def _nothing_landed() -> ports.ChangeLanded:
     a client that was never running.
     """
     return lambda dont_care_flag, dont_care_since: False
+
+
+def _the_provider_was_never_asked(change_landed: MagicMock) -> Assertion[StateDelta]:
+    """Nobody asked whether the change landed.
+
+    The question is about a claim with nothing recorded against it, and this
+    row has something recorded - a verdict, spelled by a version that is gone.
+    Asking it anyway would take a `True` back as "a change was made and nobody
+    measured it", which is a different incident from the one on file, and a
+    `False` as licence to act again on a subject whose attempt already reached
+    a verdict somebody could read.
+    """
+    def assertion(_updates: StateDelta) -> bool:
+        if change_landed.called:
+            raise AssertionError(
+                f"Expected the provider not to be asked about a claim that "
+                f"already carries an outcome, and it was asked "
+                f"{change_landed.call_count} time(s)."
+            )
+
+        return True
+
+    return assertion

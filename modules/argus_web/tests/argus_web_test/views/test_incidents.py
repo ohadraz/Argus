@@ -26,6 +26,7 @@ from argus_core.models import (
     Incident,
     IncidentStatus,
     TakenAction,
+    Verdict,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.incidents import (
@@ -41,8 +42,8 @@ _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 NOTHING_WAS_TRIED: list[TakenAction] = []
 NOTHING_WAS_FORMED: list[Hypothesis] = []
 
-REFUTED = "refuted"
-CONFIRMED = "confirmed"
+REFUTED = Verdict.REFUTED
+CONFIRMED = Verdict.CONFIRMED
 
 
 @pytest.mark.unit
@@ -265,7 +266,7 @@ def _a_candidate(incident_id: str,
 
 def _an_attempt(incident_id: str,
                 hypothesis_id: str | None,
-                outcome: str | None) -> TakenAction:
+                outcome: Verdict | None) -> TakenAction:
     return TakenAction(
         id=new_id(),
         incident_id=incident_id,

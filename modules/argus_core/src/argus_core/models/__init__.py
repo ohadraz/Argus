@@ -16,6 +16,7 @@ from argus_core.models.action import (
     ActionType,
     Outcome,
     RevertFeatureFlag,
+    UnreadVerdict,
     Verdict,
 )
 from argus_core.models.actor import Actor
@@ -97,6 +98,9 @@ __all__ = [
     "Turn",
     "UndoDescriptor",
     "Undone",
+    # Public because `ClaimedAction` names it in an annotation a consumer has
+    # to be able to write, not because callers asked for it.
+    "UnreadVerdict",
     "Verdict",
     "parse_undo_descriptor"
 ]

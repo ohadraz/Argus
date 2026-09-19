@@ -96,7 +96,7 @@ class Records:
         self,
         incident_id: str,
         hypothesis_id: str,
-        outcome: str,
+        outcome: Verdict,
         undo_descriptor: UndoDescriptor | None,
         narrating: IncidentEvent
     ) -> None:
@@ -127,10 +127,12 @@ class Records:
         separately it was fetched twice to take one column each - and the two
         answers could come from either side of a write that landed between them.
 
-        The verdict is converted here rather than passed on as text. This is the
-        edge between a column and the walk, and a verdict that stayed a string
-        until some branch compared it against a literal is a branch nothing
-        checks.
+        The outcome is passed on as it was read. It arrives as a value already
+        - the row is parsed where the column is read, which is the one place
+        that decides what an outcome Argus cannot spell is - so converting it
+        again here would be this adapter holding an opinion about a policy it
+        does not own, and the two conversions this replaced disagreed about
+        exactly that.
         """
         with self._connections() as conn:
             taken_action = taken_actions.get_action_for_hypothesis(
@@ -140,7 +142,7 @@ class Records:
             return None
 
         return ClaimedAction(
-            outcome=Verdict(taken_action.outcome) if taken_action.outcome else None,
+            outcome=taken_action.outcome,
             claimed_at=taken_action.taken_at
         )
 

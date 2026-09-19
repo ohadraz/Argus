@@ -27,6 +27,7 @@ from argus_core.models import (
     Reading,
     TakenAction,
     UndoDescriptor,
+    UnreadVerdict,
 )
 
 # `records_nothing` is aliased because `events` and `replay` each call their
@@ -131,7 +132,7 @@ class CompleteAction(Protocol):
         self,
         incident_id: str,
         hypothesis_id: str,
-        outcome: str,
+        outcome: Verdict,
         undo_descriptor: UndoDescriptor | None,
         narrating: IncidentEvent
     ) -> None: ...
@@ -182,9 +183,16 @@ class ClaimedAction(BaseModel):
     The verdict itself rather than the text of the column it was read from. The
     walk branches on this, and a branch on a string is a branch that goes on
     compiling after somebody changes how a verdict is spelt.
+
+    Which is why there is a third state rather than two. A row can carry an
+    outcome spelled by a version that is gone, and it is neither a verdict this
+    walk can report nor the absence of one: reported, it reaches everything
+    downstream that reads a verdict; read as absent, it sends this walk to ask
+    the provider whether a change it already has a verdict for ever landed.
+    Carried as itself, the node stops on it and says what it could not read.
     """
 
-    outcome: Verdict | None
+    outcome: Verdict | UnreadVerdict | None
     claimed_at: datetime
 
 

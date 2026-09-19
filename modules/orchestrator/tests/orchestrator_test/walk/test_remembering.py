@@ -223,7 +223,7 @@ def _an_action(subject: str, verdict: Verdict) -> TakenAction:
         reversible=True,
         tier="reversible",
         undo_descriptor=None,
-        outcome=verdict.value,
+        outcome=verdict,
         taken_at=datetime(2026, 8, 30, 10, 14, tzinfo=UTC),
         approved_by=None
     )

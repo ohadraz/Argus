@@ -25,6 +25,7 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     PostmortemDocument,
+    Verdict,
 )
 from argus_incidents.repository import hypotheses, incidents, postmortems, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
@@ -226,8 +227,8 @@ def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
         incident_id = incidents.create(conn, some_alert)
         refuted = _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
         confirmed = _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
-        _an_attempt_taken_for(conn, incident_id, refuted, outcome="refuted")
-        _an_attempt_taken_for(conn, incident_id, confirmed, outcome="confirmed")
+        _an_attempt_taken_for(conn, incident_id, refuted, outcome=Verdict.REFUTED)
+        _an_attempt_taken_for(conn, incident_id, confirmed, outcome=Verdict.CONFIRMED)
 
     Scenario() \
         .given(
@@ -664,7 +665,7 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
 def _an_attempt_taken_for(conn: psycopg.Connection,
                           incident_id: str,
                           hypothesis_id: str,
-                          outcome: str) -> None:
+                          outcome: Verdict) -> None:
     taken_actions.record(
         conn,
         incident_id,

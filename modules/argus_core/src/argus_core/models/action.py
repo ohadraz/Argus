@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Final, Literal
+from typing import Annotated, Any, Final, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, GetCoreSchemaHandler
+from pydantic_core import CoreSchema, core_schema
 
 from argus_core.models.undo_descriptor import FlagUndo, UndoDescriptor
 
@@ -30,6 +31,66 @@ class Verdict(StrEnum):
     REFUTED = "refuted"
     ESCALATED = "escalated"
     WITHDRAWN = "withdrawn"
+
+
+class UnreadVerdict(str):
+    """A verdict on file that no `Verdict` spells.
+
+    A verdict and not an `Outcome`, which is the other thing in this module
+    that a stored action produces: an `Outcome` is a verdict with the detail
+    and the way back beside it, and this is the one field of it that could not
+    be read. Every branch that meets one asks `isinstance(..., Verdict)`, which
+    is the question the name has to answer.
+
+    The `action` table stores its outcome as text and goes on storing it as
+    text: a row written before a verdict was renamed is history, and history
+    still has to come back out of the table. So the column has three states
+    rather than two, and this is the third - not the absence of an outcome,
+    which means the worker died between acting and recording what it found,
+    and is the one case a resuming walk has to ask the provider about.
+
+    A `str`, because `Verdict` is a `StrEnum` and every destination that shows
+    an outcome shows this one the same way: the timeline, the dashboard and the
+    evidence the postmortem reads all interpolate whichever they were handed
+    and print what the column holds. A state carrying no spelling would tell an
+    operator less than the row does, and leave an escalation unable to name
+    what stopped it.
+
+    Which is also why it refuses a spelling `Verdict` knows. Both are `str`, so
+    `UnreadVerdict("confirmed")` would compare equal to `Verdict.CONFIRMED`
+    while failing every `isinstance` narrowing decided against it - read as a
+    verdict where an outcome is shown, and absent where one is judged. Nothing
+    on the read path can produce such a value, since a spelling a verdict has
+    becomes that verdict; the invariant is here so that nothing off the read
+    path can produce one either.
+    """
+
+    def __new__(cls, spelling: str) -> UnreadVerdict:
+        if spelling in _THE_SPELLINGS_OF_A_VERDICT:
+            raise ValueError(
+                f"[{spelling}] is how a `Verdict` is spelled, so it is not a "
+                f"verdict nobody can read - `Verdict({spelling!r})` is."
+            )
+
+        return super().__new__(cls, spelling)
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls,
+                                     source: Any,
+                                     handler: GetCoreSchemaHandler) -> CoreSchema:
+        """Validated as a string and then built through the constructor above.
+
+        Pydantic knows nothing about a bare `str` subclass, and a field
+        annotated with one is a schema error rather than a default. Saying so
+        here keeps the refusal on the way in: a model handed a spelling a
+        verdict has raises where it is built, not somewhere downstream that
+        expected the narrowing to hold.
+        """
+        return core_schema.no_info_after_validator_function(cls,
+                                                            core_schema.str_schema())
+
+
+_THE_SPELLINGS_OF_A_VERDICT: Final = frozenset(verdict.value for verdict in Verdict)
 
 
 class RevertFeatureFlag(BaseModel):

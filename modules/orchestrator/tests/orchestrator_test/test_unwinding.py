@@ -28,12 +28,19 @@ import pytest
 from agent_mitigation import UndoAttempt
 from argus_core import new_id
 from argus_core.events import ChangeUndone, IncidentEvent
-from argus_core.models import FlagUndo, TakenAction, UndoDescriptor, Undone
+from argus_core.models import (
+    FlagUndo,
+    TakenAction,
+    UndoDescriptor,
+    Undone,
+    Verdict,
+)
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator import unwinding
 from orchestrator.unwinding import unwind_incident
 
 _DONT_CARE_INCIDENT_ID = "buki-123"
+_DONT_CARE_VERDICT = Verdict.CONFIRMED
 
 
 @pytest.fixture
@@ -351,7 +358,7 @@ def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None) -> TakenAct
         reversible=True,
         tier="write",
         undo_descriptor=undo_descriptor,
-        outcome="dont care",
+        outcome=_DONT_CARE_VERDICT,
         taken_at=datetime.now(UTC),
         approved_by=None,
     )

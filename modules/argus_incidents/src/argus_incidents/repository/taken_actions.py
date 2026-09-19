@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.models import ActionType, TakenAction, UndoDescriptor
+from argus_core.models import ActionType, TakenAction, UndoDescriptor, Verdict
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 
@@ -50,6 +50,11 @@ def claim(
     action Argus is about to take, so nothing is lost by refusing a kind that
     does not exist - while a row already written is history, and one recorded
     before a tag was renamed still has to come back out of the table.
+
+    `complete` holds the same asymmetry for the outcome, and reading it out is
+    where the two halves meet: a spelling Argus can write is a spelling Argus
+    reads, so the one state a reader cannot resolve is a row this version did
+    not write.
     """
     with conn.cursor() as cursor:
         cursor.execute(
@@ -69,10 +74,16 @@ def complete(
     conn: psycopg.Connection,
     incident_id: str,
     hypothesis_id: str,
-    outcome: str,
+    outcome: Verdict,
     undo_descriptor: UndoDescriptor | None,
 ) -> None:
     """Records what came of an action already claimed (spec §11.1, §13).
+
+    A `Verdict` going in, for the reason `claim` takes an `ActionType`: every
+    caller is holding the verdict its own attempt just reached, so nothing is
+    lost by refusing a spelling that means nothing - and what that buys the
+    readers is the guarantee that an outcome none of them can resolve was
+    written by a version that is gone, rather than by this one this morning.
 
     An absent descriptor is stored as NULL: an action that never reached the
     provider changed nothing, and a row offering a way back from a change that
@@ -105,7 +116,7 @@ def record(
     hypothesis_id: str,
     action_type: ActionType,
     subject: str | None,
-    outcome: str,
+    outcome: Verdict,
     undo_descriptor: UndoDescriptor | None,
 ) -> None:
     """One action, claimed and completed in a single step.

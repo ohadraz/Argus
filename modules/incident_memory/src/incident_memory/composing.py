@@ -66,18 +66,19 @@ def _what_the_attempt_was_worth(action: TakenAction) -> WhatWasTried | None:
     candidate to be matched against - and nothing where no verdict was reached
     on it.
 
-    The outcome is a column rather than an enum, so a value no `Verdict` spells
-    is expressible and is read as the absence of one. A row written by a version
-    that knew an outcome this one does not is a row to pass over, not a reason to
+    The outcome arrives as a value, so what is asked here is whether it is a
+    verdict at all and, if it is, which. An outcome the row carries but this
+    version cannot spell is neither of the two that judge a subject, and is
+    passed over with them: a row written by a version that knew an outcome this
+    one does not is a row with nothing to say about the subject, not a reason to
     fail at the close of an incident.
     """
-    if not action.subject or action.outcome is None:
+    if not action.subject:
         return None
 
-    judgements = {verdict.value: verdict for verdict in VERDICTS_THAT_JUDGE_A_SUBJECT}
-    verdict = judgements.get(action.outcome)
+    outcome = action.outcome
 
-    if verdict is None:
+    if not isinstance(outcome, Verdict) or outcome not in VERDICTS_THAT_JUDGE_A_SUBJECT:
         return None
 
-    return WhatWasTried(subject=action.subject, verdict=verdict)
+    return WhatWasTried(subject=action.subject, verdict=outcome)
