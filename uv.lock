@@ -119,7 +119,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "argus-agent-investigator" },
     { name = "argus-argus-testkit" },
 ]
 
@@ -131,10 +130,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "argus-agent-investigator", editable = "modules/agent_investigator" },
-    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
-]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
 
 [[package]]
 name = "argus-agent-communicator"

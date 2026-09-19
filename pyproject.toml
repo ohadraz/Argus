@@ -229,8 +229,12 @@ forbidden_modules = ["*"]
 # `argus_narration` renders events handed to it: the walk already holds a
 # repository, and a second module opening its own connection to the same rows
 # would put the question of which incident's actions these are in two places.
+#
+# By module path alone, and that is not an oversight: nothing here names
+# `argus_core` bare. It reaches `argus_core.models` and `argus_core.embedding`,
+# both of which are doors, and an allowance matching nothing warns on every run
+# until somebody removes it.
 ignore_imports = [
-    "incident_memory.** -> argus_core",
     "incident_memory.** -> argus_core.**",
 ]
 unmatched_ignore_imports_alerting = "warn"
@@ -260,3 +264,23 @@ ignore_imports = [
     "argus_web.** -> code_index.records",
 ]
 unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "an agent knows the kernel and its own sources, never another agent"
+type = "independence"
+# The five delegates of the multi-agent system. What they share is the kernel,
+# and anything two of them both need belongs there - which is the rule
+# `CLAUDE.md` has stated all along and nothing enforced, so the first
+# agent-to-agent edge arrived and no build failed. A human found it in review.
+#
+# `orchestrator` is deliberately absent rather than exempted. It is the thing
+# that delegates: importing all five is its whole job, and a contract naming it
+# would either be broken on the day it was written or would need an allowance
+# per agent, which is a list saying "except for the one case this is about".
+modules = [
+    "agent_codefix",
+    "agent_communicator",
+    "agent_investigator",
+    "agent_mitigation",
+    "agent_postmortem",
+]

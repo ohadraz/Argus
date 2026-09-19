@@ -30,7 +30,7 @@ from agent_codefix.proposing import (
     SourceSearcher,
     propose_fix,
 )
-from agent_investigator.reasoning import a_conversation_recorded_for
+from argus_core.llm import a_conversation_recorded_for
 from argus_core.models import (
     Ask,
     CauseType,

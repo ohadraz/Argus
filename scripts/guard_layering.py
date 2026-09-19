@@ -18,9 +18,11 @@ through the file that prevents it.
 Then it checks the suites, which the contracts cannot. import-linter analyzes
 the packages named in `root_packages`, and a test package is not one of them -
 so the front-door rule would hold across every module in the workspace and be
-silently unenforced in the 113 files that had to be converted by hand. The
-allowed doors are read from the contract rather than restated here: two lists of
-one thing is one of them going stale.
+silently unenforced in the 113 files that had to be converted by hand. The same
+blindness let one agent's suite build a double out of another agent's code
+while the independence contract held, so both rules are carried over the suites
+here. Both read their membership from the contract that argues it rather than
+restating it: two lists of one thing is one of them going stale.
 
 A script rather than the `lint-imports` shim, for the reason every other tool
 here is invoked as a module: going through the interpreter avoids the
@@ -40,6 +42,7 @@ CONFIGURATION = REPOSITORY / "pyproject.toml"
 
 KERNEL = "argus_core"
 FRONT_DOOR_CONTRACT = "the kernel is reached through its front doors, not by module path"
+INDEPENDENCE_CONTRACT = "an agent knows the kernel and its own sources, never another agent"
 
 # Test support and the doubles, which no contract has anything to say about:
 # they are installed as dev dependencies, never imported by anything that ships,
@@ -133,6 +136,92 @@ def _the_front_doors() -> dict[str, set[str]]:
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def _the_independent_modules() -> set[str]:
+    """The packages the independence contract says know nothing of each other.
+
+    Read from the contract for the reason the front doors are: the contract is
+    where the membership is argued, and a second list here is the one that goes
+    stale the day a sixth agent is written.
+    """
+    for contract in _the_contracts():
+        if contract.get("name") != INDEPENDENCE_CONTRACT:
+            continue
+
+        modules = contract.get("modules", [])
+
+        if isinstance(modules, list):
+            return {str(module) for module in modules}
+
+        break
+
+    print(
+        f"no contract named [{INDEPENDENCE_CONTRACT}] in pyproject.toml, so the "
+        "agents cannot be read and their suites cannot be held apart.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _the_packages_named_by(path: Path) -> list[tuple[int, str]]:
+    """The top-level package of everything this file imports, however it does it.
+
+    Both spellings, because both reach: `import agent_investigator` and
+    `from agent_investigator.reasoning import ...` are the same edge, and the
+    one that actually appeared in this workspace was the second.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return []  # not this guard's complaint; ruff and mypy both say so first
+
+    named: list[tuple[int, str]] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module is not None and not node.level:
+            named.append((node.lineno, node.module.partition(".")[0]))
+        elif isinstance(node, ast.Import):
+            named.extend((node.lineno, alias.name.partition(".")[0])
+                         for alias in node.names)
+
+    return named
+
+
+def _the_suites_keep_the_agents_apart(independent: set[str]) -> None:
+    """Refuses a suite that borrows from an agent its module does not know.
+
+    The other half of the independence contract, applied where the contract
+    cannot see. import-linter analyzes `root_packages`, and a test package is
+    not one - so an agent's suite could build its doubles out of a sibling
+    agent's code and the contract would hold while the double modelled a shape
+    the real collaborator does not have. That is not hypothetical: it is how
+    this rule came to be written.
+
+    Only the suites of the independent modules are walked, so `orchestrator`'s
+    - which imports four agents legitimately, because delegating to them is
+    what it does - is outside this by construction rather than by exemption.
+    """
+    borrowed = [
+        (path, lineno, named, whose)
+        for whose in sorted(independent)
+        for path in sorted((MODULES / whose / "tests").rglob("*.py"))
+        for lineno, named in _the_packages_named_by(path)
+        if named in independent - {whose}
+    ]
+
+    if borrowed:
+        print(
+            "these suites reach into an agent their own module does not know:\n"
+            + "\n".join(
+                f"  {path.relative_to(REPOSITORY).as_posix()}:{lineno} -> {named}"
+                f"\n      {whose} is independent of it"
+                for path, lineno, named, whose in borrowed
+            )
+            + "\nWhat two agents both need belongs in `argus_core`.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _the_doors_open_to(path: Path, doors: dict[str, set[str]]) -> set[str]:
@@ -256,6 +345,7 @@ def main() -> None:
     """
     _every_module_is_analyzed()
     _the_suites_use_the_front_doors(_the_front_doors())
+    _the_suites_keep_the_agents_apart(_the_independent_modules())
     sys.exit(lint_imports_command())
 
 

@@ -23,6 +23,11 @@ from functools import partial
 from typing import Protocol
 
 from argus_core import SettingsSlice
+from argus_core.llm import (
+    Conversation,
+    Conversations,
+    a_conversation_recorded_for,
+)
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Ask,
@@ -55,11 +60,6 @@ from agent_codefix.prompting import (
     SUBMIT_FIX,
     SUBMIT_TOOL_NAME,
     SubmittedFix,
-)
-from agent_codefix.reasoning import (
-    Conversation,
-    Conversations,
-    a_conversation_recorded_for,
 )
 
 # What the loop asks of the repository, said as the shape it calls with rather

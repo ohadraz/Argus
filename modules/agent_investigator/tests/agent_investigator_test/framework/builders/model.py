@@ -19,8 +19,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import Mock, create_autospec
 
-from agent_investigator.reasoning import converse
-from argus_core.llm import AnswerTruncated, ModelDidNotAnswer, ModelRefused
+from argus_core.llm import (
+    AnswerTruncated,
+    Conversation,
+    ModelDidNotAnswer,
+    ModelRefused,
+)
 from argus_core.models import Evidence, ToolCall, Turn
 
 METRICS_TOOL = "get_metrics"
@@ -51,7 +55,9 @@ def a_model_that_says(*turns: Turn | ModelDidNotAnswer) -> Mock:
     not describe, and repeating the last turn would hide that behind whatever
     the budget does next.
     """
-    return cast(Mock, create_autospec(converse, side_effect=list(turns)))
+    return cast(Mock, create_autospec(Conversation,
+                                      instance=True,
+                                      side_effect=list(turns)))
 
 
 def a_model_that_never_stops_reading() -> Mock:
@@ -67,7 +73,8 @@ def a_model_that_never_stops_reading() -> Mock:
     windows = iter(_a_window_starting_earlier_each_time())
 
     return cast(Mock, create_autospec(
-        converse,
+        Conversation,
+        instance=True,
         side_effect=lambda *args, **kwargs: a_turn_calling(
             LOGS_TOOL, {WINDOW_START_ARG: next(windows)}
         )
@@ -81,7 +88,9 @@ def a_model_that_is_always_cut_short() -> Mock:
     once, and a loop that keeps buying one has no answer coming and nothing
     charging it for the attempts - only the clock can end it.
     """
-    return cast(Mock, create_autospec(converse, side_effect=a_turn_that_was_cut_short()))
+    return cast(Mock, create_autospec(Conversation,
+                                      instance=True,
+                                      side_effect=a_turn_that_was_cut_short()))
 
 
 def some_windows(how_many: int) -> list[str]:

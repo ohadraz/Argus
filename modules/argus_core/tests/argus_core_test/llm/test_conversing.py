@@ -1,22 +1,27 @@
-"""How an investigation's model calls come to be written down.
+"""How an agent's model calls come to be written down.
 
-`converse` is the seam the loop talks through, and it is deliberately a
-function rather than a client: the loop injects a scripted one in every unit
-test and never learns that a vendor exists. This is the other end of it - the
-conversation built for a real investigation, which keeps a receipt for the
-incident it belongs to.
+The seam a loop talks through is one call, and it is deliberately a function
+rather than a client: every unit test of a loop injects a scripted one and
+never learns that a vendor exists. This is the other end of it - the
+conversation built for real work, which keeps a receipt for the incident it
+belongs to.
 
-The incident is bound once here rather than passed at each turn, for the same
-reason the `Narrator` beside it is: it is fixed for a whole investigation, and
-a signature whose subject is a conversation with a model should not carry
-Argus's domain through every call.
+Here rather than in either agent that holds a loop. It was written twice, once
+each in the Investigator and in Code-Fix, and the two copies agreed for exactly
+as long as nobody changed one - long enough for a test to build its double from
+the other agent's copy and still pass.
 
-Everything this composes is tested elsewhere - `argus_core`'s `test_replay.py`
-holds the seam and `test_recorded_client.py` holds the wrapping. What is left
-here is that the two are joined to the right incident and the given recorder,
-which is the wiring nothing else would notice getting wrong: a `Replay` built
-for the wrong incident produces well-formed rows, plausible counts, and an
-eval that joins them to an investigation which never made them.
+The incident is bound once by the factory rather than passed at each turn, for
+the same reason a `Narrator` sits beside a loop: it is fixed for a whole
+investigation or a whole fix, and a signature whose subject is a conversation
+with a model should not carry Argus's domain through every call.
+
+Everything this composes is tested elsewhere - `test_replay.py` holds the seam
+and `test_recorded_client.py` holds the wrapping. What is left here is that the
+two are joined to the right incident and the given recorder, which is the
+wiring nothing else would notice getting wrong: a `Replay` built for the wrong
+incident produces well-formed rows, plausible counts, and an eval that joins
+them to an investigation which never made them.
 """
 
 from __future__ import annotations
@@ -24,11 +29,19 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from agent_investigator.reasoning import a_conversation_recorded_for
-from argus_core.llm import LLMClient
-from argus_core.models import Ask, ToolDefinition, Transcript, Turn
-from argus_core.replay import CallType, Replay, ReplayEntry
-from argus_testkit import Assertion, Kept, Scenario, all_of
+from argus_core.llm.client import LLMClient
+from argus_core.llm.conversing import a_conversation_recorded_for
+from argus_core.models.tool_definition import ToolDefinition
+from argus_core.models.transcript import Ask, Transcript
+from argus_core.models.turn import Turn
+from argus_core.replay import CallType, Replay
+from argus_testkit import Assertion, Scenario, all_of
+
+from argus_core_test.framework.replay import (
+    KeptEntries,
+    a_recorder_that_keeps_what_it_is_given,
+    the_entry_was_recorded_for,
+)
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 ANOTHER_INCIDENT_ID = "9f1b0d2e-5a44-4c31-8b77-2e6cf0a41d5c"
@@ -101,7 +114,7 @@ def test_the_client_is_asked_for_one_recording_this_incident_to_this_recorder() 
 
     Scenario() \
         .given(
-            recorded := _a_recorder_that_keeps_what_it_is_given()
+            recorded := a_recorder_that_keeps_what_it_is_given()
         ) \
         .when(
             lambda: _a_call_recorded_by_the_conversation_built_for(
@@ -109,7 +122,7 @@ def test_the_client_is_asked_for_one_recording_this_incident_to_this_recorder() 
             )
         ) \
         .then(
-            _the_call_was_recorded_for(recorded, ANOTHER_INCIDENT_ID)
+            the_entry_was_recorded_for(recorded, ANOTHER_INCIDENT_ID)
         )
 
 
@@ -166,13 +179,6 @@ class _AClientAskedFor:
         return self.replay
 
 
-# What a recorder collects here. Its own alias rather than the one in
-# `argus_core_test`, which is another module's test package and not importable
-# from this one - the generic half lives in `argus_testkit` precisely so the
-# duplication is a single line.
-_KeptEntries = Kept[ReplayEntry]
-
-
 def _a_client_that_answers(turn: Turn) -> _AClientThatAnswers:
     return _AClientThatAnswers(turn)
 
@@ -181,15 +187,11 @@ def _a_client_asked_for(client: _AClientThatAnswers) -> _AClientAskedFor:
     return _AClientAskedFor(client)
 
 
-def _a_recorder_that_keeps_what_it_is_given() -> _KeptEntries:
-    return _KeptEntries()
-
-
 def _a_recorded_conversation(asked_for: _AClientAskedFor,
                              incident_id: str = SOME_INCIDENT_ID,
                              recorder: Any = None) -> Any:
     """The subject of this file, built over a client that answers on the spot."""
-    kept_by_nobody = _KeptEntries()
+    kept_by_nobody: KeptEntries = a_recorder_that_keeps_what_it_is_given()
 
     return a_conversation_recorded_for(
         incident_id,
@@ -279,30 +281,6 @@ def _the_client_was_offered(client: _AClientThatAnswers,
         if client.offered != tools:
             raise AssertionError(
                 f"Expected the client offered {tools!r}, got {client.offered!r}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_call_was_recorded_for(recorded: _KeptEntries, incident_id: str) -> Assertion[Any]:
-    """That the recorder was used at all, and for the right incident.
-
-    Two failures in one assertion because they are one question asked of one
-    entry: nothing arrived, or the wrong thing did.
-    """
-    def assertion(_result: Any) -> bool:
-        if not recorded.taken:
-            raise AssertionError(
-                "Expected what the replay recorded to reach the recorder it was given, "
-                "and nothing did."
-            )
-
-        if recorded.taken[0].incident_id != incident_id:
-            raise AssertionError(
-                f"Expected the client asked for one recording incident [{incident_id}], "
-                f"got [{recorded.taken[0].incident_id}]."
             )
 
         return True

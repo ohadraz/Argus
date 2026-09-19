@@ -35,7 +35,13 @@ from argus_core.events import (
     RetrievalRequested,
     nobody,
 )
-from argus_core.llm import AnswerTruncated, ModelRefused, on_one_line
+from argus_core.llm import (
+    AnswerTruncated,
+    Conversation,
+    ModelRefused,
+    a_conversation_recorded_for,
+    on_one_line,
+)
 from argus_core.models import (
     Alert,
     Ask,
@@ -61,7 +67,6 @@ from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
 
 from agent_investigator.budget import Bound, Budget, InvestigationSettings
-from agent_investigator.reasoning import Conversation, a_conversation_recorded_for
 from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from agent_investigator.tools import (
     ANSWER_TOOL,

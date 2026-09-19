@@ -14,11 +14,13 @@ from argus_core.llm.building import build_llm_client
 from argus_core.llm.client import (
     AnswerTruncated,
     ClientFor,
+    Conversation,
     LLMClient,
     ModelDidNotAnswer,
     ModelRefused,
     TurnPaused,
 )
+from argus_core.llm.conversing import Conversations, a_conversation_recorded_for
 from argus_core.llm.escapes import with_escapes_resolved
 from argus_core.llm.line_breaks import on_one_line
 from argus_core.llm.recorded_client import RecordedLLMClient
@@ -26,11 +28,14 @@ from argus_core.llm.recorded_client import RecordedLLMClient
 __all__ = [
     "AnswerTruncated",
     "ClientFor",
+    "Conversation",
+    "Conversations",
     "LLMClient",
     "ModelDidNotAnswer",
     "ModelRefused",
     "RecordedLLMClient",
     "TurnPaused",
+    "a_conversation_recorded_for",
     "build_llm_client",
     "on_one_line",
     "with_escapes_resolved"

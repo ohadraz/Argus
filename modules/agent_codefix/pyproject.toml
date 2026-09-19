@@ -15,12 +15,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
-    # The suite builds a recorded conversation with `agent_investigator`'s own
-    # builder rather than a copy of it, so the module it borrows from is a
-    # dependency of this module's tests. A dev group rather than a runtime
-    # dependency: nothing in `src/` reaches for it, and declaring it there
-    # would put an agent in the install of every caller of this one.
-    "argus-agent_investigator",
 ]
 
 
@@ -29,7 +23,6 @@ argus-argus_core = { workspace = true }
 argus-read_mcp_client = { workspace = true }
 argus-write_mcp_client = { workspace = true }
 argus-argus_testkit = { workspace = true }
-argus-agent_investigator = { workspace = true }
 
 
 [build-system]

@@ -90,6 +90,26 @@ class LLMClient(Protocol):
                  max_tokens: int = ...) -> Turn: ...
 
 
+class Conversation(Protocol):
+    """The one call a loop that talks to a model makes.
+
+    Narrower than `LLMClient` on purpose. A loop asks for a turn and reads what
+    the model wants next; it has no business holding a client, choosing a token
+    bound, or knowing that either exists. What it is handed is this, and every
+    unit test of a loop hands it a script.
+
+    A `Protocol` rather than a `Callable` alias, because a test has to build a
+    double from it and an alias is not introspectable at runtime -
+    `create_autospec` needs a real class or function to read a signature off.
+    The alternative was a module-level function existing to be that name, whose
+    body nothing ever called.
+    """
+
+    def __call__(self,
+                 transcript: Transcript,
+                 tools: list[ToolDefinition], /) -> Turn: ...
+
+
 # How a caller that records its calls gets a client for one incident. A factory
 # rather than a client, because the receipt belongs to an incident while the
 # client does not: a wrapper holding one incident, shared across a process,
