@@ -46,7 +46,7 @@ SOME_CODE_ABOUT_SOMETHING_ELSE = (
 @pytest.mark.component
 def test_one_vector_comes_back_for_each_text() -> None:
     # The contract the whole pairing rests on. A model that answered a short
-    # batch would have `points_for` drop the last chunks, and `strict` on that
+    # batch would have `points_of` drop the last chunks, and `strict` on that
     # zip is what turns it into a failure rather than a silence.
     Scenario() \
         .given(some_texts := [SOME_TEXT, ANOTHER_TEXT]) \

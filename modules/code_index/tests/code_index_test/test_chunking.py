@@ -28,6 +28,13 @@ SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_TEXT_PATH = "README.md"
 
 
+# Required by every call here and asserted by none of them: these cases cut
+# Python at its own definitions, which the window bounds do not govern. The
+# two cases that do assert on them name their own numbers, on the spot.
+DONT_CARE_MAX_LINES = 60
+DONT_CARE_OVERLAP = 10
+
+
 @pytest.mark.unit
 def test_each_top_level_function_becomes_its_own_chunk() -> None:
     the_first_functions_first_line = 1
@@ -46,7 +53,10 @@ def test_each_top_level_function_becomes_its_own_chunk() -> None:
                 "    return None"                # 6 (`the_second_functions_last_line`)
             ])
         ) \
-        .when(lambda: chunks_of(SOME_PATH, some_source)) \
+        .when(lambda: chunks_of(
+            SOME_PATH, some_source,
+            max_lines=DONT_CARE_MAX_LINES, overlap=DONT_CARE_OVERLAP
+        )) \
         .then(
             all_of(
                 _a_chunk_spanning(the_first_functions_first_line, 
@@ -76,7 +86,10 @@ def test_a_class_is_one_chunk_rather_than_one_per_method() -> None:
                 "        return 0"               # 6 (`the_line_number_Summary_class_ends`)
             ])
         ) \
-        .when(lambda: chunks_of(SOME_PATH, some_source)) \
+        .when(lambda: chunks_of(
+            SOME_PATH, some_source,
+            max_lines=DONT_CARE_MAX_LINES, overlap=DONT_CARE_OVERLAP
+        )) \
         .then(
             all_of(
                 _a_chunk_spanning(the_line_number_Summary_class_starts, 
@@ -105,7 +118,10 @@ def test_a_decorated_function_keeps_its_decorators() -> None:
                 "    return None"              # 4 (`the_functions_last_line`)
             ])
         ) \
-        .when(lambda: chunks_of(SOME_PATH, some_source)) \
+        .when(lambda: chunks_of(
+            SOME_PATH, some_source,
+            max_lines=DONT_CARE_MAX_LINES, overlap=DONT_CARE_OVERLAP
+        )) \
         .then(
             all_of(
                 _a_chunk_spanning(the_decorators_first_line,
@@ -137,7 +153,10 @@ def test_what_is_left_at_module_level_is_a_chunk_of_its_own() -> None:
                 "    return None"                # 7 (`the_functions_last_line`)
             ])
         ) \
-        .when(lambda: chunks_of(SOME_PATH, some_source)) \
+        .when(lambda: chunks_of(
+            SOME_PATH, some_source,
+            max_lines=DONT_CARE_MAX_LINES, overlap=DONT_CARE_OVERLAP
+        )) \
         .then(
             all_of(
                 _a_chunk_containing(some_module_level_constant),
@@ -221,7 +240,10 @@ def test_python_that_will_not_parse_falls_back_to_windows() -> None:
 def test_a_file_with_nothing_in_it_yields_nothing() -> None:
     Scenario() \
         .given(nothing_at_all := "") \
-        .when(lambda: chunks_of(SOME_PATH, nothing_at_all)) \
+        .when(lambda: chunks_of(
+            SOME_PATH, nothing_at_all,
+            max_lines=DONT_CARE_MAX_LINES, overlap=DONT_CARE_OVERLAP
+        )) \
         .then(_exactly_this_many_chunks(0))
 
 

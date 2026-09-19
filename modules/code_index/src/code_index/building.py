@@ -135,8 +135,8 @@ def _the_passages_of(path: str,
     return candidates_for(
         {path: said},
         settings.github_source_paths,
-        settings.code_index_max_lines,
-        settings.code_index_chunk_overlap
+        max_lines=settings.code_index_max_lines,
+        overlap=settings.code_index_chunk_overlap
     )
 
 

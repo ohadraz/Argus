@@ -22,20 +22,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from typing import Final
-
-from argus_core import get_settings
-
-# What a window is when nobody says otherwise - what this deployment is
-# configured to cut by, and not a second copy of those numbers. Two literals
-# saying the same thing are right until the day one of them moves, and the one
-# that moves is never the one the pipeline reads.
-#
-# Lines rather than tokens: the fallback exists for files whose structure is
-# unknown, and a tokeniser's idea of a boundary in a file it cannot parse is no
-# better informed than a line count, at more cost.
-DEFAULT_MAX_LINES: Final = get_settings().code_index_max_lines
-DEFAULT_OVERLAP: Final = get_settings().code_index_chunk_overlap
 
 PYTHON_SUFFIX = ".py"
 
@@ -61,14 +47,27 @@ class Chunk:
 
 def chunks_of(path: str,
               source: str,
-              max_lines: int = DEFAULT_MAX_LINES,
-              overlap: int = DEFAULT_OVERLAP) -> list[Chunk]:
+              *,
+              max_lines: int,
+              overlap: int) -> list[Chunk]:
     """Cuts `source` into the passages that will be embedded.
 
     Python at its own boundaries, everything else - and anything that will not
     parse - into overlapping windows. `max_lines` and `overlap` govern only the
     fallback: a function is as long as it is, and truncating one to fit a window
     would hand back a passage that stops mid-statement.
+
+    Both are required and neither is read from `Settings` here. Cutting a file
+    is a domain rule, and a domain rule has no business knowing how Argus is
+    configured: the caller already holds the numbers, importing this module
+    should not require an environment, and a default frozen at import is one a
+    test cannot vary without monkeypatching. They are keyword-only because they
+    are two integers of the same type, and a call that swapped them would cut
+    the whole repository wrong while reading perfectly.
+
+    Lines rather than tokens: the fallback exists for files whose structure is
+    unknown, and a tokeniser's idea of a boundary in a file it cannot parse is
+    no better informed than a line count, at more cost.
     """
     lines = source.splitlines()
 

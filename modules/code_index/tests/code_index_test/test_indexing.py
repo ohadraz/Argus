@@ -24,6 +24,7 @@ load a model, and a unit test that loads a model is a unit test nobody runs.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -34,8 +35,7 @@ from code_index.indexing import (
     Embedder,
     Point,
     candidates_for,
-    ids_no_longer_present,
-    points_for,
+    points_of,
 )
 
 SOME_DIRECTORY = "src/shop"
@@ -75,22 +75,32 @@ SOME_TEXT = "a line of prose that is not code at all"
 SOME_PROSE_OF_TWELVE_LINES = "\n".join(f"line {number}" for number in range(1, 13))
 
 
+# Required by every call here and asserted by none of them: these cases cut
+# Python at its own definitions, which the window bounds do not govern. The
+# two cases that do assert on them name their own numbers, on the spot.
+DONT_CARE_MAX_LINES = 60
+DONT_CARE_OVERLAP = 10
+
+
 @pytest.mark.unit
-def test_every_chunk_of_a_file_in_scope_becomes_a_point() -> None:
+def test_every_chunk_of_a_file_in_scope_becomes_a_candidate() -> None:
     Scenario() \
         .given(
             some_files := {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS},
             the_service_lives_in := SOME_DIRECTORY
         ) \
         .when(
-            lambda: points_for(
-                some_files, the_service_lives_in, _an_embedder()
+            lambda: candidates_for(
+                some_files,
+                the_service_lives_in,
+                max_lines=DONT_CARE_MAX_LINES,
+                overlap=DONT_CARE_OVERLAP
             )
         ) \
         .then(
             all_of(
-                _exactly_this_many_points(2),
-                _every_point_names(SOME_PYTHON_PATH)
+                _exactly_this_many_candidates(2),
+                _every_candidate_names(SOME_PYTHON_PATH)
             )
         )
 
@@ -109,14 +119,17 @@ def test_a_file_outside_the_scope_contributes_nothing() -> None:
             the_service_lives_in := SOME_DIRECTORY
         ) \
         .when(
-            lambda: points_for(
-                some_files, the_service_lives_in, _an_embedder()
+            lambda: candidates_for(
+                some_files,
+                the_service_lives_in,
+                max_lines=DONT_CARE_MAX_LINES,
+                overlap=DONT_CARE_OVERLAP
             )
         ) \
         .then(
             all_of(
-                _exactly_this_many_points(1),
-                _no_point_names(SOME_PATH_OUT_OF_SCOPE)
+                _exactly_this_many_candidates(1),
+                _no_candidate_names(SOME_PATH_OUT_OF_SCOPE)
             )
         )
 
@@ -130,10 +143,11 @@ def test_a_file_is_embedded_in_one_call_however_many_chunks_it_has() -> None:
 
     Scenario() \
         .given(
-            some_files := {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS},
-            the_service_lives_in := SOME_DIRECTORY
+            one_files_passages := _the_candidates_of(
+                {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}
+            )
         ) \
-        .when(lambda: points_for(some_files, the_service_lives_in, embed)) \
+        .when(lambda: points_of(one_files_passages, embed)) \
         .then(
             all_of(
                 _the_embedder_was_called(embed, times=1),
@@ -151,13 +165,12 @@ def test_each_file_is_embedded_on_its_own() -> None:
 
     Scenario() \
         .given(
-            some_files := {
+            two_files_passages := _the_candidates_of({
                 SOME_TEXT_PATH: SOME_TEXT,
                 SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS
-            },
-            the_service_lives_in := SOME_DIRECTORY
+            })
         ) \
-        .when(lambda: points_for(some_files, the_service_lives_in, embed)) \
+        .when(lambda: points_of(two_files_passages, embed)) \
         .then(
             all_of(
                 _the_embedder_was_called(embed, times=2),
@@ -174,17 +187,12 @@ def test_each_point_carries_the_vector_returned_for_its_own_text() -> None:
     # well from outside.
     Scenario() \
         .given(
-            some_files := {
+            two_files_passages := _the_candidates_of({
                 SOME_TEXT_PATH: SOME_TEXT,
                 SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS
-            },
-            the_service_lives_in := SOME_DIRECTORY
+            })
         ) \
-        .when(
-            lambda: points_for(
-                some_files, the_service_lives_in, _an_embedder()
-            )
-        ) \
+        .when(lambda: points_of(two_files_passages, _an_embedder())) \
         .then(_every_point_embedded_its_own_text())
 
 
@@ -193,11 +201,7 @@ def test_a_chunk_that_only_moved_keeps_its_id() -> None:
     # What the id is for. A function pushed down the file because something was
     # added above it has not changed, and a re-index that can see that skips
     # embedding it. Keyed on position, every chunk below an edit would look new.
-    before = points_for(
-        {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS},
-        SOME_DIRECTORY,
-        _an_embedder()
-    )
+    before = _the_candidates_of({SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS})
 
     Scenario() \
         .given(
@@ -206,8 +210,11 @@ def test_a_chunk_that_only_moved_keeps_its_id() -> None:
             }
         ) \
         .when(
-            lambda: points_for(
-                the_file_after_an_insert, SOME_DIRECTORY, _an_embedder()
+            lambda: candidates_for(
+                the_file_after_an_insert,
+                SOME_DIRECTORY,
+                max_lines=DONT_CARE_MAX_LINES,
+                overlap=DONT_CARE_OVERLAP
             )
         ) \
         .then(_it_still_holds_the_ids_of(before))
@@ -223,15 +230,18 @@ def test_two_chunks_of_one_file_do_not_share_an_id() -> None:
             some_files := {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}
         ) \
         .when(
-            lambda: points_for(
-                some_files, SOME_DIRECTORY, _an_embedder()
+            lambda: candidates_for(
+                some_files,
+                SOME_DIRECTORY,
+                max_lines=DONT_CARE_MAX_LINES,
+                overlap=DONT_CARE_OVERLAP
             )
         ) \
         .then(_every_id_is_distinct())
 
 
 @pytest.mark.unit
-def test_the_same_text_in_two_files_is_two_points() -> None:
+def test_the_same_text_in_two_files_is_two_candidates() -> None:
     # The path is part of the id. Two services that both declare an identical
     # helper are two places a fix might belong, and an id that could not tell
     # them apart would index one and silently lose the other.
@@ -245,30 +255,36 @@ def test_the_same_text_in_two_files_is_two_points() -> None:
             }
         ) \
         .when(
-            lambda: points_for(
-                some_files, SOME_DIRECTORY, _an_embedder()
+            lambda: candidates_for(
+                some_files,
+                SOME_DIRECTORY,
+                max_lines=DONT_CARE_MAX_LINES,
+                overlap=DONT_CARE_OVERLAP
             )
         ) \
         .then(
             all_of(
-                _exactly_this_many_points(2),
+                _exactly_this_many_candidates(2),
                 _every_id_is_distinct()
             )
         )
 
 
 @pytest.mark.unit
-def test_a_repository_with_nothing_in_scope_is_not_embedded_at_all() -> None:
-    # Scope before embedding rather than after. Embedding a file and then
-    # discarding it costs the same as keeping it and is harder to notice.
+def test_nothing_to_embed_does_not_reach_the_model_at_all() -> None:
+    # The other side of scope being applied before embedding: a repository with
+    # nothing in it for us leaves no passages, and no passages must cost no
+    # call. The filtering itself is `candidates_for`'s and is asserted there -
+    # what is asserted here is that an empty list is not handed to a model.
     embed = _an_embedder()
 
     Scenario() \
         .given(
-            some_files := {SOME_PATH_OUT_OF_SCOPE: SOME_SOURCE_OF_TWO_CHUNKS},
-            the_service_lives_in := SOME_DIRECTORY
+            nothing_was_cut := _the_candidates_of(
+                {SOME_PATH_OUT_OF_SCOPE: SOME_SOURCE_OF_TWO_CHUNKS}
+            )
         ) \
-        .when(lambda: points_for(some_files, the_service_lives_in, embed)) \
+        .when(lambda: points_of(nothing_was_cut, embed)) \
         .then(
             all_of(
                 _exactly_this_many_points(0),
@@ -283,21 +299,18 @@ def test_a_chunk_the_store_already_holds_is_not_embedded_again() -> None:
     # holds before anything is embedded, so a function that only moved costs
     # nothing to re-index.
     held = _the_ids_of(
-        points_for({SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}, SOME_DIRECTORY,
-                   _an_embedder())
+        _the_candidates_of({SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS})
     )
     embed = _an_embedder()
 
     Scenario() \
         .given(
-            the_file_after_an_insert := {
-                SOME_PYTHON_PATH: THE_SAME_SOURCE_PUSHED_DOWN
-            }
+            the_passages_after_an_insert := _the_candidates_of(
+                {SOME_PYTHON_PATH: THE_SAME_SOURCE_PUSHED_DOWN}
+            )
         ) \
         .when(
-            lambda: points_for(
-                the_file_after_an_insert, SOME_DIRECTORY, embed, held_ids=held
-            )
+            lambda: points_of(the_passages_after_an_insert, embed, held)
         ) \
         .then(
             all_of(
@@ -311,15 +324,15 @@ def test_a_chunk_the_store_already_holds_is_not_embedded_again() -> None:
 def test_a_file_wholly_unchanged_is_not_embedded_at_all() -> None:
     # The common case on a push that touched one file: every other file is
     # word for word what it was, and must cost nothing.
-    some_files = {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}
-    held = _the_ids_of(points_for(some_files, SOME_DIRECTORY, _an_embedder()))
+    the_files_passages = _the_candidates_of(
+        {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}
+    )
+    held = _the_ids_of(the_files_passages)
     embed = _an_embedder()
 
     Scenario() \
         .when(
-            lambda: points_for(
-                some_files, SOME_DIRECTORY, embed, held_ids=held
-            )
+            lambda: points_of(the_files_passages, embed, held)
         ) \
         .then(
             all_of(
@@ -337,46 +350,15 @@ def test_an_empty_store_means_everything_is_embedded() -> None:
 
     Scenario() \
         .given(
-            some_files := {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS},
+            the_files_passages := _the_candidates_of(
+                {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}
+            ),
             the_store_holds_nothing := frozenset[str]()
         ) \
         .when(
-            lambda: points_for(
-                some_files, SOME_DIRECTORY, embed, held_ids=the_store_holds_nothing
-            )
+            lambda: points_of(the_files_passages, embed, the_store_holds_nothing)
         ) \
         .then(_exactly_this_many_points(2))
-
-
-@pytest.mark.unit
-def test_an_id_the_file_no_longer_has_is_named_for_forgetting() -> None:
-    # The delete side, and why determinism alone is not enough: a function that
-    # was edited or removed leaves a point behind that matches nothing in the
-    # file any more, and retrieval would go on answering with it.
-    some_files = {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}
-    held = _the_ids_of(points_for(some_files, SOME_DIRECTORY, _an_embedder()))
-    a_forgotten_id = "00000000-0000-0000-0000-000000000000"
-
-    Scenario() \
-        .given(the_store_also_holds := held | {a_forgotten_id}) \
-        .when(
-            lambda: ids_no_longer_present(
-                some_files, SOME_DIRECTORY, the_store_also_holds
-            )
-        ) \
-        .then(_exactly_these_ids([a_forgotten_id]))
-
-
-@pytest.mark.unit
-def test_an_id_the_file_still_has_is_not_named_for_forgetting() -> None:
-    some_files = {SOME_PYTHON_PATH: SOME_SOURCE_OF_TWO_CHUNKS}
-    held = _the_ids_of(points_for(some_files, SOME_DIRECTORY, _an_embedder()))
-
-    Scenario() \
-        .when(
-            lambda: ids_no_longer_present(some_files, SOME_DIRECTORY, held)
-        ) \
-        .then(_exactly_these_ids([]))
 
 
 @pytest.mark.unit
@@ -397,7 +379,10 @@ def test_the_bounds_a_pass_is_given_are_what_the_fallback_cuts_by() -> None:
         ) \
         .when(
             lambda: candidates_for(
-                some_files, SOME_DIRECTORY, a_narrow_window, an_overlap_of
+                some_files,
+                SOME_DIRECTORY,
+                max_lines=a_narrow_window,
+                overlap=an_overlap_of
             )
         ) \
         .then(_exactly_this_many_candidates(4))
@@ -418,8 +403,8 @@ def test_a_window_wide_enough_for_the_file_cuts_it_once() -> None:
             lambda: candidates_for(
                 some_files,
                 SOME_DIRECTORY,
-                a_window_wider_than_the_file,
-                an_overlap_of
+                max_lines=a_window_wider_than_the_file,
+                overlap=an_overlap_of
             )
         ) \
         .then(_exactly_this_many_candidates(1))
@@ -439,8 +424,8 @@ def _exactly_this_many_candidates(expected: int) -> Assertion[list[Candidate]]:
     return exactly_this_many_candidates
 
 
-def _the_ids_of(points: list[Point]) -> frozenset[str]:
-    return frozenset(point.id for point in points)
+def _the_ids_of(candidates: list[Candidate]) -> frozenset[str]:
+    return frozenset(candidate.id for candidate in candidates)
 
 
 def _no_point_carries_an_id_in(held: frozenset[str]) -> Assertion[list[Point]]:
@@ -476,6 +461,26 @@ def _the_vector_for(text: str) -> list[float]:
     return [float(len(text))]
 
 
+def _the_candidates_of(files: Mapping[str, str]) -> list[Candidate]:
+    """What these files cut into - the arrangement, not the thing under test.
+
+    A builder rather than a wrapper: the cases below it are about `points_of`,
+    and the passages it embeds have to come from somewhere. The bounds are the
+    don't-care pair because none of those cases is about the cutting.
+
+    Nothing here composes the two into a files-to-points journey. That journey
+    is `building.py`'s, it has a component test of its own, and a second one
+    living in this file would be a copy free to drift from the pass that
+    actually runs.
+    """
+    return candidates_for(
+        files,
+        SOME_DIRECTORY,
+        max_lines=DONT_CARE_MAX_LINES,
+        overlap=DONT_CARE_OVERLAP
+    )
+
+
 def _exactly_this_many_points(expected: int) -> Assertion[list[Point]]:
     def exactly_this_many_points(points: list[Point]) -> bool:
         if len(points) != expected:
@@ -489,34 +494,34 @@ def _exactly_this_many_points(expected: int) -> Assertion[list[Point]]:
     return exactly_this_many_points
 
 
-def _every_point_names(path: str) -> Assertion[list[Point]]:
-    def every_point_names(points: list[Point]) -> bool:
+def _every_candidate_names(path: str) -> Assertion[list[Candidate]]:
+    def every_candidate_names(candidates: list[Candidate]) -> bool:
         wrong = [
-            point.chunk.path for point in points if point.chunk.path != path
+            one.chunk.path for one in candidates if one.chunk.path != path
         ]
 
         if wrong:
             raise AssertionError(
-                f"Expected every point to name [{path}], "
+                f"Expected every passage to name [{path}], "
                 f"and {len(wrong)} of them named {wrong}."
             )
 
         return True
 
-    return every_point_names
+    return every_candidate_names
 
 
-def _no_point_names(path: str) -> Assertion[list[Point]]:
-    def no_point_names(points: list[Point]) -> bool:
-        if any(point.chunk.path == path for point in points):
+def _no_candidate_names(path: str) -> Assertion[list[Candidate]]:
+    def no_candidate_names(candidates: list[Candidate]) -> bool:
+        if any(one.chunk.path == path for one in candidates):
             raise AssertionError(
-                f"Expected no point to name [{path}], and one did - "
-                f"a file outside the scope was indexed."
+                f"Expected no passage to name [{path}], and one did - "
+                f"a file outside the scope was cut."
             )
 
         return True
 
-    return no_point_names
+    return no_candidate_names
 
 
 def _every_point_embedded_its_own_text() -> Assertion[list[Point]]:
@@ -538,11 +543,12 @@ def _every_point_embedded_its_own_text() -> Assertion[list[Point]]:
     return every_point_embedded_its_own_text
 
 
-def _it_still_holds_the_ids_of(earlier: list[Point]) -> Assertion[list[Point]]:
-    def it_still_holds_the_ids_of(points: list[Point]) -> bool:
-        held = {point.id for point in points}
+def _it_still_holds_the_ids_of(
+        earlier: list[Candidate]) -> Assertion[list[Candidate]]:
+    def it_still_holds_the_ids_of(candidates: list[Candidate]) -> bool:
+        held = {one.id for one in candidates}
         lost = sorted(
-            point.chunk.text for point in earlier if point.id not in held
+            one.chunk.text for one in earlier if one.id not in held
         )
 
         if lost:
@@ -556,9 +562,9 @@ def _it_still_holds_the_ids_of(earlier: list[Point]) -> Assertion[list[Point]]:
     return it_still_holds_the_ids_of
 
 
-def _every_id_is_distinct() -> Assertion[list[Point]]:
-    def every_id_is_distinct(points: list[Point]) -> bool:
-        ids = [point.id for point in points]
+def _every_id_is_distinct() -> Assertion[list[Candidate]]:
+    def every_id_is_distinct(candidates: list[Candidate]) -> bool:
+        ids = [one.id for one in candidates]
 
         if len(set(ids)) != len(ids):
             raise AssertionError(

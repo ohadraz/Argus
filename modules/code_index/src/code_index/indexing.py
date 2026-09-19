@@ -30,15 +30,13 @@ from uuid import UUID
 from argus_core.embedding import Embedder
 from argus_core.source_scope import belongs_to_the_service
 
-from code_index.chunking import DEFAULT_MAX_LINES, DEFAULT_OVERLAP, Chunk, chunks_of
+from code_index.chunking import Chunk, chunks_of
 
 __all__ = [
     "Candidate",
     "Embedder",
     "Point",
     "candidates_for",
-    "ids_no_longer_present",
-    "points_for",
     "points_of"
 ]
 
@@ -71,8 +69,9 @@ class Candidate:
 
 def candidates_for(files: Mapping[str, str],
                    source_paths: str,
-                   max_lines: int = DEFAULT_MAX_LINES,
-                   overlap: int = DEFAULT_OVERLAP) -> list[Candidate]:
+                   *,
+                   max_lines: int,
+                   overlap: int) -> list[Candidate]:
     """Every in-scope file's chunks, named and not yet embedded.
 
     Scope is applied here rather than after embedding. A file that is not the
@@ -89,34 +88,19 @@ def candidates_for(files: Mapping[str, str],
         Candidate(id=_an_id_for(chunk), chunk=chunk)
         for path, source in files.items()
         if belongs_to_the_service(path, source_paths)
-        for chunk in chunks_of(path, source, max_lines, overlap)
+        for chunk in chunks_of(path, source, max_lines=max_lines, overlap=overlap)
     ]
-
-
-def points_for(files: Mapping[str, str],
-               source_paths: str,
-               embed: Embedder,
-               held_ids: frozenset[str] = frozenset()) -> list[Point]:
-    """What the store does not yet hold, embedded and ready to insert.
-
-    `held_ids` is what the store answers when asked which of these passages it
-    already has. Empty is the backfill, and deliberately not a separate path:
-    reconciling against a store that holds nothing is the same work with
-    nothing to skip.
-    """
-    return points_of(candidates_for(files, source_paths), embed, held_ids)
 
 
 def points_of(candidates: list[Candidate],
               embed: Embedder,
               held_ids: frozenset[str] = frozenset()) -> list[Point]:
-    """The same, for passages already cut and named.
+    """Embeds passages already cut and named, and names them as points.
 
-    What a caller holding candidates wants, and what `points_for` is written in
-    terms of. Separate because the two arrive differently: a backfill starts
-    from files, where a pass bringing one file up to date has already asked the
-    store what it holds and has the candidates in hand - and handing those back
-    as files to be cut a second time would chunk text that is already a chunk.
+    Separate from the cutting because a pass holds the two apart: it asks the
+    store what it already has before anything is embedded, which it can only do
+    once the passages are named - and handing them back as files to be cut a
+    second time would chunk text that is already a chunk.
     """
     wanted = [
         candidate for candidate in candidates if candidate.id not in held_ids
@@ -130,24 +114,6 @@ def points_of(candidates: list[Candidate],
             embed
         )
     ]
-
-
-def ids_no_longer_present(files: Mapping[str, str],
-                          source_paths: str,
-                          held_ids: frozenset[str]) -> list[str]:
-    """The ids the store holds that these files no longer account for.
-
-    The other half of a re-index, and the half determinism alone does not
-    supply: a passage that was edited away or deleted leaves a point matching
-    nothing in the file, and retrieval would go on answering with it.
-
-    Nothing is embedded to answer this - an id is a fact about text.
-    """
-    still_here = {
-        candidate.id for candidate in candidates_for(files, source_paths)
-    }
-
-    return [held for held in held_ids if held not in still_here]
 
 
 def _the_paths_among(candidates: list[Candidate]) -> list[str]:
