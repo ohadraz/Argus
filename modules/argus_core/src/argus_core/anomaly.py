@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from statistics import median
 from typing import NamedTuple
 
@@ -22,6 +22,58 @@ _MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE = 0.1
 # most quiet minutes report the identical figure and the average deviation
 # between them is zero however much the rate actually moves.
 _QUIET_SPREAD_QUANTILE = 0.9
+
+# How much of a window its opening is taken to be. A tenth, bounded below at
+# three minutes, and both bounds are load-bearing. Longer, and the opening
+# reaches into a departure that really is visible - a window whose calm first
+# fifth is followed by a step gets read as having no start at all. Shorter, and
+# a climb older than the window clears the threshold too far in to be
+# recognised as one. Below three minutes there are too few readings to say
+# anything about a spread at all, which is what bites on the short windows a
+# demo actually serves.
+_OPENING_AS_FRACTION_OF_WINDOW = 0.1
+_SHORTEST_OPENING = 3
+
+# The smallest wobble the opening's baseline is credited with. Far above the
+# figure the quiet half is held to, because the two stretches are measured with
+# very different confidence: half a window has seen the metric's range, and
+# three or four minutes have not. A sampled error rate quantised into
+# half-percent steps can read 0.5% for the window's first minutes and 1.0% for
+# the next ten without anything having happened, and a short stretch has no way
+# to know that - so the floor stands in for the noise those minutes were too
+# few to observe. Measured: below about 0.35 that drift reads as an onset;
+# above about 0.5 a real climb is dated late.
+_MINIMUM_OPENING_SPREAD_AS_FRACTION_OF_BASELINE = 0.4
+
+# How far past the opening an onset has to land before it is believed as a
+# start rather than reported as a lower bound. An onset nearer than this was
+# measured against minutes that are themselves part of the climb: the baseline
+# rose with the fault, and the first minute that cleared it says where the
+# window happens to open, not where anything began. Twice, because a ramp
+# measured against an opening of `n` minutes clears its own threshold at about
+# `1.7n` - so anything inside `2n` is the shape of a window that opened
+# mid-climb, and anything beyond it is a start the window can actually show.
+_OPENINGS_BEFORE_A_START_IS_VISIBLE = 2
+
+
+class _CalmStretch(NamedTuple):
+    """Which minutes of a window are taken to be calm, and how little spread
+    they may be credited with.
+
+    Two of these exist and a departure under either is a departure. Ordered by
+    value, the window's lowest half is the calm stretch - which is what keeps an
+    older, already-resolved departure in the same window from being read as the
+    current one. Ordered by time, the window's opening is the calm stretch -
+    which is what makes a gradual climb visible at all, since the value-ordered
+    calm half of a ramp *is* the early ramp and the spread derived from it is
+    the slope rather than the noise.
+
+    The floor travels with the stretch rather than being one number for the
+    module, because it is a statement about how much the stretch has seen.
+    """
+
+    minutes: Callable[[Sequence[float]], list[float]]
+    minimum_spread_as_fraction_of_baseline: float
 
 
 class AnomalyThresholds(NamedTuple):
@@ -72,8 +124,37 @@ def find_onset(buckets: Sequence[MetricBucket],
     healthy in, and every window derived from that onset - the logs read, the
     changes considered, the money counted - would cover mostly calm time. The
     state the service is in now began the last time it entered it.
+
+    The question is asked of both calm stretches and the earlier answer is
+    taken. The two ask different things of the same numbers - one what is
+    unusual for this service, the other when this window stopped looking like
+    its own beginning - and a fault that ramps is invisible to the first: its
+    lowest half by value *is* the early climb, so the baseline rises with the
+    fault and the spread derived from it is the slope. Neither answer is
+    discarded, because a window holding an older resolved departure needs the
+    value-ordered one to keep from dating the current incident from it.
     """
-    departures = _departures(buckets, thresholds)
+    against_the_quiet_half = _the_onset_against(
+        buckets, thresholds, _THE_QUIETEST_MINUTES
+    )
+    against_the_opening = _the_start_the_opening_can_claim(
+        _the_onset_against(buckets, thresholds, _THE_WINDOWS_OPENING), len(buckets)
+    )
+    found = [
+        index
+        for index in (against_the_quiet_half, against_the_opening)
+        if index is not None
+    ]
+
+    return buckets[min(found)].bucket_id if found else None
+
+
+def _the_onset_against(buckets: Sequence[MetricBucket],
+                       thresholds: AnomalyThresholds,
+                       calm: _CalmStretch) -> int | None:
+    """Which minute one calm stretch dates the incident from, or `None` if it
+    sees no departure that persisted."""
+    departures = _departures(buckets, thresholds, calm)
     required = thresholds.persistence_minutes
 
     for index in reversed(range(len(departures))):
@@ -83,9 +164,28 @@ def find_onset(buckets: Sequence[MetricBucket],
         length = _run_length_from(departures, index)
 
         if length >= required or index + length == len(departures):
-            return buckets[index].bucket_id
+            return index
 
     return None
+
+
+def _the_start_the_opening_can_claim(index: int | None,
+                                     window_length: int) -> int | None:
+    """The opening's answer, or the window's first minute when that answer
+    lands too near the opening to have been measured against calm.
+
+    A baseline drawn from minutes that are themselves climbing rises with the
+    fault, so the first minute to clear it says where the window happens to
+    open and not where anything began. The honest answer is then the earliest
+    minute there is, reported as the lower bound it is - which is exactly what
+    makes the next round widen the window rather than believe this one.
+    """
+    if index is None:
+        return None
+
+    visible_from = _OPENINGS_BEFORE_A_START_IS_VISIBLE * _opening_length(window_length)
+
+    return index if index >= visible_from else 0
 
 
 def earliest_bucket_is_anomalous(buckets: Sequence[MetricBucket],
@@ -184,7 +284,7 @@ def _subsided_threshold(values: Sequence[float],
     a window with no incident in it the two are the same, and nothing is
     reported as still elevated.
     """
-    departed = _departure_threshold(values, thresholds)
+    departed = _departure_threshold(values, thresholds, _THE_QUIETEST_MINUTES)
     at_its_worst = max(values, default=departed)
     subsided = thresholds.recovery_fraction_of_the_rise
 
@@ -216,23 +316,35 @@ def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool],
 
 
 def _departures(buckets: Sequence[MetricBucket],
-                thresholds: AnomalyThresholds) -> list[bool]:
+                thresholds: AnomalyThresholds,
+                calm: _CalmStretch) -> list[bool]:
     """Whether each minute, in window order, has left the baseline on error
-    rate or p95 latency. Both are checked because different failures move
-    different metrics - a bad flag spikes errors, a slow dependency does not.
+    rate, p95 latency or memory.
+
+    All three are checked because different failures move different metrics - a
+    bad flag spikes errors, a slow dependency does not, and a leak moves neither
+    until it has been climbing for hours. Memory is a leak's earliest and
+    clearest signal, and it runs ahead of the latency and the errors it
+    eventually causes: a detector reading only those would date every leak at
+    the minute it became a user-visible failure.
     """
     if not buckets:
         return []
 
     error_rate_ceiling = _departure_threshold(
-        [bucket.error_rate for bucket in buckets], thresholds
+        [bucket.error_rate for bucket in buckets], thresholds, calm
     )
     latency_ceiling = _departure_threshold(
-        [float(bucket.p95_ms) for bucket in buckets], thresholds
+        [float(bucket.p95_ms) for bucket in buckets], thresholds, calm
+    )
+    memory_ceiling = _departure_threshold(
+        [float(bucket.memory_used_bytes) for bucket in buckets], thresholds, calm
     )
 
     return [
-        bucket.error_rate > error_rate_ceiling or bucket.p95_ms > latency_ceiling
+        bucket.error_rate > error_rate_ceiling
+        or bucket.p95_ms > latency_ceiling
+        or bucket.memory_used_bytes > memory_ceiling
         for bucket in buckets
     ]
 
@@ -248,15 +360,16 @@ def _run_length_from(departures: Sequence[bool], start: int) -> int:
 
 
 def _departure_threshold(values: Sequence[float],
-                         thresholds: AnomalyThresholds) -> float:
+                         thresholds: AnomalyThresholds,
+                         calm: _CalmStretch) -> float:
     """The value a minute has to exceed to count as the incident, derived
-    from the window's own quiet half.
+    from the stretch of the window `calm` takes to be quiet.
 
-    The baseline is taken from the lower half of the window rather than from
-    all of it: the incident's own minutes are in there too, and they are
-    exactly the ones that would drag a whole-window average up and hide the
-    onset. A median rather than a mean for the same reason - one 30% minute
-    moves a mean, and moves a median not at all.
+    The baseline is taken from part of the window rather than from all of it:
+    the incident's own minutes are in there too, and they are exactly the ones
+    that would drag a whole-window average up and hide the onset. A median
+    rather than a mean for the same reason - one 30% minute moves a mean, and
+    moves a median not at all.
 
     The spread is how far the quiet stretch's own worst minutes sit above that
     baseline, rather than how far its average minute does. The two agree on a
@@ -267,12 +380,48 @@ def _departure_threshold(values: Sequence[float],
     """
     deviations = thresholds.deviations_from_baseline
 
-    quiet_half = sorted(values)[: max(1, len(values) // 2)]
-    baseline = median(quiet_half)
-    wobble = _quantile(quiet_half, _QUIET_SPREAD_QUANTILE) - baseline
-    spread = max(wobble, baseline * _MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE)
+    quiet = calm.minutes(values)
+    baseline = median(quiet)
+    wobble = _quantile(quiet, _QUIET_SPREAD_QUANTILE) - baseline
+    spread = max(
+        wobble, baseline * calm.minimum_spread_as_fraction_of_baseline
+    )
 
     return baseline + deviations * spread
+
+
+def _the_quietest_minutes(values: Sequence[float]) -> list[float]:
+    """The window's lowest half by value, in order."""
+    return sorted(values)[: max(1, len(values) // 2)]
+
+
+def _the_windows_opening(values: Sequence[float]) -> list[float]:
+    """The window's earliest minutes, sorted so a spread can be read off them.
+    """
+    return sorted(values[: _opening_length(len(values))])
+
+
+def _opening_length(window_length: int) -> int:
+    """How many of a window's earliest minutes are taken to be its opening."""
+    return max(
+        _SHORTEST_OPENING, round(window_length * _OPENING_AS_FRACTION_OF_WINDOW)
+    )
+
+
+# What is unusual for this service, and what this window looked like when it
+# began. Neither is discarded in favour of the other: the first is what tells an
+# older resolved departure from the current one, the second is the only one that
+# can see a climb.
+_THE_QUIETEST_MINUTES = _CalmStretch(
+    minutes=_the_quietest_minutes,
+    minimum_spread_as_fraction_of_baseline=_MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE
+)
+_THE_WINDOWS_OPENING = _CalmStretch(
+    minutes=_the_windows_opening,
+    minimum_spread_as_fraction_of_baseline=(
+        _MINIMUM_OPENING_SPREAD_AS_FRACTION_OF_BASELINE
+    )
+)
 
 
 def _quantile(sorted_values: Sequence[float], quantile: float) -> float:

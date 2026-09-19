@@ -486,6 +486,8 @@ def _a_bucket(minute: datetime, error_rate: float = 0.01) -> MetricBucket:
         p50_ms=40,
         p95_ms=200,
         request_volume=1000,
+        memory_used_bytes=440 * 1024**2,
+        process_start_time_seconds=1_756_000_000.0,
     )
 
 

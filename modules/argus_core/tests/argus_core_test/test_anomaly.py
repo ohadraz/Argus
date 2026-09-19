@@ -260,6 +260,83 @@ def test_find_onset_is_not_fooled_by_a_baseline_whose_quiet_minutes_read_alike()
         )
 
 
+@pytest.mark.unit
+def test_find_onset_dates_a_climb_from_where_it_began_rather_than_where_it_got_bad() -> None:
+    # The case the window's lowest half by value cannot see: on a ramp, that
+    # half *is* the early climb, so the baseline rises with the fault and the
+    # spread derived from it is the slope. Measured against it alone, the first
+    # departing minute here is #33 - twenty-three minutes after the climb
+    # started, and most of the way to the peak. The window's own opening is
+    # still calm, and that is what dates it.
+    a_calm_stretch = [CALM_P95_MS] * 10
+    a_continuous_climb = [CALM_P95_MS + 60 * (minute + 1) for minute in range(30)]
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 40, a_calm_stretch + a_continuous_climb
+    )
+
+    a_minute_at_the_start_of_the_climb = some_window[14]
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(a_minute_at_the_start_of_the_climb.bucket_id)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_filled_entirely_by_a_climb_has_no_visible_start() -> None:
+    # A leak older than the window. Every minute is slightly worse than the one
+    # before, no minute is a departure from its neighbours, and the baseline
+    # taken from the window's opening is itself part of the climb. The honest
+    # answer is the earliest minute there is, reported as the lower bound it is
+    # - which is what makes the next round widen rather than believe this one.
+    a_climb_with_no_calm_before_it = [CALM_P95_MS + 60 * minute for minute in range(60)]
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 60, a_climb_with_no_calm_before_it
+    )
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: earliest_bucket_is_anomalous(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
+
+
+@pytest.mark.unit
+def test_find_onset_catches_a_memory_departure_at_a_steady_error_rate_and_latency() -> None:
+    # A leak's earliest and clearest signal is memory, and it runs ahead of the
+    # latency and the errors it eventually causes. A detector reading only those
+    # would date every leak at the minute it became a user-visible failure.
+    a_calm_working_set = [CALM_MEMORY_BYTES] * 10
+    a_working_set_three_times_the_baseline = [1536 * 1024**2] * 4
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 14,
+        memory_bytes=a_calm_working_set + a_working_set_three_times_the_baseline
+    )
+
+    first_bucket_using_too_much = some_window[10]
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_bucket_using_too_much.bucket_id)
+        )
+
 
 @pytest.mark.unit
 def test_a_window_that_returned_to_baseline_has_recovered() -> None:
@@ -494,6 +571,9 @@ def _the_minute_after(bucket_id: str) -> str:
 CALM_MINUTES = 6
 CALM_P50_MS = 80
 CALM_P95_MS = 200
+CALM_MEMORY_BYTES = 440 * 1024**2
+CALM_ERROR_RATE = 0.01
+MEMORY_LIMIT_BYTES = 2 * 1024**3
 
 
 def a_window_departing_from(steady_rate: float) -> list[MetricBucket]:
@@ -505,10 +585,13 @@ def a_window_departing_from(steady_rate: float) -> list[MetricBucket]:
 
 
 def a_window_of(error_rates: list[float],
-                p95_ms_values: list[int] | None = None) -> list[MetricBucket]:
+                p95_ms_values: list[int] | None = None,
+                memory_bytes: list[int] | None = None) -> list[MetricBucket]:
     latencies = p95_ms_values or [CALM_P95_MS] * len(error_rates)
+    memory = memory_bytes or [CALM_MEMORY_BYTES] * len(error_rates)
     window_start = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
     dont_care_volume = 1000
+    dont_care_started_at = window_start.timestamp()
 
     return [
         MetricBucket(
@@ -517,9 +600,12 @@ def a_window_of(error_rates: list[float],
             p50_ms=CALM_P50_MS,
             p95_ms=p95_ms,
             request_volume=dont_care_volume,
+            memory_used_bytes=memory_used,
+            memory_limit_bytes=MEMORY_LIMIT_BYTES,
+            process_start_time_seconds=dont_care_started_at,
         )
-        for offset, (error_rate, p95_ms) in enumerate(
-            zip(error_rates, latencies, strict=True)
+        for offset, (error_rate, p95_ms, memory_used) in enumerate(
+            zip(error_rates, latencies, memory, strict=True)
         )
     ]
 

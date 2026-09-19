@@ -19,6 +19,10 @@ CALM_ERROR_RATE = 0.01
 CALM_P50_MS = 80
 CALM_P95_MS = 200
 DONT_CARE_REQUEST_VOLUME = 1000
+# Flat across every window here: these incidents are about the error rate, and
+# a leak is the one shape none of them stages.
+CALM_MEMORY_BYTES = 440 * 1024**2
+DONT_CARE_STARTED_AT = 1_756_000_000.0
 
 WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 AN_ALERT_TIME = datetime(2026, 8, 20, 11, 8, tzinfo=UTC)
@@ -59,7 +63,9 @@ def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
             error_rate=error_rate,
             p50_ms=CALM_P50_MS,
             p95_ms=CALM_P95_MS,
-            request_volume=DONT_CARE_REQUEST_VOLUME
+            request_volume=DONT_CARE_REQUEST_VOLUME,
+            memory_used_bytes=CALM_MEMORY_BYTES,
+            process_start_time_seconds=DONT_CARE_STARTED_AT
         )
         for offset, error_rate in enumerate(error_rates)
     ]

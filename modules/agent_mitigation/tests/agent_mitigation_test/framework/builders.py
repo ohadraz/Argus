@@ -130,6 +130,10 @@ def a_still_failing_window() -> list[MetricBucket]:
 
 def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
     dont_care_volume = 1000
+    dont_care_started_at = WINDOW_START.timestamp()
+    # Flat: every window here is a flag scenario, whose fault moves the error
+    # rate and leaves the shop's memory where it was.
+    calm_memory_bytes = 440 * 1024**2
 
     return [
         MetricBucket(
@@ -137,7 +141,9 @@ def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
             error_rate=error_rate,
             p50_ms=CALM_P50_MS,
             p95_ms=CALM_P95_MS,
-            request_volume=dont_care_volume
+            request_volume=dont_care_volume,
+            memory_used_bytes=calm_memory_bytes,
+            process_start_time_seconds=dont_care_started_at
         )
         for offset, error_rate in enumerate(error_rates)
     ]

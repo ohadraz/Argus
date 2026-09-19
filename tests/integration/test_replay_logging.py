@@ -153,6 +153,8 @@ def _metrics_that_show_an_onset(dont_care_window_start: str | None) -> list[Metr
             p50_ms=40,
             p95_ms=120,
             request_volume=200,
+            memory_used_bytes=440 * 1024**2,
+            process_start_time_seconds=1_756_000_000.0,
         ),
         MetricBucket(
             bucket_id=SOME_ONSET,
@@ -160,6 +162,8 @@ def _metrics_that_show_an_onset(dont_care_window_start: str | None) -> list[Metr
             p50_ms=60,
             p95_ms=900,
             request_volume=200,
+            memory_used_bytes=440 * 1024**2,
+            process_start_time_seconds=1_756_000_000.0,
         ),
     ]
 

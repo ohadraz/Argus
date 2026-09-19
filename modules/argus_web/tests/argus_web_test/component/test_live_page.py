@@ -396,7 +396,9 @@ def _a_bucket(bucket_id: str, error_rate: float) -> MetricBucket:
         error_rate=error_rate,
         p50_ms=120,
         p95_ms=240,
-        request_volume=200
+        request_volume=200,
+        memory_used_bytes=440 * 1024**2,
+        process_start_time_seconds=1_756_000_000.0
     )
 
 

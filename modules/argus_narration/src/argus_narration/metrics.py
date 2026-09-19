@@ -22,6 +22,13 @@ from argus_narration.clock import a_minute
 # `argus_core.anomaly`, which made it while the investigation ran.
 _ELEVATED_ERROR_RATE = 0.05
 
+# Where a byte count stops being read in megabytes. A working set is quoted in
+# whichever unit keeps it to three or four digits, which is how every dashboard
+# a reader has seen quotes it - `1946 MB` beside a `2.0 GB` limit is the same
+# fact said in two units, and the comparison is the only reason both are shown.
+_BYTES_PER_MEGABYTE = 1024**2
+_BYTES_PER_GIGABYTE = 1024**3
+
 
 class BucketRow(BaseModel):
     """One minute of metrics as the page shows it.
@@ -41,6 +48,11 @@ class BucketRow(BaseModel):
     p50_ms: int
     p95_ms: int
     request_volume: int
+    # What the service's memory was doing, already in the units a person reads
+    # it in. A byte count is the wrong thing to put in a table a reader scans
+    # for a climb: nine digits changing in their middle is a column nobody can
+    # see a trend in.
+    memory: str
     elevated: bool
 
 
@@ -53,5 +65,29 @@ def a_bucket_row(bucket: MetricBucket) -> BucketRow:
         p50_ms=bucket.p50_ms,
         p95_ms=bucket.p95_ms,
         request_volume=bucket.request_volume,
+        memory=_memory_said(bucket.memory_used_bytes, bucket.memory_limit_bytes),
         elevated=bucket.error_rate >= _ELEVATED_ERROR_RATE
     )
+
+
+def _memory_said(used_bytes: int, limit_bytes: int | None) -> str:
+    """What the service was using, against what it was allowed.
+
+    The limit is said beside the usage rather than left to be looked up: a
+    working set means nothing on its own, and the whole question a reader asks
+    of this column is how close to the ceiling it has got. A deployment with no
+    limit configured has no ceiling to be close to, and the usage is said
+    alone - not against a zero that would read as a service already over.
+    """
+    if limit_bytes is None:
+        return _a_size(used_bytes)
+
+    return f"{_a_size(used_bytes)} of {_a_size(limit_bytes)}"
+
+
+def _a_size(byte_count: int) -> str:
+    """A byte count in the unit it is ordinarily quoted in."""
+    if byte_count >= _BYTES_PER_GIGABYTE:
+        return f"{byte_count / _BYTES_PER_GIGABYTE:.1f} GB"
+
+    return f"{round(byte_count / _BYTES_PER_MEGABYTE)} MB"
