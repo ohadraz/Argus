@@ -52,6 +52,7 @@ from argus_core.models import IncidentStatus
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
     RECORDED_BAD_DEPLOYMENT,
+    RECORDED_CACHE_MISCONFIGURED,
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
@@ -133,6 +134,11 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "upstream-dependency-failure",
         "HighErrorRate"
     ),
+    # The one incident a monitor watching the tail never sees. Its alert is
+    # latency, as a bad deployment's is: nothing here fails, so an error-rate
+    # alert would be answering a question this scenario never asks, and what the
+    # two latency cases are told apart by is the evidence rather than the page.
+    _Recording(RECORDED_CACHE_MISCONFIGURED, "cache-misconfigured", "HighLatency"),
     _Recording(RECORDED_ABSENCE_OF_EVIDENCE, None, "HighErrorRate")
 )
 

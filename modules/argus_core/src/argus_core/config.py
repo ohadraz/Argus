@@ -458,6 +458,19 @@ class Settings(BaseSettings):
     # it has one service and no namespaces.
     restart_namespace: str = Field(default="production")
     restart_resource_name: str = Field(default="io-shop")
+    # Where a rollback is asked for, and where the sync policy is written.
+    # Two more templates rather than one: the platform's rollback and its
+    # spec are different routes, and a real Argo CD's are
+    # `/api/v1/applications/{application}/rollback` and `.../spec`.
+    #
+    # Both exist because a rollback is three requests, not one - the
+    # application is read for which entry is running and whether the platform
+    # is reconciling it, reconciliation is suspended because a real server
+    # refuses a rollback while it is on, and only then is the rollback asked
+    # for. The application itself is read through `argocd_application_path`
+    # above, which the read tier already names.
+    argocd_rollback_path: str = Field(default="/argocd/{application}/rollback")
+    argocd_spec_path: str = Field(default="/argocd/{application}/spec")
 
     # How far back to look for changes. Wide on purpose, and far wider than
     # any log window: a cause precedes its symptoms by an unbounded lag - a

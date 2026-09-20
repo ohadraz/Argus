@@ -376,7 +376,7 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
                        outcome=Verdict.CONFIRMED),
         ChangeUndone(
             incident_id=AN_INCIDENT,
-            flag="monthly-spend-feature",
+            subject="monthly-spend-feature",
             outcome=Undone.RESTORED,
             detail="put back the way Argus found it"
         )

@@ -37,6 +37,7 @@ from agent_mitigation.admitting import (
     AdmittedMitigations,
     is_a_generic_mitigation,
 )
+from agent_mitigation.binding import an_undo_over
 from agent_mitigation.mitigating import mitigate
 from agent_mitigation.strategies import (
     MitigationStrategy,
@@ -50,6 +51,8 @@ from agent_mitigation.tools import (
     ServiceRestarter,
     StillWanted,
     argus_changed_flag_since,
+    configuration_restorer_over,
+    configuration_roller_over,
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
@@ -80,7 +83,10 @@ __all__ = [
     "Undone",
     "Verdict",
     "a_mitigation_answers",
+    "an_undo_over",
     "argus_changed_flag_since",
+    "configuration_restorer_over",
+    "configuration_roller_over",
     "fetch_recent_flag_changes",
     "flag_changes_over",
     "flag_setter_over",

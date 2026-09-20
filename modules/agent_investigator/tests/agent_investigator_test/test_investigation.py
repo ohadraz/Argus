@@ -27,6 +27,7 @@ from argus_core.events import (
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
     ActionIdentity,
     Ask,
     Attempt,
@@ -732,6 +733,45 @@ def test_a_restart_already_tried_is_described_as_a_restart() -> None:
             ),
             _what_was_asked_first_avoids(
                 investigation.model, f"set {some_restarted_service}"
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_already_tried_is_described_as_a_rollback() -> None:
+    # Same reason a restart is. Shown "set io-shop on", a model reasons about
+    # a switch nobody threw - and a rollback that did not help is evidence
+    # about the configuration, which is not what a toggle would have told it.
+    some_rolled_back_application = "io-shop"
+    some_time_it_was_rolled_back = "2026-08-20T11:12:00Z"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(),
+                already_refuted=[
+                    Attempt(
+                        identity=ActionIdentity(
+                            action_type=ROLL_BACK_CONFIGURATION,
+                            subject=some_rolled_back_application
+                        ),
+                        occurred_at=some_time_it_was_rolled_back
+                    )
+                ]
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                some_rolled_back_application,
+                some_time_it_was_rolled_back
+            ),
+            _what_was_asked_first_avoids(
+                investigation.model, f"set {some_rolled_back_application}"
             )
         ))
 

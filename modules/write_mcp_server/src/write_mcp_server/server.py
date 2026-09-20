@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.models import (
+    ConfigRollbackUndo,
+    ConfigurationRestored,
     FlagChange,
     FlagUndo,
     OpenedPullRequest,
@@ -36,22 +38,27 @@ from write_mcp_server import (
     flag_state,
     pull_requests,
     restarting,
+    rolling_back,
 )
 from write_mcp_server.flag_state import FlagWriteSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 from write_mcp_server.restarting import RestartSettings
+from write_mcp_server.rolling_back import RollbackSettings
 
 
 def build_server(endpoint: WriteMcpEndpoint,
                  flag_settings: FlagWriteSettings,
                  repository_settings: RepositoryWriteSettings,
-                 restart_settings: RestartSettings) -> FastMCP:
+                 restart_settings: RestartSettings,
+                 rollback_settings: RollbackSettings) -> FastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Three slices, not one, and not five. The flag tools speak to the provider,
-    the code tool speaks to the repository, and the restart speaks to the
-    deployment platform; every credential named belongs to this tier, and none
-    of them belongs in another's calls. What keeps the *tiers* apart is that
+    Four slices, not one. The flag tools speak to the provider, the code tool
+    speaks to the repository, and the restart and the rollback each speak to
+    the deployment platform - separately, because they are different routes
+    under different paths and a single slice would make one tool's
+    misconfiguration look like the other's. Every credential named belongs to
+    this tier, and none of them belongs in another's calls. What keeps the *tiers* apart is that
     the read server is handed a slice with no field any of these could arrive
     in - not a check made here.
 
@@ -117,6 +124,55 @@ def build_server(endpoint: WriteMcpEndpoint,
             restart_settings,
             observe=confirm_a_new_process_is_serving
         )
+
+    @mcp.tool()
+    def roll_back_configuration(application: str) -> ConfigRollbackUndo:
+        """Returns a deployment to the configuration revision it ran before,
+        and reports what that cost.
+
+        A generic mitigation (§13), admissible unasked for one specific
+        reason: the revision it applies was reviewed and ran before, so this
+        replays somebody's change rather than authoring one. It writes nothing
+        to the configuration repository, and must not - that would be an
+        infrastructure change requiring approval.
+
+        Which revision is not a parameter. The platform resolves it as
+        `argocd app rollback APPNAME` does with its history id omitted - the
+        immediately preceding deployment - because nothing above this port
+        holds a deployment history to choose from.
+
+        Mitigates without resolving. The repository still holds the change
+        that caused the incident, and the platform's own reconciliation has
+        been suspended so that it is not re-applied; both are recorded in the
+        descriptor returned, and both are what a withdrawal puts back. The
+        behavior lives in `rolling_back.roll_back_configuration`; this is
+        registration only."""
+        return rolling_back.roll_back_configuration(application, rollback_settings)
+
+    @mcp.tool()
+    def restore_configuration(
+        descriptor: ConfigRollbackUndo
+    ) -> ConfigurationRestored:
+        """Puts back both of the things a rollback changed, and reports which
+        of them it managed.
+
+        The revision the deployment was running, and the reconciliation that
+        had to be suspended to leave it. Both, or it is not undone: a
+        deployment whose revision is back while the platform is still not
+        reconciling it looks correct from every angle a reader has, and
+        silently receives nothing anybody ships to it.
+
+        Answers with which halves it managed rather than raising, because a
+        restore can half-succeed and the caller has to be able to say which
+        half is still changed - "the revision is back and reconciliation is
+        still suspended" is a sentence somebody can act on, where "it did not
+        work" is not.
+
+        The order is the platform's to dictate: automated sync refuses a
+        rollback, so the revision is put back before reconciliation is
+        re-enabled. The behavior lives in
+        `rolling_back.restore_configuration`; this is registration only."""
+        return rolling_back.restore_configuration(descriptor, rollback_settings)
 
     @mcp.tool()
     def get_recent_flag_changes(since: str) -> list[FlagChange]:
@@ -201,7 +257,8 @@ def main() -> None:
         WriteMcpEndpoint.of(settings),
         FlagWriteSettings.of(settings),
         RepositoryWriteSettings.of(settings),
-        RestartSettings.of(settings)
+        RestartSettings.of(settings),
+        RollbackSettings.of(settings)
     ).run(transport="streamable-http")
 
 

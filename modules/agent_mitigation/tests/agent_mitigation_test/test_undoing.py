@@ -14,9 +14,17 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import UndoAttempt, Undone, undo_change
-from agent_mitigation.tools import FlagSetter
-from argus_core.models import FlagUndo
+from agent_mitigation import (
+    UndoAttempt,
+    Undone,
+    undo_change,
+)
+from agent_mitigation.tools import ConfigurationRestorer, FlagSetter
+from argus_core.models import (
+    ConfigRollbackUndo,
+    ConfigurationRestored,
+    FlagUndo,
+)
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.builders import (
@@ -31,6 +39,10 @@ SOME_FLAG = "monthly-spend-feature"
 DONT_CARE_MOMENT = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
 
 
+SOME_APPLICATION = "io-shop"
+THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
+
+
 @pytest.mark.unit
 def test_a_flag_nobody_touched_is_put_back() -> None:
     set_state = _a_flag_setter()
@@ -43,7 +55,8 @@ def test_a_flag_nobody_touched_is_put_back() -> None:
             lambda: undo_change(
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
-                changed_from_outside=nobody_changed_it()
+                changed_from_outside=nobody_changed_it(),
+                restore_configuration=_a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -68,7 +81,8 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
             lambda: undo_change(
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
-                changed_from_outside=somebody_changed_it()
+                changed_from_outside=somebody_changed_it(),
+                restore_configuration=_a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -97,7 +111,8 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
             lambda: undo_change(
                 a_descriptor_from_before,
                 set_state=set_state,
-                changed_from_outside=nobody_changed_it()
+                changed_from_outside=nobody_changed_it(),
+                restore_configuration=_a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -120,7 +135,8 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
             lambda: undo_change(
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
-                changed_from_outside=nobody_can_say()
+                changed_from_outside=nobody_can_say(),
+                restore_configuration=_a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -146,7 +162,8 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
             lambda: undo_change(
                 descriptor,
                 set_state=_a_flag_setter(),
-                changed_from_outside=asked.record
+                changed_from_outside=asked.record,
+                restore_configuration=_a_restorer_nobody_calls()
             )
         ) \
         .then(
@@ -222,6 +239,170 @@ def _it_was_asked_from(asked: _ARecordAskedAbout,
             raise AssertionError(
                 f"Expected the record to be asked about [{SOME_FLAG}] from "
                 f"[{moment}], and it was asked {asked.asked_about}."
+            )
+
+        return True
+
+    return assertion
+
+
+def a_rollback_descriptor_for(application: str,
+                              was_syncing_itself: bool = True) -> ConfigRollbackUndo:
+    return ConfigRollbackUndo(
+        application=application,
+        was_on_history_id=2,
+        was_on_revision=THE_REVISION_IT_WAS_ON,
+        was_syncing_itself=was_syncing_itself
+    )
+
+
+def _a_restorer_nobody_calls() -> MagicMock:
+    """The way back from a rollback, wired but not exercised.
+
+    Most cases here are about a flag. The collaborator is required rather than
+    defaulted because an undo that could be built without a way to put back
+    one of the two kinds of change it accepts is an undo that finds out at the
+    worst moment.
+    """
+    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
+
+    return restore
+
+
+def _a_restorer_that_puts_back(revision: bool = True,
+                               automated_sync: bool = True) -> MagicMock:
+    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
+    restore.return_value = ConfigurationRestored(
+        revision=revision, automated_sync=automated_sync
+    )
+
+    return restore
+
+
+def _a_restorer_that_cannot(why: str) -> MagicMock:
+    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
+    restore.side_effect = RuntimeError(why)
+
+    return restore
+
+
+@pytest.mark.unit
+def test_a_rollback_is_put_back_by_the_restorer_rather_than_the_flag_setter() -> None:
+    # The dispatch. Two kinds of change reach this, and the one that is not a
+    # flag must not be sent to something that writes flags - which, before the
+    # descriptor was a union, is exactly what would have happened.
+    set_state = _a_flag_setter()
+    restore = _a_restorer_that_puts_back()
+
+    Scenario() \
+        .given(
+            a_rollback_descriptor_for(SOME_APPLICATION)
+        ) \
+            .when(
+            lambda: undo_change(
+                a_rollback_descriptor_for(SOME_APPLICATION),
+                set_state=set_state,
+                changed_from_outside=nobody_changed_it(),
+                restore_configuration=restore
+            )
+        ) \
+            .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _nothing_was_written(set_state)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_put_back_reports_the_application_as_its_subject() -> None:
+    # An unwind holds several answers at once and has to say which is which.
+    # A rollback is about an application, where a flag revert is about a flag.
+    Scenario() \
+        .given(
+            a_rollback_descriptor_for(SOME_APPLICATION)
+        ) \
+            .when(
+            lambda: undo_change(
+                a_rollback_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_configuration=_a_restorer_that_puts_back()
+            )
+        ) \
+            .then(
+            _it_is_about(SOME_APPLICATION)
+        )
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_sync_could_not_be_restored_is_not_counted_as_undone() -> None:
+    # The half that is easy to lose. The revision is back, so the deployment
+    # looks right - and it is silently receiving nothing anybody ships to it,
+    # because the reconciliation Argus suspended is still suspended. Reported
+    # as not established, which is what escalates it to somebody.
+    Scenario() \
+        .given(
+            a_rollback_descriptor_for(SOME_APPLICATION)
+        ) \
+            .when(
+            lambda: undo_change(
+                a_rollback_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_configuration=_a_restorer_that_puts_back(
+                    revision=True, automated_sync=False
+                )
+            )
+        ) \
+            .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed("automated sync")
+        ))
+
+
+@pytest.mark.unit
+def test_a_restorer_that_raises_leaves_the_rollback_not_established() -> None:
+    # Nothing raises out of an undo. An unwind runs over every change an
+    # incident made, and one deployment nobody can reach must not stop the
+    # others being put back.
+    some_failure = "the platform refused"
+
+    Scenario() \
+        .given(
+            a_rollback_descriptor_for(SOME_APPLICATION)
+        ) \
+            .when(
+            lambda: undo_change(
+                a_rollback_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_configuration=_a_restorer_that_cannot(some_failure)
+            )
+        ) \
+            .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed(some_failure)
+        ))
+
+
+def _it_is_about(subject: str) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.subject != subject:
+            raise AssertionError(
+                f"Expected the answer to be about [{subject}], and it was about "
+                f"[{attempt.subject}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_what_is_still_changed(mentioned: str) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if mentioned not in attempt.detail:
+            raise AssertionError(
+                f"Expected the report to name [{mentioned}], and it said: "
+                f"{attempt.detail}"
             )
 
         return True

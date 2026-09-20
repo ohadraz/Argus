@@ -25,7 +25,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 - Webhook ingestion of an alert
 - Log/metrics querying and correlation with recent changes
 - Root-cause hypothesis generation and testing (ReAct loop)
-- Generic mitigation (flag toggle, service restart, deployment rollback)
+- Generic mitigation (flag toggle, service restart, configuration rollback)
 - Code-level root cause search + PR generation (agentic search over the Target Service codebase, behind a seam that also admits RAG)
 - Slack integration: reading hints, and reporting an incident as it happens - a thread per incident in a war-room channel
 - Persistent memory: per-incident state + cross-incident knowledge base
@@ -146,11 +146,13 @@ Runs the ReAct loop (§9, §8). Tools: metrics read, log read, and flag evaluati
 
 ### 7.3 Mitigation agent
 
-Takes a confirmed/high-confidence hypothesis and proposes a generic mitigation: revert a flag, restart a service, or roll back a deployment (`push_revert_commit`) - all from `argus-write-mcp` (§12.1). Which mitigation answers which cause is a fact about Argus rather than a judgement made per incident, so it is a lookup from the named failure mode and nothing else; whether Argus may then take it unasked is a different question, asked of the declared set by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
+Takes a confirmed/high-confidence hypothesis and proposes a generic mitigation: revert a flag, restart a service, or return an application to the configuration revision it ran before - all from `argus-write-mcp` (§12.1). Which mitigation answers which cause is a fact about Argus rather than a judgement made per incident, so it is a lookup from the named failure mode and nothing else; whether Argus may then take it unasked is a different question, asked of the declared set by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
 
-*Which* mitigation comes from the cause; *what it acts on* comes from the evidence that names a thing rather than describes one. A flag revert is addressed to the flag the provider recorded changing, confirmed against the candidate that blamed it; a restart is addressed to the service the alert is about. Neither is read from the candidate's `subject`, which is the model's prose about the symptom - "io-shop process heap (memory_used_bytes / heap of 2048MiB limit)" is a real one - and describes a fault rather than naming anything a platform can be asked to act on.
+*Which* mitigation comes from the cause; *what it acts on* comes from the evidence that names a thing rather than describes one. A flag revert is addressed to the flag the provider recorded changing, confirmed against the candidate that blamed it; a restart is addressed to the service the alert is about; a configuration rollback is addressed to the application, and to nothing finer - which revision it returns to is the platform's to resolve, because nothing above that port holds a deployment history to choose from and a commit found in a diff is not necessarily a revision the application ever ran. None is read from the candidate's `subject`, which is the model's prose about the symptom - "io-shop process heap (memory_used_bytes / heap of 2048MiB limit)" is a real one - and describes a fault rather than naming anything a platform can be asked to act on.
 
-An action carries an undo descriptor when it leaves something behind for somebody to put back, and carries none when it does not. A flag Argus moved is a flag somebody has to be able to move back; a restart changes no persistent state, so there is no prior value to record and nothing a withdrawal could act on. The descriptor is how a refuted mitigation is put back - never what admits one.
+The cause is chosen from a closed set, and the set reaches the model with each mode's meaning attached rather than as a list of names. The two that dispatch differently are the two most easily confused: a deployment that shipped bad code is answered by rolling the code back, and a deployment that shipped a bad configuration value is answered by returning the application to a configuration revision that already ran. Handed only the names, a model that has just seen a deploy land at the onset reads a configuration change as a bad deployment - which is not unreasonable, and is not the mitigation the incident needs.
+
+An action carries an undo descriptor when it leaves something behind for somebody to put back, and carries none when it does not. A flag Argus moved is a flag somebody has to be able to move back; a restart changes no persistent state, so there is no prior value to record and nothing a withdrawal could act on. A configuration rollback records *two* things, because the platform refuses one while it reconciles the application itself: the entry that was running, and whether that reconciliation was on. Suspending it is part of performing the rollback rather than a separate concern, and an undo that restored only the revision would leave a deployment that looks correct from every angle a reader has while silently receiving nothing anybody ships to it. The descriptor is how a refuted mitigation is put back - never what admits one.
 
 Verifying a mitigation takes two steps, and they answer different questions. First, did it land: the write tier waits for the change to become visible - a flag to evaluate to what was written, a service's process start time to move - and raises rather than reporting an unlanded change as made. Only then, did it help: the service is re-read until a minute that began *after* the action can be judged. Collapsing the two would make "it did not happen" and "it happened and did not help" the same observation, and a leak still climbing would read as evidence that restarting a leaking service does not work.
 
@@ -581,7 +583,7 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 | Server | Exposes |
 |---|---|
 | `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); flag evaluation against the flag provider's evaluation API; Slack channel/thread reads; `search_repository_by_meaning(description)` - nearest passages of the Target Service's source from the repository index (§11.5), each with its path and line span, prefixed with a notice where the index is behind the deployed commit; `get_repository_index_freshness(ref)` - the same fact before anything has been asked for, so a prompt can carry it rather than a model learning it from a result it has already acted on |
-| `argus-write-mcp` | Unleash admin toggle + revert (Mitigation); `restart_service` (Mitigation), which asks the deployment platform to roll the workload and returns only once a new process is serving; `push_revert_commit` (Mitigation); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists** |
+| `argus-write-mcp` | Unleash admin toggle + revert (Mitigation); `restart_service` (Mitigation), which asks the deployment platform to roll the workload and returns only once a new process is serving; `roll_back_configuration` and `restore_configuration` (Mitigation), which return an application to the configuration revision it ran before and put both of that change's halves back; `push_revert_commit` (Mitigation); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists** |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
 
@@ -600,7 +602,7 @@ Every action is tiered, and the tier determines how much autonomy the agent has:
 | Tier | Examples | Autonomy |
 |---|---|---|
 | Read-only | query logs, read Slack, read code | Fully autonomous |
-| Generic mitigation | toggle a flag back, restart a service | Autonomous, but announced in Slack immediately + logged, with whatever it left to put back recorded |
+| Generic mitigation | toggle a flag back, restart a service, return a deployment to a configuration revision it already ran | Autonomous, but announced in Slack immediately + logged, with whatever it left to put back recorded |
 | Outside the declared set | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
 | Give up / escalate | the investigation's budget binds before it names a cause, no mitigation Argus may take resolves the alert, or the cause is named and the declared set answers that kind of failure with nothing | Autonomous - pages a human with full context, doesn't keep guessing |
 
@@ -620,6 +622,15 @@ be undone by nothing, so "must be undoable" would put the industry's most common
 first response behind a human gate while flipping a production flag stayed
 automatic - backwards on any reading of blast radius. The undo descriptor is
 therefore what *puts a refuted mitigation back*, not what admits one (§7.3).
+
+Returning a deployment to a configuration revision it already ran is in the set
+for the reason the others are: the revision it applies was reviewed and ran
+before, so it replays somebody's change rather than authoring one, and nothing
+is written to the configuration repository. That is also why it mitigates
+without resolving - the repository still holds the change that caused the
+incident, and what stops it being re-applied is the platform's own
+reconciliation staying suspended. Writing to the repository instead would be an
+infrastructure change, which is a tier up and a human's to approve.
 
 The set is declared as a literal rather than derived from the mitigations that
 happen to be implemented. Deriving it would let an action acquire autonomy by

@@ -341,14 +341,17 @@ def _minutes_still_at_the_incidents_level(
         return []
 
     error_rates = [bucket.error_rate for bucket in buckets]
+    medians = [float(bucket.p50_ms) for bucket in buckets]
     latencies = [float(bucket.p95_ms) for bucket in buckets]
     memory = [float(bucket.memory_used_bytes) for bucket in buckets]
     error_rate_ceiling = _subsided_threshold(error_rates, thresholds)
+    median_ceiling = _subsided_threshold(medians, thresholds)
     latency_ceiling = _subsided_threshold(latencies, thresholds)
     memory_ceiling = _subsided_threshold(memory, thresholds)
 
     return [
         bucket.error_rate > error_rate_ceiling
+        or bucket.p50_ms > median_ceiling
         or bucket.p95_ms > latency_ceiling
         or bucket.memory_used_bytes > memory_ceiling
         for bucket in buckets
@@ -415,6 +418,9 @@ def _departures(buckets: Sequence[MetricBucket],
     error_rate_ceiling = _departure_threshold(
         [bucket.error_rate for bucket in buckets], thresholds, calm
     )
+    median_ceiling = _departure_threshold(
+        [float(bucket.p50_ms) for bucket in buckets], thresholds, calm
+    )
     latency_ceiling = _departure_threshold(
         [float(bucket.p95_ms) for bucket in buckets], thresholds, calm
     )
@@ -424,6 +430,7 @@ def _departures(buckets: Sequence[MetricBucket],
 
     return [
         bucket.error_rate > error_rate_ceiling
+        or bucket.p50_ms > median_ceiling
         or bucket.p95_ms > latency_ceiling
         or bucket.memory_used_bytes > memory_ceiling
         for bucket in buckets

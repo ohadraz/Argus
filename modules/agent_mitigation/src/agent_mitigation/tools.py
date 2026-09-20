@@ -8,6 +8,8 @@ from typing import Protocol
 from argus_core import SettingsSlice, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    ConfigRollbackUndo,
+    ConfigurationRestored,
     FlagChange,
     MetricBucket,
     RestartedService,
@@ -17,6 +19,8 @@ from read_mcp_client import get_metrics_summary
 from write_mcp_client import (
     get_recent_flag_changes,
     restart_service,
+    restore_configuration,
+    roll_back_configuration,
     set_feature_flag,
 )
 
@@ -63,6 +67,41 @@ class ServiceRestarter(Protocol):
     """
 
     def __call__(self, service: str, /) -> RestartedService: ...
+
+
+class ConfigurationRoller(Protocol):
+    """The tier's third write: returning a deployment to a revision it already
+    ran.
+
+    The application, and nothing else. Which entry to return to is the
+    platform's to resolve - the immediately preceding deployment - because
+    nothing above this port holds a deployment history to choose from, and a
+    commit Argus found in a diff is not necessarily a revision this
+    application ever ran.
+
+    It answers with the descriptor recording what it changed, and the
+    descriptor records *two* things: the platform refuses a rollback while it
+    is reconciling the application itself, so suspending that is part of
+    performing this rather than a separate concern - and an undo that restored
+    only the revision would leave the deployment silently receiving nothing
+    anybody ships to it.
+    """
+
+    def __call__(self, application: str, /) -> ConfigRollbackUndo: ...
+
+
+class ConfigurationRestorer(Protocol):
+    """Putting a rolled-back deployment back the way Argus found it.
+
+    Both of the things the rollback changed, and it answers with which of them
+    it managed rather than with nothing. A restore that half-succeeded is not
+    a restore, and the caller has to be able to say which half is still
+    changed - "the revision is back and reconciliation is still suspended" is
+    a sentence somebody can act on, where "it did not work" is not.
+    """
+
+    def __call__(self,
+                 descriptor: ConfigRollbackUndo, /) -> ConfigurationRestored: ...
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
 # Whether the walk waiting on an action is still one anybody wants. Takes
@@ -117,8 +156,25 @@ def flag_setter_over(client: McpClient) -> FlagSetter:
 
 
 def service_restarter_over(client: McpClient) -> ServiceRestarter:
-    """The other, over the same connection."""
+    """The second, over the same connection."""
     return partial(restart_a_service, client=client)
+
+
+def configuration_roller_over(client: McpClient) -> ConfigurationRoller:
+    """The third, over the same connection."""
+    return partial(roll_back_a_configuration, client=client)
+
+
+def configuration_restorer_over(client: McpClient) -> ConfigurationRestorer:
+    """Putting the third back, which is a tool of its own rather than the same
+    call reversed.
+
+    A flag's undo is `set_state` with the state the descriptor recorded, and one
+    seam serves both directions. A rollback's is not: it has two pieces of prior
+    state to restore and a platform that refuses one order of them, so the tier
+    performs it as its own operation and answers with which halves it managed.
+    """
+    return partial(restore_a_configuration, client=client)
 
 
 def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
@@ -254,6 +310,28 @@ def restart_a_service(service: str, *, client: McpClient) -> RestartedService:
     caller actually uses.
     """
     return restart_service(service, client=client)
+
+
+def roll_back_a_configuration(application: str,
+                              *,
+                              client: McpClient) -> ConfigRollbackUndo:
+    """Returns a deployment to the revision it ran before, answering with what
+    that cost.
+
+    A named function rather than `roll_back_configuration` itself, for the
+    reason `restart_a_service` is one: the agent needs one of that tool's
+    calling shapes, and a seam is only useful if a test can spec against the
+    shape the caller actually uses.
+    """
+    return roll_back_configuration(application, client=client)
+
+
+def restore_a_configuration(descriptor: ConfigRollbackUndo,
+                            *,
+                            client: McpClient) -> ConfigurationRestored:
+    """Puts back both of the things a rollback changed, reporting which it
+    managed."""
+    return restore_configuration(descriptor, client=client)
 
 
 def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:

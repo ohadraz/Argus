@@ -21,7 +21,14 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models import RestartService, RevertFeatureFlag, UndoDescriptor
+from argus_core.models import (
+    ConfigRollbackUndo,
+    FlagUndo,
+    RestartService,
+    RevertFeatureFlag,
+    RollBackConfiguration,
+    UndoDescriptor,
+)
 
 from agent_mitigation.actions import (
     Action,
@@ -34,6 +41,8 @@ from agent_mitigation.actions import (
 from agent_mitigation.tools import (
     ChangedFromOutside,
     Clock,
+    ConfigurationRestorer,
+    ConfigurationRoller,
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
@@ -79,14 +88,20 @@ class UndoChange(Protocol):
     thing that does. A test supplying its own gets to say so in a type.
     """
 
-    def __call__(self,
-                 undo_descriptor: UndoDescriptor,
-                 set_state: FlagSetter) -> UndoAttempt:
+    def __call__(self, undo_descriptor: UndoDescriptor, /) -> UndoAttempt:
         ...
 
-    # No `changed_from_outside` here any more. Whoever supplies the undo binds
-    # the provider check into it, because that check needs the configuration
-    # this module is handed rather than the one it used to read.
+    # The descriptor and nothing else. Whoever supplies the undo binds every
+    # collaborator into it - the provider check, because that check needs the
+    # configuration this module is handed rather than the one it used to read,
+    # and the writes, because a rollback's undo needs one this module has no
+    # business holding and a caller passing only the flag setter would bind an
+    # undo that works for one kind of change and raises on the other.
+    #
+    # It is also what lets one binding serve both callers. A withdrawal puts
+    # back every change an incident made and holds no setter of its own, so a
+    # protocol demanding one here would make the walk's undo and the worker's
+    # two different things again.
 
 
 def _nobody_stopped_this_walk() -> bool:
@@ -112,6 +127,8 @@ def take_action(action: Action,
                 publisher: Publisher = nobody,
                 *,
                 restart: ServiceRestarter,
+                roll_back: ConfigurationRoller,
+                restore_configuration: ConfigurationRestorer,
                 changed_from_outside: ChangedFromOutside,
                 undo: UndoChange | None = None) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
@@ -143,7 +160,7 @@ def take_action(action: Action,
     was invented to hold it.
     """
     try:
-        performed = _perform(action, set_state, restart)
+        performed = _perform(action, set_state, restart, roll_back)
     except Exception as error:
         return Outcome(
             verdict=Verdict.ESCALATED,
@@ -156,7 +173,10 @@ def take_action(action: Action,
     # was given. Neither is reached without a caller having said who asks the
     # provider - which is a connection, and not this module's to open.
     putting_back = undo if undo is not None else partial(
-        undo_change, changed_from_outside=changed_from_outside
+        undo_change,
+        changed_from_outside=changed_from_outside,
+        set_state=set_state,
+        restore_configuration=restore_configuration
     )
 
     settled = _what_watching_the_service_settled(
@@ -185,12 +205,13 @@ def take_action(action: Action,
             undo_descriptor=performed.undo_descriptor,
         )
 
-    return _undone(performed, set_state, changed_from_outside, putting_back)
+    return _undone(performed, putting_back)
 
 
 def _perform(action: Action,
              set_state: FlagSetter,
-             restart: ServiceRestarter) -> Performed:
+             restart: ServiceRestarter,
+             roll_back: ConfigurationRoller) -> Performed:
     """Does the one thing this action is, and says what it did.
 
     The only place the two kinds part company. Each branch names its own write
@@ -217,8 +238,40 @@ def _perform(action: Action,
                 # would be true.
                 undo_descriptor=None
             )
+        case RollBackConfiguration():
+            rolled_back = roll_back(action.application)
+
+            return Performed(
+                said=(
+                    # The entry it came *from*, which is what the descriptor
+                    # records and what a reader needs to know was undone.
+                    # Where it went is "the one before", by construction.
+                    f"rolled [{action.application}] back off the revision at "
+                    f"history entry [{rolled_back.was_on_history_id}]"
+                ),
+                undo_descriptor=rolled_back
+            )
         case _:
             assert_never(action)
+
+
+def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
+    """How the sentence ends when a refuted change really was put back.
+
+    Per kind, because the kinds end the sentence differently: a flag was put
+    back *on* or *off*, and a deployment was put back *to* a revision. One
+    phrasing covering both would have to be vague enough to say neither.
+    """
+    match undo_descriptor:
+        case FlagUndo():
+            return state_name(undo_descriptor.was_enabled)
+        case ConfigRollbackUndo():
+            return (
+                f"to the revision at history entry "
+                f"[{undo_descriptor.was_on_history_id}]"
+            )
+        case _:
+            assert_never(undo_descriptor)
 
 
 def _what_it_would_have_done(action: Action) -> str:
@@ -234,6 +287,8 @@ def _what_it_would_have_done(action: Action) -> str:
             return f"set flag [{action.flag}] {state_name(action.enabled)}"
         case RestartService():
             return f"restart [{action.service}]"
+        case RollBackConfiguration():
+            return f"roll [{action.application}] back to its previous revision"
         case _:
             assert_never(action)
 
@@ -310,10 +365,7 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         sleep(_SECONDS_BETWEEN_METRIC_READS)
 
 
-def _undone(performed: Performed,
-            set_state: FlagSetter,
-            changed_from_outside: ChangedFromOutside,
-            undo: UndoChange) -> Outcome:
+def _undone(performed: Performed, undo: UndoChange) -> Outcome:
     """Puts a refuted action back, and says so as a verdict.
 
     A refuted action was taken on a hypothesis the evidence has not borne out,
@@ -343,8 +395,7 @@ def _undone(performed: Performed,
             ),
         )
 
-    was_enabled = undo_descriptor.was_enabled
-    attempt = undo(undo_descriptor, set_state=set_state)
+    attempt = undo(undo_descriptor)
 
     if attempt.outcome is Undone.NOT_ESTABLISHED:
         return Outcome(
@@ -364,7 +415,7 @@ def _undone(performed: Performed,
         verdict=Verdict.REFUTED,
         detail=(
             f"{taken}, the service did not recover, so it was put back "
-            f"{state_name(was_enabled)}"
+            f"{_how_it_was_put_back(undo_descriptor)}"
         ),
         undo_descriptor=undo_descriptor,
     )

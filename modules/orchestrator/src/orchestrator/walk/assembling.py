@@ -25,7 +25,10 @@ from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
 from agent_mitigation import (
     MitigationSettings,
+    an_undo_over,
     argus_changed_flag_since,
+    configuration_restorer_over,
+    configuration_roller_over,
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
@@ -34,7 +37,6 @@ from agent_mitigation import (
     service_restarter_over,
     somebody_else_changed_flag_since,
     take_action,
-    undo_change,
 )
 from argus_core import Connections, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
@@ -271,13 +273,14 @@ def against(connections: Connections,
             thresholds=thresholds,
             set_state=flag_setter_over(write),
             restart=service_restarter_over(write),
+            roll_back=configuration_roller_over(write),
+            restore_configuration=configuration_restorer_over(write),
             fetch_metrics=recent_metrics_over(read),
             changed_from_outside=outside,
-            undo=partial(
-                undo_change,
-                changed_from_outside=outside,
-                set_state=flag_setter_over(write)
-            )
+            # The agent's own binding rather than one assembled here, because
+            # the worker wants the same one for a withdrawal - and two copies
+            # of it is how one came to be missing a collaborator the other had.
+            undo=an_undo_over(write, mitigation)
         ),
         record_action=records.claim_action,
         complete_action=records.complete_action,

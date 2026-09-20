@@ -27,6 +27,7 @@ from argus_core.models import (
     Hypothesis,
     RestartService,
     RevertFeatureFlag,
+    RollBackConfiguration,
 )
 from argus_testkit import Assertion, Scenario
 
@@ -345,6 +346,89 @@ def _the_answer_is(expected: bool) -> Assertion[bool]:
         if answered is not expected:
             raise AssertionError(
                 f"Expected [{expected}], got [{answered}]."
+            )
+
+        return True
+
+    return assertion
+
+
+SOME_APPLICATION_THE_ALERT_NAMES = "io-shop"
+
+
+@pytest.mark.unit
+def test_a_config_induced_failure_is_answered_by_rolling_the_configuration_back() -> None:
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE),
+            [],
+            SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+            .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_the_deployment_rolled_back_is_the_one_the_alert_names() -> None:
+    # Not Argus's configuration, which would hardcode one deployment's answer
+    # into the agent, and not the hypothesis, whose subject is the model's
+    # description of what went wrong rather than the name of anything that
+    # can be addressed.
+    describing_a_symptom = a_hypothesis_blaming(
+        FailureMode.CONFIG_INDUCED_FAILURE,
+        subject="the summary cache (cache_hit_ratio at 0)"
+    )
+
+    Scenario() \
+        .given(describing_a_symptom) \
+        .when(lambda: propose_action(
+            describing_a_symptom, [], SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+            .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_a_rollback_names_no_revision_to_return_to() -> None:
+    # Nothing at this layer could name one honestly: a deployment history
+    # lives with the platform, behind the write tier, and a strategy inventing
+    # an entry would be inventing a state to ship.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE),
+            [],
+            SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+            .then(_it_carries_nothing_but_the_application())
+
+
+def _it_rolls_back(application: str) -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, RollBackConfiguration):
+            raise AssertionError(f"Expected a rollback, got [{action}].")
+
+        if action.application != application:
+            raise AssertionError(
+                f"Expected [{application}] to be rolled back, and "
+                f"[{action.application}] was."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_carries_nothing_but_the_application() -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, RollBackConfiguration):
+            raise AssertionError(f"Expected a rollback, got [{action}].")
+
+        carried = set(action.model_dump()) - {"action_type", "application"}
+
+        if carried:
+            raise AssertionError(
+                f"Expected a rollback naming only the application, and it also "
+                f"carried {sorted(carried)}."
             )
 
         return True

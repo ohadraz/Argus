@@ -30,12 +30,16 @@ import pytest
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
     ActionIdentity,
     FlagUndo,
     RestartService,
     RevertFeatureFlag,
+    RollBackConfiguration,
     UnreadVerdict,
     Verdict,
+    leaves_something_to_put_back,
+    the_direction_of,
     the_identity_of,
     the_identity_recorded,
 )
@@ -43,6 +47,7 @@ from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, atte
 
 SOME_SPELLING_NO_VERDICT_HAS = "dissolved"
 A_SPELLING_A_VERDICT_HAS = Verdict.CONFIRMED.value
+SOME_APPLICATION = "io-shop"
 
 
 @pytest.mark.unit
@@ -181,6 +186,65 @@ def test_an_outcome_a_verdict_does_spell_is_refused() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_the_identity_of_a_rollback_is_its_kind_and_its_application() -> None:
+    Scenario() \
+        .given(
+            a_rollback := _a_rollback_of(SOME_APPLICATION)
+        ) \
+        .when(lambda: the_identity_of(a_rollback)) \
+        .then(_it_identifies(ROLL_BACK_CONFIGURATION, SOME_APPLICATION))
+
+
+@pytest.mark.unit
+def test_a_rollback_and_a_restart_on_one_name_are_different_identities() -> None:
+    # Both act on the same deployment and they are not the same evidence: a
+    # restart that did not help says nothing about whether the configuration
+    # is wrong, and the gate counts them separately for that reason.
+    Scenario() \
+        .given([
+            _a_rollback_of(SOME_APPLICATION),
+            RestartService(service=SOME_APPLICATION)
+        ]) \
+        .when(lambda: [
+            the_identity_of(_a_rollback_of(SOME_APPLICATION)),
+            the_identity_of(RestartService(service=SOME_APPLICATION))
+        ]) \
+        .then(_they_are_different_identities())
+
+
+@pytest.mark.unit
+def test_a_rollback_has_no_direction_to_report() -> None:
+    # A flag is set on or off and which of those happened is half the
+    # sentence. A rollback has one thing it does, and reporting it as having
+    # moved something to `true` would be a field invented to keep a shape.
+    Scenario() \
+        .given(
+            a_rollback := _a_rollback_of(SOME_APPLICATION)
+        ) \
+        .when(lambda: the_direction_of(a_rollback)) \
+        .then(_it_has_no_direction())
+
+
+@pytest.mark.unit
+def test_a_rollback_leaves_something_a_withdrawal_has_to_put_back() -> None:
+    # Unlike a restart. The row's own column is what tells a descriptor that
+    # is missing from a kind that leaves nothing behind - which is fine - from
+    # one missing on a kind that does, which is a change nobody accounted for.
+    Scenario() \
+        .given(ROLL_BACK_CONFIGURATION) \
+        .when(lambda: leaves_something_to_put_back(ROLL_BACK_CONFIGURATION)) \
+        .then(_it_leaves_something_to_put_back(True))
+
+
+@pytest.mark.unit
+def test_a_restart_leaves_nothing_to_put_back() -> None:
+    Scenario() \
+        .given(RESTART_SERVICE) \
+        .when(lambda: leaves_something_to_put_back(RESTART_SERVICE)) \
+        .then(_it_leaves_something_to_put_back(False))
+
+
 def _a_revert_of(flag: str) -> RevertFeatureFlag:
     return RevertFeatureFlag(
         flag=flag,
@@ -298,6 +362,36 @@ def _it_complains_about(spelling: str) -> Assertion[Exception | None]:
         if spelling not in str(error):
             raise AssertionError(
                 f"Expected the refusal to name [{spelling}], and it said: {error}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_rollback_of(application: str) -> RollBackConfiguration:
+    return RollBackConfiguration(application=application)
+
+
+def _it_has_no_direction() -> Assertion[bool | None]:
+    def assertion(direction: bool | None) -> bool:
+        if direction is not None:
+            raise AssertionError(
+                f"Expected an action with no direction to move in, and it "
+                f"reported [{direction}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_leaves_something_to_put_back(expected: bool) -> Assertion[bool]:
+    def assertion(leaves: bool) -> bool:
+        if leaves != expected:
+            raise AssertionError(
+                f"Expected leaving something to put back to be [{expected}], "
+                f"and it was [{leaves}]."
             )
 
         return True

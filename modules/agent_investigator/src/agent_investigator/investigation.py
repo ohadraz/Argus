@@ -45,6 +45,7 @@ from argus_core.llm import (
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
     Alert,
     Ask,
     Attempt,
@@ -632,5 +633,8 @@ def _what_was_done_in(attempt: Attempt) -> str:
 
     if kind == RESTART_SERVICE:
         return f"restarted {subject}"
+
+    if kind == ROLL_BACK_CONFIGURATION:
+        return f"rolled the configuration of {subject} back"
 
     assert_never(kind)

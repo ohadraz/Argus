@@ -340,6 +340,34 @@ def test_find_onset_catches_a_memory_departure_at_a_steady_error_rate_and_latenc
 
 
 @pytest.mark.unit
+def test_find_onset_catches_a_median_departure_at_a_steady_tail() -> None:
+    # A fault that removes a fast path - a cache gone, a warm pool lost -
+    # leaves the tail describing what it already described, the slow requests,
+    # while multiplying what a typical request costs. An incident of that shape
+    # is invisible in the tail and plain in the median, so a detector reading
+    # only the tail would not find it at all.
+    a_calm_median = [CALM_P50_MS] * 10
+    a_median_four_times_the_baseline = [CALM_P50_MS * 4] * 4
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 14,
+        p50_ms_values=a_calm_median + a_median_four_times_the_baseline
+    )
+
+    first_slow_minute = some_window[10]
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_slow_minute.bucket_id)
+        )
+
+
+@pytest.mark.unit
 def test_a_window_that_returned_to_baseline_has_recovered() -> None:
     # The mitigation side of the same judgement: not "when did this start" but
     # "is it still going", asked of the minutes after an action was taken.
@@ -665,8 +693,10 @@ def a_window_departing_from(steady_rate: float) -> list[MetricBucket]:
 
 def a_window_of(error_rates: list[float],
                 p95_ms_values: list[int] | None = None,
-                memory_bytes: list[int] | None = None) -> list[MetricBucket]:
+                memory_bytes: list[int] | None = None,
+                p50_ms_values: list[int] | None = None) -> list[MetricBucket]:
     latencies = p95_ms_values or [CALM_P95_MS] * len(error_rates)
+    medians = p50_ms_values or [CALM_P50_MS] * len(error_rates)
     memory = memory_bytes or [CALM_MEMORY_BYTES] * len(error_rates)
     window_start = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
     dont_care_volume = 1000
@@ -676,15 +706,15 @@ def a_window_of(error_rates: list[float],
         MetricBucket(
             bucket_id=to_iso_minute(window_start + timedelta(minutes=offset)),
             error_rate=error_rate,
-            p50_ms=CALM_P50_MS,
+            p50_ms=p50_ms,
             p95_ms=p95_ms,
             request_volume=dont_care_volume,
             memory_used_bytes=memory_used,
             memory_limit_bytes=MEMORY_LIMIT_BYTES,
             process_start_time_seconds=dont_care_started_at,
         )
-        for offset, (error_rate, p95_ms, memory_used) in enumerate(
-            zip(error_rates, latencies, memory, strict=True)
+        for offset, (error_rate, p50_ms, p95_ms, memory_used) in enumerate(
+            zip(error_rates, medians, latencies, memory, strict=True)
         )
     ]
 

@@ -1,0 +1,51 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISlwcKjgEIEhgCKkD++QyGH65cjFCaZYiUKO3+nCe7uZPsEjXS2dh6ytEF5YPWtwya1ZESeyzvXSYPaKt/UHRB6tU+9hMamTsyLgUKMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAbm0wdUGEgwErwXK21XiAEUcAAEaDOxnFUliCRVxALxHNSIwZ3rmhwMkjzYxLmKojPOFRf9pUXqItm4Vvnno+Mp8iNJUStwpEOZ8MYMforGBRa8aKrUFWgr0vHOBLgbwH0JTCiBX7tHDKbWKRiKJw9+w+au9ck7yoSPhqzVIC7xI0w9zJ8gg7wDAT0W7CMu5AKORBB1hMCki56eKdMSModAtZm0A8sT1khgvs1GqrpkDrIJbBFOxFwI+p5aY3XilEATM1bq8Kk/xrISKlMRpfzyE0Qp66BrR+PcCHdL3u010GwYztVzhGldNdtvMISaJD156Jq/AW/A/Rzt/raiXNDK7EM6j0fK5JSR7kUxSAyjZc5IOAMVCWNtSlDbgims2bbvKbDjoJZR7n4uUy6ASuP8yo80oukkyFaJkdzb8h7B1xcpyG4kjoAK0lSpIpg2OPqsdo7w2bwuZ7eT5dm7qgBNqnzmiTt7ISnk61kEMjSxgSf2t2L+jbw3iaLhjNIk5JhR4tC9ApGaMjddxuc9gbUpytoCbJiT6VA0s+KR/PE0z/9AKP8BRhES4VdCOSLCdwKffRWKLXJwFlZbdBVtzcKztMBpa2ucpyXmURfJG3vTU99CL/YPl1rZGTo/mAJzrHKB+jt7sAQQV3vx9rqwgIhXfJ3q7w/xwvNOiim+Cq13bKsAscT4ZdJHOOk/Emzh5TtHj4KzES0rzXZN3x500qgiCfG1wAeMHa13ZIlsCpYTSS1dqXG8ffCcsj33z+N7HQyatUqBMRpi2jp+gV2gP+0FCcXqKetHcsGd88okKyRHpIYadHiY5DI9uvRd9PdmbsZx33kGRBSlQdnoRc3M0rpN9EwZWkX53xvEqahoe60o0Bb0a/L7qyIt//UQT/fZ5dIIDY7woA0FRRps02w09pA5sNgnTnSibz7thPUB4jiDXqlybdB568bTv9Kvvr0P5wjv5q+bCrEaoB8TTN8S3h9817rrvlrE8IRJy5pRfP3ve440//zbly6QZr/rGRijMIbEhWRxaHkUd3JAzGAE=",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Hio45hWFuvFaKcSnuLPzCk",
+      "input": {
+        "assumptions": [
+          "The bad port value is taken to be the cause because rolling the configuration back restored baseline; the two alternative explanations (broken cache-client code in the same deploy, or an independent outage of the Redis cache itself) were never tested and cannot be formally excluded.",
+          "The health of the Redis cache was not checked directly \u2014 it was inferred to be fine from the fact that reverting only io-shop's configuration was sufficient.",
+          "The latency and cache-hit-ratio behaviour is as read back by the investigating agent from per-minute metrics; the raw series was not re-examined by a human.",
+          "The recurring 'ClientDisconnected' account-page errors appear throughout the preceding hour as well, so they are treated as normal background noise rather than a symptom of this incident.",
+          "Recovery is taken from the point the service returned to baseline on the metrics; the separate figure for how long the incident was held open reflects response time, not how long the service was degraded."
+        ],
+        "executive_summary": "On 20 September 2026 a routine change to the online shop's account pages pointed the service at the wrong address for its fast-lookup data store. From 22:05 UTC the service could no longer reach that store, so every page request had to be rebuilt from scratch instead of being served from the ready-made copy. Pages still loaded and orders still went through, but they took several times longer than normal, and a slightly larger share of requests than usual failed. Monitoring raised an alert at 22:10 UTC, the automated responder identified the recent change as the likely cause within about half a minute, reverted the configuration, and confirmed the service was back to its normal speed by 22:11 UTC. The disruption ran from 22:05 to 22:11 UTC \u2014 about six minutes \u2014 and affected shoppers using the account pages during that window. No customer data was affected and no code change was needed; a review of the code found nothing to fix.",
+        "root_cause": "A deploy to io-shop at 22:04 changed the cache endpoint configuration to redis://cache.io-shop.svc.cluster.local:6380 \u2014 a port nothing is listening on (Redis serves 6379) \u2014 so from 22:05 every summary cache lookup was refused, the cache hit ratio fell to zero and all traffic took the uncached slow path, pushing p50 latency from roughly 27ms to roughly 190ms until the configuration was rolled back. Request volume and error rate were essentially unchanged, which points at the configuration value rather than the code shipped alongside it; the rollback restored baseline, confirming the diagnosis."
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CfFTZcwpsnfMcTXDgMPPE",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 7786
+    },
+    "cache_creation_input_tokens": 7786,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 1135,
+    "output_tokens_details": {
+      "thinking_tokens": 236
+    },
+    "service_tier": "standard"
+  }
+}

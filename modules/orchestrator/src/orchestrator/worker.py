@@ -22,10 +22,7 @@ from os import getpid
 import psycopg
 from agent_mitigation import (
     MitigationSettings,
-    flag_changes_over,
-    flag_setter_over,
-    somebody_else_changed_flag_since,
-    undo_change,
+    an_undo_over,
 )
 from argus_core import (
     Connections,
@@ -179,15 +176,13 @@ def main() -> None:
             connections,
             walk=partial(run_incident, connections=connections, graph_of=graph_of),
             unwind=partial(unwind_incident,
-                           undo=partial(
-                               undo_change,
-                               changed_from_outside=partial(
-                                   somebody_else_changed_flag_since,
-                                   settings=mitigation,
-                                   fetch=flag_changes_over(write)
-                               ),
-                               set_state=flag_setter_over(write)
-                           ),
+                           # The same binding the walk uses. A withdrawal puts
+                           # back every change an incident made, which is every
+                           # kind of change it could have made - so an undo
+                           # assembled here from a subset of the walk's
+                           # collaborators would fail on whichever kind this
+                           # copy had not heard about.
+                           undo=an_undo_over(write, mitigation),
                            taken_actions_of=taken_actions_from(connections),
                            publisher=events_into(connections)),
             still_wanted=wanted_via(connections),

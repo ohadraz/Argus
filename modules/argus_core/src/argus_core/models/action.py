@@ -148,18 +148,54 @@ class RestartService(BaseModel):
     service: str
 
 
+class RollBackConfiguration(BaseModel):
+    """Returning a deployment's configuration to the revision it ran before.
+
+    A generic mitigation in the same sense a restart is: applied before the
+    cause is fully understood, because what it buys is the service being well
+    while somebody works out what to write. It is admissible unasked for one
+    specific reason - the revision it applies was reviewed and ran before, so
+    Argus is replaying somebody's change rather than authoring one. Writing to
+    the configuration repository would be the opposite, and is not this.
+
+    The application, and nothing else. Which revision to return to is not
+    named here because nothing that proposes this action could name it
+    honestly: a strategy reads a hypothesis, the recorded flag changes and a
+    service name, none of which carry a deployment platform's history. The
+    platform resolves it - the immediately preceding deployment, which is what
+    `argocd app rollback APPNAME` does with its history id omitted - and the
+    tier that performed it reports back which entry that was.
+
+    It carries **no undo descriptor, and no field for one**, which is the same
+    shape a restart has for the opposite reason. A restart leaves nothing to
+    put back; this leaves a great deal, and every fact about it - the entry
+    that was running, the revision at it, whether the platform was
+    reconciling - is known only to the tier that did the work. A field here
+    would have to be filled at proposal time by something that cannot know
+    any of it. What tells the two apart is the kind: `leaves_something_to_put_back`
+    says this one does, so a row recording it with no descriptor against it is
+    a change nobody accounted for.
+    """
+
+    action_type: Literal["roll-back-configuration"] = "roll-back-configuration"
+    application: str
+
+
 # `action_type` is Argus's own word for what was done - it is a column on the
 # `action` table and a field on the event a reader sees - so it tags the union,
 # where the descriptor's `tool` is the write tier's wire vocabulary and does
 # not.
 type Action = Annotated[
-    RevertFeatureFlag | RestartService, Field(discriminator="action_type")
+    RevertFeatureFlag | RestartService | RollBackConfiguration,
+    Field(discriminator="action_type")
 ]
 
 # What any action calls itself. Named separately from the union because the
 # things that render or store an action carry the tag alone: the event says
 # what was done without carrying the proposal, and the row keeps a column.
-type ActionType = Literal["revert-feature-flag", "restart-service"]
+type ActionType = Literal[
+    "revert-feature-flag", "restart-service", "roll-back-configuration"
+]
 
 # The tags as values, for the row and the event that carry them without
 # carrying the action. Here beside the type rather than in the agent that
@@ -175,6 +211,7 @@ type ActionType = Literal["revert-feature-flag", "restart-service"]
 # instead of a guarantee.
 REVERT_FEATURE_FLAG: Final = "revert-feature-flag"
 RESTART_SERVICE: Final = "restart-service"
+ROLL_BACK_CONFIGURATION: Final = "roll-back-configuration"
 
 
 class RestartedService(BaseModel):
@@ -191,12 +228,33 @@ class RestartedService(BaseModel):
     service: str
     process_start_time_seconds: float
 
+
+class ConfigurationRestored(BaseModel):
+    """Which of the two things a rollback changed were put back.
+
+    Two flags rather than one answer, because a restore can half-succeed and
+    the half that fails is the quiet one. A deployment whose revision is back
+    looks right from every angle a reader has - and is silently receiving
+    nothing anybody ships to it, because the reconciliation Argus suspended is
+    still suspended.
+
+    Here beside `RestartedService` rather than inside the agent that reads it,
+    for the reason every contract in this package is here: the tier that
+    performs the restore answers with it and the agent that asked names it, so
+    a copy kept inside either one is a copy the other has to install an agent
+    to read.
+    """
+
+    revision: bool
+    automated_sync: bool
+
+
 # The kinds of action that leave a change behind somebody could put back. A
 # frozen set rather than a `match` over the union, because the question is
 # asked of the *tag* - the row records a kind, and the walk that reads it back
 # hours later has the column and not the action it came from.
 _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
-    {REVERT_FEATURE_FLAG}
+    {REVERT_FEATURE_FLAG, ROLL_BACK_CONFIGURATION}
 )
 
 
@@ -282,6 +340,8 @@ def the_subject_of(action: Action) -> str:
             return action.flag
         case RestartService():
             return action.service
+        case RollBackConfiguration():
+            return action.application
         case _:
             assert_never(action)
 
@@ -298,7 +358,7 @@ def the_direction_of(action: Action) -> bool | None:
     match action:
         case RevertFeatureFlag():
             return action.enabled
-        case RestartService():
+        case RestartService() | RollBackConfiguration():
             return None
         case _:
             assert_never(action)

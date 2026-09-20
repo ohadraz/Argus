@@ -9,17 +9,24 @@ holds the records.
 
 from __future__ import annotations
 
-from argus_core.models import UndoDescriptor
+from typing import assert_never
+
+from argus_core.models import ConfigRollbackUndo, FlagUndo, UndoDescriptor
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
-from agent_mitigation.tools import ChangedFromOutside, FlagSetter
+from agent_mitigation.tools import (
+    ChangedFromOutside,
+    ConfigurationRestorer,
+    FlagSetter,
+)
 
 __all__ = ["undo_change"]
 
 
 def undo_change(undo_descriptor: UndoDescriptor,
                 changed_from_outside: ChangedFromOutside,
-                set_state: FlagSetter) -> UndoAttempt:
+                set_state: FlagSetter,
+                restore_configuration: ConfigurationRestorer) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,
@@ -40,14 +47,90 @@ def undo_change(undo_descriptor: UndoDescriptor,
 
     Nothing raises. An unwind runs over every change an incident made, and one
     flag nobody can read must not stop the others being put back.
+
+    Which of the two kinds of change this is decides everything below, and
+    the tag is what decides it. A rollback sent to something that writes flags
+    would be an undo writing to the wrong system entirely - which is what a
+    single untagged shape made possible, and what the union exists to prevent.
     """
+    match undo_descriptor:
+        case FlagUndo():
+            return _put_a_flag_back(
+                undo_descriptor, changed_from_outside, set_state
+            )
+        case ConfigRollbackUndo():
+            return _put_a_deployment_back(undo_descriptor, restore_configuration)
+        case _:
+            assert_never(undo_descriptor)
+
+
+def _put_a_deployment_back(undo_descriptor: ConfigRollbackUndo,
+                           restore: ConfigurationRestorer) -> UndoAttempt:
+    """Puts a rolled-back deployment back on the revision it was running, and
+    restores the reconciliation the rollback had to suspend.
+
+    Both, or it is not undone. The revision alone leaves a deployment that
+    looks correct and receives nothing, which is worse than the state Argus
+    found - so a half-restore is reported as not established, and escalates.
+
+    No "changed from outside" check, unlike a flag. The platform's history is
+    append-only and a rollback is addressed to an entry in it, so there is no
+    value here somebody could have overwritten between Argus writing and Argus
+    reading - the question a flag has to ask does not arise.
+    """
+    application = undo_descriptor.application
+
+    try:
+        restored = restore(undo_descriptor)
+    except Exception as error:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.NOT_ESTABLISHED,
+            detail=(
+                f"[{application}] could not be put back on the revision at "
+                f"history entry [{undo_descriptor.was_on_history_id}]: {error}"
+            ),
+        )
+
+    if restored.revision and restored.automated_sync:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.RESTORED,
+            detail=(
+                f"[{application}] was put back on the revision at history "
+                f"entry [{undo_descriptor.was_on_history_id}], and its "
+                f"automated sync was restored"
+            ),
+        )
+
+    still_changed = ", ".join(
+        what for what, put_back in (
+            ("the revision it was running", restored.revision),
+            ("automated sync", restored.automated_sync)
+        ) if not put_back
+    )
+
+    return UndoAttempt(
+        subject=application,
+        outcome=Undone.NOT_ESTABLISHED,
+        detail=(
+            f"[{application}] was only partly put back - {still_changed} "
+            f"remains as Argus left it"
+        ),
+    )
+
+
+def _put_a_flag_back(undo_descriptor: FlagUndo,
+                     changed_from_outside: ChangedFromOutside,
+                     set_state: FlagSetter) -> UndoAttempt:
+    """Puts one flag back, where it is still Argus's to put back."""
     flag = undo_descriptor.flag
     was_enabled = undo_descriptor.was_enabled
     written_at = undo_descriptor.written_at
 
     if written_at is None:
         return UndoAttempt(
-            flag=flag,
+            subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
                 f"flag [{flag}] was not written: the change does not record when "
@@ -60,7 +143,7 @@ def undo_change(undo_descriptor: UndoDescriptor,
 
     if changed is None:
         return UndoAttempt(
-            flag=flag,
+            subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
                 f"whether anybody changed flag [{flag}] since Argus set it could "
@@ -70,7 +153,7 @@ def undo_change(undo_descriptor: UndoDescriptor,
 
     if changed:
         return UndoAttempt(
-            flag=flag,
+            subject=flag,
             outcome=Undone.LEFT_AS_FOUND,
             detail=(
                 f"flag [{flag}] was left as found: it has been changed from "
@@ -82,7 +165,7 @@ def undo_change(undo_descriptor: UndoDescriptor,
         set_state(flag, was_enabled)
     except Exception as error:
         return UndoAttempt(
-            flag=flag,
+            subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
                 f"flag [{flag}] could not be put back "
@@ -91,7 +174,7 @@ def undo_change(undo_descriptor: UndoDescriptor,
         )
 
     return UndoAttempt(
-        flag=flag,
+        subject=flag,
         outcome=Undone.RESTORED,
         detail=f"flag [{flag}] was put back {state_name(was_enabled)}",
     )

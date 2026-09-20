@@ -364,10 +364,10 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             )
         case ChangeUndone():
             who = _ARGUS
-            # The flag, as an action marks it: the restore and the change it
-            # reverses are the same subject a page apart, and a reader
+            # The subject, as an action marks it: the restore and the change
+            # it reverses are the same subject a page apart, and a reader
             # matching them up should not have to read two spellings.
-            emphasis = event.flag
+            emphasis = event.subject
             text = f"{emphasis} {_WHAT_BECAME_OF_IT[event.outcome]} - {event.detail}"
         case CandidatesReordered():
             who = _ARGUS
@@ -635,6 +635,8 @@ def _an_action_said(action_type: ActionType) -> str:
             return "Reverted the feature flag"
         case "restart-service":
             return "Restarted"
+        case "roll-back-configuration":
+            return "Rolled back the configuration of"
 
     assert_never(action_type)
 
@@ -662,6 +664,8 @@ def _what_the_action_does(action_type: ActionType, subject: str) -> str:
             return f"putting {subject} back"
         case "restart-service":
             return f"restarting {subject}"
+        case "roll-back-configuration":
+            return f"rolling {subject} back"
 
     assert_never(action_type)
 

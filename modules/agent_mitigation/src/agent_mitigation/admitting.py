@@ -33,6 +33,7 @@ from typing import Final
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
     Action,
     ActionType,
 )
@@ -48,7 +49,7 @@ __all__ = [
 type AdmittedMitigations = AbstractSet[ActionType]
 
 GENERIC_MITIGATIONS: Final[AdmittedMitigations] = frozenset(
-    {REVERT_FEATURE_FLAG, RESTART_SERVICE}
+    {REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_CONFIGURATION}
 )
 
 

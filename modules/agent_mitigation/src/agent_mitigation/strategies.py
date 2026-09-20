@@ -30,6 +30,7 @@ from typing import Protocol
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
     Action,
     ActionType,
     FailureMode,
@@ -38,12 +39,14 @@ from argus_core.models import (
     Hypothesis,
     RestartService,
     RevertFeatureFlag,
+    RollBackConfiguration,
 )
 
 __all__ = [
     "DEFAULT_STRATEGIES",
     "MitigationStrategy",
     "RestartServiceStrategy",
+    "RollBackConfigurationStrategy",
     "RevertFeatureFlagStrategy",
     "Strategies",
     "a_mitigation_answers"
@@ -155,6 +158,50 @@ class RestartServiceStrategy:
         return RestartService(service=service)
 
 
+class RollBackConfigurationStrategy:
+    """Answering a configuration that was changed into a broken state by
+    putting the previous configuration back.
+
+    The third generic mitigation, and the one that is neither a value nor a
+    process. What it restores was already deployed and already reviewed, which
+    is what admits it unasked - Argus replays somebody's change rather than
+    authoring one, and writing to the configuration repository would be the
+    other thing entirely.
+
+    Like a restart and unlike a flag revert, the subject comes from the alert
+    and from nowhere else. Not from Argus's configuration, which would
+    hardcode one deployment's answer into the agent - and not from the
+    hypothesis, whose subject is the model's description of what went wrong
+    rather than the name of anything that can be addressed.
+
+    Which revision to return to is named nowhere here, because nothing at this
+    layer could name it honestly: a deployment history lives with the platform,
+    behind the write tier, and a strategy inventing an entry would be
+    inventing a state to ship.
+    """
+
+    action_type: ActionType = ROLL_BACK_CONFIGURATION
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None:
+        """The deployment to roll back - the one the incident is about.
+
+        Neither the hypothesis nor the recorded flag changes are read. A
+        configuration change is not something a flag did, and a flag that
+        happened to move while the wrong configuration was deployed is a
+        coincidence this must not act on. Both parameters are still spelled as
+        the protocol spells them, for the reason the restart strategy's unread
+        ones are.
+
+        Always an action. A configuration fault the model found no words for
+        is still a fault in a deployment the alert names, and there is nothing
+        left for this to fail to identify.
+        """
+        return RollBackConfiguration(application=service)
+
+
 Strategies = Mapping[FailureMode, MitigationStrategy]
 
 # Which mitigation answers which cause. A mode absent from this is one Argus
@@ -166,7 +213,8 @@ Strategies = Mapping[FailureMode, MitigationStrategy]
 # not a gap to be filled in.
 DEFAULT_STRATEGIES: Strategies = {
     FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
-    FailureMode.RESOURCE_LEAK: RestartServiceStrategy()
+    FailureMode.RESOURCE_LEAK: RestartServiceStrategy(),
+    FailureMode.CONFIG_INDUCED_FAILURE: RollBackConfigurationStrategy()
 }
 
 

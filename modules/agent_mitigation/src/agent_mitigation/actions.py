@@ -79,16 +79,23 @@ def state_name(enabled: bool) -> str:
 class UndoAttempt(BaseModel):
     """What happened to one change somebody tried to put back.
 
-    The flag travels with the answer because the caller unwinding an incident
-    holds several of these at once and has to say which is which - and reading
-    it back out of the descriptor it passed in would make the record depend on
-    the caller having kept it.
+    The subject travels with the answer because the caller unwinding an
+    incident holds several of these at once and has to say which is which -
+    and reading it back out of the descriptor it passed in would make the
+    record depend on the caller having kept it.
+
+    `subject` rather than `flag`, and the word is the one the rest of the
+    codebase already uses for this: `ActionIdentity.subject` and
+    `the_subject_of` name the thing an action acts on across every kind of
+    action there is. A flag was only ever one of them - a rolled-back
+    deployment is put back by application - and a field named for the first
+    kind to arrive is a field that lies about the second.
 
     `detail` is the sentence a human reads on the timeline. The outcome is what
     anything else branches on.
     """
 
-    flag: str
+    subject: str
     outcome: Undone
     detail: str
 

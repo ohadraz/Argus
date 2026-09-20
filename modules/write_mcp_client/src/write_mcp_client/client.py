@@ -6,6 +6,8 @@ from typing import Final
 from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    ConfigRollbackUndo,
+    ConfigurationRestored,
     FlagChange,
     OpenedPullRequest,
     RestartedService,
@@ -24,6 +26,8 @@ _FLAG_CHANGES: Final = TypeAdapter(list[FlagChange])
 _OPENED_PULL_REQUEST: Final = TypeAdapter(OpenedPullRequest)
 
 _RESTARTED_SERVICE: Final = TypeAdapter(RestartedService)
+
+_CONFIGURATION_RESTORED: Final = TypeAdapter(ConfigurationRestored)
 
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
@@ -99,6 +103,71 @@ def restart_service(service: str,
         "restart_service",
         _RESTARTED_SERVICE.validate_python,
         service=service,
+    )
+
+
+def roll_back_configuration(application: str,
+                            *,
+                            client: McpClient) -> ConfigRollbackUndo:
+    """Returns a deployment to the configuration revision it ran before.
+
+    A generic mitigation of spec §7.3: Mitigation's response to a
+    config-induced failure. Taken unasked because its kind is in the declared
+    set (§13), and admissible there for one specific reason - the revision it
+    applies was reviewed and ran before, so this replays somebody's change
+    rather than authoring one. Nothing is written to the configuration
+    repository.
+
+    Which revision is not a parameter, because nothing on this side of the
+    port holds a deployment history to choose from. The platform resolves it
+    the way `argocd app rollback APPNAME` does with its history id omitted.
+
+    The descriptor is the point of the return value, and it records *two*
+    things: the entry that was running, and whether the platform was
+    reconciling the application itself - which a rollback has to suspend,
+    because a real server refuses one while it is on. Both are what a
+    withdrawal puts back, and only the tier that did the work ever knew
+    either.
+
+    Parsed through `parse_undo_descriptor` rather than a local adapter, for
+    the reason `set_feature_flag` is: the union decides which member a stored
+    object is, and that decision has one door.
+    """
+    descriptor = client.call(
+        "roll_back_configuration",
+        parse_undo_descriptor,
+        application=application,
+    )
+
+    if not isinstance(descriptor, ConfigRollbackUndo):
+        raise ValueError(
+            f"rolling [{application}] back answered with a "
+            f"[{descriptor.kind}] descriptor, which is not a record of a "
+            f"deployment being rolled back"
+        )
+
+    return descriptor
+
+
+def restore_configuration(descriptor: ConfigRollbackUndo,
+                          *,
+                          client: McpClient) -> ConfigurationRestored:
+    """Puts back both of the things a rollback changed.
+
+    What a withdrawal does to a rollback, and what a refuted one does to
+    itself. The descriptor goes back over the wire whole rather than as its
+    parts, because it is one record of one change and a caller assembling it
+    from fields could assemble one that never happened.
+
+    Answers with which halves were managed rather than raising, for the reason
+    the tier reports it that way: a restore can half-succeed, and the half that
+    fails is the quiet one - a deployment whose revision is back while
+    reconciliation is still suspended looks right and receives nothing.
+    """
+    return client.call(
+        "restore_configuration",
+        _CONFIGURATION_RESTORED.validate_python,
+        descriptor=descriptor.model_dump(mode="json"),
     )
 
 

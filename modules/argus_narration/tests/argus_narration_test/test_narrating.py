@@ -51,6 +51,7 @@ from argus_core.events import (
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
     ActionIdentity,
     Actor,
     Alert,
@@ -442,7 +443,7 @@ def test_a_change_put_back_marks_the_flag_it_was_about() -> None:
     # restore and the change it reverses are the same subject a page apart.
     some_restore = ChangeUndone(
         incident_id=new_id(),
-        flag=SOME_FLAG,
+        subject=SOME_FLAG,
         outcome=Undone.RESTORED,
         detail="put back the way Argus found it"
     )
@@ -464,7 +465,7 @@ def test_a_flag_somebody_else_touched_is_said_to_have_been_left_alone() -> None:
     # promise a world Argus did not restore.
     some_untouched = ChangeUndone(
         incident_id=new_id(),
-        flag=SOME_FLAG,
+        subject=SOME_FLAG,
         outcome=Undone.LEFT_AS_FOUND,
         detail="somebody else has changed it since Argus did"
     )
@@ -750,6 +751,48 @@ def test_a_fix_that_could_not_be_proposed_says_what_stopped_it() -> None:
         .when(lambda: build_narration([a_refusal])) \
         .then(all_of(_the_only_line_mentions(what_stopped_it),
                      _the_lines_are_credited_to(["Code-Fix Agent"])))
+
+
+@pytest.mark.unit
+def test_a_rollback_is_said_as_a_rollback_when_it_is_taken() -> None:
+    # Words for the third kind of action. Without them the line rendered as
+    # the tag's own identifier - "roll-back-configuration" - which reads as a
+    # bug in the page and compiles perfectly.
+    an_application_rolled_back = "io-shop"
+
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=ROLL_BACK_CONFIGURATION,
+        subject=an_application_rolled_back,
+        enabled=None
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(_the_only_line_marks(an_application_rolled_back))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_names_a_rollback_as_a_rollback() -> None:
+    # The gerund form, for the two lines that talk about an action without it
+    # having happened here: what memory demoted, and what was filed.
+    the_application_that_was_moved_down = "io-shop"
+
+    what_memory_did = CandidatesReordered(
+        incident_id=new_id(),
+        action_type=ROLL_BACK_CONFIGURATION,
+        subject=the_application_that_was_moved_down,
+        on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+    )
+
+    Scenario() \
+        .given(what_memory_did) \
+        .when(lambda: build_narration([what_memory_did])) \
+        .then(_the_only_line_marks(
+            f"rolling {the_application_that_was_moved_down} back"
+        ))
 
 
 def _an_alert() -> Alert:

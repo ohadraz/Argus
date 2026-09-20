@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 # column by one process and read out of it by another, and two spellings of the
 # same tool would be two tools as far as either could tell.
 SET_FEATURE_FLAG_TOOL: Final = "set_feature_flag"
+ROLL_BACK_CONFIGURATION_TOOL: Final = "roll_back_configuration"
 
 
 class FlagUndo(BaseModel):
@@ -58,12 +59,45 @@ class FlagUndo(BaseModel):
     written_at: datetime | None = None
 
 
-# One member today, spelled as the union it is rather than as the class it
-# happens to contain. The second kind of change Argus can put back - a deploy
-# rolled forward, a pool scaled back - arrives as a member here and as a branch
-# everything that matches on `kind` is then required to grow, which is the whole
-# reason this is a tagged union while it still has nothing to choose between.
-type UndoDescriptor = Annotated[FlagUndo, Field(discriminator="kind")]
+class ConfigRollbackUndo(BaseModel):
+    """The record of a deployment rolled back, in the shape that puts it back.
+
+    Two pieces of prior state rather than one, and that is the whole of what
+    makes this descriptor different from the flag's. Rolling a deployment back
+    requires suspending the platform's own reconciliation first - it refuses
+    otherwise, and would re-apply the revision being rolled away from at the
+    next pass - so the action changed two things and an undo that restored
+    only the revision would leave the deployment silently receiving nothing
+    anybody ships to it.
+
+    `was_on_history_id` is what a rollback is addressed to, and
+    `was_on_revision` is the commit that entry deployed. Both, because they
+    answer different questions: the identifier is what the platform's API
+    takes, and the commit is what a human reading the record can look up. A
+    descriptor holding only the identifier would be a number nobody can
+    interpret once the history has moved on.
+
+    `was_syncing_itself` is the setting as it was found, never a default.
+    An application somebody had already stopped reconciling must be left
+    stopped - putting it back to "on" because that is the usual arrangement
+    would be Argus turning on a thing it did not turn off.
+    """
+
+    kind: Literal["config-revision"] = "config-revision"
+    application: str
+    was_on_history_id: int
+    was_on_revision: str
+    was_syncing_itself: bool
+    tool: str = ROLL_BACK_CONFIGURATION_TOOL
+    written_at: datetime | None = None
+
+
+# Two members, and the tag is what chooses between them. Everything that
+# matches on `kind` carries a branch for each, which is what this was a tagged
+# union for while it still had only one.
+type UndoDescriptor = Annotated[
+    FlagUndo | ConfigRollbackUndo, Field(discriminator="kind")
+]
 
 _descriptors = TypeAdapter[UndoDescriptor](UndoDescriptor)
 

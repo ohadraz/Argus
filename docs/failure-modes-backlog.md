@@ -21,7 +21,7 @@ pattern. See "A note on the name" below.
 
 | Family | Share | Modes | Argus |
 |---|---|---|---|
-| Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Partly.** `bad-deployment` and `feature-flag-toggle` are both here |
+| Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Partly.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here; FM-10 is built, FM-09 is diagnosed but has no mitigation until the git write path |
 | Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Partly.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage |
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** `resource-leak` is the leak half of FM-13; demand saturation is not built |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
@@ -82,16 +82,40 @@ before it returns, which is the mistake a system without the distinction makes.
 
 In order of share, minus what is out of scope for a demo:
 
-1. **FM-10 Config-induced failure** (part of the 31%). Closest to what exists -
-   a non-code change breaking the service - and the flag scenario is already
-   a narrow case of it.
-2. **FM-06 Aggregate-masked tail degradation** (3%, but cheap here). The p99
+1. **FM-06 Aggregate-masked tail degradation** (3%, but cheap here). The p99
    moves while the average does not. Argus reads p50 and p95 already, and this
    is the scenario that says whether reading them is enough.
-3. **FM-23 Hidden internal coupling** (the rest of propagation's 28%). The
+2. **FM-23 Hidden internal coupling** (the rest of propagation's 28%). The
    half of that family FM-01 does not cover: the dependency is one of your own
    services, nobody remembered it was on the path, and the correct response is
    neither escalate-and-wait nor revert.
+
+**FM-10 Config-induced failure is built.** `config-induced-failure` stages a
+deploy that moves the cache's port in `deploy/values-production.yaml`: every
+lookup is refused, every page recomputes, and every page is still correct -
+the fallback is designed behaviour - so the error rate never moves. The
+incident lives entirely in the median, because nine requests in ten used to be
+served from cache and the slowest one in twenty always described a recomputed
+page. With p50 hidden the detector dates no onset at all, which is the property
+the scenario exists for: this is the one incident a monitor watching the tail
+never sees.
+
+Three things it added beyond the scenario. The median became a signal the
+detector judges departure on, beside the error rate, the tail and the heap.
+A third generic mitigation arrived - returning a deployment to a configuration
+revision it already ran - and with it the first undo descriptor recording *two*
+pieces of prior state, because the platform refuses a rollback while it
+reconciles the application itself and suspending that is part of performing the
+rollback rather than a separate concern. And the taxonomy stopped reaching the
+model as five bare hyphenated names: what each mode means now travels with it
+into the tool schema, because a model shown only the names reads a deploy that
+landed at the onset as a bad deployment, which is defensible and is not what
+dispatches to the right mitigation.
+
+It is mitigated and never resolved, in the plainest form the system has. The
+values file still names the port that broke it, the platform's own
+reconciliation is suspended so that nothing re-applies it, and both are what a
+withdrawal puts back.
 
 **FM-01 Cross-org cascade is built.** `upstream-dependency-failure` stages a
 payment provider that stops answering: errors and latency move together, memory

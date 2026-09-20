@@ -6,17 +6,29 @@ from typing import Any
 import pytest
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.mcp_transport import McpClient
-from argus_core.models import FlagChange, RestartedService, UndoDescriptor
+from argus_core.models import (
+    ConfigRollbackUndo,
+    ConfigurationRestored,
+    FlagChange,
+    FlagUndo,
+    RestartedService,
+    UndoDescriptor,
+)
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from write_mcp_client import (
     get_recent_flag_changes,
     restart_service,
+    restore_configuration,
+    roll_back_configuration,
     set_feature_flag,
     write_mcp,
 )
 
 from write_mcp_client_test.fake_deployment_platform import (
+    THE_HISTORY_BEFORE_IT,
+    THE_HISTORY_RUNNING_NOW,
+    THE_REVISION_RUNNING_NOW,
     FakeDeploymentPlatformHandler,
     a_running_platform,
 )
@@ -25,6 +37,7 @@ from write_mcp_client_test.fake_feature_flag_provider import FakeUnleashHandler,
 SINCE = "2026-08-20T11:00:00Z"
 INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
 DONT_CARE_ACTOR = "dont-care-actor"
+SOME_APPLICATION = "io-shop"
 
 
 @pytest.fixture
@@ -178,9 +191,71 @@ def test_restarting_a_service_reaches_the_platform_through_the_real_write_server
         ))
 
 
+@pytest.mark.integration
+def test_rolling_a_configuration_back_reaches_the_platform_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The third write, and the first that is more than one request. The fake
+    # refuses a rollback while it still reports syncing itself, so a caller that
+    # asked for the rollback without suspending reconciliation first would be
+    # refused by the fake exactly as a real server refuses it - which is what
+    # makes the order of the three requests something this test can witness
+    # rather than assume.
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: roll_back_configuration(
+                SOME_APPLICATION, client=client
+            ))
+        ) \
+        .then(all_of(
+            the_platform_stopped_reconciling(running_write_mcp_over_a_platform),
+            the_platform_was_rolled_back_to(
+                running_write_mcp_over_a_platform, THE_HISTORY_BEFORE_IT
+            ),
+            the_descriptor_records_what_it_came_from(
+                history_id=THE_HISTORY_RUNNING_NOW,
+                revision=THE_REVISION_RUNNING_NOW,
+                was_syncing_itself=True
+            )
+        ))
+
+
+@pytest.mark.integration
+def test_restoring_a_configuration_reaches_the_platform_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # What a withdrawal does to a rollback, over the same path. Both halves have
+    # to arrive: a deployment whose revision is back while the reconciliation
+    # Argus suspended is still suspended looks right from every angle a reader
+    # has, and silently receives nothing anybody ships to it.
+    #
+    # Driven from a real rollback rather than from a descriptor written here,
+    # because a descriptor a test invented is one nothing proves the tier would
+    # ever produce - and the entry it names is the whole of what the restore
+    # acts on.
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: restore_configuration(
+                roll_back_configuration(SOME_APPLICATION, client=client),
+                client=client
+            ))
+        ) \
+        .then(all_of(
+            both_halves_were_put_back(),
+            the_platform_is_reconciling_itself_again(
+                running_write_mcp_over_a_platform
+            ),
+            the_platform_was_rolled_back_to(
+                running_write_mcp_over_a_platform, THE_HISTORY_RUNNING_NOW
+            )
+        ))
+
+
 def _undoing(undo_descriptor: UndoDescriptor,
              flag: str,
              client: McpClient) -> UndoDescriptor:
+    assert isinstance(undo_descriptor, FlagUndo)
+
     return set_feature_flag(
         flag, enabled=undo_descriptor.was_enabled, client=client
     )
@@ -234,6 +309,11 @@ def a_disabling_of(flag: str, at: str) -> dict[str, Any]:
 
 def the_undo_descriptor_says_it_had_been(enabled: bool) -> Assertion[UndoDescriptor]:
     def assertion(undo_descriptor: UndoDescriptor) -> bool:
+        if not isinstance(undo_descriptor, FlagUndo):
+            raise AssertionError(
+                f"Expected a flag's descriptor, got a [{undo_descriptor.kind}] one."
+            )
+
         actual = undo_descriptor.was_enabled
         if actual is not enabled:
             raise AssertionError(f"Expected was_enabled {enabled}, got {actual}.")
@@ -313,6 +393,139 @@ def the_process_reported_is_the_one_now_serving(
             raise AssertionError(
                 f"Expected the process now serving [{serving}] to be reported, "
                 f"and [{restarted.process_start_time_seconds}] was."
+            )
+
+        return True
+
+    return assertion
+
+
+def the_platform_stopped_reconciling(
+    handler: type[FakeDeploymentPlatformHandler]
+) -> Assertion[object]:
+    """Reconciliation was suspended, and suspended by a policy with no
+    `automated` in it at all.
+
+    Argo CD spells the arrangement as the presence of a key rather than as a
+    boolean, so a caller writing `{"automated": false}` would leave a server
+    still syncing while believing it had stopped it - and the fake, reading the
+    key the way a real one does, would then refuse the rollback.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        if not handler.sync_policies_written:
+            raise AssertionError(
+                "Expected the sync policy to have been written before the "
+                "rollback, and the platform was never asked to change it - so "
+                "the rollback was asked for against an application still "
+                "reconciling itself."
+            )
+
+        suspending = handler.sync_policies_written[0]
+
+        if "automated" in suspending:
+            raise AssertionError(
+                f"Expected reconciliation to be suspended by a policy naming no "
+                f"`automated` at all, and [{suspending}] was written."
+            )
+
+        return True
+
+    return assertion
+
+
+def the_platform_was_rolled_back_to(
+    handler: type[FakeDeploymentPlatformHandler], history_id: int
+) -> Assertion[object]:
+    """The entry the platform was actually returned to.
+
+    Read from the platform rather than from the descriptor, for the reason the
+    restart is: what Argus says it did and what the world received are the two
+    things worth keeping apart.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        if history_id not in handler.rolled_back_to:
+            raise AssertionError(
+                f"Expected the platform to be rolled back to history entry "
+                f"[{history_id}], and it was asked for "
+                f"{handler.rolled_back_to}."
+            )
+
+        return True
+
+    return assertion
+
+
+def the_descriptor_records_what_it_came_from(
+    history_id: int, revision: str, was_syncing_itself: bool
+) -> Assertion[ConfigRollbackUndo]:
+    """Both pieces of prior state, carried back through the round trip.
+
+    The descriptor is the only record of what a rollback cost, and it has to
+    survive serialisation to be worth anything: a withdrawal reads it back
+    hours later, and a field lost in transit is a change nobody can put back.
+    """
+    def assertion(descriptor: ConfigRollbackUndo) -> bool:
+        if descriptor.was_on_history_id != history_id:
+            raise AssertionError(
+                f"Expected the descriptor to record coming from history entry "
+                f"[{history_id}], and it records "
+                f"[{descriptor.was_on_history_id}]."
+            )
+
+        if descriptor.was_on_revision != revision:
+            raise AssertionError(
+                f"Expected the descriptor to record the revision [{revision}], "
+                f"and it records [{descriptor.was_on_revision}]."
+            )
+
+        if descriptor.was_syncing_itself is not was_syncing_itself:
+            raise AssertionError(
+                f"Expected the descriptor to record that the platform was "
+                f"syncing itself [{was_syncing_itself}], and it records "
+                f"[{descriptor.was_syncing_itself}] - so a withdrawal would "
+                f"leave reconciliation as Argus left it."
+            )
+
+        return True
+
+    return assertion
+
+
+def both_halves_were_put_back() -> Assertion[ConfigurationRestored]:
+    """A restore that managed one of the two is not a restore.
+
+    Reported as two flags rather than one answer because the half that fails is
+    the quiet one, and a caller has to be able to say which is still changed.
+    """
+    def assertion(restored: ConfigurationRestored) -> bool:
+        if not (restored.revision and restored.automated_sync):
+            raise AssertionError(
+                f"Expected both the revision and the sync policy to be put "
+                f"back, and the tier reported revision="
+                f"[{restored.revision}] automated_sync="
+                f"[{restored.automated_sync}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def the_platform_is_reconciling_itself_again(
+    handler: type[FakeDeploymentPlatformHandler]
+) -> Assertion[object]:
+    """The arrangement Argus found, put back as it found it.
+
+    Asserted on the platform's own state rather than on what was written to it,
+    because the thing that matters is that the deployment receives what people
+    ship to it again - not that a request was made.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        if not handler.syncs_itself:
+            raise AssertionError(
+                "Expected the platform to be reconciling the application "
+                "itself again, and it is still suspended - so the deployment "
+                "silently receives nothing anybody ships to it."
             )
 
         return True

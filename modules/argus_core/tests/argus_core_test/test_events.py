@@ -200,7 +200,7 @@ def test_a_change_put_back_reads_back_as_what_became_of_it() -> None:
         .given(
             published := ChangeUndone(
                 incident_id=new_id(),
-                flag="some-flag",
+                subject="some-flag",
                 outcome=Undone.LEFT_AS_FOUND,
                 detail="somebody else has changed it since"
             )

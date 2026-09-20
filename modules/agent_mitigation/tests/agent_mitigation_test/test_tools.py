@@ -13,10 +13,13 @@ from typing import NamedTuple
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
+from agent_mitigation import an_undo_over
 from agent_mitigation.tools import (
     FlagChangesSince,
     MitigationSettings,
     argus_changed_flag_since,
+    configuration_restorer_over,
+    configuration_roller_over,
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
@@ -24,7 +27,7 @@ from agent_mitigation.tools import (
 )
 from argus_core import to_iso
 from argus_core.mcp_transport import McpClient
-from argus_core.models import FlagChange
+from argus_core.models import ConfigRollbackUndo, FlagChange
 from argus_testkit import Assertion, Scenario, all_of
 
 SOME_FLAG = "kukibuki"
@@ -35,6 +38,16 @@ SOME_MOMENT = to_iso(THE_MOMENT_IT_WAS_CLAIMED)
 METRICS_TOOL = "get_metrics_summary"
 FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 SET_FLAG_TOOL = "set_feature_flag"
+ROLL_BACK_TOOL = "roll_back_configuration"
+RESTORE_CONFIGURATION_TOOL = "restore_configuration"
+
+SOME_APPLICATION = "io-shop"
+A_ROLLBACK_TO_PUT_BACK = ConfigRollbackUndo(
+    application=SOME_APPLICATION,
+    was_on_history_id=2,
+    was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
+    was_syncing_itself=True
+)
 
 
 @pytest.mark.unit
@@ -221,6 +234,71 @@ def test_the_service_is_re_read_over_the_read_tier() -> None:
         ))
 
 
+@pytest.mark.integration
+def test_returning_a_deployment_to_an_earlier_revision_goes_over_the_write_tier() -> None:
+    # The third write, and one no read server has either. A roller bound to the
+    # read client would fail at the moment the walk had already decided to roll
+    # production back - and the incident it was mitigating would still be
+    # happening.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_answers_with(A_ROLLBACK_TO_PUT_BACK)
+        ) \
+        .when(
+            _asking(read, write,
+                    lambda: configuration_roller_over(write)(SOME_APPLICATION))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(ROLL_BACK_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_putting_a_rolled_back_deployment_back_goes_over_the_write_tier() -> None:
+    # Undoing a rollback is its own tool rather than the same call reversed,
+    # which is what separates it from a flag: a flag's undo is `set_state` with
+    # the state the descriptor recorded, and a rollback's undo has two pieces of
+    # prior state and a platform that refuses one order of them.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write,
+                    lambda: configuration_restorer_over(write)(A_ROLLBACK_TO_PUT_BACK))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(RESTORE_CONFIGURATION_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_one_binding_puts_back_a_change_of_either_kind() -> None:
+    # Bound once, here, because it is needed in two places: the walk binds it so
+    # a refuted mitigation can put itself back, and the worker binds it so a
+    # withdrawn incident can. Two copies of one binding is how the second came to
+    # be missing a collaborator the first had - and the path it broke, a human
+    # withdrawing an incident, is the path nobody runs by accident.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: an_undo_over(
+                write, _some_mitigation_settings()
+            )(A_ROLLBACK_TO_PUT_BACK))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(RESTORE_CONFIGURATION_TOOL)
+        ))
+
+
 class _Asked(NamedTuple):
     """Which tool each tier was asked for, in the order it was asked."""
 
@@ -236,6 +314,21 @@ def _a_session_that_remembers_what_it_was_asked() -> Mock:
     asked is which of two it was handed.
     """
     client: Mock = create_autospec(McpClient, instance=True)
+
+    return client
+
+
+def _a_session_that_answers_with(answer: object) -> Mock:
+    """A session that records the question and gives a usable answer.
+
+    The rollback's typed client checks what came back is a record of a
+    deployment being rolled back, and refuses anything else - so a session
+    answering with a bare mock is refused before the tier it was asked over can
+    be read off it. Which is the client doing its job, and not what this test
+    is about.
+    """
+    client: Mock = create_autospec(McpClient, instance=True)
+    client.call.return_value = answer
 
     return client
 

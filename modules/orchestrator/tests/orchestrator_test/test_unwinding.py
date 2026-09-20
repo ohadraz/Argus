@@ -117,7 +117,7 @@ def test_what_each_undo_found_is_published_on_the_incident(
     # findings, and only one of them is anybody's to act on.
     some_detail = "flag [monthly-spend-feature] was left as found"
     undo.return_value = UndoAttempt(
-        flag="monthly-spend-feature",
+        subject="monthly-spend-feature",
         outcome=Undone.LEFT_AS_FOUND,
         detail=some_detail,
     )
@@ -152,7 +152,7 @@ def test_one_change_that_cannot_be_read_does_not_stop_the_others(
     # letting it take the rest with it leaves more behind, not less.
     undo.side_effect = [
         UndoAttempt(
-            flag="monthly-spend-feature",
+            subject="monthly-spend-feature",
             outcome=Undone.NOT_ESTABLISHED,
             detail="dont care",
         ),
@@ -267,10 +267,10 @@ def _the_report_names(published: list[IncidentEvent],
 
 def _the_report_is_about(published: list[IncidentEvent],
                          flag: str) -> Assertion[None]:
-    """The flag travels with the answer: an unwind reports several of these at
-    once, and a reader has to be able to tell which is which."""
+    """The subject travels with the answer: an unwind reports several of these
+    at once, and a reader has to be able to tell which is which."""
     def assertion(_unwound: None) -> bool:
-        about = _the_changes_undone_in(published)[0].flag
+        about = _the_changes_undone_in(published)[0].subject
 
         if about != flag:
             raise AssertionError(
@@ -320,7 +320,7 @@ def _the_changes_undone_in(published: list[IncidentEvent]) -> list[ChangeUndone]
 
 def _restored(flag: str) -> UndoAttempt:
     return UndoAttempt(
-        flag=flag, outcome=Undone.RESTORED, detail=f"flag [{flag}] was put back"
+        subject=flag, outcome=Undone.RESTORED, detail=f"flag [{flag}] was put back"
     )
 
 

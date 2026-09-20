@@ -339,7 +339,12 @@ class ChangeUndone(_Event):
     """
 
     kind: Literal["change-undone"] = "change-undone"
-    flag: str
+    # What was put back, whatever kind of thing it is. `subject` rather than
+    # `flag` because it is the word the rest of the model already uses for
+    # this - `ActionIdentity.subject`, `the_subject_of` - and a flag was only
+    # ever one of the things an action acts on. A rolled-back deployment is
+    # put back by application.
+    subject: str
     outcome: Undone
     detail: str
 

@@ -30,6 +30,14 @@ _ARRAY_TYPE: Final = "array"
 _OBJECT_TYPE: Final = "object"
 _NULL_TYPE: Final = "null"
 
+# The taxonomy, rendered once at import rather than per call. An enum reaches a
+# schema as a list of names, and a name is all the model gets to tell two modes
+# apart by - so what each one means travels with it, in the words the kernel
+# keeps them in.
+_WHAT_THE_CAUSES_MEAN: Final = "The causes, and what each one means: " + "; ".join(
+    f"{cause.value} - {cause.meaning()}" for cause in FailureMode
+) + "."
+
 
 def answer_tool() -> ToolDefinition:
     """The offer: say what caused it, best explanation first, and stop."""
@@ -142,8 +150,9 @@ def _one_explanation() -> dict[str, Any]:
                     {"type": _NULL_TYPE}
                 ],
                 "description": (
-                    "The cause, if the evidence identifies one. Null when it does "
-                    "not, which is a valid answer and not a failure."
+                    "The cause, if the evidence identifies one. Null when it "
+                    "does not, which is a valid answer and not a failure. "
+                    + _WHAT_THE_CAUSES_MEAN
                 )
             },
             "confidence": {

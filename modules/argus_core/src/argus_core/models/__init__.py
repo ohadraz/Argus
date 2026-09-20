@@ -13,13 +13,16 @@ saying the same thing.
 from argus_core.models.action import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
     Action,
     ActionIdentity,
     ActionType,
+    ConfigurationRestored,
     Outcome,
     RestartedService,
     RestartService,
     RevertFeatureFlag,
+    RollBackConfiguration,
     UnreadVerdict,
     Verdict,
     leaves_something_to_put_back,
@@ -59,7 +62,9 @@ from argus_core.models.transcript import (
 )
 from argus_core.models.turn import ToolCall, Turn
 from argus_core.models.undo_descriptor import (
+    ROLL_BACK_CONFIGURATION_TOOL,
     SET_FEATURE_FLAG_TOOL,
+    ConfigRollbackUndo,
     FlagUndo,
     UndoDescriptor,
     parse_undo_descriptor,
@@ -69,6 +74,8 @@ from argus_core.models.undone import Undone
 __all__ = [
     "RESTART_SERVICE",
     "REVERT_FEATURE_FLAG",
+    "ROLL_BACK_CONFIGURATION",
+    "ROLL_BACK_CONFIGURATION_TOOL",
     "leaves_something_to_put_back",
     "the_direction_of",
     "the_identity_of",
@@ -91,6 +98,8 @@ __all__ = [
     "Findings",
     "FixOutcome",
     "FlagChange",
+    "ConfigRollbackUndo",
+    "ConfigurationRestored",
     "FlagUndo",
     "Hypothesis",
     "Incident",
@@ -106,6 +115,7 @@ __all__ = [
     "Refusal",
     "RetrievalChannel",
     "RestartService",
+    "RollBackConfiguration",
     "RestartedService",
     "RevertFeatureFlag",
     "TakenAction",

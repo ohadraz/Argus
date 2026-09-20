@@ -79,7 +79,7 @@ def unwind_incident(incident_id: str,
         publish(
             ChangeUndone(
                 incident_id=incident_id,
-                flag=attempt.flag,
+                subject=attempt.subject,
                 outcome=attempt.outcome,
                 detail=attempt.detail
             ),

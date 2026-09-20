@@ -10,10 +10,11 @@ is the reviewable artefact: a test that asked the module what it contained would
 agree with it whatever it contained, and the day a kind nobody argued for
 appears in it, nothing would go red.
 
-Two kinds are declared, and they are unalike in the way that matters: one leaves
-a change behind to put back and one leaves nothing at all. That both are in the
-set is the clearest statement that membership, and not reversibility, is what is
-being asked.
+Three kinds are declared, and they are unalike in the way that matters. One
+leaves a value behind to put back, one leaves nothing at all, and one leaves
+two things behind - a deployment on an earlier revision and a platform no
+longer reconciling it. That all three are in the set is the clearest statement
+that membership, and not reversibility, is what is being asked.
 """
 
 from __future__ import annotations
@@ -24,7 +25,13 @@ from agent_mitigation import (
     AdmittedMitigations,
     is_a_generic_mitigation,
 )
-from argus_core.models import RESTART_SERVICE, REVERT_FEATURE_FLAG, ActionType
+from argus_core.models import (
+    RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
+    ROLL_BACK_CONFIGURATION,
+    ActionType,
+    RollBackConfiguration,
+)
 from argus_testkit import Assertion, Scenario
 
 from agent_mitigation_test.framework.builders import DONT_CARE_FLAG, an_action_setting
@@ -66,7 +73,7 @@ def test_the_declared_set_is_exactly_what_it_is_written_down_as() -> None:
     # and this is where the defending gets noticed: a change to the set that
     # nobody meant fails here, naming both what it was and what it became.
     the_kinds_argus_may_take_unasked: set[ActionType] = {
-        REVERT_FEATURE_FLAG, RESTART_SERVICE
+        REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_CONFIGURATION
     }
 
     Scenario() \
@@ -112,3 +119,16 @@ def _the_set_is(expected: set[ActionType]) -> Assertion[set[ActionType]]:
         return True
 
     return assertion
+
+
+@pytest.mark.unit
+def test_rolling_a_configuration_back_may_be_taken_unasked() -> None:
+    # Admissible for one specific reason, and it is not that it can be undone:
+    # the revision it applies was reviewed and ran before, so Argus replays
+    # somebody's change rather than authoring one. Writing to the
+    # configuration repository would be the other thing, and is refused by
+    # not being an action at all.
+    Scenario() \
+        .given(a_rollback := RollBackConfiguration(application="io-shop")) \
+        .when(lambda: is_a_generic_mitigation(a_rollback)) \
+        .then(_it_is_admitted())

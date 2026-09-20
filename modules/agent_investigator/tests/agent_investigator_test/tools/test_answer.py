@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from agent_investigator.tools.answer import HYPOTHESES_ARG, answer_tool
-from argus_core.models import ToolDefinition
+from argus_core.models import FailureMode, ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
 
 type _Part = Callable[[ToolDefinition], dict[str, Any]]
@@ -64,6 +64,28 @@ def test_a_cited_fact_asks_for_its_claim_and_the_moment_it_happened() -> None:
         )
 
 
+@pytest.mark.unit
+def test_the_model_is_told_what_each_cause_means_and_not_only_its_name() -> None:
+    # A bare enum asks the model to infer a taxonomy from seven hyphenated
+    # strings, and the two that are hardest to tell apart are exactly the two
+    # that dispatch to different mitigations: a bad deployment ships new code
+    # and a config-induced failure ships a bad value with code nobody touched.
+    # Handed only the names, a model that has just seen a deploy land at the
+    # onset picks the deployment - and it is not obviously wrong, because
+    # nothing ever told it what the other one was for.
+    #
+    # Asserted as "every mode is described" rather than against particular
+    # wording, because the wording is the prompt's to tune and the property is
+    # that no cause reaches the model as a name alone.
+    Scenario() \
+        .when(
+            lambda: answer_tool()
+        ) \
+        .then(
+            _every_cause_is_explained()
+        )
+
+
 def _an_explanation(tool: ToolDefinition) -> dict[str, Any]:
     """One entry of the ranked list, as the model is asked to fill it in."""
     explanation: dict[str, Any] = tool.properties[HYPOTHESES_ARG]["items"]
@@ -76,6 +98,25 @@ def _a_cited_fact(tool: ToolDefinition) -> dict[str, Any]:
     cited: dict[str, Any] = _an_explanation(tool)["properties"]["supporting_evidence"]["items"]
 
     return cited
+
+
+def _every_cause_is_explained() -> Assertion[ToolDefinition]:
+    def assertion(tool: ToolDefinition) -> bool:
+        described = _an_explanation(tool)["properties"]["failure_mode"]["description"]
+        unexplained = [
+            cause.value for cause in FailureMode if cause.value not in described
+        ]
+
+        if unexplained:
+            raise AssertionError(
+                f"The model is offered {sorted(unexplained)} as bare names: the "
+                f"field's description never says what they mean, so telling them "
+                f"apart is guesswork from the spelling."
+            )
+
+        return True
+
+    return assertion
 
 
 def _offers(names: set[str], part: _Part, called: str) -> Assertion[ToolDefinition]:

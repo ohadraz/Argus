@@ -21,6 +21,14 @@ class MetricBucket(BaseModel):
     describing a configuration in force rather than a quantity accumulated - so
     a minute containing a restart reports the new process.
 
+    `cache_hit_ratio` is the share of the minute's lookups a cache answered,
+    and it is a ratio where memory is a pair - unlike a limit there is no
+    threshold whose crossing anybody forecasts, so what a reader asks of it is
+    simply how much of the work the cache is carrying. Nullable for the reason
+    below: a service consulting no cache has none, and zero is what a cache
+    answering nothing reports. A reader has to be able to tell a deployment
+    without a fast path from one whose fast path has gone.
+
     `memory_limit_bytes` is nullable because a deployment imposing no limit is
     ordinary, and zero would make "no limit set" indistinguishable from "no
     memory available". Usage and limit are carried as absolute byte counts
@@ -37,3 +45,4 @@ class MetricBucket(BaseModel):
     memory_used_bytes: int
     memory_limit_bytes: int | None = None
     process_start_time_seconds: float
+    cache_hit_ratio: float | None = None

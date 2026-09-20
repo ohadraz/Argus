@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
+    ConfigurationRestorer,
+    ConfigurationRoller,
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
@@ -17,7 +19,13 @@ from agent_mitigation.trying import UndoChange
 from argus_core import new_id
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
-from argus_core.models import MetricBucket, RestartedService, UndoDescriptor
+from argus_core.models import (
+    ConfigRollbackUndo,
+    MetricBucket,
+    RestartedService,
+    RollBackConfiguration,
+    UndoDescriptor,
+)
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.assertions import the_verdict_is
@@ -68,6 +76,8 @@ def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -94,6 +104,8 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -123,6 +135,8 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -153,6 +167,8 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
                 still_wanted=nobody_still_wants_it,
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -183,6 +199,8 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -215,6 +233,8 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -245,6 +265,8 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -278,6 +300,8 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -304,6 +328,8 @@ def test_a_confirmed_action_is_left_in_place() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -335,6 +361,8 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -367,6 +395,8 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=somebody_changed_it()
             )
         ) \
@@ -397,6 +427,8 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=somebody_changed_it()
             )
         ) \
@@ -428,6 +460,8 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_can_say()
             )
         ) \
@@ -455,6 +489,8 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -489,6 +525,8 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
             sleep=dont_care_sleep,
             restart=dont_care_restart(),
             undo=undo,
+            restore_configuration=_a_restorer_nobody_calls(),
+            roll_back=_a_roller_nobody_calls(),
             changed_from_outside=dont_care_outside
         )) \
         .then(all_of(
@@ -630,6 +668,8 @@ def test_taking_a_restart_asks_for_the_service_the_action_names() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=restart,
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -659,6 +699,8 @@ def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -690,6 +732,8 @@ def test_a_restart_whose_memory_never_fell_is_refuted_though_the_symptoms_eased(
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -720,6 +764,8 @@ def test_a_restart_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=restart_could_not_be_taken,
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -752,6 +798,8 @@ def test_a_refuted_restart_puts_nothing_back_and_says_so() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -784,6 +832,8 @@ def test_a_confirmed_restart_carries_no_way_back_either() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
         ) \
@@ -814,6 +864,8 @@ def _an_action_is_taken(metrics: list[MetricBucket],
         now=clock or a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
         restart=dont_care_restart(),
+        restore_configuration=_a_restorer_nobody_calls(),
+        roll_back=_a_roller_nobody_calls(),
         changed_from_outside=nobody_changed_it(),
         **keywords
     )
@@ -871,7 +923,7 @@ def _a_flag_setter_that_cannot_put_it_back(flag: str, failure: str) -> MagicMock
 def _an_undo_that_restores(flag: str) -> MagicMock:
     undo: MagicMock = create_autospec(UndoChange, instance=True)
     undo.return_value = UndoAttempt(
-        flag=flag, outcome=Undone.RESTORED, detail=f"flag [{flag}] was put back"
+        subject=flag, outcome=Undone.RESTORED, detail=f"flag [{flag}] was put back"
     )
 
     return undo
@@ -1112,3 +1164,174 @@ def _some_thresholds() -> AnomalyThresholds:
         persistence_minutes=2,
         recovery_fraction_of_the_rise=0.8
     )
+
+
+SOME_APPLICATION = "io-shop"
+THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
+
+
+def _a_rollback_of(application: str) -> RollBackConfiguration:
+    return RollBackConfiguration(application=application)
+
+
+def _a_rollback_descriptor_for(application: str,
+                               was_syncing_itself: bool = True) -> ConfigRollbackUndo:
+    return ConfigRollbackUndo(
+        application=application,
+        was_on_history_id=2,
+        was_on_revision=THE_REVISION_IT_WAS_ON,
+        was_syncing_itself=was_syncing_itself
+    )
+
+
+def _a_roller_nobody_calls() -> MagicMock:
+    """The third write, wired but not exercised.
+
+    Every case here has to supply one because the collaborator is required -
+    an agent that could be built without a way to perform an action it may
+    propose is an agent that discovers it at the worst moment - and most cases
+    are about a different kind of action entirely.
+    """
+    roll_back: MagicMock = create_autospec(ConfigurationRoller, instance=True)
+
+    return roll_back
+
+
+def _a_roller_returning(application: str) -> MagicMock:
+    """Answers as the real roller does - with the descriptor recording both
+    things it changed.
+
+    Both, because rolling a deployment back means suspending the platform's
+    own reconciliation first: it refuses otherwise, and would re-apply the
+    revision being rolled away from at the next pass.
+    """
+    roll_back: MagicMock = create_autospec(ConfigurationRoller, instance=True)
+    roll_back.return_value = _a_rollback_descriptor_for(application)
+
+    return roll_back
+
+
+@pytest.mark.unit
+def test_taking_a_rollback_asks_for_the_application_and_the_entry() -> None:
+    # The entry rather than a commit. A commit found in a diff is not
+    # necessarily a revision this application ever ran, and rolling onto one
+    # would be shipping an untested state under the name of a rollback.
+    Scenario() \
+        .given(roll_back := _a_roller_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=_a_restarter_bringing_up("dont-care-service"),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=roll_back,
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+            .then(
+            _the_rollback_asked_for(roll_back, SOME_APPLICATION)
+        )
+
+
+@pytest.mark.unit
+def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
+    Scenario() \
+        .given(_a_roller_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=_a_restarter_bringing_up("dont-care-service"),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_returning(SOME_APPLICATION),
+                changed_from_outside=nobody_changed_it()
+            )
+        ) \
+            .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rollback_carries_a_way_back_where_a_restart_carries_none() -> None:
+    # The difference the record has to keep. A restart leaves nothing behind
+    # and says so by carrying no descriptor; a rollback changed two things,
+    # and a withdrawal hours later has to be able to put both of them back.
+    Scenario() \
+        .given(_a_roller_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                restart=_a_restarter_bringing_up("dont-care-service"),
+                restore_configuration=_a_restorer_nobody_calls(),
+                roll_back=_a_roller_returning(SOME_APPLICATION),
+                changed_from_outside=nobody_changed_it(),
+                undo=_an_undo_that_restores(SOME_APPLICATION)
+            )
+        ) \
+            .then(
+            _it_carries_a_way_back()
+        )
+
+
+def _the_rollback_asked_for(roll_back: MagicMock,
+                            application: str) -> Assertion[Outcome]:
+    """Named by application alone.
+
+    Which entry to return to is the platform's to resolve - the immediately
+    preceding deployment - because nothing here holds a deployment history to
+    choose from.
+    """
+    def assertion(dont_care_outcome: Outcome) -> bool:
+        asked = roll_back.call_args.args if roll_back.call_args else ()
+
+        if asked != (application,):
+            raise AssertionError(
+                f"Expected a rollback of [{application}], and it asked for "
+                f"{asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_carries_a_way_back() -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.undo_descriptor is None:
+            raise AssertionError(
+                "Expected the outcome to carry the way back the rollback left, "
+                "and it carried none."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_restorer_nobody_calls() -> MagicMock:
+    """The way back from a rollback, wired but not exercised.
+
+    Required for the same reason the roller is: an agent that could be built
+    without a way to undo an action it may take is an agent that finds out at
+    the worst moment - when a refuted change is waiting to be put back.
+    """
+    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
+
+    return restore
