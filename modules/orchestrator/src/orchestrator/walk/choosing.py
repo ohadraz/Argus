@@ -85,7 +85,7 @@ def next_candidate_node(state: IncidentState,
             )
         )
 
-    # Nothing reversible is left, and what remains is a permanent fix - which is
+    # No mitigation is left, and what remains is a permanent fix - which is
     # the one thing `fixing` means. Reported, not decided: the index past the end
     # of the list and a spent round budget are what say so.
     return StateDelta(

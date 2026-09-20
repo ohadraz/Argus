@@ -34,6 +34,7 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     Outcome,
+    RestartService,
     RevertFeatureFlag,
     UndoDescriptor,
     UnreadVerdict,
@@ -121,6 +122,48 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                                       already_taken=already_taken,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.CONFIRMED))
+
+
+@pytest.mark.unit
+def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_called_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The candidate describes the fault in prose - "io-shop process heap
+    # (memory_used_bytes / heap of 2048MiB limit)" is one a model wrote - and
+    # the row is the account of what was changed. Recording the description
+    # there leaves the write-up quoting something nobody did, and leaves the
+    # per-subject cap counting a phrase that comes out different every round,
+    # so a restart loop would never reach it.
+    some_restarted_service = "kuki-service"
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=RestartService(service=some_restarted_service),
+                about=_a_candidate_blaming(
+                    "kuki heap (memory_used_bytes / heap of 2048MiB limit)"
+                )
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_subject_recorded_is(
+            some_restarted_service, record_action, published
+        ))
 
 
 @pytest.mark.unit
@@ -557,6 +600,91 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
                      _the_incident_was_escalated()))
+
+
+@pytest.mark.unit
+def test_a_resumed_claim_is_asked_after_under_the_flag_the_action_names(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The candidate blames a flag in prose; the action names the flag the
+    # provider actually recorded moving, and those are not always the same
+    # word. The provider's log can only answer about the second, so asking it
+    # about the first gets "no such change" back and the walk acts again on a
+    # flag an earlier attempt may already have set.
+    some_flag_the_action_names = "kuki-flag"
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None)),
+            calling(lambda: _the_provider_cannot_say(change_landed)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=RevertFeatureFlag(
+                    flag=some_flag_the_action_names,
+                    enabled=False,
+                    undo_descriptor=FlagUndo(
+                        flag=some_flag_the_action_names, was_enabled=True
+                    )
+                ),
+                about=_a_candidate_blaming("the monthly spend feature, probably")
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      change_landed=change_landed,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(_the_provider_was_asked_about(
+            some_flag_the_action_names, change_landed
+        ))
+
+
+@pytest.mark.unit
+def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # A restart writes to no flag provider, so no log anywhere says whether the
+    # dead worker managed it. That is the same position as a provider that
+    # cannot say, and it ends the same way: a change may have been made and
+    # nothing measured what followed, so a human looks rather than Argus
+    # restarting a service a second time on a guess.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=RestartService(service="kuki-service"),
+                about=_a_candidate_blaming(
+                    "kuki heap (memory_used_bytes / heap of 2048MiB limit)"
+                )
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      change_landed=change_landed,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(_the_action_was_not_taken(take),
+                     _the_incident_was_escalated(),
+                     _the_provider_was_never_asked(change_landed)))
 
 
 @pytest.mark.unit
@@ -1016,6 +1144,35 @@ def _the_route_is(expected: str) -> Assertion[str]:
     return assertion
 
 
+def _the_subject_recorded_is(service: str,
+                             record_action: MagicMock,
+                             published: list[IncidentEvent]
+                             ) -> Assertion[StateDelta]:
+    """The row and the announcement both name what the action acted on.
+
+    Both, because they are read by different people and drift apart quietly:
+    the row is what the attempt cap counts and what the write-up quotes, and
+    the event is what a reader watching the incident sees happen.
+    """
+    def assertion(dont_care_result: StateDelta) -> bool:
+        claimed = record_action.call_args.kwargs["subject"]
+        if claimed != service:
+            raise AssertionError(
+                f"Expected the claim to record [{service}], got [{claimed}]."
+            )
+
+        announced = [event for event in published if isinstance(event, ActionTaken)]
+        if [event.subject for event in announced] != [service]:
+            raise AssertionError(
+                f"Expected one action announced against [{service}], got "
+                f"{[event.subject for event in announced]}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_listener() -> Publisher:
     """A subscriber that does nothing with what it hears. What matters is that
     somebody is listening, not what they make of it."""
@@ -1140,15 +1297,44 @@ def _nothing_landed() -> ports.ChangeLanded:
     return lambda dont_care_flag, dont_care_since: False
 
 
+def _the_provider_was_asked_about(flag: str,
+                                  change_landed: MagicMock) -> Assertion[StateDelta]:
+    """The provider was asked about the flag the action names.
+
+    Which flag is the whole question. The provider's log answers about a flag,
+    so asking it under the candidate's prose asks about a flag nobody has, and
+    the "no such change" that comes back reads as licence to act again on a
+    subject an earlier attempt may already have changed.
+    """
+    def assertion(_updates: StateDelta) -> bool:
+        if not change_landed.called:
+            raise AssertionError(
+                f"Expected the provider to be asked about [{flag}], and it was "
+                f"not asked at all."
+            )
+
+        asked_about = change_landed.call_args.args[0]
+        if asked_about != flag:
+            raise AssertionError(
+                f"Expected the provider to be asked about [{flag}], "
+                f"got [{asked_about}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_provider_was_never_asked(change_landed: MagicMock) -> Assertion[StateDelta]:
     """Nobody asked whether the change landed.
 
-    The question is about a claim with nothing recorded against it, and this
-    row has something recorded - a verdict, spelled by a version that is gone.
-    Asking it anyway would take a `True` back as "a change was made and nobody
+    Two claims reach this, and neither has a question the provider can answer.
+    One already carries an outcome - a verdict spelled by a version that is
+    gone - so asking would take a `True` back as "a change was made and nobody
     measured it", which is a different incident from the one on file, and a
-    `False` as licence to act again on a subject whose attempt already reached
-    a verdict somebody could read.
+    `False` as licence to act again on a subject somebody already settled. The
+    other was for an action that leaves nothing behind: a restart writes to no
+    provider, so there is no log with a record of it either way.
     """
     def assertion(_updates: StateDelta) -> bool:
         if change_landed.called:

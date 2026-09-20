@@ -14,9 +14,8 @@ class ChangeKind(StrEnum):
 
     Two members, from the two systems that record a change to what a service
     does. They stay separate rather than collapsing into "something changed"
-    because what follows differs: a flag toggle has a reversible action behind
-    it and a deploy does not, and the model is asked to weigh one against the
-    other.
+    because what follows differs: a flag toggle has a mitigation behind it and
+    a deploy does not, and the model is asked to weigh one against the other.
     """
 
     DEPLOY = "deploy"

@@ -73,7 +73,7 @@ RECORDED_FALLBACK_DISABLED = "fallback-disabled"
 RECORDED_ABSENCE_OF_EVIDENCE = "no-evidence"
 RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
 RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
-
+RECORDED_RESOURCE_LEAK = "resource-leak"
 
 # Not arbitrary! the Target Service names itself in its own log
 THE_SERVICE_NAME = "io-shop"

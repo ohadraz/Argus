@@ -1,0 +1,54 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISrQoKjgEIEhgCKkDKomWvOfbjagz2BgQgSSrI6wfsyva9zF00rxdau8gjABmHUw1b/YboIoYXiIJSTJgMg/LWWIw3/LlMU9S8Vy5EMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAfPOvNUGEgyn4rsBCJ+kNPM4KHcaDMKL23gLjZJfEvZ4cyIwX8frSzi2BWKeEl1igRkAPSRYnG2vuLLAJPAJod8z4Tt8izA0sGLBwvtzzc1f9kv6KssIVIDrMy3PdDCWUCqttm4hGO22SqCGdH9kyDpB4lteX5W/EBx+CFKgi1HjWy8S7rhY6FCh0cpzOki4u7O8KIrHP/3NOrHFWdhFaA/iq0rLOct94tm4Pf122RlLV222lG4vJTAdTeD7LmA80ltmzDqjiIjrKT5Mkv0khk0RkuWgLkiE/fx49Uj8QiPrX3ATU5jlE2wjQznbdCM4+Itak6hYetmdfDmVTm59Yh/y0JlCLENlBhbEuHVNFtj2jc2f0QHr+f9K4chVabl74sDMz0UPHt4Uwa7zRgnI1dyjGNU+rUTXygUFeTpvtiUxpD9d2fzV9eDLv88jyoa45q9LjH0eqOi/W9ExUOKdorDjAHcxOyioGsFDIVPZqdyJDXUHZBvl5krCF1HERoyqGTbzbY7i1PtF4LeRPIAewIiM+Bx/JeDl7JY1G2Rk0xLzBpg6INvLmcCEYC9krmZtdI+gvAtbLrH013vsJ2rGX78cXsLxPV4l3pBxG9sQ8ywdgzkf1A98mQN5hqCSFRBWb3FewvbBwVrTgSuQCajP+eYDMlNJe8RMCV8dn4J6hfU3WBWs97WTqAagd9wowfjcRW0s6vId117dFOg/efm/BYvj8cGTZx3tuMDta88jHjMvClgo/UZB3u9ALNx4JVnK13DiEoK8mMmbXXdncUouK9uGQVAPPKzD7laYpN/4suwGxi3Wy+MJPoJqMmQCpDgiX1+TwppPIiOHH2QijRLb0YXvcYBl7xoPgPc6UwasPROX2w7lk+9J6hr0CVQNLV6gBXK0wNO9Yr4D8345MI/cpHA0p3aGmtUGuJGRJasF90tnPPirjewlHYe5suumqK6Rmdv6iCubC2wb28fBcyd49elEXVvmPFVNMx9str64fzJ9GmvDNLgb/vZLt0oJQmR8Gh9/LrU44kivJiL8YycuPRZYkPZT1enSH25qwWaQFpo6JZ/rV8CiAqO7lRNN/gm+LdGXBxPONG0Ayd7poT0aUpG/5v2qSmh/uAKDdfDJJ33CD4JTF4vvBfASV3H8Qc1l9x7D47nw3rO/FqMdAzTREDjq5mOOFyRWGFvZQ4kvpd9PG3P2b/DbiiJCtXmBWi8RtDJVnnflrWIR18MLtNvEVlRm/DKgP3khOM8ignI8ubyOEw5EK3jvrYjzMIoztqw6e7pDfJQcQYowIxdQsCB0L0ugqqVfoj9LwHW2jrDkA2EAF8Am1i9014vH96hdff4SY1jmFJ3mQ8Mhkw2aPgZpWVI6tdaNZuiqZc5q/Vwe1Bdix6SKBMTIIKLmak6XEQLO30p7lfndwOK0WBcJoLZQhv2beE9V+fyWiXiOa7BbyzgP8zv6b2SMGWyyoFRjBLyZ3qAQaV+BMAB2gZSV44KklrhbRAHQOhP2prtlUJBohqVwoCxh/0YQDdmCyIl3kaIVa7qQFlEvoJILe9iU5u8LFloWVRPe/2TyOzhpU3o+C17FWRgB",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01LMRJj6vaKu19NCQqoE7nRP",
+      "input": {
+        "assumptions": [
+          "The incident's start was placed at 23:54 by the investigating agent from a 91-minute metrics window; the heap growth itself appears to begin closer to 23:50, so the true onset is inferred, not observed.",
+          "No heap dump, allocation profile, or object-retention evidence was collected. 'Memory leak' is inferred from the shape of the heap curve (monotonic growth under flat traffic with no process restart) rather than from direct evidence of what was being retained.",
+          "No deploy, release, or flag change was found in any window queried, including one covering roughly the prior eight days. This is treated as 'no change occurred', but it equally supports 'a change occurred and was not recorded' \u2014 the investigator listed that possibility and never tested it.",
+          "Recovery was judged solely on the service returning to baseline about 40 seconds after the restart. A restart necessarily resets heap usage, so this confirms the restart ran, not that the leak was diagnosed correctly or removed.",
+          "The recurring UpstreamTimeout errors on the account page were dismissed as steady background noise because their rate is unchanged across the hour before onset. Their interaction with memory (e.g. retained in-flight request state) was not ruled out by evidence, only by correlation.",
+          "The reported duration (0.45 hours) is inconsistent with the recorded start and end timestamps, which are about 85 seconds apart; customer-visible degradation likely began well before the alert fired, so neither figure is a reliable measure of impact window.",
+          "The reported error rate of -0.1% is not interpretable as an impact figure; no independent measurement of failed requests attributable to this incident was made.",
+          "The draft pull request is unreviewed and untested; it is assumed to address the leak but nothing here verifies that."
+        ],
+        "executive_summary": "Shortly before midnight UTC, one of the shop's services began holding on to memory it should have released. Traffic was normal throughout, but as memory filled up the service got slower to respond \u2014 typical page responses roughly tripled in time and the slowest responses got several times worse \u2014 so customers using the site in that window would have seen sluggish pages. A small, steady trickle of account-page failures tied to a payment lookup timing out ran at the same rate before, during, and after the event, so it appears to be pre-existing background noise rather than something this incident caused. The automated on-call system picked up the memory alert at 00:19 UTC, investigated, and restarted the affected service; it was back to normal behaviour by 00:21 UTC. Because the restart only cleared the accumulated memory, the underlying defect is still present and the service is expected to drift back into the same state over time; a draft code change has been opened for engineers to review as a permanent fix.",
+        "root_cause": "The long-running io-shop process leaked memory: from roughly 23:50 its heap grew steadily and monotonically from a ~460MB baseline toward 1.39GB against a 2048MiB limit while request volume stayed flat at ~1200/min and the process was never restarted (process_start_time_seconds unchanged), with the resulting GC/allocation pressure pushing p50 and p95 latency up after 00:09. What introduced the leaking allocation path was not established \u2014 no deploy, release, or feature-flag change appears in any change window that was queried, so the leak's trigger remains unidentified and the restart treated the symptom, not the cause."
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CfDjkPohueHvasjXQ3XNN",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 14684
+    },
+    "cache_creation_input_tokens": 14684,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 1554,
+    "output_tokens_details": {
+      "thinking_tokens": 390
+    },
+    "service_tier": "standard"
+  }
+}

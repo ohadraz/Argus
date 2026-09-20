@@ -19,6 +19,11 @@ from agent_mitigation_test.framework.builders import (
     an_outcome_reaching,
 )
 
+# The service the incident is about, which neither of these cases turns on: a
+# flag toggle is answered by putting the flag back whichever service alerted,
+# and a cause with no action proposes nothing to address anywhere.
+DONT_CARE_SERVICE = "dont-care-service"
+
 
 @pytest.mark.unit
 def test_mitigating_a_flag_toggle_takes_the_action_proposed_for_it() -> None:
@@ -34,7 +39,8 @@ def test_mitigating_a_flag_toggle_takes_the_action_proposed_for_it() -> None:
             lambda: mitigate(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 fetch_flag_changes=the_flag_was_switched_off,
-                take=take
+                take=take,
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(all_of(
@@ -54,13 +60,40 @@ def test_mitigating_a_cause_with_no_action_escalates_without_touching_anything()
             lambda: mitigate(
                 a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
                 fetch_flag_changes=a_flag_did_change,
-                take=take
+                take=take,
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
             _nothing_was_taken(take)
         ))
+
+
+@pytest.mark.unit
+def test_mitigating_a_leak_restarts_the_service_the_alert_names() -> None:
+    # The composed form has to pass the service down as the Orchestrator does,
+    # or the one caller that has no gate to run would restart whatever the
+    # candidate called the leak.
+    some_alerting_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            nothing_changed := _a_record_of(),
+            take := _an_action_taker_reaching(Verdict.CONFIRMED)
+        ) \
+        .when(
+            lambda: mitigate(
+                a_hypothesis_blaming(
+                    FailureMode.RESOURCE_LEAK,
+                    subject="kuki heap (memory_used_bytes / heap of 2048MiB limit)"
+                ),
+                fetch_flag_changes=nothing_changed,
+                take=take,
+                service=some_alerting_service
+            )
+        ) \
+        .then(_the_service_restarted_is(take, some_alerting_service))
 
 
 def _a_record_of(*changes: FlagChange) -> MagicMock:
@@ -91,6 +124,20 @@ def _the_action_taken_sets(take: MagicMock, flag: str, enabled: bool) -> Asserti
             raise AssertionError(
                 f"Expected the action taken to set flag [{flag}] to [{enabled}], "
                 f"got flag [{action.flag}] to [{action.enabled}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_service_restarted_is(take: MagicMock, service: str) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        action = take.call_args.args[0]
+        if action.service != service:
+            raise AssertionError(
+                f"Expected the action taken to restart [{service}], "
+                f"got one restarting [{action.service}]."
             )
 
         return True

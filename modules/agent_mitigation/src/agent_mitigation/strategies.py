@@ -55,7 +55,8 @@ class MitigationStrategy(Protocol):
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange]) -> Action | None: ...
+                flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None: ...
 
 
 class RevertFeatureFlagStrategy:
@@ -73,7 +74,8 @@ class RevertFeatureFlagStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange]) -> Action | None:
+                flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None:
         """The flag change to reverse, or `None` where the evidence names none.
 
         Reading the Investigator's conclusion is not a second investigation.
@@ -82,6 +84,11 @@ class RevertFeatureFlagStrategy:
         caused the incident. Which way the flag moved still comes from the
         record, never from the hypothesis, so prose that described the toggle
         backwards cannot turn a flag the wrong way.
+
+        The service is not read. A flag is named by the provider's own record
+        and is the same flag whichever service was alerting on it. The
+        parameter is still spelled as the protocol spells it, for the reason
+        the unread `flag_changes` is spelled that way in the strategy below.
         """
         change = _the_change_to_undo(hypothesis.subject, flag_changes)
 
@@ -107,30 +114,37 @@ class RestartServiceStrategy:
     resolves. The fault is still in the code when the new process comes up, and
     the climb starts again.
 
-    The service comes from the hypothesis's subject and from nowhere else. A
-    configured service name would hardcode the demo's answer into the agent,
-    and an incident that named no subject is one this has nothing to act on -
-    which is a real outcome rather than a reason to guess at the only service
-    Argus happens to know about.
+    The service comes from the alert and from nowhere else. Not from Argus's
+    configuration, which would hardcode one deployment's answer into the agent
+    - and not from the hypothesis, whose subject is the model's description of
+    what is accumulating rather than the name of anything that can be
+    addressed. Those descriptions are prose: "kuki heap (memory_used_bytes /
+    heap of 2048MiB limit)" is one a model actually wrote, and a restart sent
+    to it asks a platform about a resource nobody has. The alert, by contrast,
+    names a service because that is what an alert is about.
     """
 
     action_type: ActionType = RESTART_SERVICE
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange]) -> Action | None:
-        """The service to restart, or `None` where the evidence names none.
+                flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None:
+        """The service to restart - the one the incident is about.
 
-        The recorded flag changes are not read. A leak is not something a flag
-        did - no toggle causes a heap to grow, and a flag that happened to move
-        during the climb is a coincidence this must not act on. The parameter
-        is still spelled as the protocol spells it: a strategy that renamed
-        what it does not use would be one nobody could call by keyword.
+        Neither the hypothesis nor the recorded flag changes are read. A leak
+        is not something a flag did - no toggle causes a heap to grow, and a
+        flag that happened to move during the climb is a coincidence this must
+        not act on - and what the candidate calls the leak is a description,
+        not an address. Both parameters are still spelled as the protocol
+        spells them: a strategy that renamed what it does not use would be one
+        nobody could call by keyword.
+
+        Always an action, where the older shape could answer `None`. A leak
+        the model found no words for is still a leak in a service the alert
+        names, and there is nothing left for this to fail to identify.
         """
-        if hypothesis.subject is None:
-            return None
-
-        return RestartService(service=hypothesis.subject)
+        return RestartService(service=service)
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]

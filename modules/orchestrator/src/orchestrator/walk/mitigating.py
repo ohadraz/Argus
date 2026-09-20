@@ -18,7 +18,9 @@ from argus_core.models import (
     Actor,
     IncidentStatus,
     UnreadVerdict,
+    leaves_something_to_put_back,
     the_direction_of,
+    the_subject_of,
 )
 from argus_incidents import IsStillWanted
 
@@ -76,11 +78,14 @@ def mitigation_node(
         state.incident_id,
         hypothesis_id=state.hypothesis.id,
         action_type=state.proposed_action.action_type,
-        # Written with the claim, while the candidate is still in hand. The row
-        # is the only account of what this attempt changed, and every reader of
-        # it afterwards - the write-up, and the memory the next incident is
-        # ordered by - has nowhere else to ask.
-        subject=state.hypothesis.subject
+        # What the action acts on, not what the candidate calls the fault. The
+        # row is the only account of what this attempt changed, and every
+        # reader of it afterwards - the write-up, and the memory the next
+        # incident is ordered by - has nowhere else to ask. A candidate's
+        # subject is prose a model wrote about the symptom, so a row carrying
+        # it quotes something nobody did, and the cap on attempts per subject
+        # counts a phrase that comes out different every round.
+        subject=the_subject_of(state.proposed_action)
     ):
         resumed = _what_the_earlier_attempt_left(
             state, already_taken, change_landed, publisher
@@ -102,7 +107,7 @@ def mitigation_node(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
             action_type=state.proposed_action.action_type,
-            subject=state.hypothesis.subject,
+            subject=the_subject_of(state.proposed_action),
             enabled=the_direction_of(state.proposed_action)
         ),
         publisher
@@ -178,10 +183,13 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     understood in every one of those places.
 
     No outcome means the worker died mid-action. The provider's log is asked
-    whether the change actually landed, because it is the only record of what a
-    process that no longer exists managed to do. If it did, the incident
-    escalates: a change was made and nobody measured what followed, and neither
-    acting again nor inventing a verdict would produce that measurement.
+    whether the change actually landed, under the flag the *action* names -
+    the log answers about a flag it recorded moving, where the candidate says
+    only what a model thought was wrong. It is the only record of what a
+    process that no longer exists managed to do. If the change did land, the
+    incident escalates: a change was made and nobody measured what followed,
+    and neither acting again nor inventing a verdict would produce that
+    measurement.
 
     If the change never landed, nothing happened at all - so this walk takes
     the action, on the claim already written.
@@ -189,6 +197,11 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     A provider that cannot say is treated as the first case, not the second. An
     unanswerable question is not a "no", and acting on it would be acting on a
     guess about whether production has already been changed.
+
+    An action that leaves nothing behind is never asked about, and reaches that
+    same case. A restart writes to no provider, so no log anywhere says whether
+    the dead worker managed it - and a second restart taken on that guess is
+    the loop the per-subject cap exists to prevent, arrived at by another road.
 
     An outcome nobody here can read is the fourth state, and it escalates
     without asking the provider anything. A verdict was reached, so the
@@ -240,14 +253,23 @@ def _what_the_earlier_attempt_left(state: IncidentState,
             )
         )
 
-    # Both are needed to ask the question at all: which flag, and from when.
-    # A candidate naming no subject, or a claim whose moment cannot be read, is
-    # a question that cannot be put - which is the same answer as a provider
-    # that will not answer it.
+    # Both are needed to ask the question at all: which flag, and from when. A
+    # claim whose moment cannot be read is a question that cannot be put -
+    # which is the same answer as a provider that will not answer it.
+    #
+    # The flag comes from the action rather than from the candidate, because
+    # the provider's log answers about a flag it recorded moving and the
+    # candidate says what a model thought was wrong. And an action that leaves
+    # nothing behind is not asked about at all: a restart writes to no
+    # provider, so no log says whether the dead worker managed it, and that
+    # unanswerable question ends the same way every unanswerable one does.
     since = claimed.claimed_at if claimed is not None else None
-    subject = state.hypothesis.subject
-    landed = (change_landed(subject, since)
-              if since is not None and subject is not None else None)
+    landed = (
+        change_landed(the_subject_of(state.proposed_action), since)
+        if since is not None
+        and leaves_something_to_put_back(state.proposed_action.action_type)
+        else None
+    )
 
     if landed is False:
         return None
@@ -265,16 +287,23 @@ def _why_the_resumed_walk_stopped(landed: bool | None) -> str:
     """The two ways a resumed attempt ends the incident rather than continuing
     it, told apart in the words a human reads.
 
-    A change that landed and a change nobody can ask about are the same
+    A change that landed and a change nobody can account for are the same
     decision and different situations: the first needs somebody to look at the
-    service, the second needs somebody to look at Argus's own credentials.
+    service, the second needs somebody to establish what the earlier attempt
+    managed before it stopped.
+
+    The second is not always a provider that would not answer. An action
+    leaving nothing behind is never asked about in the first place - there is
+    no log of a restart to consult - so the words say that nothing can account
+    for the change rather than naming a provider that may never have been
+    involved.
     """
     if landed:
         return ("an earlier attempt changed this flag and stopped before "
                 "measuring what followed")
 
-    return ("an earlier attempt claimed this action and the provider cannot say "
-            "whether the change was made")
+    return ("an earlier attempt claimed this action and nothing can say "
+            "whether it was carried out")
 
 
 def _nothing_to_act_on() -> StateDelta:
@@ -302,7 +331,7 @@ def route_after_mitigation(state: IncidentState) -> str:
     that stopped being pretended. The symptom is gone and the fault that caused
     it is still in the code with a flag holding it off, so the incident carries
     on to Code-Fix - which is why `fixing` is reached by two different roads
-    now. The other one is Argus running out of reversible moves; this one is
+    now. The other one is Argus running out of mitigations it may take; this one is
     Argus having made one that worked.
 
     A refuted action stays in `mitigating` and goes to the node that decides

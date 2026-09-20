@@ -36,6 +36,17 @@ from agent_mitigation_test.framework.builders import (
     an_enabling_of,
 )
 
+# What a model actually wrote in the `subject` of a leak it had diagnosed. Kept
+# verbatim because the shape is the point: it is a description of the heap, not
+# a name anything can be addressed to, and the slash inside it is what turned a
+# restart into a request for a resource nobody has.
+SOME_SUBJECT_A_MODEL_WROTE = "kuki heap (memory_used_bytes / heap of 2048MiB limit)"
+
+# The service a test has to name to ask its question, where the question is not
+# about which service. Every proposal is addressed to one now, so there is no
+# spelling of these calls that leaves it out.
+DONT_CARE_SERVICE = "dont-care-service"
+
 
 @pytest.mark.unit
 def test_the_strategy_registered_for_a_cause_is_the_one_asked() -> None:
@@ -58,6 +69,7 @@ def test_the_strategy_registered_for_a_cause_is_the_one_asked() -> None:
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
                 flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
+                service=DONT_CARE_SERVICE,
                 strategies=a_registry_answering_for_bad_deployments
             )
         ) \
@@ -79,6 +91,7 @@ def test_a_cause_no_strategy_answers_for_proposes_nothing() -> None:
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
                 flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
+                service=DONT_CARE_SERVICE,
                 strategies=a_registry_that_answers_for_nothing
             )
         ) \
@@ -88,32 +101,44 @@ def test_a_cause_no_strategy_answers_for_proposes_nothing() -> None:
 
 
 @pytest.mark.unit
-def test_a_leak_is_answered_by_restarting_the_service_the_cause_names() -> None:
-    # The service comes from the hypothesis and from nowhere else. A configured
-    # name would hardcode the demo's answer into the agent, and the second
-    # deployment would restart the wrong thing while reporting success.
-    some_leaking_service = "kuki-service"
+def test_a_leak_is_answered_by_restarting_the_service_the_alert_names() -> None:
+    # The service comes from the alert and from nowhere else. It is not
+    # configured - the alert being answered says which service it is about - and
+    # it is not read off the hypothesis, because what the model puts in a
+    # subject is a description of the leak rather than the name of anything.
+    some_alerting_service = "kuki-service"
 
     Scenario() \
         .given(
             a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK,
-                                           subject=some_leaking_service)
+                                           subject=SOME_SUBJECT_A_MODEL_WROTE)
         ) \
-        .when(lambda: RestartServiceStrategy().propose(a_leak, [])) \
-        .then(_the_service_to_restart_is(some_leaking_service))
+        .when(
+            lambda: RestartServiceStrategy().propose(
+                a_leak, [], service=some_alerting_service
+            )
+        ) \
+        .then(_the_service_to_restart_is(some_alerting_service))
 
 
 @pytest.mark.unit
-def test_a_leak_that_names_no_service_is_answered_with_nothing() -> None:
-    # Nothing to act on is a real outcome, not a reason to guess at the only
-    # service Argus happens to know about. Restarting the wrong thing costs a
-    # service its process and buys the incident nothing.
+def test_a_leak_whose_cause_describes_nothing_is_still_answered_with_a_restart() -> None:
+    # A candidate that described no subject is not a candidate with nothing to
+    # act on. The alert names a service whether or not the model found words
+    # for what was accumulating inside it, and that service is the one that
+    # gets its process back.
+    some_alerting_service = "kuki-service"
+
     Scenario() \
         .given(
-            a_leak_naming_nothing := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK)
+            a_leak_describing_nothing := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK)
         ) \
-        .when(lambda: RestartServiceStrategy().propose(a_leak_naming_nothing, [])) \
-        .then(_nothing_was_proposed())
+        .when(
+            lambda: RestartServiceStrategy().propose(
+                a_leak_describing_nothing, [], service=some_alerting_service
+            )
+        ) \
+        .then(_the_service_to_restart_is(some_alerting_service))
 
 
 @pytest.mark.unit
@@ -121,34 +146,40 @@ def test_a_flag_that_moved_during_a_leak_does_not_change_what_is_proposed() -> N
     # No toggle causes a heap to grow. A flag that happened to move during the
     # climb is a coincidence, and an agent that reached for it would put back a
     # change nobody had any reason to suspect and leave the leak running.
-    some_leaking_service = "kuki-service"
+    some_alerting_service = "kuki-service"
 
     Scenario() \
         .given(
             a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK,
-                                           subject=some_leaking_service),
+                                           subject=SOME_SUBJECT_A_MODEL_WROTE),
             a_flag_that_moved_meanwhile := [an_enabling_of(DONT_CARE_FLAG)]
         ) \
         .when(
-            lambda: RestartServiceStrategy().propose(a_leak, a_flag_that_moved_meanwhile)
+            lambda: RestartServiceStrategy().propose(
+                a_leak, a_flag_that_moved_meanwhile, service=some_alerting_service
+            )
         ) \
-        .then(_the_service_to_restart_is(some_leaking_service))
+        .then(_the_service_to_restart_is(some_alerting_service))
 
 
 @pytest.mark.unit
 def test_the_registry_argus_ships_answers_a_leak_with_a_restart() -> None:
     # The wiring, asked through the front door. A strategy nothing is
-    # registered against is a strategy that never runs, and the two tests above
+    # registered against is a strategy that never runs, and the tests above
     # would pass just as well with the entry missing.
-    some_leaking_service = "kuki-service"
+    some_alerting_service = "kuki-service"
 
     Scenario() \
         .given(
             a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK,
-                                           subject=some_leaking_service)
+                                           subject=SOME_SUBJECT_A_MODEL_WROTE)
         ) \
-        .when(lambda: propose_action(a_leak, flag_changes=[])) \
-        .then(_the_service_to_restart_is(some_leaking_service))
+        .when(
+            lambda: propose_action(
+                a_leak, flag_changes=[], service=some_alerting_service
+            )
+        ) \
+        .then(_the_service_to_restart_is(some_alerting_service))
 
 
 def _no_strategies() -> Strategies:
@@ -180,7 +211,8 @@ class _StandInStrategy:
 
     def propose(self,
                 dont_care_hypothesis: Hypothesis,
-                dont_care_flag_changes: Sequence[FlagChange]) -> Action | None:
+                dont_care_flag_changes: Sequence[FlagChange],
+                dont_care_service: str) -> Action | None:
         return self._proposing
 
 

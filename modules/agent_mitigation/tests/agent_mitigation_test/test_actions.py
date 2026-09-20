@@ -17,6 +17,11 @@ from agent_mitigation_test.framework.builders import (
     an_undetermined_hypothesis,
 )
 
+# Every proposal is addressed to a service, and none of the questions in this
+# file is about which one: a flag is named by the provider's own record and is
+# the same flag whichever service was alerting on it.
+DONT_CARE_SERVICE = "dont-care-service"
+
 
 @pytest.mark.unit
 def test_a_flag_that_was_switched_on_is_proposed_to_be_switched_off() -> None:
@@ -29,7 +34,8 @@ def test_a_flag_that_was_switched_on_is_proposed_to_be_switched_off() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=[the_flag_was_switched_on]
+                flag_changes=[the_flag_was_switched_on],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -52,7 +58,8 @@ def test_a_flag_that_was_switched_off_is_proposed_to_be_switched_on() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=[the_flag_was_switched_off]
+                flag_changes=[the_flag_was_switched_off],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -74,7 +81,8 @@ def test_undoing_a_switch_on_records_that_the_flag_had_been_on() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=[the_flag_was_switched_on]
+                flag_changes=[the_flag_was_switched_on],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -91,7 +99,8 @@ def test_undoing_a_switch_off_records_that_the_flag_had_been_off() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=[the_flag_was_switched_off]
+                flag_changes=[the_flag_was_switched_off],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -115,7 +124,8 @@ def test_a_flag_toggled_more_than_once_is_put_back_to_its_state_before_the_lates
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=it_was_switched_off_then_on
+                flag_changes=it_was_switched_off_then_on,
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -135,7 +145,8 @@ def test_a_cause_with_no_reversible_action_proposes_nothing() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
-                flag_changes=[a_flag_did_change]
+                flag_changes=[a_flag_did_change],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -152,7 +163,8 @@ def test_a_hypothesis_that_identified_no_cause_proposes_nothing() -> None:
         .when(
             lambda: propose_action(
                 an_undetermined_hypothesis(),
-                flag_changes=[a_flag_did_change]
+                flag_changes=[a_flag_did_change],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -178,7 +190,8 @@ def test_more_than_one_changed_flag_proposes_nothing_rather_than_guessing() -> N
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=two_flags_changed
+                flag_changes=two_flags_changed,
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -206,7 +219,8 @@ def test_the_flag_the_hypothesis_names_is_the_one_proposed() -> None:
             lambda: propose_action(
                 a_hypothesis_blaming(
                     FailureMode.FEATURE_FLAG_TOGGLE, subject=some_blamed_flag),
-                flag_changes=two_flags_changed
+                flag_changes=two_flags_changed,
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -229,7 +243,8 @@ def test_the_direction_comes_from_the_recorded_change_not_from_the_hypothesis() 
             lambda: propose_action(
                 a_hypothesis_blaming(
                     FailureMode.FEATURE_FLAG_TOGGLE, subject=some_blamed_flag),
-                flag_changes=[the_flag_was_switched_off]
+                flag_changes=[the_flag_was_switched_off],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -256,7 +271,8 @@ def test_a_named_flag_the_provider_never_recorded_proposes_nothing() -> None:
                     FailureMode.FEATURE_FLAG_TOGGLE,
                     subject=a_flag_nobody_recorded_changing
                 ),
-                flag_changes=[a_different_flag_changed]
+                flag_changes=[a_different_flag_changed],
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(
@@ -273,7 +289,8 @@ def test_no_flag_change_proposes_nothing() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=nothing_changed
+                flag_changes=nothing_changed,
+                service=DONT_CARE_SERVICE
             )
         ) \
         .then(

@@ -42,8 +42,10 @@ class IncidentStatus(StrEnum):
         machine grows a state.
 
         `fixing` reads like an ending and is not one: it is where an incident
-        sits while Code-Fix looks for a permanent fix, reached once no
-        reversible action is left to try. Argus is still working on it.
+        sits while Code-Fix looks for a permanent fix - reached once no
+        mitigation is left to try, and reached again by a mitigation that
+        worked, since the fault outlives the symptom either way. Argus is still
+        working on it.
 
         `acknowledged` is not one either, for the opposite reason: nothing has
         started rather than nothing is left. An incident sitting there is one a

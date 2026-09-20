@@ -613,9 +613,9 @@ class WriteMcpEndpoint(SettingsSlice):
     Separate from the read tier's endpoint, as the servers are. Two addresses
     rather than one, though - not two tiers: what makes the write tier the
     write tier is that it holds the admin credential and the read server is
-    issued none, and that no irreversible tool has a function on either
-    (spec §12.1, §13). An address is how a caller finds a server, and finding
-    one authorizes nothing.
+    issued none, and that nothing outside the declared set of generic
+    mitigations has a function on either (spec §12.1, §13). An address is how a
+    caller finds a server, and finding one authorizes nothing.
     """
 
     write_mcp_host: str

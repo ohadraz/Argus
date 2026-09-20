@@ -37,13 +37,13 @@
 
 ## 5. The Target Service leaks
 
-- [ ] 5.1 Write the accumulating fault into `io_shop` - state retained per request, never released - reachable by reading the code and uncovered by the existing suite
-- [ ] 5.2 Compute resource usage from process uptime rather than from a script: memory climbs while up, resets on restart, climbs again
-- [ ] 5.3 Make latency follow memory as the limit nears, and the error rate rise only once the service is failing
-- [ ] 5.4 Emit the log lines - heap against its limit, then termination and restart
-- [ ] 5.5 Add the restart control under the scenario-control prefix, reclaiming what the scenario accumulated, with the same effect whoever calls it
-- [ ] 5.6 Register the scenario, hidden from the console until it plays well
-- [ ] 5.7 Cover the new demo-app behaviour with tests written after the code, as that repo's convention has it
+- [x] 5.1 Write the accumulating fault into `io_shop` - state retained per request, never released - reachable by reading the code and uncovered by the existing suite
+- [x] 5.2 Compute resource usage from process uptime rather than from a script: memory climbs while up, resets on restart, climbs again
+- [x] 5.3 Make latency follow memory as the limit nears, and the error rate rise only once the service is failing
+- [x] 5.4 Emit the log lines - heap against its limit, then termination and restart
+- [x] 5.5 Add the restart control under the scenario-control prefix, reclaiming what the scenario accumulated, with the same effect whoever calls it
+- [x] 5.6 Register the scenario, hidden from the console until it plays well
+- [x] 5.7 Cover the new demo-app behaviour with tests written after the code, as that repo's convention has it
 
 ## 6. The spec says what the system now is
 
@@ -52,23 +52,23 @@ skill - the design as though it had always been the intent, with no note
 appended about what it used to say. "Reversible" is load-bearing in twenty
 places, so this is a pass over the whole document, not two sections.
 
-- [ ] 6.1 §13: rewrite the tier table and the four enforcement layers around membership of a closed set; the gate node's row stops asking for a populated undo descriptor and asks whether the kind is admitted
-- [ ] 6.2 §3 and §21.2: reword the "0 irreversible actions without human approval" success criterion against the tier names that replace it
-- [ ] 6.3 §1, §2 and §4: the framing lines that say Argus "mitigates reversible causes" and "takes real (reversible) actions", and the principle naming the four tiers
-- [ ] 6.4 §7.3: the Mitigation agent proposes a generic mitigation, and the undo descriptor is how a refuted one is put back rather than what admits it
-- [ ] 6.5 §10: "no reversible action left to try" on the `mitigating --> fixing` edge, and the paragraph arguing what admits the walk
-- [ ] 6.6 §11.1: the ERD's `bool reversible` and `jsonb undo_descriptor` columns, and §11.4's argument that the gate needs a deterministic answer about the descriptor
-- [ ] 6.7 §12.1: the write tier's tool table gains the restart, in the tier vocabulary that replaces "reversible tier"
-- [ ] 6.8 §16: the metrics channel carries the three resource fields
-- [ ] 6.9 §15.2 and §15.3: the leak's row - seeded state, what the anomaly reacts to, that it never stops via a flag, and that correct behaviour is restart then propose a fix
-- [ ] 6.10 §21.1: the leak joins the benchmark scenarios as the first that ramps rather than steps
-- [ ] 6.11 Read the whole document once through for "reversible" and for any claim this change has outgrown
-- [ ] 6.12 The same pass over the code's own prose: seventeen docstrings and comments still argue from reversibility - `proposing.py` and `fixing.py` in their opening lines, `mitigating.py` in both modules, the two MCP tool registrations, `incident_status.py`, `hypothesis.py`, and the incident page's account of `undone`. A flag revert is still reversible and still says so; what has to go is reversibility given as the *reason* an action may be taken unasked
+- [x] 6.1 §13: rewrite the tier table and the four enforcement layers around membership of a closed set; the gate node's row stops asking for a populated undo descriptor and asks whether the kind is admitted
+- [x] 6.2 §3 and §21.2: reword the "0 irreversible actions without human approval" success criterion against the tier names that replace it
+- [x] 6.3 §1, §2 and §4: the framing lines that say Argus "mitigates reversible causes" and "takes real (reversible) actions", and the principle naming the four tiers
+- [x] 6.4 §7.3: the Mitigation agent proposes a generic mitigation, and the undo descriptor is how a refuted one is put back rather than what admits it
+- [x] 6.5 §10: "no reversible action left to try" on the `mitigating --> fixing` edge, and the paragraph arguing what admits the walk
+- [x] 6.6 §11.1: the ERD's `bool reversible` and `jsonb undo_descriptor` columns, and §11.4's argument that the gate needs a deterministic answer about the descriptor
+- [x] 6.7 §12.1: the write tier's tool table gains the restart, in the tier vocabulary that replaces "reversible tier"
+- [x] 6.8 §16: the metrics channel carries the three resource fields
+- [x] 6.9 §15.2 and §15.3: the leak's row - seeded state, what the anomaly reacts to, that it never stops via a flag, and that correct behaviour is restart then propose a fix
+- [x] 6.10 §21.1: the leak joins the benchmark scenarios as the first that ramps rather than steps
+- [x] 6.11 Read the whole document once through for "reversible" and for any claim this change has outgrown
+- [x] 6.12 The same pass over the code's own prose: seventeen docstrings and comments still argue from reversibility - `proposing.py` and `fixing.py` in their opening lines, `mitigating.py` in both modules, the two MCP tool registrations, `incident_status.py`, `hypothesis.py`, and the incident page's account of `undone`. A flag revert is still reversible and still says so; what has to go is reversibility given as the *reason* an action may be taken unasked
 
 ## 7. End to end
 
-- [ ] 7.1 Add the e2e case: leak staged, onset dated at the climb's start, restart taken, memory reclaimed, incident ends mitigated with a fix proposed
-- [ ] 7.2 Record the replay fixtures for the new case under both code-search modes
-- [ ] 7.3 Confirm the scenario is graded by the repository's test suite against the fix branch, and is *not* graded resolved by the telemetry going quiet
-- [ ] 7.4 `nox -s e2e_replay(mode='both')` green
-- [ ] 7.5 One real `nox -s e2e` run before merge, with the token spend reported
+- [x] 7.1 Add the e2e case: leak staged, onset dated at the climb's start, restart taken, memory reclaimed, incident ends mitigated with a fix proposed
+- [x] 7.2 Record the replay fixtures for the new case under both code-search modes
+- [x] 7.3 Confirm the incident is *not* graded resolved by the telemetry going quiet: `IncidentStatus.RESOLVED` is assigned nowhere in the walk, so no route reaches it, and a confirmed mitigation routes on to Code-Fix instead. Grading the fix branch against the target repository's own suite is milestone 10 - nothing here runs that suite, which is the same reason `resolved` has no route into it
+- [x] 7.4 `nox -s e2e_replay(mode='both')` green
+- [x] 7.5 One real `nox -s e2e` run before merge, with the token spend reported

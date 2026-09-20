@@ -56,9 +56,10 @@ def record_outcome(
     happened to it later is the same finding with its answer attached.
 
     `tested` and `result` travel together because either alone is ambiguous.
-    "Refuted" reads as a disproven explanation and "not reversible" as an
-    untried one, but a row carrying only one of the two leaves a reader
-    guessing which of those two very different things it is looking at.
+    "Refuted" reads as a disproven explanation and "not a mitigation Argus may
+    take unasked" as an untried one, but a row carrying only one of the two
+    leaves a reader guessing which of those two very different things it is
+    looking at.
     """
     with conn.cursor() as cursor:
         cursor.execute(

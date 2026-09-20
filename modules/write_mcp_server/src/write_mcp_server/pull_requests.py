@@ -3,9 +3,9 @@
 The write tier's second action, and the one that stops short on purpose. A pull
 request opened here is a *proposal*: it is always a draft, there is no parameter
 that makes it anything else, and nothing in this module - or anywhere on this
-server - can merge one. Merging is a deploy, which is the irreversible side of
-§13's line, so the enforcement is that the function does not exist rather than
-that a check refuses to run.
+server - can merge one. Merging is a deploy, and no deploy is among the
+mitigations Argus may take unasked (§13), so the enforcement is that the
+function does not exist rather than that a check refuses to run.
 
 Opening the pull request is all this does. Putting the patch on the branch it is
 opened from is a different job with a different failure, and a module that did

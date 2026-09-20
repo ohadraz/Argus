@@ -1,4 +1,4 @@
-"""Choosing the reversible action that answers the hypothesis, and only that."""
+"""Choosing the mitigation that answers the hypothesis, and only that."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def mitigation_proposal_node(
     fetch_flag_changes: FetchFlagChanges,
     publisher: Publisher = nobody,
 ) -> StateDelta:
-    """Chooses the reversible action that answers the hypothesis, and stops
+    """Chooses the mitigation that answers the hypothesis, and stops
     there (spec §7.3).
 
     Nothing here changes anything: it reads what the provider recorded as
@@ -48,4 +48,12 @@ def mitigation_proposal_node(
         publisher,
     )
 
-    return StateDelta(proposed_action=propose_action(state.hypothesis, flag_changes))
+    # The alert's service, because an action addressed to a service is
+    # addressed to the one the incident is about. The candidate's subject says
+    # what is wrong in prose and names nothing a platform could be asked to
+    # restart.
+    return StateDelta(
+        proposed_action=propose_action(
+            state.hypothesis, flag_changes, state.alert.service
+        )
+    )

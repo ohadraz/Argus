@@ -5,11 +5,13 @@ split is what makes "read-only" a property of a running process: the read server
 holds no credential that could authorize a change, so a compromised or confused
 caller cannot mutate anything through it, whatever tools it believes it has.
 
-Every tool registered here performs a **generic mitigation** (§13) - one of the
-closed, pre-authorised set Argus may take unasked. Nothing outside that set -
-merging a pull request, applying infrastructure - has a function on this server
-at all, which is tier enforcement by absence rather than by a check some future
-caller could skip.
+Every tool here that touches the running service performs a **generic
+mitigation** (§13) - one of the closed, pre-authorised set Argus may take
+unasked. The rest write to a branch nothing is running, which is how a proposed
+fix reaches a human without reaching production. What has no function on this
+server at all is anything that would deploy: merging a pull request, applying
+infrastructure. That is tier enforcement by absence rather than by a check some
+future caller could skip.
 
 Built rather than declared, for the reason the read server is: the process that
 reads configuration is the process that starts, and a server assembled at import
@@ -74,10 +76,11 @@ def build_server(endpoint: WriteMcpEndpoint,
     def set_feature_flag(flag: str, enabled: bool) -> FlagUndo:
         """Sets a feature flag on or off in the configured environment.
 
-        A reversible action (§13): it changes production state, and the state
-        it changed is recorded in the undo descriptor returned with it, so the
-        change can be put back by whoever holds this record - which is what
-        makes it autonomous rather than something requiring approval.
+        A generic mitigation (§13): it is taken unasked because its kind is
+        in the declared set, not because it can be undone. It does leave
+        something behind, and the state it changed is recorded in the undo
+        descriptor returned with it, so whoever holds that record can put the
+        change back if the mitigation turns out to be refuted.
 
         Both directions, one tool. A flag causes an incident by changing, and
         the damaging direction is not always "on" - undoing a flag that was
@@ -165,9 +168,9 @@ def build_server(endpoint: WriteMcpEndpoint,
         """Opens a draft pull request proposing a code fix, from the branch the
         fix sits on onto the branch it fixes.
 
-        The reversible end of an irreversible act (§13). Opening a proposal
-        changes nothing about the running service and can be undone by closing
-        it; *merging* one is a deploy, and there is no tool here that does it -
+        The half of a deploy that Argus is trusted with (§13). Opening a
+        proposal changes nothing about the running service; *merging* one is
+        the deploy itself, and there is no tool here that does it -
         not a guarded one, not an approval-gated one, none. That absence is the
         enforcement, and it is why this returns a place to read rather than an
         outcome: what happens next is a human's to decide.

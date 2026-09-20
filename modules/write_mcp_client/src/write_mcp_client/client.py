@@ -53,11 +53,11 @@ def set_feature_flag(flag: str,
     """Sets a feature flag on or off, returning the undo descriptor for the
     change.
 
-    The reversible action of spec §7.3: Mitigation's response to a flag-toggle
-    cause. The descriptor it returns records the state that existed before, and
-    is what the Orchestrator's gate node requires before this call is reached
-    at all (§13) - and what puts the flag back if the mitigation turns out to
-    be refuted.
+    A generic mitigation of spec §7.3: Mitigation's response to a flag-toggle
+    cause. It is taken unasked because its kind is in the declared set (§13),
+    not because it can be reversed. The descriptor it returns records the state
+    that existed before, and is what puts the flag back if the mitigation turns
+    out to be refuted.
 
     `enabled` is the state to leave the flag in, so undoing a change is this
     same call with it reversed. Mitigation needs both directions: a flag that
@@ -173,11 +173,11 @@ def open_pull_request(head_branch: str,
     an outcome.
 
     **There is no `merge_pull_request` beside this, and there is not going to
-    be.** Merging is a deploy and sits on the irreversible side of §13, so the
-    binding this module gives an agent has no function for it at all - tier
-    enforcement by absence, which no caller can skip and no prompt can talk its
-    way around. The draft is not a parameter here either, for the same reason it
-    is not one on the server.
+    be.** Merging is a deploy, and no deploy is among the mitigations Argus may
+    take unasked (§13), so the binding this module gives an agent has no
+    function for it at all - tier enforcement by absence, which no caller can
+    skip and no prompt can talk its way around. The draft is not a parameter
+    here either, for the same reason it is not one on the server.
 
     Raises rather than returning quietly when no pull request was opened: a fix
     reported as proposed but never opened closes an incident on a link to

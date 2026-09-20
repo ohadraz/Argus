@@ -1,4 +1,4 @@
-"""Looking for a permanent fix, once no reversible action is left."""
+"""Looking for a permanent fix, once mitigation has done what it can."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from orchestrator.walk.state import IncidentState
 def codefix_node(state: IncidentState,
                  propose_fix: ProposeFix,
                  publisher: Publisher = nobody) -> StateDelta:
-    """Looks for a permanent fix, once no reversible action is left (spec §7.4).
+    """Looks for a permanent fix, once mitigation has done what it can (spec §7.4).
 
     What the agent answered is what this reports, and where the proposal can be
     read is the whole of the report: this is the one step in the walk that ends

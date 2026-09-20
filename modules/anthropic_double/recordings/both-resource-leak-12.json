@@ -1,0 +1,47 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAIS7gkKjgEIEhgCKkDM3GZOmbP8t96OIG2SIm70jYQUVU383divksEYosbWXM00FKtp9V5MYnKJhS/pNYIytY3036EaxskiCPEJ+IIQMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAajOvNUGEgzBW9IvHdhI3m3jsrIaDHdbyUcmO50MZgie+CIwdLVvanzV1u0FDUNUqul6Z2HYvw3KPP/R0djheSf+0BY4JFqGC6Q1Bk0Gbxz7ThTXKowI/19cAg9rFKiu8B9elc0AJ/lftiijQT8A0Rqensr6OClqGcIbk4LLfBsdjbsdAKFtNZmiblsoZrhf4hVK5JlfWnQogVVTzauc6FbNoS8Y+WYqfcBX2LiytX2HugkbJd/XuBWC/lUImkFoRZcYdno2KlehTLPg0gjucWoDMyCxphithwEFDAV1dVPNRq6yZ7frGDC6UR6hLa6ssDmLBm52GvZZn3RW43en5SdC4BeMKQVVGgO3e6879G1PJhlNL7EaReBsR5WWXT+kSdnNeeS314Ttd4QrCPPW/9N52PN+IEV7+JHOWUbJZivaMs/MDF/g/+NKxdGS46ZnKXolbIjTSQgaGT4pjKt+8SfnK//0507vZDOiA+XmFFWIkxkz1It9YVU7f1MNXkBQEDX0SanFWQ5hykuvhPYFv43z/m9fuRYdGeJ2IYdQ3ZnmZpgw0GoHqNlyivY7PTzdul3iIlwTfIRoy3h1qzmkb4s6fdlQcB+kr4HIjEZwIzJiPnc0AjtNlki8vRLyAD1uKf6ASJJmyRJIppPfFULl06xKg9ugqxAGcYG0DDzYgo7ImwUDX/uXkTFjfbis7rO2zqOtYGYRC/+82BHqrmg6Afg5u2zdp5anUNY00PGuezB4fDwc9Pm137YucMpBjr0CXPJwPblXDKqltwzG4hIxvTg51rL9WBkN28BWz+ZPnVl1dL3EguZwlQGPrZKQdINcXWlhjLLQljCFRQA05QepRhLZLl6SJXOerl8ndPCGsb6gmblRry/PR2L9jsvwTU4dB2aXlmUAVPDVsLvJGQDn2Y0H6ZRqRt+TAm2iOYgHo28wCF7kMaS2akyZOAJkYeE6vpeYYSmsIJ+a4rslAzoC0k/AEJYbVzHZc3+NEdK/dUTSa/rIz9U0GJuWEjPgDKt5SelobTCLKDOb5iV0IWJaCb9/kBjvwHdlGyX1VGhbG4vBvIMbRoIsHyvdAlLvERrF9YHq+xK1h5nhV9ImjMOckre3v1lxhvNZWcCOGs7nxDZnZ65+NBi4g+x6dIAGri6tVOx/n13ysJ9qfWRG8T5VlzfsFXGj/3LxEZBgcI2nCvQDB6LA6FaqNtVcXTTgCSSPPLR52T3ByeHpKAcbBD6e0hLu7NUNwZ155uuGEjCfjyUEEKSk94cJ4/dXTYiGEYduty3FGpS6stLmMuVlppSzVU0PhPgxVRjPfnZ2RLu1u+fa++YJtWa2hch6O+z67UbwqNofVDcDgqA8pOczS8xej7A2p/kcFiWTZcnNFyS+MrDPk2DjPtsEAfrURrZqJZ4ETnbJyODjEdTkZ2HDYUN62/fC89YgL4vIy7OrMT1VTX0W/aBwdkfjUg7kbG1giHVag0RvCg7zb25IdboIXrU5Mbb4TBgB",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "text": "The repo is tiny; let me be sure nothing else exists.",
+      "type": "text"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01LB1FaLU34YKTQ3FATMbe9U",
+      "input": {
+        "query": "purchases"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CfDjeggJax4VzpKWm655J",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 444
+    },
+    "cache_creation_input_tokens": 444,
+    "cache_read_input_tokens": 4337,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 417,
+    "output_tokens_details": {
+      "thinking_tokens": 346
+    },
+    "service_tier": "standard"
+  }
+}

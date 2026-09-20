@@ -9,9 +9,9 @@
 
 Production systems generate more alerts than humans can triage. Today an on-call engineer reads the alert, correlates it with recent changes (deploys, flags, config), forms a hypothesis, mitigates, finds root cause, fixes it, and documents it - slow and inconsistent across engineers.
 
-**Argus** receives an alert via webhook and runs this workflow autonomously: investigate, mitigate reversible causes, propose a code fix, report status live (Slack/email), and produce a postmortem once resolved - escalating to a human whenever it isn't confident enough to act.
+**Argus** receives an alert via webhook and runs this workflow autonomously: investigate, mitigate what it is pre-authorised to mitigate, propose a code fix, report status live (Slack/email), and produce a postmortem once resolved - escalating to a human whenever it isn't confident enough to act.
 
-Argus is not "a chatbot with tools": it reasons under uncertainty, takes real (reversible) actions, tracks its own hypothesis history to avoid repeating failed attempts, and knows when to stop and hand off.
+Argus is not "a chatbot with tools": it reasons under uncertainty, takes real actions against production, tracks its own hypothesis history to avoid repeating failed attempts, and knows when to stop and hand off.
 
 ## 2. Scope
 
@@ -25,7 +25,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 - Webhook ingestion of an alert
 - Log/metrics querying and correlation with recent changes
 - Root-cause hypothesis generation and testing (ReAct loop)
-- Reversible mitigation (flag toggle, deployment rollback)
+- Generic mitigation (flag toggle, service restart, deployment rollback)
 - Code-level root cause search + PR generation (agentic search over the Target Service codebase, behind a seam that also admits RAG)
 - Slack integration: reading hints, and reporting an incident as it happens - a thread per incident in a war-room channel
 - Persistent memory: per-incident state + cross-incident knowledge base
@@ -45,14 +45,14 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 | Detect & triage fast | Median time-to-first-hypothesis < 60s (Target Environment) |
 | Correct mitigation | ≥ 80% correct mitigation on single-cause benchmark scenarios |
 | Root cause accuracy | ≥ 70% correct root cause across benchmark suite |
-| Safe autonomy | 0 irreversible actions without human approval, across all test runs |
+| Safe autonomy | 0 actions outside the declared set of generic mitigations without human approval, across all test runs |
 | Useful documentation | Postmortem has timeline, root cause, actions taken, what the incident cost the business as a stated estimate, and what it cost in engineer minutes and tokens as measurements, for 100% of resolved incidents |
 | Know its limits | Escalates (rather than loops or guesses) on scenarios designed to be unsolvable |
 
 ## 4. Design Principles
 
 1. **State lives in structured data, not an LLM's context.** Incident state, hypotheses, and actions are DB rows, never a reconstructed chat log. Agents read this state and propose changes; the Orchestrator is the sole writer (§7.1).
-2. **Every mutating action is tiered before it's taken.** The tier (read-only / reversible / irreversible / escalate) is checked by the Orchestrator before dispatch - never left to agent convention.
+2. **Every mutating action is tiered before it's taken.** The tier (read-only / generic mitigation / outside the declared set / escalate) is checked by the Orchestrator before dispatch - never left to agent convention. What admits an action is membership of a declared set, not whether it can be undone (§13).
 3. **Agents are stateless function callers**: a prompt + scoped tools + an LLM call, invoked by the Orchestrator with the relevant incident-state slice. No agent holds its own memory.
 4. **Every external integration is a port with a swappable adapter.** Where a standard exists, the adapter implements it; otherwise Argus defines its own minimal interface and ships one adapter for the demo.
 5. **Tests are a human-owned contract; code is what AI coding agents write against it.** This boundary is enforced structurally, not by convention.
@@ -146,7 +146,13 @@ Runs the ReAct loop (§9, §8). Tools: metrics read, log read, and flag evaluati
 
 ### 7.3 Mitigation agent
 
-Takes a confirmed/high-confidence hypothesis and proposes a reversible action: revert a flag or roll back a deployment (`push_revert_commit`) - both from `argus-write-mcp` (§12.1). Every action carries an undo descriptor, checked by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
+Takes a confirmed/high-confidence hypothesis and proposes a generic mitigation: revert a flag, restart a service, or roll back a deployment (`push_revert_commit`) - all from `argus-write-mcp` (§12.1). Which mitigation answers which cause is a fact about Argus rather than a judgement made per incident, so it is a lookup from the named failure mode and nothing else; whether Argus may then take it unasked is a different question, asked of the declared set by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
+
+*Which* mitigation comes from the cause; *what it acts on* comes from the evidence that names a thing rather than describes one. A flag revert is addressed to the flag the provider recorded changing, confirmed against the candidate that blamed it; a restart is addressed to the service the alert is about. Neither is read from the candidate's `subject`, which is the model's prose about the symptom - "io-shop process heap (memory_used_bytes / heap of 2048MiB limit)" is a real one - and describes a fault rather than naming anything a platform can be asked to act on.
+
+An action carries an undo descriptor when it leaves something behind for somebody to put back, and carries none when it does not. A flag Argus moved is a flag somebody has to be able to move back; a restart changes no persistent state, so there is no prior value to record and nothing a withdrawal could act on. The descriptor is how a refuted mitigation is put back - never what admits one.
+
+Verifying a mitigation takes two steps, and they answer different questions. First, did it land: the write tier waits for the change to become visible - a flag to evaluate to what was written, a service's process start time to move - and raises rather than reporting an unlanded change as made. Only then, did it help: the service is re-read until a minute that began *after* the action can be judged. Collapsing the two would make "it did not happen" and "it happened and did not help" the same observation, and a leak still climbing would read as evidence that restarting a leaking service does not work.
 
 Putting a change back is conditional, and the condition is a question about the provider's record rather than about the world's current state: *has anybody but Argus changed this flag since Argus wrote it*. The undo descriptor carries the moment the provider recorded the write - the provider's own clock, taken from the response to it - and the flag's change history is read from that moment forward, with Argus's own changes discounted by the actor the provider attributes them to. Anything left is somebody's deliberate decision, so the flag is left as found and the incident records that it was.
 
@@ -287,11 +293,11 @@ stateDiagram-v2
     acknowledged --> investigating: a worker takes the run
     investigating --> mitigating: a named cause worth trying
     investigating --> escalated: budget spent, or nothing left to try
-    mitigating --> resolved: mitigation confirmed
+    mitigating --> fixing: mitigation confirmed
     mitigating --> mitigating: mitigation refuted, another candidate to try
     mitigating --> investigating: candidates exhausted, rounds remain
     mitigating --> escalated: action could not be taken at all
-    mitigating --> fixing: no reversible action left to try
+    mitigating --> fixing: no mitigation left to try
     fixing --> resolved: PR opened + target repo's test suite passes against it
     fixing --> escalated: no code-level fix found after N iterations
     resolved --> [*]: postmortem generated
@@ -303,7 +309,9 @@ stateDiagram-v2
     withdrawn --> [*]: every change Argus made put back
 ```
 
-What admits the walk is a *named* cause, not a confident one: a reversible mitigation taken alone, confirmed against the service and put back when it does not help costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
+**A mitigation that worked does not end the incident.** `fixing` is reached by two roads, and a confirmed mitigation is one of them: the symptom is gone and the fault that caused it is still in the code, with a flag holding it off or a fresh process yet to fill up. Calling that resolved would file a postmortem about an incident that is still waiting to happen - and for a leak it is not even a pause, only the length of time the new process takes to climb back. Only a fix reaches `resolved`. The other road to `fixing` is Argus running out of mitigations it may take, and the two are worth telling apart in the record even though they arrive at the same node.
+
+What admits the walk is a *named* cause, not a confident one: a generic mitigation taken alone, confirmed against the service and put back where there is anything to put back costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
 
 `acknowledged` is where an incident sits between being accepted and being picked up: Argus has the alert and has committed to handling it, and the walk is queued for a worker (§7.1). It is a status rather than an event because it is the incident's own state and can last - a worker that is down leaves incidents there, and a screen reporting them as `investigating` would claim attention nobody is paying. The interval between it and `investigating` is how long the incident waited for a worker, which is the one duration the timeline could not otherwise report.
 
@@ -368,7 +376,7 @@ erDiagram
         uuid hypothesis_id FK
         text type
         text target
-        bool reversible
+        bool has_a_way_back
         enum tier
         jsonb undo_descriptor
         enum outcome
@@ -527,7 +535,7 @@ The four `*_config` blobs are opaque to `argus_web`/Backoffice - each is parsed 
 Free text or embeddings-only would fight several requirements above:
 
 1. The eval metrics (§21) are inherently relational (§11.1).
-2. The tier-gate node (§13) needs a deterministic answer to "does this action have a populated undo descriptor" every time - a vector store optimizes for semantic nearness, the wrong model for a safety-critical check.
+2. The tier-gate node (§13) needs deterministic answers every time - "is this kind of action in the declared set" and "how often has this incident already applied it to this subject" - and the second is a count over rows. A vector store optimizes for semantic nearness, the wrong model for a safety-critical check.
 3. Retries or a re-entrant graph run (e.g. after a restart, §7.1) can revisit the same incident; Postgres transactions give the Orchestrator's single-writer updates atomicity for free.
 4. Follows Design Principle 1 (§4) - free-text state would just move "state an LLM has to re-parse" into a database instead of a chat log.
 
@@ -571,7 +579,7 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 | Server | Exposes |
 |---|---|
 | `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); flag evaluation against the flag provider's evaluation API; Slack channel/thread reads; `search_repository_by_meaning(description)` - nearest passages of the Target Service's source from the repository index (§11.5), each with its path and line span, prefixed with a notice where the index is behind the deployed commit; `get_repository_index_freshness(ref)` - the same fact before anything has been asked for, so a prompt can carry it rather than a model learning it from a result it has already acted on |
-| `argus-write-mcp` | Unleash admin toggle + revert (reversible tier); `push_revert_commit` (Mitigation, reversible tier); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists** |
+| `argus-write-mcp` | Unleash admin toggle + revert (Mitigation); `restart_service` (Mitigation), which asks the deployment platform to roll the workload and returns only once a new process is serving; `push_revert_commit` (Mitigation); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists** |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
 
@@ -585,14 +593,42 @@ Each agent's LangGraph node still binds only the individual tool functions its r
 
 ## 13. Guardrails: Autonomy Tier Enforcement
 
-Every action is tiered, which determines how much autonomy the agent has:
+Every action is tiered, and the tier determines how much autonomy the agent has:
 
 | Tier | Examples | Autonomy |
 |---|---|---|
 | Read-only | query logs, read Slack, read code | Fully autonomous |
-| Reversible mitigation | toggle flag back, roll back deploy | Autonomous, but announced in Slack immediately + logged, with an explicit "undo" recorded |
-| Irreversible / high blast radius | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
-| Give up / escalate | the investigation's budget binds before it names a cause, or no reversible action resolves the alert | Autonomous - pages a human with full context, doesn't keep guessing |
+| Generic mitigation | toggle a flag back, restart a service | Autonomous, but announced in Slack immediately + logged, with whatever it left to put back recorded |
+| Outside the declared set | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
+| Give up / escalate | the investigation's budget binds before it names a cause, or no mitigation Argus may take resolves the alert | Autonomous - pages a human with full context, doesn't keep guessing |
+
+What admits an action is **membership of a closed, declared set** - a kind of
+action somebody wrote down and defended - and not any property of the particular
+action, however it is labelled. That is the criterion both industry frames
+actually use. Google SRE's *generic mitigations* are a defined, small set -
+drain, roll back, restart, add capacity - applied before the cause is known
+precisely because they are known-safe responses rather than because they can be
+undone. ITIL's *standard change* is pre-authorised for being routine and well
+understood, on the same reasoning.
+
+Reversibility is a different question with a different answer. The two coincide
+for as long as reverting a flag is the only mitigation there is, and they part
+company at the first mitigation that changes no persistent state: a restart can
+be undone by nothing, so "must be undoable" would put the industry's most common
+first response behind a human gate while flipping a production flag stayed
+automatic - backwards on any reading of blast radius. The undo descriptor is
+therefore what *puts a refuted mitigation back*, not what admits one (§7.3).
+
+The set is declared as a literal rather than derived from the mitigations that
+happen to be implemented. Deriving it would let an action acquire autonomy by
+being written, which is the one way a guardrail can be removed by an
+implementation detail.
+
+A mitigation in the set is still bounded. One kind may be applied to one subject
+only so many times within a single incident, because what a repeatable
+mitigation risks is repetition rather than irreversibility: a restart can be
+taken again and again, each one buying a few minutes, and a restart loop is what
+operators actually guard against - with a limit, not with an approval step.
 
 Enforced redundantly at four layers:
 
@@ -600,10 +636,11 @@ Enforced redundantly at four layers:
 |---|---|
 | **MCP server boundary** | `argus-read-mcp` (§12.1) has no code path to mutate anything, and holds no credential that could authorize one - enforced at the server, not the caller. The tier split *is* the process split, so "read-only" is a property of the running process, not a convention. |
 | **LangGraph node tool binding** | Each node's tool list is scoped at graph-definition time (§12.1). Code-Fix has no `merge_pull_request` function bound - because it doesn't exist anywhere in `argus-write-mcp`. |
-| **Orchestrator gate node** | Before any `ACTION` with `tier=reversible` reaches its MCP call, a gate node requires a populated `undo_descriptor` (§11.1). `tier=irreversible` actions go straight to "notify human," never to a mutating call. |
+| **Orchestrator gate node** | Before any `ACTION` reaches its MCP call, a gate node asks whether its kind is one of the declared generic mitigations, and whether this incident has already applied that kind to that subject as often as it may. A kind absent from the set goes straight to "notify human," never to a mutating call. The check lives in the Orchestrator rather than in the agent performing the write: a guarantee enforced by the code it constrains is a convention. |
 | **Branch-scoped write access** | `argus-write-mcp`'s git write functions only ever write to a branch cut for the incident, never to the deployed branch, and every write names that branch explicitly. No path is withheld - Code-Fix writes source and tests alike, because a fix that cannot bring the test exposing the bug is a claim rather than evidence. What bounds the blast radius is the branch and the human merge, not a list of protected files. |
 
-This four-layer redundancy is what lets the eval suite (§21) claim "zero irreversible actions without human approval" as a hard, testable metric.
+This four-layer redundancy is what lets the eval suite (§21) claim "zero actions
+outside the declared set without human approval" as a hard, testable metric.
 
 ## 14. Secrets and Configuration
 
@@ -635,10 +672,12 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
   - *Feature flag* - a flag set to its "bad" value.
   - *Bad deploy* - the deploy-record (HEAD of the designated branch) points at a seeded bad commit.
   - *Bug / config drift* - a seeded buggy commit is checked out; the repo's own test for it fails.
+  - *Resource leak* - the service retains state per request and releases none of it, so its heap climbs for as long as the process is up. Nothing is seeded into the code: the fault is in the deployed source, and what staging decides is when the accumulation began.
   - *No evidence* - nothing is seeded; nothing for Argus to find, forcing escalation.
   - *Multiple causes* - two of the above seeded together (e.g. bad flag + bad deploy), to test against false attribution to only one.
-- **The log/metric generator reacts to live state, not a script.** It emits an anomaly matching the chosen root cause(s) *while the underlying condition(s) remain true*, and stops once all seeded conditions become false - regardless of who changed them or why. *Upstream dependency failure* has no Argus-controllable condition, so it never stops via Argus action - same "no honest resolution possible" property as *No evidence*, forcing escalation. This makes grading honest: revert the wrong flag or roll back the wrong thing, and the anomaly just keeps appearing, no separate "mark failed" logic needed.
+- **The log/metric generator reacts to live state, not a script.** It emits an anomaly matching the chosen root cause(s) *while the underlying condition(s) remain true*, and stops once all seeded conditions become false - regardless of who changed them or why. A leak's condition is the process's own uptime rather than a flag's value: the heap is computed from how long the serving process has been up, so restarting it reclaims the heap and nothing else does. The climb then begins again, because the fault is still in the deployed code - which is what makes this the one scenario a mitigation cannot resolve. *Upstream dependency failure* has no Argus-controllable condition, so it never stops via Argus action - same "no honest resolution possible" property as *No evidence*, forcing escalation. This makes grading honest: revert the wrong flag or roll back the wrong thing, and the anomaly just keeps appearing, no separate "mark failed" logic needed.
 - For bug/config-drift, "resolved" means **the repo's own test suite passes against Code-Fix's PR branch** - gradable immediately, independent of whether the PR is ever merged/redeployed (human-gated).
+- **Restarting the service is part of the control API**, and reachable two ways: directly, for a demo, and through the deployment platform's own resource-action shape, which is how Argus reaches it. Both land on the same code, because a mitigation that behaved differently depending on who asked for it would be a fixture grading itself.
 - The UI's start/force-stop button is a thin wrapper over this same control API - useful for demos (e.g. forcing escalation to show live), never a second source of truth.
 
 ### 15.3 The scenario types, end to end
@@ -648,8 +687,9 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
 | Feature flag | flag set to bad value | flag reverted to good value | toggle it back, confirm recovery |
 | Bad deploy | deploy-record at bad commit | deploy-record points at previous commit | roll back via `argus-write-mcp` revert+push, confirm recovery |
 | Bug / config drift | buggy commit checked out, a test fails against it | repo's test suite passes against Code-Fix's PR branch | open PR, human merges (out of Argus's autonomy) |
-| No evidence | nothing correlated | never, automatically | exhaust reversible options, escalate |
-| Upstream dependency failure | simulated downstream failure, no controllable cause | never, automatically | exhaust reversible options, escalate |
+| Resource leak | the deployed service retains per-request state; staging says when the climb began | never by a flag, and never by the telemetry going quiet - only the repo's test suite passing against Code-Fix's PR branch | restart the service to reclaim the heap, confirm memory fell and the process changed, then propose the fix - mitigated, not resolved |
+| No evidence | nothing correlated | never, automatically | exhaust the mitigations it may take, escalate |
+| Upstream dependency failure | simulated downstream failure, no controllable cause | never, automatically | exhaust the mitigations it may take, escalate |
 | Multiple causes | two of the above seeded together | all seeded conditions reverted | mitigate/fix each without false-attributing to only one |
 
 ## 16. Retrieval Windowing Strategy
@@ -668,6 +708,10 @@ The window **ends at `T0`**. The onset is inferred from a noisy signal and can b
 
 **Onset means a departure that persisted.** A single minute above the threshold is not an incident: an incident is a state the service is in, so it is still there the minute after, where a lone departed measurement has by then already recovered. Anchoring on one points the whole investigation at a minute nothing happened in. So the onset is the first minute of a run that lasts, and a run still going when the window ends counts however short it is - an incident that began a minute ago has not failed to persist, it has yet to be given the chance.
 
+**Resources are reported on every minute of every incident, not only the ones about memory.** A field that appeared when it mattered would be read as a signal by its presence, and a baseline nobody can see is not a baseline. The limit travels beside the usage because the usage alone says nothing - 1.3GiB is a crisis in one container and a quiet afternoon in another - and the process start time travels with both because it is the only thing that distinguishes a heap that fell because the fault eased from one that fell because the process was replaced.
+
+**A fault that ramps is dated by two calm stretches, not one.** The quiet stretch above is found by value - the window's own lowest minutes - and a ramp that fills the window has no such stretch in it, because its lowest minutes are simply its earliest ones and they are already climbing. So the window's *opening* is taken as a second baseline, and the earlier of the two onsets wins. An onset landing within reach of that opening is reported as the window's first minute: it is a lower bound rather than a location, and saying so is what makes the walk widen its window instead of anchoring the investigation on a minute that is merely where the retrieval happened to begin.
+
 **The threshold is measured against the quiet stretch's own worst minutes**, not against its average one. The two agree on a continuous signal and disagree completely on a sampled one: an error rate measured over a few hundred requests a minute is quantised into steps, so most quiet minutes report the identical figure, the average deviation between them is zero, and a threshold built on it collapses onto the baseline - at which point every ordinary minute reads as the incident starting. Reading the spread off the top of the calm stretch instead keeps the rule relative, and keeps it honest about how much a quiet service actually moves.
 
 **The windows are the model's; the bounds are not.** A retrieval tool takes either end of its window, both, or neither, and what the model leaves out defaults: the log window to the configured lookback before the onset through to `T0`, the change window to the configured lookback ending at the onset. Naming only where to start says something real - read from here to wherever you would have stopped - so neither end is made mandatory to restate an anchor the model was already given.
@@ -675,7 +719,7 @@ The window **ends at `T0`**. The onset is inferred from a noisy signal and can b
 Two bounds hold whatever it asks for. A log window wider than the maximum span is **clamped at its start**, for the reason above, and the clamp is stated in the tool result: a model that asked for three hours, silently got one, and found nothing would read the absence of evidence as evidence of absence. And a window whose end precedes its start, or whose instants do not parse, comes back as a correctable failure rather than an empty result, since an empty result is a conclusion. The metrics window is not the model's at all - it is fixed at the configured maximum span, because narrowing the cheap signal would hide the very onset it exists to find, and it is small enough that there is no reason to be stingy. The risk is asymmetric - too wide wastes context, too narrow loses the evidence silently - so the lookbacks and the ceiling are tunable per benchmark scenario rather than hardcoded.
 
 **The three channels:**
-1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets (per-minute error rate, p50/p95 latency, volume). Cheap, small, called first: it locates the onset the other two anchor on.
+1. `get_metrics_summary(window)` - a Prometheus range query, pre-aggregated buckets. Each minute carries the rate signals - error rate, p50/p95 latency, request volume - and the resource ones: memory in use, the limit it is allowed, and when the serving process started. Cheap, small, called first: it locates the onset the other two anchor on.
 2. `get_change_events(service, window)` - the deploys and configuration changes recorded for the service, as structured rows.
 3. `get_log_lines(window, filters)` - raw lines from before the onset the summary located through to the alert.
 
@@ -889,13 +933,14 @@ The hardest and most important part of the project - build it early, not last.
 ### 21.1 Benchmark suite
 
 A library of scripted chaos scenarios injected into the Target Environment (§15.2), each with known ground truth:
-1. Feature flag toggled → error spike (single cause, reversible)
-2. Bad deployment → latency spike (single cause, reversible via rollback)
+1. Feature flag toggled → error spike (single cause, one flag to put back)
+2. Bad deployment → latency spike (single cause, mitigated by a rollback)
 3. Config drift (e.g. wrong env var) → needs a code/config fix, not just rollback
 4. Upstream dependency failure → not fixable by the agent; correct behavior is detect-and-escalate
 5. Two simultaneous causes → tests whether the agent avoids false attribution to only one
 6. Ambiguous alert, no clear cause in logs → tests escalation behavior
 7. A Slack expert posts a correcting hint mid-incident → tests whether the agent incorporates human input
+8. Memory leak → a heap that ramps rather than steps. The first scenario whose onset has to be dated in a trend instead of a break, the first whose correct mitigation puts nothing back, and the first that ends mitigated rather than resolved - so it is also the test of whether Argus knows the difference.
 
 ### 21.2 Metrics
 
@@ -905,6 +950,7 @@ A library of scripted chaos scenarios injected into the Target Environment (§15
 - **Wasted actions** (incorrect hypotheses tested before the correct one)
 - **Tokens spent** (per incident, counted from the replay log rather than estimated, and split by what was read from cache rather than sent)
 - **False positive rate** (mitigating something that wasn't the cause)
+- **Resolution honesty** (an incident whose symptoms a mitigation relieved is graded resolved only where the seeded condition is actually gone - telemetry going quiet is not the same claim, and a leak is quiet for as long as the new process takes to fill up again)
 - **Escalation precision/recall** (escalates exactly when it should?)
 - **PR fix quality** (does the patch make the injected-bug test pass?)
 - **Postmortem completeness** (timeline, root cause, what it cost, assumptions present)

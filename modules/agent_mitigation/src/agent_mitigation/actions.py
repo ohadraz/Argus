@@ -95,6 +95,7 @@ class UndoAttempt(BaseModel):
 
 def propose_action(hypothesis: Hypothesis,
                    flag_changes: Sequence[FlagChange],
+                   service: str,
                    strategies: Strategies = DEFAULT_STRATEGIES) -> Action | None:
     """The action that answers `hypothesis`, or `None` where none does
     (spec §7.3).
@@ -112,6 +113,13 @@ def propose_action(hypothesis: Hypothesis,
     that choosing an action cannot depend on a provider being reachable, and
     the Orchestrator can gate the choice before any I/O happens on its behalf.
 
+    `service` is the one the alert is about, and it is handed down rather than
+    read off the candidate. Only a strategy whose action is addressed to a
+    service uses it, but it arrives here because this is where the incident is
+    still in view: a strategy is registered against a cause and is handed
+    everything a cause can be answered with, rather than reaching back for the
+    parts it happens to need.
+
     `strategies` is a parameter so a caller can ask what a different set of
     them would propose. The default is the real registry rather than nothing,
     because proposing is policy: a caller that had to supply the policy in
@@ -125,4 +133,4 @@ def propose_action(hypothesis: Hypothesis,
     if strategy is None:
         return None
 
-    return strategy.propose(hypothesis, flag_changes)
+    return strategy.propose(hypothesis, flag_changes, service)

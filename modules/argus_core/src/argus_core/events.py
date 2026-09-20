@@ -208,7 +208,7 @@ class FlagChangesRetrieved(_Event):
 
 
 class ActionTaken(_Event):
-    """A reversible change Argus made to the service, for a candidate."""
+    """A change Argus made to the service, for a candidate."""
 
     kind: Literal["action-taken"] = "action-taken"
     hypothesis_id: UuidStr | None

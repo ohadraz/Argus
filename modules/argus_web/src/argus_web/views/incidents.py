@@ -149,12 +149,14 @@ def _an_attempt(taken_action: TakenAction) -> Attempt:
     an absence to hide - the same way the shop's console shows a minute still
     in progress.
 
-    Undone is the verdict a reversible action gets when the service did not
-    recover: the walk puts such an action back before returning it - see
-    `agent_mitigation` - so `REFUTED` is also the record that the change was
-    reverted. That is an inference from the walk's contract rather than
-    something the row states, and if the contract changes the fix is to record
-    the revert, not to read it off a different verdict.
+    Undone is the verdict an action gets when the service did not recover and
+    the action left something to put back: the walk puts such an action back
+    before returning it - see `agent_mitigation` - so `REFUTED` is also the
+    record that the change was reverted. An action that left nothing behind is
+    refuted with nothing undone, which is a cleaner ending and reads as one.
+    That is an inference from the walk's contract rather than something the row
+    states, and if the contract changes the fix is to record the revert, not to
+    read it off a different verdict.
 
     The outcome is shown as the page was handed it, which is the spelling the
     column holds even where no verdict spells it. A row an older version wrote

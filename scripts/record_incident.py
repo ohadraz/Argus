@@ -56,6 +56,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
+    RECORDED_RESOURCE_LEAK,
     THE_SERVICE_NAME,
     stored_as,
 )
@@ -118,6 +119,11 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "HighErrorRate",
         the_flag_provider_forgot_every_change
     ),
+    # The one incident a mitigation relieves without ending. Its alert is
+    # memory rather than errors, because memory is the signal that moves first
+    # on a leak - and a walk recorded against an error-rate alert would be
+    # answering a question this scenario never asks.
+    _Recording(RECORDED_RESOURCE_LEAK, "resource-leak", "HighMemoryUsage"),
     _Recording(RECORDED_ABSENCE_OF_EVIDENCE, None, "HighErrorRate")
 )
 
@@ -168,12 +174,22 @@ def _replay_from(name: str) -> None:
     answer on its own - what the *graph* did with that answer - and being able
     to ask it repeatedly, without paying for a fresh verdict each time, is the
     difference between reading a timeline and guessing at one.
+
+    Every answer is seeded, once each and in the order they were given, exactly
+    as the e2e suite seeds one. A recording is a walk rather than a reply: the
+    single-seed spelling this used to have - one name, repeating forever - kept
+    handing the walk its opening move whatever it had just asked, and the
+    investigation spent its whole tool budget re-reading the same two channels
+    before escalating for want of evidence. That reads as a walk that went
+    wrong, which is precisely the thing this is used to rule out.
     """
     with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
         control.post("/double-control/reset").raise_for_status()
-        control.post(
-            "/double-control/seed", json={"recording": name, "repeat": None}
-        ).raise_for_status()
+        for answered_once in _the_set_named(name):
+            control.post(
+                "/double-control/seed",
+                json={"recording": answered_once.stem, "repeat": 1}
+            ).raise_for_status()
 
 
 def _the_timeline_of(incident_id: str) -> list[str]:
@@ -210,7 +226,7 @@ def _what_it_said(payload: dict[str, object]) -> str:
     """
     said = [f"{field}={payload[field]}"
             for field in ("to_status", "refusal", "outcome", "summary", "flag",
-                          "agent", "channel", "detail")
+                          "agent", "channel", "minute", "recovered", "detail")
             if payload.get(field) is not None]
 
     return " ".join(said) or "-"
