@@ -273,7 +273,7 @@ def _a_restorer_that_puts_back(revision: bool = True,
                                automated_sync: bool = True) -> MagicMock:
     restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
     restore.return_value = ConfigurationRestored(
-        revision=revision, automated_sync=automated_sync
+        revision_put_back=revision, automated_sync_put_back=automated_sync
     )
 
     return restore

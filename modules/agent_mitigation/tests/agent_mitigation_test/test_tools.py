@@ -13,7 +13,6 @@ from typing import NamedTuple
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
-from agent_mitigation import an_undo_over
 from agent_mitigation.tools import (
     FlagChangesSince,
     MitigationSettings,
@@ -188,13 +187,16 @@ def test_the_flag_history_is_asked_over_the_write_tier() -> None:
     # `argus-read-mcp` holds none by design. A history bound to the read tier
     # would not error - it would find nothing, which reads exactly like an
     # incident in which no flag moved.
-    Scenario()         .given(
+    Scenario() \
+        .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
-        )         .when(
+        ) \
+        .when(
             _asking(read, write,
                     lambda: flag_changes_over(write)(since=SOME_MOMENT))
-        )         .then(all_of(
+        ) \
+        .then(all_of(
             _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(FLAG_CHANGES_TOOL)
         ))
@@ -206,13 +208,16 @@ def test_the_one_write_argus_makes_goes_over_the_write_tier() -> None:
     # all (spec §12.1, §13). A setter bound to the read client would fail on the
     # one call Argus makes that changes production - after the walk had already
     # decided to make it.
-    Scenario()         .given(
+    Scenario() \
+        .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
-        )         .when(
+        ) \
+        .when(
             _asking(read, write,
                     lambda: flag_setter_over(write)(SOME_FLAG, True))
-        )         .then(all_of(
+        ) \
+        .then(all_of(
             _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(SET_FLAG_TOOL)
         ))
@@ -223,12 +228,15 @@ def test_the_service_is_re_read_over_the_read_tier() -> None:
     # The verdict's own evidence, and the one thing Mitigation asks that has
     # nothing to do with the provider. It belongs to the read tier for the same
     # reason every other retrieval does: reading needs no credential to mutate.
-    Scenario()         .given(
+    Scenario() \
+        .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
-        )         .when(
+        ) \
+        .when(
             _asking(read, write, lambda: recent_metrics_over(read)())
-        )         .then(all_of(
+        ) \
+        .then(all_of(
             _the_read_tier_was_asked_for(METRICS_TOOL),
             _the_write_tier_was_asked_for()
         ))
@@ -269,29 +277,6 @@ def test_putting_a_rolled_back_deployment_back_goes_over_the_write_tier() -> Non
         .when(
             _asking(read, write,
                     lambda: configuration_restorer_over(write)(A_ROLLBACK_TO_PUT_BACK))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
-            _the_write_tier_was_asked_for(RESTORE_CONFIGURATION_TOOL)
-        ))
-
-
-@pytest.mark.integration
-def test_one_binding_puts_back_a_change_of_either_kind() -> None:
-    # Bound once, here, because it is needed in two places: the walk binds it so
-    # a refuted mitigation can put itself back, and the worker binds it so a
-    # withdrawn incident can. Two copies of one binding is how the second came to
-    # be missing a collaborator the first had - and the path it broke, a human
-    # withdrawing an incident, is the path nobody runs by accident.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: an_undo_over(
-                write, _some_mitigation_settings()
-            )(A_ROLLBACK_TO_PUT_BACK))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),

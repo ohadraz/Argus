@@ -102,6 +102,8 @@ class ConfigurationRestorer(Protocol):
 
     def __call__(self,
                  descriptor: ConfigRollbackUndo, /) -> ConfigurationRestored: ...
+
+
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
 # Whether the walk waiting on an action is still one anybody wants. Takes
@@ -150,7 +152,7 @@ def recent_metrics_over(client: McpClient) -> MetricsFetcher:
 
 
 def flag_setter_over(client: McpClient) -> FlagSetter:
-    """One of the two writes Argus makes, over one connection to the write
+    """The first of the writes Argus makes, over one connection to the write
     tier."""
     return partial(set_flag, client=client)
 

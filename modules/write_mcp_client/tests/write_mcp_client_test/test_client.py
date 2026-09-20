@@ -498,12 +498,12 @@ def both_halves_were_put_back() -> Assertion[ConfigurationRestored]:
     the quiet one, and a caller has to be able to say which is still changed.
     """
     def assertion(restored: ConfigurationRestored) -> bool:
-        if not (restored.revision and restored.automated_sync):
+        if not (restored.revision_put_back and restored.automated_sync_put_back):
             raise AssertionError(
                 f"Expected both the revision and the sync policy to be put "
-                f"back, and the tier reported revision="
-                f"[{restored.revision}] automated_sync="
-                f"[{restored.automated_sync}]."
+                f"back, and the tier reported revision_put_back="
+                f"[{restored.revision_put_back}] automated_sync_put_back="
+                f"[{restored.automated_sync_put_back}]."
             )
 
         return True

@@ -214,12 +214,12 @@ def _perform(action: Action,
              roll_back: ConfigurationRoller) -> Performed:
     """Does the one thing this action is, and says what it did.
 
-    The only place the two kinds part company. Each branch names its own write
-    and phrases its own account of it, because the two are one decision: the
-    words a verdict quotes have to describe the call that was actually made.
+    The only place the kinds part company. Each branch names its own write and
+    phrases its own account of it, because the two are one decision: the words
+    a verdict quotes have to describe the call that was actually made.
 
-    `assert_never` on the remaining branch, so that a third kind of action is a
-    type error here rather than an action performed by falling through to
+    `assert_never` on the remaining branch, so that a further kind of action is
+    a type error here rather than an action performed by falling through to
     whichever branch happened to be last.
     """
     match action:

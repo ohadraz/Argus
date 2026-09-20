@@ -387,12 +387,13 @@ def _the_descriptor_records_sync_was(syncing: bool) -> Assertion[ConfigRollbackU
 def _it_reports_restored(revision: bool,
                          automated_sync: bool) -> Assertion[ConfigurationRestored]:
     def assertion(restored: ConfigurationRestored) -> bool:
-        if (restored.revision, restored.automated_sync) != (revision, automated_sync):
+        if (restored.revision_put_back,
+                restored.automated_sync_put_back) != (revision, automated_sync):
             raise AssertionError(
                 f"Expected a restore reporting revision={revision} "
                 f"automated_sync={automated_sync}, and it reported "
-                f"revision={restored.revision} "
-                f"automated_sync={restored.automated_sync}."
+                f"revision={restored.revision_put_back} "
+                f"automated_sync={restored.automated_sync_put_back}."
             )
 
         return True

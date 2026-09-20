@@ -92,7 +92,7 @@ def _put_a_deployment_back(undo_descriptor: ConfigRollbackUndo,
             ),
         )
 
-    if restored.revision and restored.automated_sync:
+    if restored.revision_put_back and restored.automated_sync_put_back:
         return UndoAttempt(
             subject=application,
             outcome=Undone.RESTORED,
@@ -105,8 +105,8 @@ def _put_a_deployment_back(undo_descriptor: ConfigRollbackUndo,
 
     still_changed = ", ".join(
         what for what, put_back in (
-            ("the revision it was running", restored.revision),
-            ("automated sync", restored.automated_sync)
+            ("the revision it was running", restored.revision_put_back),
+            ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )
 

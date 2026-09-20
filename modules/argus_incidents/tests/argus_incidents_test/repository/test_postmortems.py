@@ -101,9 +101,11 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
     with connect_from_env() as conn:
         incident_id = _an_incident_created_in(conn)
 
-        Scenario()             .when(
+        Scenario() \
+            .when(
                 lambda: postmortems.record(conn, incident_id, a_complete_document)
-            )             .then(
+            ) \
+            .then(
                 no_column_is_empty(conn, "postmortem", "incident_id", incident_id)
             )
 

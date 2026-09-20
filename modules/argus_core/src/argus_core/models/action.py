@@ -243,10 +243,16 @@ class ConfigurationRestored(BaseModel):
     performs the restore answers with it and the agent that asked names it, so
     a copy kept inside either one is a copy the other has to install an agent
     to read.
+
+    Both fields are named for what they claim rather than for what they are
+    about. A `bool` called `automated_sync` beside a descriptor's
+    `was_syncing_itself` reads as a second opinion on the same state, and the
+    two say different things: one is how Argus found the platform, and this is
+    whether Argus managed to leave it that way.
     """
 
-    revision: bool
-    automated_sync: bool
+    revision_put_back: bool
+    automated_sync_put_back: bool
 
 
 # The kinds of action that leave a change behind somebody could put back. A

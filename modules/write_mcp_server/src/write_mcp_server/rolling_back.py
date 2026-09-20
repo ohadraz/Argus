@@ -161,11 +161,13 @@ def restore_configuration(descriptor: ConfigRollbackUndo,
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
-        return ConfigurationRestored(revision=revision, automated_sync=True)
+        return ConfigurationRestored(
+            revision_put_back=revision, automated_sync_put_back=True
+        )
 
     return ConfigurationRestored(
-        revision=revision,
-        automated_sync=_tried(
+        revision_put_back=revision,
+        automated_sync_put_back=_tried(
             lambda: _start_reconciling(descriptor.application, settings, put)
         )
     )

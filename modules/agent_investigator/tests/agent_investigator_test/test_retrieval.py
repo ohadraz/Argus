@@ -226,12 +226,15 @@ def test_the_metrics_channel_is_asked_over_the_read_tier() -> None:
     # built, and is invisible everywhere else: a channel bound to the wrong
     # client answers in the right shape from the wrong server. These three say
     # which session each one reaches, which nothing downstream can.
-    Scenario()         .given(
+    Scenario() \
+        .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
-        )         .when(
+        ) \
+        .when(
             _asking(read, write, lambda: metrics_over(read)(SOME_ALERT_TIME))
-        )         .then(all_of(
+        ) \
+        .then(all_of(
             _the_read_tier_was_asked_for(METRICS_TOOL),
             _the_write_tier_was_asked_for()
         ))
@@ -239,13 +242,16 @@ def test_the_metrics_channel_is_asked_over_the_read_tier() -> None:
 
 @pytest.mark.integration
 def test_the_log_channel_is_asked_over_the_read_tier() -> None:
-    Scenario()         .given(
+    Scenario() \
+        .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
-        )         .when(
+        ) \
+        .when(
             _asking(read, write,
                     lambda: logs_over(read)(SOME_WINDOW_START, SOME_WINDOW_END))
-        )         .then(all_of(
+        ) \
+        .then(all_of(
             _the_read_tier_was_asked_for(LOGS_TOOL),
             _the_write_tier_was_asked_for()
         ))
@@ -258,14 +264,17 @@ def test_the_change_channel_asks_each_tier_for_the_history_it_keeps() -> None:
     # provider serves its audit log to admin credentials alone, and a change
     # channel that asked the read tier for it would simply find nothing - which
     # reads exactly like an incident where no flag moved.
-    Scenario()         .given(
+    Scenario() \
+        .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
-        )         .when(
+        ) \
+        .when(
             _asking(read, write, lambda: changes_over(read, write)(
                 A_SERVICE, SOME_WINDOW_START, SOME_WINDOW_END
             ))
-        )         .then(all_of(
+        ) \
+        .then(all_of(
             _the_read_tier_was_asked_for(CHANGE_EVENTS_TOOL),
             _the_write_tier_was_asked_for(FLAG_CHANGES_TOOL)
         ))
