@@ -85,6 +85,24 @@ the tier split.
 - **WHEN** the flag-change tool is called
 - **THEN** it reports a failure rather than reporting that nothing changed
 
+### Requirement: The write server can restart a service
+The write-tier server SHALL expose a tool that restarts a named service, shaped
+like the deployment platform's own restart action - a resource action that
+stamps a restart annotation on the workload's pod template, which is how Argo CD
+and `kubectl rollout restart` both express it - rather than as an endpoint
+invented here. The read-tier server SHALL hold no such tool and no credential
+that could authorize one.
+
+#### Scenario: A restart is available on the write tier alone
+- **WHEN** the two servers' tool lists are read
+- **THEN** the restart tool appears on the write server and not on the read
+  server
+
+#### Scenario: A restart names the service it acted on
+- **WHEN** the restart tool is called for a service
+- **THEN** it reports the service restarted and the instant the new process
+  began, so the caller can confirm the restart landed rather than assume it
+
 ### Requirement: Each write tool is a typed function on a client package
 The system SHALL expose every write tool as a typed function in a
 `write_mcp_client` package installed into the agents that call it, rather than
@@ -97,16 +115,25 @@ mistyped tool name or argument is a static type error.
 - **THEN** the call succeeds and the flag is reverted
 
 ### Requirement: Every state-changing action carries an undo descriptor
-The write server's state-changing tools SHALL return, with their result, a
-descriptor recording the state that existed before the action, sufficient to
-restore it. The descriptor SHALL name the prior state rather than the call that
-would reverse it.
+The write tier SHALL return, with every action that changed persistent state, a
+descriptor sufficient to put that state back - what was changed, and what it
+held before. An action that changed no persistent state SHALL return no
+descriptor, and SHALL say so explicitly rather than returning an empty one.
 
-#### Scenario: Changing a flag records what it was
-- **GIVEN** a flag about to be set to a new state
-- **WHEN** the tool is called for it
-- **THEN** the result carries a descriptor naming that flag, its environment, and
-  the state it held before the call
+The descriptor is how a mitigation is unwound when its hypothesis is refuted or
+its incident withdrawn. It is not what decides whether an action may be taken:
+that is membership of the declared set of generic mitigations, and an action
+with nothing to put back is admitted on the same terms as one with an undo.
+
+#### Scenario: A flag change comes back with what it was
+- **WHEN** a flag's state is set through the write tier
+- **THEN** the result carries a descriptor naming the flag and the state it
+  held before the call
+
+#### Scenario: A restart comes back with nothing to put back
+- **WHEN** a service is restarted through the write tier
+- **THEN** the result carries no undo descriptor, and states that the action
+  changed nothing that can be restored
 
 ### Requirement: A patch is written to a branch and never to the base
 The system SHALL create a branch from the base branch's head and SHALL write
