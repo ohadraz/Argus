@@ -222,7 +222,7 @@ _E2E_REPLAY_IN_PRODUCTION_MODE: Final[str] = "e2e_replay(mode='both')"
 # before a push, and a push runs `both`. The other two modes are the nightly's,
 # where three stacks in sequence cost an hour nobody is waiting through.
 _SWEEP = ["lint", "typecheck", "guard_layering", "guard_e2e_boundary",
-          "guard_module_docstrings", "test_all", "integration",
+          "guard_module_docstrings", "guard_exports", "test_all", "integration",
           _E2E_REPLAY_IN_PRODUCTION_MODE]
 
 # How often a sweep looks at its children. Long enough that watching is free,
@@ -410,6 +410,25 @@ def guard_written_columns(session: nox.Session) -> None:
     rebuilds the hole it was written to close.
     """
     session.run("uv", "run", "python", "scripts/guard_written_columns.py", external=True)
+
+@nox.session
+def guard_exports(session: nox.Session) -> None:
+    """
+    Registers `guard_exports` as a nox session, i.e., runnable via
+    `uv run python -m nox -s guard_exports`.
+    Fails if a package's `__all__` offers a name nothing outside that package
+    imports or names in an annotation. A door wider than anyone walks through
+    is a door nobody can read: every spare name is a promise somebody may be
+    keeping, and the surface a caller actually has becomes unfindable inside
+    the list that declares it.
+
+    Annotations count, which is the whole care of it. A type alias or a
+    parameter's type is part of the surface by being nameable rather than by
+    being called, and a sweep that looked for calls once reported nine names of
+    which five were right as they were. A name kept for a caller who has not
+    arrived is kept in the script's own list, with the reason beside it.
+    """
+    session.run("uv", "run", "python", "scripts/guard_exports.py", external=True)
 
 @nox.session
 def contract(session: nox.Session) -> None:

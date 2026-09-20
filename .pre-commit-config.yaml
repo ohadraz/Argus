@@ -31,6 +31,12 @@ repos:
         language: system
         pass_filenames: false  # no filenames - it always scans every .py in the repo.
 
+      - id: guard-exports
+        name: package exports (via nox)
+        entry: uv run python -m nox -s guard_exports  # fails if a package's __all__ offers a name nothing outside it uses
+        language: system
+        pass_filenames: false  # no filenames - an export's callers can be anywhere, so it reads the whole repo.
+
       - id: guard-written-columns
         name: written columns (via nox)
         entry: uv run python -m nox -s guard_written_columns  # fails if a column the schema declares is set by no INSERT, UPDATE or DEFAULT

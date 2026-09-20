@@ -33,7 +33,6 @@ from argus_core.config import (
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
 from argus_core.timestamps import (
-    TIMESTAMP_FORMAT,
     parse_iso,
     to_iso,
     to_iso_minute,
@@ -41,7 +40,6 @@ from argus_core.timestamps import (
 )
 
 __all__ = [
-    "TIMESTAMP_FORMAT",
     "Connections",
     "DatabaseSettings",
     "LLMSettings",

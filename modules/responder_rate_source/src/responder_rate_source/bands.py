@@ -11,7 +11,7 @@ adapter is the only thing that ever knows which vendor it was.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from decimal import Decimal
 
 from argus_core import SettingsSlice
@@ -74,8 +74,3 @@ class PayBand(BaseModel):
 # because the sources publish their whole structure at once and the caller
 # prices several titles from one read.
 type PayBandsByTitle = Mapping[str, PayBand]
-
-# How the bands are read. Named as a type so the postmortem can hold one
-# without importing an adapter, and so a caller can be handed a reading that
-# came from somewhere else entirely.
-type ReadPayBands = Callable[[], PayBandsByTitle]

@@ -14,12 +14,10 @@ plugs the relay into the event log. `watching` is the process that runs it.
 from agent_communicator.delivering import a_slack_delivery
 from agent_communicator.following import events_since, place_for
 from agent_communicator.policy import Register, how_it_is_said
-from agent_communicator.relaying import SLACK_RELAY, Backlog, Delivery, Place, relay_once
+from agent_communicator.relaying import Backlog, Delivery, Place, relay_once
 from agent_communicator.slack import a_slack_client, post_message
-from agent_communicator.watching import watch_forever
 
 __all__ = [
-    "SLACK_RELAY",
     "Backlog",
     "Delivery",
     "Place",
@@ -30,6 +28,5 @@ __all__ = [
     "how_it_is_said",
     "place_for",
     "post_message",
-    "relay_once",
-    "watch_forever"
+    "relay_once"
 ]

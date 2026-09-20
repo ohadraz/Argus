@@ -20,7 +20,6 @@ from responder_rate_source.bands import (
     PayBand,
     PayBandsByTitle,
     PayBandsUnavailable,
-    ReadPayBands,
     ResponderRateSettings,
 )
 
@@ -28,7 +27,6 @@ __all__ = [
     "PayBand",
     "PayBandsByTitle",
     "PayBandsUnavailable",
-    "ReadPayBands",
     "ResponderRateSettings",
     "pay_bands",
 ]

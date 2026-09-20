@@ -31,7 +31,6 @@ from agent_mitigation.actions import (
     Undone,
     Verdict,
     propose_action,
-    state_name,
 )
 from agent_mitigation.admitting import (
     GENERIC_MITIGATIONS,
@@ -40,7 +39,6 @@ from agent_mitigation.admitting import (
 )
 from agent_mitigation.mitigating import mitigate
 from agent_mitigation.strategies import (
-    DEFAULT_STRATEGIES,
     MitigationStrategy,
     RestartServiceStrategy,
     Strategies,
@@ -63,7 +61,6 @@ from agent_mitigation.trying import UndoChange, take_action
 from agent_mitigation.undoing import undo_change
 
 __all__ = [
-    "DEFAULT_STRATEGIES",
     "GENERIC_MITIGATIONS",
     "REVERT_FEATURE_FLAG",
     "Action",
@@ -93,7 +90,6 @@ __all__ = [
     "service_restarter_over",
     "propose_action",
     "somebody_else_changed_flag_since",
-    "state_name",
     "take_action",
     "undo_change",
 ]

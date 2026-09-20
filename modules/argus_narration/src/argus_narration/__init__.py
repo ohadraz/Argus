@@ -27,7 +27,6 @@ from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_narration.narrating import (
     CandidateLine,
     NarrationLine,
-    a_candidate_line,
     a_narration_line,
     build_narration,
 )
@@ -41,7 +40,6 @@ __all__ = [
     "LogLine",
     "NarrationLine",
     "a_bucket_row",
-    "a_candidate_line",
     "a_finding",
     "a_flag_history",
     "a_log_line",
