@@ -31,6 +31,7 @@ from argus_testkit import Assertion, Kept, Scenario, all_of
 from agent_postmortem_test.framework.builders import (
     ENDED_AT,
     ONSET,
+    RECOVERED_AT,
     SOME_CURRENCY,
     SOME_OTHER_CURRENCY,
     SOME_UNPRICED_CURRENCY,
@@ -44,6 +45,7 @@ from agent_postmortem_test.framework.builders import (
     metrics_recording_the_window_into,
     metrics_showing_error_rates,
     metrics_that_answer_with_nothing,
+    metrics_that_recovered,
     rates_published,
     rates_that_cannot_be_read,
     revenue_that_was,
@@ -356,6 +358,80 @@ def test_the_rise_is_measured_against_the_calm_minutes_before_the_incident() -> 
 
 
 @pytest.mark.unit
+def test_every_figure_is_measured_to_the_minute_the_service_came_back() -> None:
+    # The defect. Argus held this incident for thirty minutes and the service
+    # was broken for ten of them: the mitigation landed, the metrics
+    # recovered, and the verification wait, the code-fix attempt and the
+    # write-up all ran afterwards. Measured to the close, the rise averages
+    # twenty healthy minutes in with ten broken ones and reads as almost
+    # nothing - or, on a quieter baseline, as less than nothing.
+    #
+    # Recovery is read off the series and nothing else. Not the moment the
+    # action was applied, and not the verdict that confirmed it: those say
+    # when Argus acted, and a service does not recover because somebody acted
+    # on it.
+    some_baseline_error_rate = 0.02
+    some_error_rate_while_broken = 0.30
+    ten_of_the_thirty_minutes = 10 / 60
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(
+                evidence,
+                some_sources(metrics=metrics_that_recovered(
+                    baseline=some_baseline_error_rate,
+                    during=some_error_rate_while_broken)))
+        ) \
+        .then(all_of(
+            _it_recovered_at(RECOVERED_AT),
+            _ran_for(ten_of_the_thirty_minutes),
+            _the_rise_was(some_error_rate_while_broken - some_baseline_error_rate)
+        ))
+
+
+@pytest.mark.unit
+def test_an_incident_still_broken_when_the_metrics_run_out_reports_no_recovery() -> None:
+    # Not a recovery at the last minute read, which is what falling back to
+    # the close amounts to. The read still has to end somewhere - a window
+    # cannot be unbounded - so it ends at the close and the absent recovery is
+    # the mark saying so. Every figure measured over it is then a lower bound,
+    # and whatever renders them has to say which it is holding.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(_it_never_recovered())
+
+
+@pytest.mark.unit
+def test_how_long_argus_held_the_incident_is_measured_apart_from_the_fault() -> None:
+    # Two clocks, and the whole defect was one field trying to be both. This
+    # one starts at the alert rather than at the onset - the minutes before
+    # anybody was told belong to the fault, not to the responder - and it is
+    # the only figure on the page measuring Argus rather than the incident,
+    # which is why it is kept and why it never stands in for the duration.
+    twenty_of_the_thirty_minutes = 20 / 60
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(all_of(
+            _the_time_to_close_was(twenty_of_the_thirty_minutes),
+            _ran_for(10 / 60)
+        ))
+
+
+@pytest.mark.unit
 def test_the_metrics_window_spans_the_whole_incident() -> None:
     # The Investigator stops reading the moment it has a cause, so what it
     # stored ends somewhere in the middle: the recovery between the mitigation
@@ -582,10 +658,12 @@ def _left_out(expected: str) -> Assertion[Measurements]:
 
 def _the_rise_was(expected: float) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
-        if measured.error_rate_delta is None or not isclose(measured.error_rate_delta,
-                                                            expected):
+        rates = measured.error_rates
+
+        if rates is None or not isclose(rates.rise, expected):
             raise AssertionError(
-                f"Expected a rise of [{expected}], got [{measured.error_rate_delta}]")
+                f"Expected a rise of [{expected}], got "
+                f"[{rates.rise if rates else None}]")
 
         return True
 
@@ -594,10 +672,65 @@ def _the_rise_was(expected: float) -> Assertion[Measurements]:
 
 def _the_rise_is_unknown() -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
-        if measured.error_rate_delta is not None:
+        if measured.error_rates is not None:
             raise AssertionError(
                 f"Expected no rise where the metrics could not be read, got "
-                f"[{measured.error_rate_delta}].")
+                f"[{measured.error_rates}].")
+
+        return True
+
+    return assertion
+
+
+def _it_recovered_at(expected: datetime) -> Assertion[Measurements]:
+    """That the incident was measured as ending at this instant.
+
+    Read off the metrics, so it is a fact about the service. A test asserting
+    it against the moment the walk closed the incident would be asserting a
+    fact about Argus, which is the substitution all of this exists to undo.
+    """
+    def assertion(measured: Measurements) -> bool:
+        if measured.recovered_at != expected:
+            raise AssertionError(
+                f"Expected recovery at [{expected}], got "
+                f"[{measured.recovered_at}].")
+
+        return True
+
+    return assertion
+
+
+def _it_never_recovered() -> Assertion[Measurements]:
+    """That the metrics ran out with the service still broken.
+
+    Which makes every figure measured over the window a lower bound. Asserted
+    on its own rather than folded into the duration, because a bound and a
+    measurement can carry the same number and mean different things.
+    """
+    def assertion(measured: Measurements) -> bool:
+        if measured.recovered_at is not None:
+            raise AssertionError(
+                f"Expected the window to end still broken, and recovery was "
+                f"measured at [{measured.recovered_at}].")
+
+        return True
+
+    return assertion
+
+
+def _the_time_to_close_was(expected: float) -> Assertion[Measurements]:
+    """That the response clock reads this, whatever the fault's clock reads.
+
+    The one figure measuring Argus rather than the incident, and the reason
+    it is kept: the responder is what is under evaluation here. It is asserted
+    separately from the duration for the same reason it is reported
+    separately - one field answering both questions is where this began.
+    """
+    def assertion(measured: Measurements) -> bool:
+        if not isclose(measured.time_to_close_in_hours, expected):
+            raise AssertionError(
+                f"Expected a time to close of [{expected}] hours, got "
+                f"[{measured.time_to_close_in_hours}].")
 
         return True
 

@@ -232,7 +232,7 @@ def against(connections: Connections,
     # Built once rather than per postmortem: which provider answers which
     # question is a fact about the deployment, and the only thing that differs
     # between two incidents is which incident is being written up.
-    sources = the_real_sources(settings, connections, read)
+    sources = the_real_sources(settings, connections, read, thresholds)
 
     return Collaborators(
         # Bound here because this is where a deployment's configuration meets

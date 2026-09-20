@@ -19,6 +19,7 @@ from typing import Any, Final
 from argus_core.models import Ask, ToolDefinition, ToolResult, ToolResults, Transcript, Turn
 from pydantic import BaseModel, field_validator
 
+from agent_postmortem.estimate import ErrorRates
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
 
@@ -158,10 +159,13 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         "Write the postmortem for the incident below.",
         "",
         f"Alert: {evidence.alert_summary}",
-        f"Started: {evidence.started_at.isoformat()}",
-        f"Ended: {evidence.ended_at.isoformat()} "
-        f"({measured.duration_in_hours:.2f} hours)",
-        _rise_in_errors(measured.error_rate_delta),
+        f"Alert raised: {evidence.started_at.isoformat()}",
+        *_how_long_it_was_broken(evidence, measured),
+        f"Argus held the incident for {measured.time_to_close_in_hours:.2f} "
+        f"hours, until {evidence.ended_at.isoformat()}. That is a measure of "
+        f"the response, not of the fault - do not report it as how long the "
+        f"service was broken.",
+        *_what_the_error_rate_did(measured.error_rates),
         "",
         "What Argus did, in order:",
         *(f"  - {line}" for line in evidence.timeline),
@@ -225,8 +229,68 @@ def rejecting(asked: Transcript, submitted: Turn, faults: list[str]) -> Transcri
     ]
 
 
-def _rise_in_errors(delta: float | None) -> str:
-    if delta is None:
-        return "Error rate: not known - metrics for the incident could not be read."
+def _how_long_it_was_broken(evidence: IncidentEvidence,
+                            measured: Measurements) -> list[str]:
+    """When the service broke, when it came back, and how long that was.
 
-    return f"Error rate: {delta:.1%} of traffic failed that otherwise would not have."
+    Both endpoints, and the figure between them. A duration printed beside one
+    of its ends invites the subtraction and loses it: the alert is not the
+    onset, they differ by however long the rule took to trip, and a reader
+    taking the difference between the alert and the recovery gets a number
+    Argus did not report. A stated endpoint that disagrees with a stated value
+    is the same defect this whole measurement was corrected for, one field
+    further on.
+
+    The start is the onset where one was measured, and the alert where none
+    was - said either way, because a stretch dated from the alert is dated
+    from the wrong end and a reader has to be able to see that it was.
+
+    Separately, whether the figure is a measurement or a floor. A duration
+    ending at a recovery the metrics showed and one cut short by the metrics
+    running out are different facts, and printed alike the second reads as the
+    first.
+    """
+    began = measured.onset_at or evidence.started_at
+    dated_from = (
+        "the onset" if measured.onset_at is not None
+        else "the alert, since no onset could be measured"
+    )
+
+    if measured.recovered_at is None:
+        return [
+            f"Broken from {began.isoformat()} ({dated_from}). The service had "
+            f"not recovered by the last minute of metrics read, so it was "
+            f"broken for at least {measured.duration_in_hours:.2f} hours - a "
+            f"lower bound, not a measurement, and every impact figure below "
+            f"is bounded the same way."
+        ]
+
+    return [
+        f"Broken from {began.isoformat()} ({dated_from}) to "
+        f"{measured.recovered_at.isoformat()}, when the metrics show it "
+        f"recovered.",
+        f"That is {measured.duration_in_hours:.2f} hours, and every impact "
+        f"figure below is measured over that stretch."
+    ]
+
+
+def _what_the_error_rate_did(rates: ErrorRates | None) -> list[str]:
+    """The error rate at every level worth reporting, each named for itself.
+
+    One line per question. The rise answers attribution - how much of the
+    traffic failed that would not have failed anyway - and the levels answer
+    severity, which is what a reader means by "how bad was it". A single
+    figure labelled as the error rate was being asked both: handed one, a
+    model said in its own assumptions that the number was unusable and went to
+    the per-minute logs for the severity it actually needed.
+    """
+    if rates is None:
+        return ["Error rate: not known - metrics for the incident could not be read."]
+
+    return [
+        f"Error rate before it began: {rates.baseline:.1%}.",
+        f"Error rate while it was broken: {rates.while_broken:.1%}, "
+        f"peaking at {rates.at_its_worst:.1%}.",
+        f"Rise above baseline: {rates.rise:.1%} of traffic failed that "
+        f"otherwise would not have."
+    ]

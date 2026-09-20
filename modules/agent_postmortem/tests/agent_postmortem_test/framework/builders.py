@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import Any
 
 from agent_postmortem import IncidentEvidence, write_postmortem
+from agent_postmortem.estimate import ErrorRates
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
@@ -39,6 +40,7 @@ from agent_postmortem.sources import (
     Revenue,
     Sources,
 )
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import LLMClient
 from argus_core.models import (
     MetricBucket,
@@ -59,6 +61,30 @@ ONSET = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 STARTED_AT = ONSET + timedelta(minutes=10)
 ENDED_AT = ONSET + timedelta(minutes=30)
 
+# When the service came back, which is not when the walk closed the incident.
+# Twenty minutes of the half hour Argus held this one were healthy: the
+# mitigation landed, the metrics recovered, and the verification wait, the
+# code-fix attempt and the write-up all ran afterwards. Measuring across them
+# is what made a rise in errors come back negative.
+RECOVERED_AT = ONSET + timedelta(minutes=10)
+
+# The two clocks, kept apart on purpose. The first is how long the service was
+# broken and is what every impact figure is measured over; the second is how
+# long Argus held the incident, and measures the responder rather than the
+# fault.
+DONT_CARE_TIME_TO_CLOSE = 0.5
+
+# Where these cases draw the algorithm's lines - the same numbers the
+# environment carries by default, stated here because a builder reading them
+# from the configuration the code reads would agree with itself whatever
+# either said.
+SOME_THRESHOLDS = AnomalyThresholds(
+    deviations_from_baseline=3.0,
+    persistence_minutes=2,
+    recovery_fraction_of_the_rise=0.8
+)
+
+
 DONT_CARE_INCIDENT_ID = "e1e1e1e1-0000-4000-8000-000000000001"
 DONT_CARE_TOKENS_SPENT = 1_000
 DONT_CARE_HOURLY_REVENUE = 4_800
@@ -70,7 +96,12 @@ DONT_CARE_RATE_DATE = date(2026, 9, 2)
 DONT_CARE_BASELINE_ERROR_RATE = 0.02
 DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT = 0.30
 
-DONT_CARE_DURATION_IN_HOURS = 0.5
+# Derived from the two instants rather than stated beside them. Written as its
+# own number this said half an hour while the same builder's onset and
+# recovery were ten minutes apart - a duration disagreeing with its own
+# endpoints, which is the defect these measurements were corrected for, put
+# back in the fixture that tests the correction.
+DONT_CARE_DURATION_IN_HOURS = (RECOVERED_AT - ONSET) / timedelta(hours=1)
 DONT_CARE_BASELINE_REVENUE = Decimal("4800")
 DONT_CARE_LOSS = Decimal("500")
 
@@ -127,7 +158,9 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
 
 
 def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
-                        error_rate_delta: float | None = None,
+                        recovered_at: datetime | None = RECOVERED_AT,
+                        time_to_close_in_hours: float = DONT_CARE_TIME_TO_CLOSE,
+                        error_rates: ErrorRates | None = None,
                         loss: Decimal | None = DONT_CARE_LOSS,
                         baseline_revenue: Decimal | None = DONT_CARE_BASELINE_REVENUE,
                         takings: Mapping[str, Decimal] | None = DONT_CARE_TAKINGS,
@@ -153,7 +186,9 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
     """
     return Measurements(
         duration_in_hours=duration_in_hours,
-        error_rate_delta=error_rate_delta,
+        recovered_at=recovered_at,
+        time_to_close_in_hours=time_to_close_in_hours,
+        error_rates=error_rates,
         loss=loss if baseline_revenue is not None else None,
         currency=rates.base if rates is not None else None,
         baseline_revenue=baseline_revenue,
@@ -172,6 +207,7 @@ def some_sources(revenue: Revenue | None = None,
                  engagement: Engagement | None = None,
                  bands: PayBands | None = None,
                  metrics: Metrics | None = None,
+                 thresholds: AnomalyThresholds = SOME_THRESHOLDS,
                  working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
                  reporting_currency: str = SOME_CURRENCY) -> Sources:
     """Everything the postmortem reads, with each source answering plainly.
@@ -193,6 +229,7 @@ def some_sources(revenue: Revenue | None = None,
                        responders=DONT_CARE_RESPONDERS),
         bands=bands if bands is not None else a_band_source_pricing_nobody(),
         metrics=metrics if metrics is not None else metrics_showing_a_rise(),
+        thresholds=thresholds,
         working_hours_a_year=working_hours_a_year,
         reporting_currency=reporting_currency
     )
@@ -387,6 +424,35 @@ def metrics_showing_error_rates(baseline: float, during: float) -> Metrics:
             a_bucket(at=ONSET - timedelta(minutes=1), error_rate=baseline),
             a_bucket(at=ONSET + timedelta(minutes=5), error_rate=during),
             a_bucket(at=ENDED_AT - timedelta(minutes=1), error_rate=during)
+        ]
+
+    return metrics_between
+
+
+def metrics_that_recovered(
+        baseline: float = DONT_CARE_BASELINE_ERROR_RATE,
+        during: float = DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT) -> Metrics:
+    """A window the service broke in and came back from, minute by minute.
+
+    Every minute, rather than the three `metrics_showing_error_rates` fixes,
+    because recovery is a run of minutes and not a value: the detector asks
+    whether the level fell away and *stayed* away, and a window of three
+    cannot answer that.
+
+    The healthy tail is the point. It is twenty of the thirty minutes Argus
+    held this incident, and measuring across it is what made a rise in errors
+    come back negative - so a figure that counts it and a figure that stops at
+    `RECOVERED_AT` are visibly different numbers.
+    """
+    def metrics_between(dont_care_start: datetime,
+                        dont_care_end: datetime) -> list[MetricBucket]:
+        return [
+            *(a_bucket(at=ONSET + timedelta(minutes=minute), error_rate=baseline)
+              for minute in range(-10, 0)),
+            *(a_bucket(at=ONSET + timedelta(minutes=minute), error_rate=during)
+              for minute in range(0, 10)),
+            *(a_bucket(at=ONSET + timedelta(minutes=minute), error_rate=baseline)
+              for minute in range(10, 31))
         ]
 
     return metrics_between

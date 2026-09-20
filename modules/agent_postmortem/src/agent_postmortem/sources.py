@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.models import MetricBucket
 from pydantic import BaseModel
 
@@ -166,5 +167,13 @@ class Sources:
     engagement: Engagement
     bands: PayBands
     metrics: Metrics
+    # Where the algorithm draws its lines, on the same terms as
+    # `working_hours_a_year` below: a number rather than a port, read from the
+    # deployment at the same moment as the source it is applied to. It decides
+    # which minute the service recovered at, and every window this module
+    # measures is bounded by that - so thresholds configured apart from the
+    # metrics source would be a recovery found under one set of lines and a
+    # mitigation confirmed under another.
+    thresholds: AnomalyThresholds
     working_hours_a_year: float
     reporting_currency: str

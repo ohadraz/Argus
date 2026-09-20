@@ -7,6 +7,7 @@ from argus_core.anomaly import (
     AnomalyThresholds,
     earliest_bucket_is_anomalous,
     find_onset,
+    find_recovery,
     has_recovered_since,
 )
 from argus_core.models.metrics import MetricBucket
@@ -564,6 +565,84 @@ def test_find_onset_ignores_an_earlier_departure_the_service_recovered_from() ->
         )
 
 
+@pytest.mark.unit
+def test_find_recovery_reports_the_minute_the_incident_fell_away_and_stayed_away() -> None:
+    # The moment every measured window has to end at. Recovery is a fact about
+    # the service; when the walk closed the incident is a fact about Argus, and
+    # a figure bounded by the second describes neither.
+    some_steady_rate = 0.01
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_steady_rate * 9, some_steady_rate * 18, some_steady_rate * 18]
+        + [some_steady_rate] * 4
+    )
+
+    first_calm_minute_after_it = some_window[CALM_MINUTES + 3]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
+
+
+@pytest.mark.unit
+def test_a_window_still_at_the_incidents_level_when_it_ends_never_recovered() -> None:
+    # Not a recovery at the last minute read, which is what dating it from the
+    # end of the window would amount to. The service was still broken when the
+    # metrics ran out, and every figure measured over this window is a lower
+    # bound that has to say so.
+    some_steady_rate = 0.01
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_steady_rate * 9, some_steady_rate * 18, some_steady_rate * 18]
+    )
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_it_never_recovered())
+
+
+@pytest.mark.unit
+def test_a_window_with_no_incident_in_it_has_no_recovery_to_report() -> None:
+    # Every minute here is below the incident's level, and the first of them
+    # is not a recovery - there was nothing to recover from. A rule reading
+    # this window as recovered at its opening would date the end of an
+    # incident before its beginning.
+    some_steady_rate = 0.01
+    some_window = a_window_of([some_steady_rate] * (CALM_MINUTES + 3))
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_it_never_recovered())
+
+
+@pytest.mark.unit
+def test_a_single_minute_falling_back_mid_incident_is_not_the_recovery() -> None:
+    # The persistence rule `find_onset` anchors on, applied at the other end.
+    # An incident is a state the service stays in, so one minute dipping below
+    # the incident's level and climbing straight back is noise - and dating
+    # recovery there would end the incident in the middle of it, with the
+    # worst minutes counted as aftermath.
+    some_steady_rate = 0.01
+    a_minute_that_dipped = some_steady_rate * 3
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_steady_rate * 18, some_steady_rate * 18,
+           a_minute_that_dipped,
+           some_steady_rate * 18, some_steady_rate * 18]
+        + [some_steady_rate] * 4
+    )
+
+    first_calm_minute_after_it = some_window[CALM_MINUTES + 5]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
+
+
 def _the_minute_after(bucket_id: str) -> str:
     return to_iso_minute(parse_iso(bucket_id) + timedelta(minutes=1))
 
@@ -608,6 +687,39 @@ def a_window_of(error_rates: list[float],
             zip(error_rates, latencies, memory, strict=True)
         )
     ]
+
+
+def _the_recovery_is(expected: str) -> Assertion[str | None]:
+    """That the incident was measured as ending at this minute."""
+    def the_recovery_is(recovery: str | None) -> bool:
+        if recovery != expected:
+            raise AssertionError(
+                f"Expected recovery at [{expected}], and it was [{recovery}]."
+            )
+
+        return True
+
+    return the_recovery_is
+
+
+def _it_never_recovered() -> Assertion[str | None]:
+    """That no minute in the window reads as the incident ending.
+
+    Separate from `_the_recovery_is`, for the reason `_no_onset_was_found` is
+    separate: "it was still broken when the window ran out" is an answer, and
+    a measurement bounded by it is a lower bound rather than a figure. A page
+    that printed the two the same way is the defect this rule exists to end.
+    """
+    def it_never_recovered(recovery: str | None) -> bool:
+        if recovery is not None:
+            raise AssertionError(
+                f"Expected the window to end still broken, and recovery was "
+                f"reported at [{recovery}]."
+            )
+
+        return True
+
+    return it_never_recovered
 
 
 def _the_onset_is(expected: str) -> Assertion[str | None]:

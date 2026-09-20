@@ -248,7 +248,76 @@ def has_recovered_since(buckets: Sequence[MetricBucket],
     if not since_moment:
         return False
 
-    return not _departs_for_long_enough_to_be_the_incident(since_moment, thresholds)
+    return _stays_clear_of_the_incident(since_moment, thresholds)
+
+
+def find_recovery(buckets: Sequence[MetricBucket],
+                  thresholds: AnomalyThresholds) -> str | None:
+    """The `bucket_id` of the minute the incident ended, or `None` when the
+    window ends with the service still in it (spec §16).
+
+    The other end of `find_onset`, and the moment every measurement of an
+    incident has to be bounded by. A window bounded instead by when the walk
+    closed the incident is bounded by a fact about Argus: the walk stays open
+    through the verification wait, the code-fix attempt and the write-up, so
+    the minutes after the mitigation landed are healthy ones, and an average
+    taken across them describes a service that was mostly fine. That is how a
+    rise in errors came to be reported as *negative*.
+
+    Recovery is read off the metrics and nowhere else - not from the moment an
+    action was applied, and not from the verdict that confirmed it. Those say
+    when Argus acted, and a service does not recover because somebody acted on
+    it; taking them for this would put the same defect back at the other
+    boundary.
+
+    The same rule Mitigation asks, so the two cannot come to disagree about one
+    window: a minute counts as the incident while it is still up at the
+    incident's own level - `_minutes_still_at_the_incidents_level`, the
+    hysteresis bar that sits above the departure bar - and the incident is over
+    at the first minute that falls below it and stays below it for as long as
+    an onset has to persist. A single minute dipping and climbing back is not
+    the end of an incident, for the reason a single minute departing is not the
+    start of one.
+
+    `None` where no minute was ever at the incident's level, because a window
+    with no incident in it has no recovery to report and dating one at its
+    opening would end an incident before it began. `None` too where the window
+    runs out with the service still broken - which is an answer, not a missing
+    one: every figure measured over such a window is a lower bound, and the
+    caller has to say so rather than quietly bounding it at the last minute
+    read.
+    """
+    still_the_incident = _minutes_still_at_the_incidents_level(buckets, thresholds)
+
+    if not any(still_the_incident):
+        return None
+
+    began = still_the_incident.index(True)
+
+    for index in range(began + 1, len(still_the_incident)):
+        if still_the_incident[index]:
+            continue
+
+        if _stays_clear_of_the_incident(still_the_incident[index:], thresholds):
+            return buckets[index].bucket_id
+
+    return None
+
+
+def _stays_clear_of_the_incident(still_the_incident: Sequence[bool],
+                                 thresholds: AnomalyThresholds) -> bool:
+    """Whether these minutes are the incident being over rather than pausing.
+
+    The one sentence both questions about recovery are asked through -
+    Mitigation's "has it recovered since I acted" and the postmortem's "which
+    minute did it recover at". Stated once and called twice, because two
+    spellings of it would eventually disagree about some window, and the
+    postmortem would then date recovery at a minute Mitigation had refused to
+    confirm a mitigation on.
+    """
+    return not _departs_for_long_enough_to_be_the_incident(
+        still_the_incident, thresholds
+    )
 
 
 def _minutes_still_at_the_incidents_level(
@@ -268,6 +337,9 @@ def _minutes_still_at_the_incidents_level(
     with the heap already climbing again behind it - and would judge a leak
     recovered on the strength of the metric that reacts to it last.
     """
+    if not buckets:
+        return []
+
     error_rates = [bucket.error_rate for bucket in buckets]
     latencies = [float(bucket.p95_ms) for bucket in buckets]
     memory = [float(bucket.memory_used_bytes) for bucket in buckets]

@@ -30,6 +30,7 @@ import psycopg
 import pytest
 from agent_postmortem import IncidentEvidence, Sources
 from argus_core import connect_from_env, new_id, parse_iso
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
     AlertAcknowledged,
     FixAttempted,
@@ -63,6 +64,16 @@ from orchestrator.gathering import gather_evidence, write_postmortem_for
 # publishes a cost, and the arithmetic that would use it is the agent's own
 # suite's business.
 DONT_CARE_WORKING_YEAR = 1800.0
+
+# Where the detector draws its lines. Unread by these cases - the metrics
+# source answers with nothing - but `Sources` has no default for them, and
+# deliberately: thresholds a caller left unwired would be a recovery measured
+# against numbers no deployment configured.
+DONT_CARE_THRESHOLDS = AnomalyThresholds(
+    deviations_from_baseline=3.0,
+    persistence_minutes=2,
+    recovery_fraction_of_the_rise=0.8
+)
 
 
 @pytest.mark.component
@@ -371,6 +382,7 @@ def _sources_recording_into(
         engagement=lambda dont_care_incident_id: None,
         bands=lambda: None,
         metrics=lambda dont_care_start, dont_care_end: [],
+        thresholds=DONT_CARE_THRESHOLDS,
         working_hours_a_year=DONT_CARE_WORKING_YEAR,
         reporting_currency="USD"
     )

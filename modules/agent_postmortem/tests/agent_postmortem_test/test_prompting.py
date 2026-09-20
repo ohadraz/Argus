@@ -19,6 +19,7 @@ only shape left, and the one this file exists to keep distinct from the other.
 from __future__ import annotations
 
 import pytest
+from agent_postmortem.estimate import ErrorRates
 from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
@@ -35,6 +36,8 @@ from argus_core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (
+    ONSET,
+    RECOVERED_AT,
     a_measured_incident,
     a_submission_of,
     an_answer,
@@ -95,19 +98,50 @@ def test_the_model_is_told_how_long_the_incident_ran() -> None:
 def test_the_model_is_told_how_far_the_errors_rose() -> None:
     # Stated as a share of traffic, which is what the measurement is. A model
     # given a bare number writes prose about a bare number.
-    some_rise = 0.28
+    some_baseline = 0.02
+    some_rate_while_broken = 0.30
 
     Scenario() \
         .given(
             an_incident_whose_errors_rose := a_measured_incident(
-                error_rate_delta=some_rise)
+                error_rates=ErrorRates(baseline=some_baseline,
+                                       while_broken=some_rate_while_broken,
+                                       at_its_worst=0.34))
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_rose)
         ) \
         .then(
-            _says(f"{some_rise:.1%}")
+            _says(f"{some_rate_while_broken - some_baseline:.1%}")
         )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_levels_as_well_as_the_rise() -> None:
+    # Two questions, two numbers. Severity is what the levels answer and
+    # attribution is what the rise answers, and a model handed one figure
+    # labelled as the error rate went to the per-minute logs for the other -
+    # correctly, because the page could not tell it what it was asking for.
+    some_baseline = 0.02
+    some_rate_while_broken = 0.31
+    the_worst_minute = 0.34
+
+    Scenario() \
+        .given(
+            an_incident_measured_at_every_level := a_measured_incident(
+                error_rates=ErrorRates(baseline=some_baseline,
+                                       while_broken=some_rate_while_broken,
+                                       at_its_worst=the_worst_minute))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(),
+                                an_incident_measured_at_every_level)
+        ) \
+        .then(all_of(
+            _says(f"{some_baseline:.1%}"),
+            _says(f"{some_rate_while_broken:.1%}"),
+            _says(f"{the_worst_minute:.1%}")
+        ))
 
 
 @pytest.mark.unit
@@ -119,7 +153,7 @@ def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() ->
     Scenario() \
         .given(
             an_incident_whose_metrics_could_not_be_read := a_measured_incident(
-                error_rate_delta=None)
+                error_rates=None)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(),
@@ -128,6 +162,65 @@ def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() ->
         .then(
             _says("not known")
         )
+
+
+@pytest.mark.unit
+def test_an_incident_that_never_recovered_is_given_as_a_lower_bound() -> None:
+    # A duration cut short by the metrics running out and a duration measured
+    # to a recovery carry the same kind of number and mean different things.
+    # Said alike, the model reports a figure nobody measured - which is the
+    # unmarked substitution this whole change exists to end.
+    Scenario() \
+        .given(
+            an_incident_still_broken := a_measured_incident(recovered_at=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
+        ) \
+        .then(all_of(
+            _says("had not recovered"),
+            _says("at least")
+        ))
+
+
+@pytest.mark.unit
+def test_the_broken_stretch_is_printed_between_both_of_its_endpoints() -> None:
+    # A duration printed beside one of its ends invites the subtraction and
+    # loses it. The alert is not the onset - they differ by however long the
+    # rule took to trip - so a reader taking the difference between the alert
+    # and the recovery gets a number Argus never reported. A stated endpoint
+    # disagreeing with a stated value is the defect these measurements were
+    # corrected for, one field further on.
+    Scenario() \
+        .given(
+            an_incident_that_recovered := a_measured_incident(
+                onset_at=ONSET, recovered_at=RECOVERED_AT)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_that_recovered)
+        ) \
+        .then(all_of(
+            _says(ONSET.isoformat()),
+            _says(RECOVERED_AT.isoformat()),
+            _says("the onset")
+        ))
+
+
+@pytest.mark.unit
+def test_a_stretch_dated_from_the_alert_says_that_is_where_it_was_dated_from() -> None:
+    # No onset was measured, so the stretch begins at the alert - which is the
+    # wrong end, late by however long the rule took to trip. Printed without
+    # saying so it is indistinguishable from a measured onset, and the reader
+    # would take a short outage for a fact rather than for the artefact of a
+    # missing measurement.
+    Scenario() \
+        .given(
+            an_incident_with_no_onset := a_measured_incident(onset_at=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_with_no_onset)
+        ) \
+        .then(_says("no onset could be measured"))
 
 
 @pytest.mark.unit

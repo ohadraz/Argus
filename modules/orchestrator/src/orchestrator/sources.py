@@ -36,6 +36,7 @@ from agent_postmortem import (
     Sources,
 )
 from argus_core import Connections, Settings, to_iso
+from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient
 from argus_core.models import MetricBucket
 from argus_incidents.repository import exchange_rates
@@ -59,7 +60,8 @@ from orchestrator.rates import todays_rates
 
 def the_real_sources(settings: Settings,
                      connections: Connections,
-                     read: McpClient) -> Sources:
+                     read: McpClient,
+                     thresholds: AnomalyThresholds) -> Sources:
     """Every port answered by the provider this deployment is configured for.
 
     The configuration is sliced once, here, and each source is handed only its
@@ -82,8 +84,15 @@ def the_real_sources(settings: Settings,
     being written. Holding a connection open across the whole document for the
     sake of one question would keep it out of the pool for the length of a
     model call.
+
+    `thresholds` is handed in rather than sliced out, unlike everything else
+    here, and for the reason the rest are sliced: there must be exactly one of
+    them. The same value went to the Investigator and to Mitigation, and the
+    postmortem dating recovery on lines of its own is how it would come to
+    report a recovery at a minute Mitigation had refused to confirm on.
     """
     return Sources(
+        thresholds=thresholds,
         revenue=partial(_the_services_takings,
                         settings=RevenueSettings.of(settings)),
         rates=partial(_todays_rates,

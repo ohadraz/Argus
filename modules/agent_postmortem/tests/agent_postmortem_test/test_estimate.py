@@ -16,7 +16,7 @@ from decimal import Decimal
 from math import isclose
 
 import pytest
-from agent_postmortem.estimate import error_rate_delta, loss_between
+from agent_postmortem.estimate import ErrorRates, error_rates_over, loss_between
 from argus_core.models import MetricBucket
 from argus_testkit import Assertion, Scenario
 
@@ -27,52 +27,140 @@ DONT_CARE_ERROR_RATE = 0.5
 
 
 @pytest.mark.unit
-def test_the_rise_in_errors_is_measured_against_the_calm_minutes_before_it() -> None:
-    # Not the raw rate during the incident. A service that always fails two
+def test_the_rise_is_measured_against_the_calm_minutes_before_it() -> None:
+    # Not the raw rate while it was broken. A service that always fails two
     # requests in a hundred did not start doing so because of this incident,
     # and charging those to it overstates every estimate by the same amount.
     some_baseline_error_rate = 0.02
-    some_error_rate_during_the_incident = 0.30
-    some_incident_start = INCIDENT_START
-    some_incident_end = INCIDENT_END
+    some_error_rate_while_broken = 0.30
+    some_recovery = INCIDENT_END
     some_time_before_the_incident = timedelta(minutes=2)
     some_time_into_the_incident = timedelta(minutes=5)
 
     Scenario() \
         .given(
             buckets := [
-                _a_bucket(at=some_incident_start - some_time_before_the_incident,
+                _a_bucket(at=INCIDENT_START - some_time_before_the_incident,
                           error_rate=some_baseline_error_rate),
-                _a_bucket(at=some_incident_start + some_time_into_the_incident,
-                          error_rate=some_error_rate_during_the_incident)
+                _a_bucket(at=INCIDENT_START + some_time_into_the_incident,
+                          error_rate=some_error_rate_while_broken)
             ]
         ) \
         .when(
-            lambda: error_rate_delta(buckets, some_incident_start, some_incident_end)
+            lambda: error_rates_over(buckets, INCIDENT_START, some_recovery)
         ) \
         .then(
-            _is_a_rise_of(some_error_rate_during_the_incident - some_baseline_error_rate)
+            _is_a_rise_of(some_error_rate_while_broken - some_baseline_error_rate)
         )
 
 
 @pytest.mark.unit
-def test_a_window_with_no_calm_minutes_measures_no_rise_at_all() -> None:
-    # A delta against nothing is not a small delta - there is no baseline to
-    # say what "normal" was, and answering zero would report an incident that
-    # cost nothing rather than a question nobody could answer.
-    some_time_after_the_incident = timedelta(minutes=5)
-    some_incident_start = INCIDENT_START
-    some_incident_end = INCIDENT_END
+def test_the_levels_are_measured_beside_the_rise() -> None:
+    # Two questions, two numbers. The model reached past the rise for the
+    # per-minute figures because severity is what it was being asked, and the
+    # rise cannot answer that - a service that idles at 30% and one that idles
+    # at nothing can rise by the same amount and be in very different trouble.
+    some_baseline_error_rate = 0.02
+    a_bad_minute = 0.30
+    the_worst_minute = 0.34
+    some_recovery = INCIDENT_END
 
     Scenario() \
         .given(
             buckets := [
-                _a_bucket(at=some_incident_start + some_time_after_the_incident,
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          error_rate=some_baseline_error_rate),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          error_rate=a_bad_minute),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6),
+                          error_rate=the_worst_minute)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, some_recovery)
+        ) \
+        .then(
+            _the_levels_are(baseline=some_baseline_error_rate,
+                            while_broken=(a_bad_minute + the_worst_minute) / 2,
+                            at_its_worst=the_worst_minute)
+        )
+
+
+@pytest.mark.unit
+def test_minutes_after_the_service_recovered_are_not_counted() -> None:
+    # The defect this whole change is about. The window used to run to the
+    # moment the walk closed the incident, which is minutes or hours of
+    # healthy traffic after the mitigation landed - and averaging those in
+    # drags the figure towards the baseline until the rise reads as nothing,
+    # or as less than nothing.
+    some_baseline_error_rate = 0.02
+    some_error_rate_while_broken = 0.32
+    a_healthy_minute_after_it = 0.01
+    the_minute_it_recovered = INCIDENT_START + timedelta(minutes=6)
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          error_rate=some_baseline_error_rate),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          error_rate=some_error_rate_while_broken),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=20),
+                          error_rate=a_healthy_minute_after_it)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, the_minute_it_recovered)
+        ) \
+        .then(
+            _is_a_rise_of(some_error_rate_while_broken - some_baseline_error_rate)
+        )
+
+
+@pytest.mark.unit
+def test_a_calm_stretch_noisier_than_the_broken_one_reports_a_negative_rise() -> None:
+    # Deliberately not clamped. Once the window is bounded by the signal
+    # rather than by the workflow, a negative rise is no longer an artefact of
+    # counting healthy minutes - it says the hour before the incident was
+    # worse than the incident, which is a defect report about the baseline or
+    # the onset and is worth seeing rather than rounding away.
+    a_noisy_calm_hour = 0.40
+    a_milder_broken_stretch = 0.05
+    some_recovery = INCIDENT_END
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          error_rate=a_noisy_calm_hour),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          error_rate=a_milder_broken_stretch)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, some_recovery)
+        ) \
+        .then(
+            _is_a_rise_of(a_milder_broken_stretch - a_noisy_calm_hour)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_with_no_calm_minutes_measures_nothing_at_all() -> None:
+    # A delta against nothing is not a small delta - there is no baseline to
+    # say what "normal" was, and answering zero would report an incident that
+    # cost nothing rather than a question nobody could answer.
+    some_time_after_the_incident = timedelta(minutes=5)
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START + some_time_after_the_incident,
                           error_rate=DONT_CARE_ERROR_RATE)
             ]
         ) \
         .when(
-            lambda: error_rate_delta(buckets, some_incident_start, some_incident_end)
+            lambda: error_rates_over(buckets, INCIDENT_START, INCIDENT_END)
         ) \
         .then(
             _nothing_could_be_measured()
@@ -80,22 +168,20 @@ def test_a_window_with_no_calm_minutes_measures_no_rise_at_all() -> None:
 
 
 @pytest.mark.unit
-def test_a_window_with_no_minutes_inside_the_incident_measures_no_rise_at_all() -> None:
+def test_a_window_with_no_minutes_inside_the_broken_stretch_measures_nothing() -> None:
     # The mirror case, and the one a too-narrow window produces: metrics that
     # stop before the incident starts describe a service that was fine.
-    some_incident_start = INCIDENT_START
-    some_incident_end = INCIDENT_END
     some_time_before_the_incident = timedelta(minutes=2)
 
     Scenario() \
         .given(
             buckets := [
-                _a_bucket(at=some_incident_start - some_time_before_the_incident,
+                _a_bucket(at=INCIDENT_START - some_time_before_the_incident,
                           error_rate=DONT_CARE_ERROR_RATE)
             ]
         ) \
         .when(
-            lambda: error_rate_delta(buckets, some_incident_start, some_incident_end)
+            lambda: error_rates_over(buckets, INCIDENT_START, INCIDENT_END)
         ) \
         .then(
             _nothing_could_be_measured()
@@ -174,20 +260,49 @@ def _a_bucket(at: datetime, error_rate: float) -> MetricBucket:
     )
 
 
-def _is_a_rise_of(expected: float) -> Assertion[float | None]:
-    def assertion(delta: float | None) -> bool:
-        if delta is None or not isclose(delta, expected):
-            raise AssertionError(f"expected a rise of [{expected}], got [{delta}]")
+def _is_a_rise_of(expected: float) -> Assertion[ErrorRates | None]:
+    def assertion(measured: ErrorRates | None) -> bool:
+        if measured is None or not isclose(measured.rise, expected):
+            raise AssertionError(
+                f"expected a rise of [{expected}], got "
+                f"[{measured.rise if measured else None}]"
+            )
         return True
 
     return assertion
 
 
-def _nothing_could_be_measured() -> Assertion[float | None]:
-    def assertion(delta: float | None) -> bool:
-        if delta is not None:
+def _the_levels_are(baseline: float,
+                    while_broken: float,
+                    at_its_worst: float) -> Assertion[ErrorRates | None]:
+    """That all three levels came back, not only the rise.
+
+    The rise answers attribution - how much of the traffic failed that would
+    not have failed anyway - and the levels answer severity. One number was
+    being asked both questions, and the labelling defect is what that looked
+    like from the outside.
+    """
+    def assertion(measured: ErrorRates | None) -> bool:
+        if measured is None:
+            raise AssertionError("expected three levels, nothing was measured")
+
+        got = (measured.baseline, measured.while_broken, measured.at_its_worst)
+        expected = (baseline, while_broken, at_its_worst)
+
+        if not all(isclose(one, other) for one, other in zip(got, expected, strict=True)):
+            raise AssertionError(f"expected levels {expected}, got {got}")
+
+        return True
+
+    return assertion
+
+
+def _nothing_could_be_measured() -> Assertion[ErrorRates | None]:
+    def assertion(measured: ErrorRates | None) -> bool:
+        if measured is not None:
             raise AssertionError(
-                f"expected no measurement where one side of it is missing, got [{delta}]")
+                f"expected no measurement where one side of it is missing, "
+                f"got [{measured}]")
         return True
 
     return assertion
