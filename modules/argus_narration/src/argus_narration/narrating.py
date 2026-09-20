@@ -365,21 +365,30 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = f"{emphasis} {_WHAT_BECAME_OF_IT[event.outcome]} - {event.detail}"
         case CandidatesReordered():
             who = _ARGUS
-            # The subject, because it is what moved and what a reader is
-            # looking for. The past incident is in the sentence rather than
-            # marked: it is where the reason lives, not what the line is about.
-            emphasis = event.subject
+            # The action, because what moved the candidate is that this action
+            # was taken before and did not help - and the subject alone leaves
+            # a reader unable to tell which experiment is being skipped. The
+            # past incident is in the sentence rather than marked: it is where
+            # the reason lives, not what the line is about.
+            emphasis = _what_the_action_does(event.action_type, event.subject)
             text = (
-                f"Moved {emphasis} down the list - it was changed on incident "
+                f"Moved {emphasis} down the list - it was tried on incident "
                 f"{event.on_the_strength_of} and the service did not recover"
             )
         case IncidentRemembered():
             who = _ARGUS
-            # The subjects, because they are the whole content of what was
-            # filed: a later incident reads this record to find out which
-            # things were changed here, and the description it was found by is
-            # a fact about searching rather than about the incident.
-            emphasis = ", ".join(event.subjects)
+            # The actions, because they are the whole content of what was
+            # filed: a later incident reads this record to find out what was
+            # done here, and the description it was found by is a fact about
+            # searching rather than about the incident.
+            #
+            # Said the way the reordering above says one, because the two
+            # lines are about the same thing a record away from each other -
+            # what this incident filed, and what a later one was spared.
+            emphasis = ", ".join(
+                _what_the_action_does(identity.action_type, identity.subject)
+                for identity in event.tried
+            )
             text = f"Filed what was tried on this incident: {emphasis}"
         case RememberingFailed():
             who = _ARGUS
@@ -620,6 +629,33 @@ def _an_action_said(action_type: ActionType) -> str:
             return "Reverted the feature flag"
         case "restart-service":
             return "Restarted"
+
+    assert_never(action_type)
+
+
+def _what_the_action_does(action_type: ActionType, subject: str) -> str:
+    """An action named as the thing it does, whenever it was done.
+
+    A gerund rather than the past tense `_an_action_said` opens with, and the
+    tense is the reason two lines share this. One is about an action Argus is
+    declining to take again, the other about actions it took and filed: past
+    tense would make the first say the restart happened on this incident, and
+    the gerund leaves both free to say when in their own words.
+
+    It also keeps them saying an action the same way. The line that demotes a
+    candidate and the line that files what was tried are the same fact a
+    record apart, and a reader matching them up should not have to read two
+    spellings.
+
+    Exhaustive on the tag, and with no fallback, for the reason that one is:
+    a kind nobody has written words for rendering as its own identifier reads
+    as a bug in the page and compiles perfectly.
+    """
+    match action_type:
+        case "revert-feature-flag":
+            return f"putting {subject} back"
+        case "restart-service":
+            return f"restarting {subject}"
 
     assert_never(action_type)
 

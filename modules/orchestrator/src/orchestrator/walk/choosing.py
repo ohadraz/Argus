@@ -8,10 +8,10 @@ from argus_core.models import (
     Attempt,
     IncidentStatus,
     the_direction_of,
-    the_subject_of,
+    the_identity_of,
 )
 
-from orchestrator.walk.candidates import the_next_worth_trying
+from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_do
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.routes import (
     FIXING_ROUTE,
@@ -47,8 +47,14 @@ def next_candidate_node(state: IncidentState,
     later from a timeline.
     """
     attempts = [*state.attempts, *_what_was_just_tried(state)]
+    # The same history the round was reasoned from, and the same question
+    # asked of it. What disqualifies a candidate is that the action answering
+    # it has already been taken, so the candidates have to be asked what they
+    # would be answered with before any of them can be skipped.
     next_up = the_next_worth_trying(
-        state.candidates, attempts, start=state.candidate_index + 1
+        what_each_would_do(state.candidates, state.flag_changes, state.alert.service),
+        attempts,
+        start=state.candidate_index + 1
     )
     next_index = next_up[0] if next_up is not None else len(state.candidates)
     next_candidate = next_up[1] if next_up is not None else None
@@ -122,8 +128,7 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
 
     return [
         Attempt(
-            action_type=action.action_type,
-            subject=the_subject_of(action),
+            identity=the_identity_of(action),
             enabled=the_direction_of(action),
             occurred_at=to_iso(utc_now())
         )

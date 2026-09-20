@@ -266,7 +266,7 @@ def _filed_one_record_for(filed: Kept[RememberedIncident],
 def _filed_a_record_naming(filed: Kept[RememberedIncident],
                            subject: str) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
-        subjects = [attempt.subject for attempt in filed.only().tried]
+        subjects = [attempt.identity.subject for attempt in filed.only().tried]
 
         if subject not in subjects:
             raise AssertionError(f"expected [{subject}] among {subjects}")

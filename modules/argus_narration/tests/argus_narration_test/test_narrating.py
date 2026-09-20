@@ -49,6 +49,9 @@ from argus_core.events import (
     VerdictReached,
 )
 from argus_core.models import (
+    RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
     Actor,
     Alert,
     ChangeEvent,
@@ -548,13 +551,15 @@ def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
 def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
     # A walk that tried its second-best candidate first, with nothing saying
     # why, is a walk a human reading the incident back cannot account for. The
-    # subject is the marked word because it is what moved; the past incident is
-    # in the sentence, because it is the reason rather than the subject.
+    # action is the marked phrase because taking it again is what the walk is
+    # being spared; the past incident is in the sentence, because it is the
+    # reason rather than the subject.
     the_flag_that_was_moved_down = "new-checkout-flow"
     the_incident_that_moved_it = "3f2b1a09-0000-4000-8000-00000000000a"
 
     what_memory_did = CandidatesReordered(
         incident_id=new_id(),
+        action_type=REVERT_FEATURE_FLAG,
         subject=the_flag_that_was_moved_down,
         on_the_strength_of=the_incident_that_moved_it
     )
@@ -562,31 +567,62 @@ def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
     Scenario() \
         .given(what_memory_did) \
         .when(lambda: build_narration([what_memory_did])) \
-        .then(all_of(_the_only_line_marks(the_flag_that_was_moved_down),
-                     _the_only_line_mentions(the_incident_that_moved_it),
-                     _the_lines_are_credited_to(["Argus"])))
+        .then(all_of(
+            _the_only_line_marks(f"putting {the_flag_that_was_moved_down} back"),
+            _the_only_line_mentions(the_incident_that_moved_it),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_names_a_restart_as_a_restart() -> None:
+    # Why the event carries a kind at all. Said as its subject alone the line
+    # read "moved io-shop down the list" whether io-shop was a service
+    # somebody restarted or a flag somebody put back - and those are not the
+    # same evidence about the candidate being moved. Said as a gerund, because
+    # the action is the one thing on this line that did not happen here.
+    the_service_that_was_moved_down = "io-shop"
+
+    what_memory_did = CandidatesReordered(
+        incident_id=new_id(),
+        action_type=RESTART_SERVICE,
+        subject=the_service_that_was_moved_down,
+        on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+    )
+
+    Scenario() \
+        .given(what_memory_did) \
+        .when(lambda: build_narration([what_memory_did])) \
+        .then(_the_only_line_marks(f"restarting {the_service_that_was_moved_down}"))
 
 
 @pytest.mark.unit
 def test_what_was_filed_about_this_incident_names_what_was_tried() -> None:
     # The last thing said about an incident, and the only line about a store
-    # nobody reads until the next incident. The subjects are the marked words
+    # nobody reads until the next incident. The actions are the marked words
     # because they are the whole content: what a later walk gets from this
-    # record is which things were changed and how each turned out.
+    # record is what was done here and how each one turned out.
     a_flag_that_did_not_help = "new-checkout-flow"
-    another_flag_that_did_not_help = "payments-fallback"
+    a_service_that_was_restarted = "io-shop"
 
     what_was_filed = IncidentRemembered(
         incident_id=new_id(),
-        subjects=[a_flag_that_did_not_help, another_flag_that_did_not_help]
+        tried=[
+            ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                           subject=a_flag_that_did_not_help),
+            ActionIdentity(action_type=RESTART_SERVICE,
+                           subject=a_service_that_was_restarted)
+        ]
     )
 
     Scenario() \
         .given(what_was_filed) \
         .when(lambda: build_narration([what_was_filed])) \
-        .then(all_of(_the_only_line_mentions(a_flag_that_did_not_help),
-                     _the_only_line_mentions(another_flag_that_did_not_help),
-                     _the_lines_are_credited_to(["Argus"])))
+        .then(all_of(
+            _the_only_line_marks(
+                f"putting {a_flag_that_did_not_help} back, "
+                f"restarting {a_service_that_was_restarted}"
+            ),
+            _the_lines_are_credited_to(["Argus"])))
 
 
 @pytest.mark.unit

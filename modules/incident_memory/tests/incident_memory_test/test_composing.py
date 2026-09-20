@@ -14,7 +14,7 @@ neither is an incident there is no point remembering.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import Verdict
+from argus_core.models import RESTART_SERVICE, ActionIdentity, Verdict
 from argus_testkit import Assertion, Scenario, all_of
 from incident_memory.composing import a_memory_of
 from incident_memory.records import RememberedIncident
@@ -144,6 +144,55 @@ def test_an_attempt_on_no_recorded_subject_is_dropped() -> None:
 
 
 @pytest.mark.unit
+def test_a_record_keeps_what_was_done_as_well_as_what_it_was_done_to() -> None:
+    # Half a key is a key that is sometimes right. A later walk asks what it
+    # would do about a candidate and matches the answer here, and a record
+    # saying only that io-shop was tried cannot tell it whether io-shop was a
+    # service somebody restarted or a flag somebody put back.
+    the_service_that_was_restarted = "io-shop"
+
+    Scenario() \
+        .given(an_alert()) \
+        .when(lambda: a_memory_of(
+            SOME_INCIDENT,
+            an_alert(),
+            [an_action(the_service_that_was_restarted,
+                       Verdict.REFUTED,
+                       action_type=RESTART_SERVICE)],
+            described_as=DONT_CARE_DESCRIPTION
+        )) \
+        .then(_it_remembers_doing(
+            ActionIdentity(action_type=RESTART_SERVICE,
+                           subject=the_service_that_was_restarted)
+        ))
+
+
+@pytest.mark.unit
+def test_an_attempt_of_a_kind_this_version_cannot_read_is_dropped() -> None:
+    # The kind is a column of text, so an incident old enough can hand back a
+    # kind some version since removed. The row is history and still has to come
+    # out of the table - but nothing later could match it, because matching it
+    # means proposing an action of a kind this Argus no longer has.
+    the_flag_that_was_named = "new-checkout-flow"
+    a_kind_nobody_has_any_more = an_action("io-shop", Verdict.REFUTED) \
+        .model_copy(update={"type": "adjust-the-thermostat"})
+
+    Scenario() \
+        .given(an_alert()) \
+        .when(lambda: a_memory_of(
+            SOME_INCIDENT,
+            an_alert(),
+            [an_action(the_flag_that_was_named, Verdict.REFUTED),
+             a_kind_nobody_has_any_more],
+            described_as=DONT_CARE_DESCRIPTION
+        )) \
+        .then(all_of(
+            _it_remembers_trying(the_flag_that_was_named),
+            _it_remembers_this_many_attempts(1)
+        ))
+
+
+@pytest.mark.unit
 def test_the_record_carries_what_the_search_narrows_by() -> None:
     # The description is what a later incident is compared against, and the
     # service and alert name are what a search narrows to before it compares
@@ -175,9 +224,21 @@ def _a_record(remembered: RememberedIncident | None) -> RememberedIncident:
     return remembered
 
 
+def _it_remembers_doing(expected: ActionIdentity) -> Assertion[RememberedIncident | None]:
+    def assertion(remembered: RememberedIncident | None) -> bool:
+        done = [attempt.identity for attempt in _a_record(remembered).tried]
+
+        if expected not in done:
+            raise AssertionError(f"expected [{expected}] among {done}")
+
+        return True
+
+    return assertion
+
+
 def _it_remembers_trying(subject: str) -> Assertion[RememberedIncident | None]:
     def assertion(remembered: RememberedIncident | None) -> bool:
-        subjects = [attempt.subject for attempt in _a_record(remembered).tried]
+        subjects = [attempt.identity.subject for attempt in _a_record(remembered).tried]
 
         if subject not in subjects:
             raise AssertionError(f"expected [{subject}] among {subjects}")

@@ -110,17 +110,14 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     investigate=collaborators.investigate,
                     recall_similar=collaborators.recall_similar,
                     record_hypothesis=collaborators.record_hypothesis,
+                    fetch_flag_changes=collaborators.fetch_flag_changes,
                     publisher=collaborators.publisher,
                     recorder=collaborators.recorder)
         )
     )
     graph.add_node(
         MITIGATION_PROPOSAL_NODE,
-        deciding_status(
-            partial(mitigation_proposal_node,
-                    fetch_flag_changes=collaborators.fetch_flag_changes,
-                    publisher=collaborators.publisher)
-        )
+        deciding_status(mitigation_proposal_node)
     )
     graph.add_node(
         TIER_GATE_NODE,

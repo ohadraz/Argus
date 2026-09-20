@@ -21,7 +21,12 @@ import pytest
 from argus_core import get_settings
 from argus_core.embedding import an_embedder
 from argus_core.events import CandidatesReordered
-from argus_core.models import IncidentStatus, Verdict
+from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
+    IncidentStatus,
+    Verdict,
+)
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from incident_memory.keeping import kept_in
@@ -144,7 +149,12 @@ def _that_flag_was_tried_before_and_did_not_help() -> Callable[[], bool]:
                     service=THE_SERVICE_NAME,
                     alert_name="HighErrorRate",
                     tried=[
-                        WhatWasTried(subject=THE_DEMO_FLAG, verdict=Verdict.REFUTED)
+                        WhatWasTried(
+                            identity=ActionIdentity(
+                                action_type=REVERT_FEATURE_FLAG, subject=THE_DEMO_FLAG
+                            ),
+                            verdict=Verdict.REFUTED
+                        )
                     ]
                 )
             )
@@ -213,7 +223,7 @@ def _it_was_remembered_as_having_tried(
                 f"found {[one.incident_id for one in found]}"
             )
 
-        tried = [(one.subject, one.verdict) for one in remembered[0].tried]
+        tried = [(one.identity.subject, one.verdict) for one in remembered[0].tried]
 
         if (subject, verdict) not in tried:
             raise AssertionError(

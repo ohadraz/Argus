@@ -31,6 +31,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     Action,
+    ActionIdentity,
     ActionType,
     Alert,
     Attempt,
@@ -366,9 +367,10 @@ def _an_attempt_to(action_type: ActionType, subject: str) -> Attempt:
     """
     dont_care_moment = "2026-08-20T11:05:00Z"
 
-    return Attempt(action_type=action_type,
-                   subject=subject,
-                   occurred_at=dont_care_moment)
+    return Attempt(
+        identity=ActionIdentity(action_type=action_type, subject=subject),
+        occurred_at=dont_care_moment
+    )
 
 
 def _a_kind_argus_may_take() -> ports.Admitted:

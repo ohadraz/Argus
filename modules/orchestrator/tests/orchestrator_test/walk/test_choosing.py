@@ -31,9 +31,11 @@ from argus_core.models import (
     Alert,
     Evidence,
     FailureMode,
+    FlagChange,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
+    RestartService,
     RevertFeatureFlag,
 )
 from argus_testkit import Assertion, Scenario, all_of
@@ -56,6 +58,7 @@ SOME_ROUND_BUDGET = 3
 SOME_FLAG = "monthly-spend-feature"
 ANOTHER_FLAG = "legacy-checkout-fallback"
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
+DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
 
 
 @pytest.mark.unit
@@ -255,6 +258,36 @@ def test_a_candidate_naming_no_cause_is_never_tried() -> None:
                      _no_candidate_was_taken_up()))
 
 
+@pytest.mark.unit
+def test_a_candidate_answered_by_a_restart_already_taken_is_skipped() -> None:
+    # The same guard, for the kind of action a candidate cannot name. A leak
+    # is worded freshly by every round, so two candidates that read nothing
+    # alike are one experiment - and the walk knows that only because it asks
+    # what each would be answered with.
+    #
+    # It is also the one case that pins where a restart is addressed. The
+    # service comes from the alert, not from the candidate: hand this node any
+    # other service and the identities stop matching, the second leak is taken
+    # up, and one service is restarted twice on one incident.
+    incident_id = a_random_id()
+    a_candidate_blaming_a_flag = _a_candidate_blaming(incident_id, ANOTHER_FLAG)
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_that_restarted_the_service(
+                incident_id,
+                [_a_leak_worded_as(incident_id, "resident set climbing"),
+                 _a_leak_worded_as(incident_id, "unbounded cache growth"),
+                 a_candidate_blaming_a_flag],
+                index=0
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _the_updates_carry("hypothesis", a_candidate_blaming_a_flag),
+            _the_updates_carry("candidate_index", 2)))
+
+
 def _every_round() -> int:
     return SOME_ROUND_BUDGET
 
@@ -281,6 +314,17 @@ def _a_walk_at(incident_id: str,
         candidate_index=index,
         hypothesis=candidates[index],
         rounds=rounds,
+        # The history the round read, holding every flag these candidates
+        # blame. A candidate blaming a flag the provider never recorded is
+        # answered by no action at all, and a case about which candidate comes
+        # next would quietly become a case about none of them being answerable.
+        flag_changes=[
+            FlagChange(flag=flag, enabled=True, occurred_at=DONT_CARE_MOMENT)
+            for flag in dict.fromkeys(
+                candidate.subject
+                for candidate in candidates if candidate.subject is not None
+            )
+        ],
         proposed_action=RevertFeatureFlag(
             flag=acted_on,
             enabled=False,
@@ -289,13 +333,45 @@ def _a_walk_at(incident_id: str,
     )
 
 
+def _a_walk_that_restarted_the_service(incident_id: str,
+                                       candidates: list[Hypothesis],
+                                       index: int) -> IncidentState:
+    """The same walk, after the action that puts nothing back.
+
+    A restart is addressed to the service the alert names, so that is what the
+    attempt this node is about to remember is addressed to - and it is the
+    only place these cases read the alert for anything.
+    """
+    return _a_walk_at(incident_id, candidates, index).model_copy(
+        update={"proposed_action": RestartService(service=DONT_CARE_ALERT.service)}
+    )
+
+
+def _a_leak_worded_as(incident_id: str, prose: str) -> Hypothesis:
+    """A leak, named the way a model actually names one.
+
+    Different prose at every call, which is the point: the subject is a
+    description of the symptom, and two rounds describing one leak agree about
+    nothing a comparison over candidates could use.
+    """
+    some_confidence = 0.75
+
+    return Hypothesis(incident_id=incident_id,
+                      summary="something is accumulating and never released",
+                      failure_mode=FailureMode.RESOURCE_LEAK,
+                      confidence=some_confidence,
+                      supporting_evidence=[Evidence(claim="some log line", at=None)],
+                      subject=prose)
+
+
 def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
     """An explanation that names the flag it blames.
 
     Built here rather than through the shared builder because the subject is
-    the whole point of these cases: what the walk refuses to try twice is a
-    *subject*, not a hypothesis object, and two candidates blaming the same flag
-    are different findings about the same thing.
+    the whole point of these cases: what the walk refuses to try twice is an
+    *action*, not a hypothesis object, and for a flag the action is addressed
+    to the name the candidate gives - so two candidates blaming the same flag
+    are different findings answered by one experiment.
     """
     some_confidence = 0.75
 
@@ -367,7 +443,7 @@ def _no_candidate_was_taken_up() -> Assertion[StateDelta]:
 
 def _the_attempts_recorded_are(expected: list[str]) -> Assertion[StateDelta]:
     def assertion(updates: StateDelta) -> bool:
-        recorded = [attempt.subject for attempt in updates.attempts or []]
+        recorded = [attempt.identity.subject for attempt in updates.attempts or []]
         if recorded != expected:
             raise AssertionError(
                 f"Expected the attempts to record {expected}, they record {recorded}."

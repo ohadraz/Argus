@@ -21,7 +21,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from argus_core.models import Action, Attempt, Hypothesis, IncidentStatus, Reading, Verdict
+from argus_core.models import (
+    Action,
+    Attempt,
+    FlagChange,
+    Hypothesis,
+    IncidentStatus,
+    Reading,
+    Verdict,
+)
 from pydantic import BaseModel, ConfigDict
 
 
@@ -73,6 +81,11 @@ class StateDelta(BaseModel):
     attempts: list[Attempt] | None = None
     already_read: list[Reading] | None = None
     rounds: int | None = None
+    # Set explicitly to `None` by the node that could not read the provider, so
+    # that "nobody could say" reaches the rest of the round as itself.
+    # `model_fields_set` is what makes that possible: a `None` a node chose is
+    # sent on, where a `None` it never mentioned is not.
+    flag_changes: list[FlagChange] | None = None
     proposed_action: Action | None = None
     nothing_worth_trying: bool | None = None
     fix_found: bool | None = None

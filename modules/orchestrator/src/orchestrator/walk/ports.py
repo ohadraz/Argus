@@ -113,9 +113,10 @@ class RecordAction(Protocol):
         action_type: ActionType,
         # What the action changes, named while the walk is still holding it.
         # Everything that reads an incident back asks this of the row - the
-        # write-up says what was done, and long-term memory keeps which
-        # subjects were tried and what each attempt was worth - and neither can
-        # recover it from anywhere else.
+        # write-up says what was done, and long-term memory keeps which actions
+        # were taken and what each attempt was worth, reading the kind above
+        # and the subject here as one identity - and neither can recover it
+        # from anywhere else.
         subject: str | None
     ) -> bool: ...
 

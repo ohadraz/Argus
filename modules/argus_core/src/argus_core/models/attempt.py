@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from argus_core.models.action import ActionType
+from argus_core.models.action import ActionIdentity
 
 
 class Attempt(BaseModel):
@@ -14,11 +14,13 @@ class Attempt(BaseModel):
     which is why the type carries no outcome field. Adding one would invite a
     caller to record a success nothing would ever read.
 
-    `action_type` says what was done, not only where. A later round told that
-    a subject "was tried" cannot tell a flag put back from a service restarted,
-    and those are different evidence about the same cause - a restart that did
-    not help says the accumulation was not the problem, where a flag put back
-    says the toggle was not.
+    `identity` says what was done as well as where, and says them as one value.
+    A later round told that a subject "was tried" cannot tell a flag put back
+    from a service restarted, and those are different evidence about the same
+    cause - a restart that did not help says the accumulation was not the
+    problem, where a flag put back says the toggle was not. The pair is the
+    same one the gate counts and the same one memory looks a candidate up by,
+    so it is the type those readers share rather than two fields each unpacks.
 
     It exists to be shown to the model. A second investigation differs from the
     first in two ways, and this is the more valuable one: the window may reach
@@ -41,7 +43,6 @@ class Attempt(BaseModel):
     them, and a second time format would be one more thing to get wrong.
     """
 
-    action_type: ActionType
-    subject: str
+    identity: ActionIdentity
     enabled: bool | None = None
     occurred_at: str

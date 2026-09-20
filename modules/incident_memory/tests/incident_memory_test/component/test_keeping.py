@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core.embedding import Embedder
-from argus_core.models import Verdict
+from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict
 from argus_testkit import Assertion, Scenario, all_of
 from incident_memory.keeping import Recaller, kept_in, recalling_from
 from incident_memory.records import RememberedIncident, WhatWasTried
@@ -135,7 +135,12 @@ def _an_incident(incident_id: str,
         service=SOME_SERVICE,
         alert_name="HighErrorRate",
         tried=[
-            WhatWasTried(subject=subject, verdict=verdict)
+            WhatWasTried(
+                identity=ActionIdentity(
+                    action_type=REVERT_FEATURE_FLAG, subject=subject
+                ),
+                verdict=verdict
+            )
             for subject, verdict in (tried if tried is not None else [("a-flag", Verdict.REFUTED)])
         ]
     )
@@ -155,7 +160,10 @@ def _these_incidents_come_back(expected: list[str]) -> Assertion[list[Remembered
 
 def _it_remembers_trying(subject: str) -> Assertion[list[RememberedIncident]]:
     def assertion(remembered: list[RememberedIncident]) -> bool:
-        subjects = [attempt.subject for incident in remembered for attempt in incident.tried]
+        subjects = [
+            attempt.identity.subject
+            for incident in remembered for attempt in incident.tried
+        ]
 
         if subject not in subjects:
             raise AssertionError(f"expected [{subject}] among {subjects}")

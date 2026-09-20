@@ -30,11 +30,13 @@ def remembering_node(state: IncidentState,
                      publisher: Publisher = nobody) -> StateDelta:
     """Writes what was tried on this incident into long-term memory (spec §11.2).
 
-    What is filed is the subjects Argus changed and what each change turned out
-    to be worth. Nothing is filed where no attempt reached a verdict on a
-    subject it named: the record's whole content is what attempts were worth, and
-    an incident that produced none would be findable by a later search with
-    nothing to tell it when found.
+    What is filed is the actions Argus took and what each one turned out to be
+    worth - the kind and the subject together, because a later walk matches
+    what it would do against what was done, and half a key matches sometimes.
+    Nothing is filed where no attempt reached a verdict on a subject it named:
+    the record's whole content is what attempts were worth, and an incident
+    that produced none would be findable by a later search with nothing to tell
+    it when found.
 
     Both collaborators are injected for the usual reason - what a record says
     belongs to `incident_memory`, where the rows are and where the record goes
@@ -70,7 +72,7 @@ def remembering_node(state: IncidentState,
     publish(
         IncidentRemembered(
             incident_id=state.incident_id,
-            subjects=[attempt.subject for attempt in record.tried]
+            tried=[attempt.identity for attempt in record.tried]
         ),
         publisher
     )

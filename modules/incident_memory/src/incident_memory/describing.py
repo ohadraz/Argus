@@ -20,8 +20,8 @@ def what_it_looked_like(alert: Alert, hypothesis: Hypothesis | None) -> str:
     """One text, carrying everything this incident can be recognised by.
 
     A hypothesis is optional because an escalation may never have named a cause,
-    and that incident is still worth finding: its record says which subjects were
-    changed and did not help, which never depended on a cause being named.
+    and that incident is still worth finding: its record says which actions were
+    taken and did not help, which never depended on a cause being named.
 
     Every piece is omitted rather than emptied when it is missing. A join that
     kept the absent ones would hand the embedder a separator with nothing on

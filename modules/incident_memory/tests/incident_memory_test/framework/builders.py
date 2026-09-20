@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from argus_core import new_id
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
+    ActionIdentity,
+    ActionType,
     Alert,
     Evidence,
     FailureMode,
@@ -89,8 +91,19 @@ def a_hypothesis(summary: str = DONT_CARE_CONCLUSION,
     )
 
 
+def an_identity(subject: str,
+                action_type: ActionType = REVERT_FEATURE_FLAG) -> ActionIdentity:
+    """The pair an action is known by, with the kind defaulted.
+
+    Defaulted because most of these cases are about a flag and would spell the
+    same tag on every line; named wherever the case is about the kind mattering,
+    which is exactly where the two halves stop agreeing.
+    """
+    return ActionIdentity(action_type=action_type, subject=subject)
+
+
 def a_remembered_incident(incident_id: str = SOME_INCIDENT,
-                          tried: list[tuple[str, Verdict]] | None = None,
+                          tried: list[tuple[ActionIdentity, Verdict]] | None = None,
                           service: str = DONT_CARE_SERVICE) -> RememberedIncident:
     """One past incident, as long-term memory holds it.
 
@@ -103,15 +116,16 @@ def a_remembered_incident(incident_id: str = SOME_INCIDENT,
         service=service,
         alert_name=DONT_CARE_ALERT_NAME,
         tried=[
-            WhatWasTried(subject=subject, verdict=verdict)
-            for subject, verdict in (tried if tried is not None else [])
+            WhatWasTried(identity=identity, verdict=verdict)
+            for identity, verdict in (tried if tried is not None else [])
         ]
     )
 
 
 def an_action(subject: str,
               verdict: Verdict | None = None,
-              incident_id: str = SOME_INCIDENT) -> TakenAction:
+              incident_id: str = SOME_INCIDENT,
+              action_type: ActionType = REVERT_FEATURE_FLAG) -> TakenAction:
     """One action as the `action` table holds it.
 
     `verdict` is optional because a row with no outcome is a real state and one
@@ -122,7 +136,7 @@ def an_action(subject: str,
         id=new_id(),
         incident_id=incident_id,
         hypothesis_id=new_id(),
-        type=REVERT_FEATURE_FLAG,
+        type=action_type,
         subject=subject,
         has_a_way_back=True,
         undo_descriptor=None,

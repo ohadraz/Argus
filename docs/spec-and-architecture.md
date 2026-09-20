@@ -196,7 +196,7 @@ It writes nothing to long-term memory. What is remembered of an incident is what
 
 ### 7.6a Remembering what was tried
 
-The last thing a walk does before the write-up, and a step rather than an agent: no model, no retrieval, no judgement. It reads the incident's actions, keeps the ones that reached a verdict on a subject they named, and files them where the next incident that looks like this one will find them (§11.2).
+The last thing a walk does before the write-up, and a step rather than an agent: no model, no retrieval, no judgement. It reads the incident's actions, keeps the ones that reached a verdict on an action it can identify - a subject the row named, and a kind this version still has words for - and files them where the next incident that looks like this one will find them (§11.2).
 
 Before the postmortem rather than after it, so neither failure can take the other down. This step swallows its own - the incident is over, nothing downstream reads what it produces, and a store that is unreachable must not be the reason an incident ends without its write-up - and a postmortem that raises cannot then cost the next incident what this one learned. A failure here is said on the timeline, because silence is indistinguishable from an incident that had nothing worth filing.
 
@@ -242,7 +242,7 @@ Several patterns, applied to different sub-problems:
 
 - **ReAct** - the Investigator's core loop: observe (query logs/metrics/diff) → reason (form hypothesis) → act (query more, or hand off to Mitigation) → observe result. Detailed in §9.
 - **Agentic search** - how Code-Fix (§7.4) localizes a bug: the model searches and reads the repository as tools across turns, following the code rather than matching a query against it. What it is handed to start from is the whole hypothesis, evidence included - the service's error boundary records the innermost frame, so a log line among that evidence names the file and the line.
-- **RAG** - retrieval by embedding similarity. Two uses, over two different corpora: (1) Code-Fix (§7.4) searches an index of the Target Service's own source (§11.5) for the code a fault is *described* by, alongside the substring search that finds the code a fault is *named* in - the model picks per question, and which retriever wins on which repository is a benchmark dimension (§21) rather than an assertion here; (2) the walk retrieves similar past incidents from long-term memory (§11.2) before it proposes an action, and demotes any candidate whose subject was tried on one of them and refuted - a fact about what was *done*, which the incident's own evidence can never supply.
+- **RAG** - retrieval by embedding similarity. Two uses, over two different corpora: (1) Code-Fix (§7.4) searches an index of the Target Service's own source (§11.5) for the code a fault is *described* by, alongside the substring search that finds the code a fault is *named* in - the model picks per question, and which retriever wins on which repository is a benchmark dimension (§21) rather than an assertion here; (2) the walk retrieves similar past incidents from long-term memory (§11.2) before it proposes an action, and demotes any candidate whose answering action was tried on one of them and refuted - a fact about what was *done*, which the incident's own evidence can never supply.
 - **Multi-agent orchestration** - the Orchestrator (§7.1) delegates to specialized agents (Investigator, Mitigation, Code-Fix, Postmortem), each with a narrow tool set and prompt, coordinated through shared incident state (§11.1). The Communicator (§7.5) is coordinated through that same state without being delegated to at all: it follows what the others published rather than waiting to be called, which is what keeps an incident reported even when the walk is too busy to say so.
 - **Self-critique / reflection** - before any mitigation or escalation, the agent scores its own confidence against a threshold (§10); after a mitigation, it re-observes state and judges whether its hypothesis was confirmed or refuted (§7.3).
 
@@ -331,7 +331,7 @@ Work that settles nothing and moves no status is published by the node that did 
 
 ## 11. Memory & Data Architecture
 
-Argus needs two kinds of memory, backed by two different stores (§11.4): **episodic (per-incident) memory**, which stops the agent re-toggling a flag it already ruled out, and **long-term (cross-incident) memory**, which tells a new incident what was tried on the ones that looked like it, and what each attempt turned out to be worth.
+Argus needs two kinds of memory, backed by two different stores (§11.4): **episodic (per-incident) memory**, which stops the agent taking again an action it has already taken and ruled out, and **long-term (cross-incident) memory**, which tells a new incident what was tried on the ones that looked like it, and what each attempt turned out to be worth.
 
 A third store holds no memory at all. The **repository index** (§11.5) describes the Target Service's source as it stands, so a fault can be found by what it does rather than by what it is called. It is derived state - deletable, rebuildable from the repository at any time - which is what separates it from the two above, and why it lives beside them rather than among them.
 
@@ -482,19 +482,21 @@ One collection, one record per finished incident:
 {
   incident_id, embedding(described_as),
   service, alert_name,
-  tried: [ { subject, verdict }, ... ]
+  tried: [ { identity: { action_type, subject }, verdict }, ... ]
 }
 ```
 
-**What is stored is what was done, not what it was.** A cause is re-derivable: the metrics and the logs of the incident in front of you say what broke, and an investigation given long enough reaches it without help. What was *done* about it is not re-derivable at any budget - that Argus set a particular flag and the service did not recover exists nowhere except in the record of the incident that tried it. So the record carries every subject Argus changed and the verdict each change reached, and carries no opinion about the cause.
+**What is stored is what was done, not what it was.** A cause is re-derivable: the metrics and the logs of the incident in front of you say what broke, and an investigation given long enough reaches it without help. What was *done* about it is not re-derivable at any budget - that Argus set a particular flag and the service did not recover exists nowhere except in the record of the incident that tried it. So the record carries every action Argus took and the verdict each one reached, and carries no opinion about the cause.
 
-Every incident that ends is recorded, not only a resolved one. An escalation after three refutations is the more informative of the two: it says three subjects were changed and the service stayed broken, which is exactly what the ordering rule below consumes. An incident where no attempt reached a verdict on a subject it named writes no record - its content would be empty.
+**An action is identified by its kind and its subject together, never by either alone.** The subject alone cannot tell a flag put back from a service restarted, and those are different evidence about the same cause; the kind alone says nothing about blast radius, since restarting one service is no licence to restart another. The pair is the unit the walk compares within an incident and the unit memory compares across them - one question, one type (§13).
+
+Every incident that ends is recorded, not only a resolved one. An escalation after three refutations is the more informative of the two: it says three actions were taken and the service stayed broken, which is exactly what the ordering rule below consumes. An incident where no attempt reached a verdict on an action it can identify writes no record - its content would be empty.
 
 The record is composed from the incident's own `ACTION` rows and the alert that opened it, by a step of the walk that does nothing else (§7.1). Not from the postmortem: that is a document for a person to read, written by a different step from a different source, and deriving one from the other would make an unwritten document into a missing memory.
 
 `described_as` is the text that is embedded and searched. It is assembled rather than written - the alert's own words, then what the investigation concluded and the evidence it cited - so one vector carries both how the monitoring named the incident and what it actually looked like. Assembled rather than composed by a model because its only job is to be matched against, and a join of text already on hand embeds to very nearly the same place at no cost, with no failure mode, and reproducibly.
 
-**Recall informs the order actions are tried in, not the hypotheses.** Before the first action of an incident is proposed, memory is searched with this incident's description; any candidate whose subject was acted on in a similar past incident and refuted is demoted below the ones no record names. The Investigator is not seeded: what is stored is not a hypothesis, and a model told "this flag failed on a different incident" has nothing to do with it. The mitigation side, choosing what to change next, is the one place the fact changes a decision.
+**Recall informs the order actions are tried in, not the hypotheses.** Before the first action of an incident is proposed, memory is searched with this incident's description, and each candidate is asked of Mitigation what action would answer it; any candidate whose action was taken on a similar past incident and refuted is demoted below the ones no record names. Asked of the action rather than of the candidate, because a candidate is prose: what a model calls a leak is worded differently every round, so a restart of the same service looked like two unrelated subjects until the comparison moved to what would be *done* about them. The Investigator is not seeded: what is stored is not a hypothesis, and a model told "this flag failed on a different incident" has nothing to do with it. The mitigation side, choosing what to change next, is the one place the fact changes a decision.
 
 Demoted, never removed. A past incident is evidence about a past incident, the same flag can break the service twice, and a walk that refused to try the only candidate it had - on the strength of a different incident's result - would end in an escalation it had the means to avoid. The set of candidates tried is identical with memory and without it; only the order differs. Where memory changed an order, the timeline says so and names the record it was changed on the strength of.
 
@@ -629,6 +631,16 @@ only so many times within a single incident, because what a repeatable
 mitigation risks is repetition rather than irreversibility: a restart can be
 taken again and again, each one buying a few minutes, and a restart loop is what
 operators actually guard against - with a limit, not with an approval step.
+
+**What is counted is the action's identity - its kind and its subject as one
+value, never two fields compared side by side.** Both halves, because either
+alone answers a different question: the subject alone cannot tell a flag put
+back from a service restarted, and the kind alone says nothing about blast
+radius, since restarting one service is no licence to restart another. Written
+as two comparisons, either could be dropped by an edit and the cap would go on
+looking like a cap. It is the same identity long-term memory compares across
+incidents (§11.2) - one question asked at two timescales, so one type answers
+it.
 
 Enforced redundantly at four layers:
 

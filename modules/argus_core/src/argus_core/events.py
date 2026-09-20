@@ -22,7 +22,7 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, Field, TypeAdapter
 
 from argus_core.ids import UuidStr, new_id
-from argus_core.models.action import ActionType, Verdict
+from argus_core.models.action import ActionIdentity, ActionType, Verdict
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
@@ -412,6 +412,12 @@ class CandidatesReordered(_Event):
     """
 
     kind: Literal["candidates-reordered"] = "candidates-reordered"
+    # The action that was tried before, not the candidate that would take it
+    # again. Both halves, because the subject alone does not say what was done
+    # to it: "moved checkout down the list" is true of a service somebody
+    # restarted and of a flag somebody put back, and a reader cannot tell from
+    # the line which experiment this incident is being spared.
+    action_type: ActionType
     subject: str
     on_the_strength_of: str
 
@@ -419,9 +425,16 @@ class CandidatesReordered(_Event):
 class IncidentRemembered(_Event):
     """What was filed about this incident for the next one to read.
 
-    The subjects rather than the record. What a later walk gets from this is
-    which things were changed and how each turned out, and the description the
+    The actions rather than the record. What a later walk gets from this is
+    which things were done and how each turned out, and the description the
     record is found by is a fact about searching rather than about the incident.
+
+    Each as its identity rather than as the subject it acted on, because the
+    subject alone is half of what was filed: "filed what was tried: io-shop"
+    says nothing about whether io-shop was a service somebody restarted or a
+    flag somebody put back, and a reader cannot tell one incident's record
+    from the other's. It is the same halving `CandidatesReordered` carries the
+    kind to avoid.
 
     Its own event rather than a clause on the postmortem's, because the two are
     written by different steps for different readers: one is a document a person
@@ -430,7 +443,7 @@ class IncidentRemembered(_Event):
     """
 
     kind: Literal["incident-remembered"] = "incident-remembered"
-    subjects: list[str]
+    tried: list[ActionIdentity]
 
 
 class RememberingFailed(_Event):

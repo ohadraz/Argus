@@ -14,6 +14,7 @@ from argus_core.models.action import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     Action,
+    ActionIdentity,
     ActionType,
     Outcome,
     RestartedService,
@@ -23,11 +24,14 @@ from argus_core.models.action import (
     Verdict,
     leaves_something_to_put_back,
     the_direction_of,
+    the_identity_of,
+    the_identity_recorded,
     the_subject_of,
 )
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.attempt import Attempt
+from argus_core.models.candidate import WhatWouldBeTried
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.code_search import CodeSearch
 from argus_core.models.evidence import Evidence
@@ -67,9 +71,12 @@ __all__ = [
     "REVERT_FEATURE_FLAG",
     "leaves_something_to_put_back",
     "the_direction_of",
+    "the_identity_of",
+    "the_identity_recorded",
     "the_subject_of",
     "SET_FEATURE_FLAG_TOOL",
     "Action",
+    "ActionIdentity",
     "ActionType",
     "Actor",
     "Alert",
@@ -110,6 +117,7 @@ __all__ = [
     "Turn",
     "UndoDescriptor",
     "Undone",
+    "WhatWouldBeTried",
     # Public because `ClaimedAction` names it in an annotation a consumer has
     # to be able to write, not because callers asked for it.
     "UnreadVerdict",

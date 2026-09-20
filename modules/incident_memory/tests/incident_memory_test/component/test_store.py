@@ -15,7 +15,7 @@ expected.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import Verdict
+from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict
 from argus_testkit import Assertion, Scenario, all_of
 from incident_memory.records import RememberedIncident, WhatWasTried
 from incident_memory.store import SERVICE_FIELD, recalled, remember
@@ -251,6 +251,19 @@ def _remembered(store: QdrantClient,
     return incident
 
 
+def _what_was_tried(subject: str, verdict: Verdict) -> WhatWasTried:
+    """One remembered attempt, spelled as a flag put back.
+
+    These cases are about a record surviving the store and coming back the
+    same, so the kind is fixed: which of them was done is what the ordering
+    reads, and asking that here would be two suites asking one question.
+    """
+    return WhatWasTried(
+        identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG, subject=subject),
+        verdict=verdict
+    )
+
+
 def _an_incident(incident_id: str,
                  service: str = SOME_SERVICE,
                  tried: list[tuple[str, Verdict]] | None = None) -> RememberedIncident:
@@ -260,7 +273,7 @@ def _an_incident(incident_id: str,
         service=service,
         alert_name="HighErrorRate",
         tried=[
-            WhatWasTried(subject=subject, verdict=verdict)
+            _what_was_tried(subject, verdict)
             for subject, verdict in (tried if tried is not None else [("a-flag", Verdict.REFUTED)])
         ]
     )
@@ -283,7 +296,7 @@ def _it_remembers_trying(subject: str,
     def assertion(remembered: list[RememberedIncident]) -> bool:
         tried = [attempt for incident in remembered for attempt in incident.tried]
 
-        if WhatWasTried(subject=subject, verdict=verdict) not in tried:
+        if _what_was_tried(subject, verdict) not in tried:
             raise AssertionError(f"expected [{subject}] [{verdict}] among {tried}")
 
         return True

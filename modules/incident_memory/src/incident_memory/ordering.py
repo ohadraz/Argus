@@ -1,9 +1,10 @@
 """What memory is allowed to do to a walk, which is to change an order.
 
-A subject that was changed on a similar incident and did not help goes to the
-back of the list. Everything else keeps the order confidence gave it, so a walk
-with no matching record behaves exactly as a walk with no memory at all - which
-is what lets the benchmark (§21) compare the two.
+An action that was taken on a similar incident and did not help sends the
+candidate that would take it again to the back of the list. Everything else
+keeps the order confidence gave it, so a walk with no matching record behaves
+exactly as a walk with no memory at all - which is what lets the benchmark
+(§21) compare the two.
 
 **Demoted, never removed.** A past incident is evidence about a past incident,
 the same flag can break the service twice, and a walk that refused to try the
@@ -17,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from argus_core.models import Hypothesis, Verdict
+from argus_core.models import ActionIdentity, Verdict, WhatWouldBeTried
 
 from incident_memory.records import RememberedIncident
 
@@ -34,72 +35,91 @@ class Reordering:
     reads.
     """
 
-    candidates: list[Hypothesis]
-    # The subject that moved, beside the record that moved it. Both or neither:
-    # a line saying an order changed without saying what changed places is a
-    # line a reader cannot check against the list in front of them.
-    moved: str | None
+    # Handed back in the shape they arrived in, still paired with what each
+    # would be answered with. The caller asked that question to put it here,
+    # and asking it a second time to recover the candidates alone would be the
+    # walk holding two answers it has to keep in step.
+    candidates: list[WhatWouldBeTried]
+    # The action that moved a candidate, beside the record that moved it. Both
+    # or neither: a line saying an order changed without saying what changed
+    # places is a line a reader cannot check against the list in front of them.
+    #
+    # The identity rather than its subject, because the subject is what the
+    # reader cannot check. "Moved checkout down the list" is true of a service
+    # somebody restarted and of a flag somebody put back, and the two are not
+    # the same evidence.
+    moved: ActionIdentity | None
     on_the_strength_of: str | None
 
 
-def demoting_what_was_refuted(candidates: list[Hypothesis],
+def demoting_what_was_refuted(candidates: Sequence[WhatWouldBeTried],
                               recalled: Sequence[RememberedIncident]) -> Reordering:
     """The candidates again, with anything refuted before moved to the back.
+
+    Each candidate arrives beside the action that answers it, and it is the
+    action that is matched. Asked of the candidates themselves the question was
+    unanswerable: what a model calls a leak is prose, and no two incidents
+    write the same prose, so a service restarted on both of them looked like
+    two unrelated subjects. Asked of the action, "restarting checkout did not
+    help last time" is evidence the walk can act on.
 
     Stable on both sides of the split: candidates memory says nothing about keep
     their order among themselves, and so do the demoted ones. Demotion is
     relative, so demoting every candidate demotes none of them - and the walk
     still tries them all, which is the point.
 
-    A candidate naming no subject is left where it is. There is nothing for a
-    record to match it against, and moving it would be moving it for a reason
-    nobody could read back.
+    A candidate nothing would be done about is left where it is. There is no
+    action for a record to match it against, and moving it would be moving it
+    for a reason nobody could read back.
     """
-    refuted_by = _what_refuted_each_subject(recalled)
-    kept = [
-        candidate for candidate in candidates
-        if candidate.subject is None or candidate.subject not in refuted_by
-    ]
-    demoted = [
-        candidate for candidate in candidates
-        if candidate.subject is not None and candidate.subject in refuted_by
-    ]
+    refuted_by = _what_refuted_each_action(recalled)
+    kept: list[WhatWouldBeTried] = []
+    demoted: list[WhatWouldBeTried] = []
+    # The first candidate that actually moved, and below it the record that
+    # moved it. One of each rather than all of them: the line this becomes is
+    # read during an incident, and "because of these four" is a list a person
+    # scanning a timeline does not follow. Taken as the split is made, because
+    # that is where the identity is known to be one.
+    moved: ActionIdentity | None = None
+
+    for entry in candidates:
+        if entry.identity is not None and entry.identity in refuted_by:
+            demoted.append(entry)
+            moved = moved if moved is not None else entry.identity
+        else:
+            kept.append(entry)
+
     reordered = [*kept, *demoted]
 
-    if reordered == candidates:
-        return Reordering(candidates=candidates, moved=None, on_the_strength_of=None)
-
-    # The first candidate that actually moved, and the record that moved it.
-    # One of each rather than all of them: the line this becomes is read during
-    # an incident, and "because of these four" is a list a person scanning a
-    # timeline does not follow.
-    moved = str(demoted[0].subject)
+    if moved is None or reordered == list(candidates):
+        return Reordering(
+            candidates=list(candidates), moved=None, on_the_strength_of=None
+        )
 
     return Reordering(
-        candidates=reordered,
-        moved=moved,
-        on_the_strength_of=refuted_by[moved]
+        candidates=reordered, moved=moved, on_the_strength_of=refuted_by[moved]
     )
 
 
-def _what_refuted_each_subject(
+def _what_refuted_each_action(
     recalled: Sequence[RememberedIncident]
-) -> dict[str, str]:
-    """Each subject a recalled incident acted on and refuted, and which one did.
+) -> dict[ActionIdentity, str]:
+    """Each action a recalled incident took and was refuted by, and which one.
 
-    Only a refutation. A confirmation says changing that subject once fixed an
-    incident, which is no reason at all to try it later - and the two verdicts
-    are the only ones a record can carry, because nothing else was ever a
-    judgement about the subject.
+    Only a refutation. A confirmation says taking that action once fixed an
+    incident, which is no reason at all to demote it later - and the two
+    verdicts are the only ones a record can carry, because nothing else was
+    ever a judgement about the action.
 
-    The nearest record wins a subject two of them name, since `recalled` arrives
-    ordered by similarity and the more alike incident is the better evidence.
+    The nearest record wins an action two of them name, since `recalled`
+    arrives ordered by similarity and the more alike incident is the better
+    evidence.
     """
-    refuted_by: dict[str, str] = {}
+    refuted_by: dict[ActionIdentity, str] = {}
 
     for incident in recalled:
         for attempt in incident.tried:
             if attempt.verdict is Verdict.REFUTED:
-                refuted_by.setdefault(attempt.subject, incident.incident_id)
+                refuted_by.setdefault(attempt.identity, incident.incident_id)
 
     return refuted_by

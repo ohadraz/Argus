@@ -10,7 +10,16 @@ one of the two importing the other across a boundary.
 """
 from __future__ import annotations
 
-from argus_core.models import Action, Alert, Attempt, Hypothesis, IncidentStatus, Reading, Verdict
+from argus_core.models import (
+    Action,
+    Alert,
+    Attempt,
+    FlagChange,
+    Hypothesis,
+    IncidentStatus,
+    Reading,
+    Verdict,
+)
 from pydantic import BaseModel
 
 
@@ -48,6 +57,18 @@ class IncidentState(BaseModel):
     # hard incident has usually spent its whole widening schedule by the time
     # the first attempt comes back refuted.
     rounds: int = 0
+    # What the flag provider recorded as having changed, read once at the top
+    # of each round. Carried rather than fetched where it is used because it is
+    # used three times over - deciding what each candidate would be answered
+    # with, which of them memory demotes, and which action the chosen one gets
+    # - and three reads of one history are three chances for the walk to reason
+    # about two different worlds.
+    #
+    # `None` is not an empty history. It is the provider having failed to
+    # answer, which leads the walk to the same place - no action, and a human -
+    # while meaning the opposite thing, and an account that spelled them the
+    # same would tell a reader nothing changed when nobody could say.
+    flag_changes: list[FlagChange] | None = None
     # Chosen by Mitigation and inspected by the tier gate before anything
     # mutating runs (spec §13). It lives in the graph's state rather than being
     # passed between the two, because a gate the acting node could bypass by

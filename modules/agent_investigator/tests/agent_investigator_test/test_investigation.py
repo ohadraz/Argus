@@ -25,7 +25,9 @@ from argus_core.events import (
     RetrievalRequested,
 )
 from argus_core.models import (
+    RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ActionIdentity,
     Ask,
     Attempt,
     Evidence,
@@ -666,8 +668,10 @@ def test_a_later_round_is_shown_what_was_tried_and_what_was_read() -> None:
                 alert=an_alert(),
                 already_refuted=[
                     Attempt(
-                        action_type=REVERT_FEATURE_FLAG,
-                        subject=some_flag_that_did_not_help,
+                        identity=ActionIdentity(
+                            action_type=REVERT_FEATURE_FLAG,
+                            subject=some_flag_that_did_not_help
+                        ),
                         enabled=False,
                         occurred_at=some_time_the_flag_was_changed
                     )
@@ -689,6 +693,47 @@ def test_a_later_round_is_shown_what_was_tried_and_what_was_read() -> None:
                 some_window_end_already_read
             )
         )
+
+
+@pytest.mark.unit
+def test_a_restart_already_tried_is_described_as_a_restart() -> None:
+    # Every attempt used to be rendered as "set <subject> on/off", which for a
+    # restart tells the model a switch was thrown. It reasons about the switch:
+    # a real investigation, shown this, wrote that Argus had tried setting the
+    # heap off and concluded the toggle was not the cause. The line has to say
+    # what was actually done, in the vocabulary of the kind that was done.
+    some_restarted_service = "kuki-service"
+    some_time_it_was_restarted = "2026-08-20T11:12:00Z"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(),
+                already_refuted=[
+                    Attempt(
+                        identity=ActionIdentity(
+                            action_type=RESTART_SERVICE,
+                            subject=some_restarted_service
+                        ),
+                        occurred_at=some_time_it_was_restarted
+                    )
+                ]
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                some_restarted_service,
+                some_time_it_was_restarted
+            ),
+            _what_was_asked_first_avoids(
+                investigation.model, f"set {some_restarted_service}"
+            )
+        ))
 
 
 def _the_candidates_say(*summaries: str) -> Assertion[Findings]:
@@ -847,6 +892,30 @@ def _what_was_asked_first_mentions(model: Mock, *expected: str) -> Assertion[Fin
         if missing:
             raise AssertionError(
                 f"Expected the opening message to mention {missing}, got [{opening.text}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_asked_first_avoids(model: Mock, *forbidden: str) -> Assertion[Findings]:
+    """Words the opening message must not put in front of the model.
+
+    The counterpart to the assertion above, and needed because the failure it
+    guards is a sentence that reads perfectly well: an attempt described in the
+    vocabulary of a different kind of action is not missing, it is wrong, and
+    the model reasons about the action it was told about.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        opening = _the_transcript_of(model, turn=0)[0]
+        if not isinstance(opening, Ask):
+            raise AssertionError(f"Expected the conversation to open with an ask, got [{opening}].")
+
+        said = [mention for mention in forbidden if mention in opening.text]
+        if said:
+            raise AssertionError(
+                f"Expected the opening message not to say {said}, got [{opening.text}]."
             )
 
         return True

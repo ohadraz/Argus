@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from argus_core.events import ActionRefused, Publisher, nobody, publish
-from argus_core.models import Action, Attempt, Refusal, the_subject_of
+from argus_core.models import Action, Attempt, Refusal, the_identity_of
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import Admitted, RecordOutcome
@@ -128,18 +128,15 @@ def _why_the_action_cannot_proceed(action: Action | None,
 def _times_already_tried(action: Action, attempts: Sequence[Attempt]) -> int:
     """How often this incident has already done this to this subject.
 
-    Both halves matter. Per subject, because restarting one service says
-    nothing about whether another may be restarted - the blast radius of a
+    Both halves matter, which is why the comparison is against an identity
+    rather than against two fields. Per subject, because restarting one service
+    says nothing about whether another may be restarted - the blast radius of a
     mitigation is the thing it acts on. And per kind, because a flag put back
     and a service restarted are different experiments that happen to share a
-    name in the record.
+    name in the record. Written as two comparisons, either half could be
+    dropped by an edit and the cap would go on looking like a cap.
     """
-    return sum(
-        1
-        for attempt in attempts
-        if attempt.action_type == action.action_type
-        and attempt.subject == the_subject_of(action)
-    )
+    return sum(1 for attempt in attempts if attempt.identity == the_identity_of(action))
 
 
 def route_after_gate(state: IncidentState) -> str:

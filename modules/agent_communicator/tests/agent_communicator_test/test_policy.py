@@ -51,6 +51,8 @@ from argus_core.events import (
     VerdictReached,
 )
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
     Actor,
     Alert,
     FailureMode,
@@ -156,6 +158,7 @@ def test_an_order_memory_changed_is_not_said_either() -> None:
         .given(
             what_memory_did := CandidatesReordered(
                 incident_id=AN_INCIDENT,
+                action_type=REVERT_FEATURE_FLAG,
                 subject="new-checkout-flow",
                 on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
             )
@@ -173,7 +176,8 @@ def test_what_was_filed_for_the_next_incident_is_not_said_in_this_one() -> None:
         .given(
             what_was_filed := IncidentRemembered(
                 incident_id=AN_INCIDENT,
-                subjects=["new-checkout-flow"]
+                tried=[ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                                      subject="new-checkout-flow")]
             )
         ) \
         .when(lambda: how_it_is_said(what_was_filed)) \

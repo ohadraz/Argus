@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Final, Literal, assert_never
 
-from pydantic import BaseModel, Field, GetCoreSchemaHandler
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 
 from argus_core.models.undo_descriptor import FlagUndo, UndoDescriptor
@@ -166,8 +166,15 @@ type ActionType = Literal["revert-feature-flag", "restart-service"]
 # proposes one: the column, the published event and the model would otherwise
 # be three spellings of one word, and only two of them would fail to compile if
 # they disagreed.
-REVERT_FEATURE_FLAG: Final[ActionType] = "revert-feature-flag"
-RESTART_SERVICE: Final[ActionType] = "restart-service"
+#
+# Declared as bare `Final` rather than `Final[ActionType]`, so each infers the
+# single `Literal` it is rather than the union. The wider annotation is what a
+# reader expects and is the worse one: a comparison against a value typed as
+# the whole union narrows nothing, so a match over the kinds cannot be checked
+# for exhaustiveness and `assert_never` on its last branch is a type error
+# instead of a guarantee.
+REVERT_FEATURE_FLAG: Final = "revert-feature-flag"
+RESTART_SERVICE: Final = "restart-service"
 
 
 class RestartedService(BaseModel):
@@ -193,13 +200,82 @@ _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
 )
 
 
+class ActionIdentity(BaseModel):
+    """What an action *is*, for the purpose of asking whether it was done before.
+
+    The kind and the thing it was done to, together and as one value. Two
+    readers ask that question at two timescales - the gate asks it within one
+    incident, to bound how often a repeatable mitigation may be applied, and
+    long-term memory asks it across incidents, to demote a candidate somebody
+    already tried and refuted (spec §11.2, §13). They are one question, so they
+    compare one type.
+
+    Both halves, because either alone answers something else. The subject alone
+    cannot tell a flag put back from a service restarted, and those are
+    different evidence about the same cause. The kind alone says nothing about
+    blast radius: restarting one service is no licence to restart another.
+
+    Frozen, so it can be a key. Both askers hold a collection of these and ask
+    whether one is in it, and a value that could be edited after it was filed
+    under itself would be found under a name it no longer has.
+
+    Its existence is the point as much as its shape. While this was two loose
+    strings, memory compared the subject half of a pair the gate compared
+    whole, and a model's prose about a symptom was stored where the name of a
+    service belonged - both of which type it as `str` and neither of which any
+    checker could see.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    action_type: ActionType
+    subject: str
+
+
+def the_identity_of(action: Action) -> ActionIdentity:
+    """The pair this action is known by, wherever one is compared to another.
+
+    Built from the action rather than assembled at each caller, for the reason
+    `the_subject_of` is: the two fields are only an identity together, and a
+    caller free to build one from a subject it had lying around is a caller
+    free to build one from the wrong subject.
+    """
+    return ActionIdentity(
+        action_type=action.action_type, subject=the_subject_of(action)
+    )
+
+
+def the_identity_recorded(action_type: str, subject: str) -> ActionIdentity | None:
+    """The pair a stored row is known by, or `None` where this version cannot
+    read it.
+
+    The other way an identity is built, and the one that starts from text. A
+    row's kind is a column, so what comes back out of the table is a `str` -
+    including, on an incident old enough, a kind some version since removed.
+    Such a row is history and still has to come out of the table, so it is
+    passed over here rather than refused, exactly as an outcome nobody can
+    spell is: a kind this version has no strategy for is a kind no later
+    candidate could be matched against anyway.
+
+    Validated rather than matched against a list of spellings. The tag is
+    already a `Literal` this model checks on the way in, and a second list of
+    the same words is a second place to forget one.
+    """
+    try:
+        return ActionIdentity.model_validate(
+            {"action_type": action_type, "subject": subject}
+        )
+    except ValidationError:
+        return None
+
+
 def the_subject_of(action: Action) -> str:
     """What the action acts on, whatever kind of thing that is.
 
-    Here rather than at each caller because three of them ask - the row the
-    claim writes, the event a reader sees, and the attempt a later round is
-    shown - and a union unpacked in three places is three places that grow a
-    branch when a fourth kind arrives, two of which will be found by a bug.
+    Here rather than at each caller because the readers that ask are several -
+    the row the claim writes, the event a reader sees, and the identity above -
+    and a union unpacked in that many places is that many places that grow a
+    branch when a fourth kind arrives, most of which will be found by a bug.
     """
     match action:
         case RevertFeatureFlag():

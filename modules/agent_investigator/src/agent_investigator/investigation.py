@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Sequence
-from typing import Any, Final
+from typing import Any, Final, assert_never
 
 from argus_core import to_iso
 from argus_core.anomaly import (
@@ -43,6 +43,8 @@ from argus_core.llm import (
     on_one_line,
 )
 from argus_core.models import (
+    RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
     Alert,
     Ask,
     Attempt,
@@ -591,8 +593,8 @@ def _the_opening_message(alert: Alert,
             "Argus took these actions on this incident and undid each one. The service "
             "did not return to its baseline after any of them.",
             *(
-                f"- set {attempt.subject} {'on' if attempt.enabled else 'off'} at "
-                f"{attempt.occurred_at}: the service did not recover"
+                f"- {_what_was_done_in(attempt)} at {attempt.occurred_at}: "
+                f"the service did not recover"
                 for attempt in already_refuted
             )
         ])
@@ -608,3 +610,25 @@ def _the_opening_message(alert: Alert,
         ])
 
     return "\n".join(said)
+
+
+def _what_was_done_in(attempt: Attempt) -> str:
+    """One earlier attempt, in the vocabulary of the kind of thing it was.
+
+    Every attempt used to be rendered as "set <subject> on/off", which is true
+    of a flag and false of everything else. Told that a heap had been set off, a
+    real investigation reasoned about the switch: it proposed that a toggle had
+    been flipped, found no record of one, and spent a round of its budget on a
+    cause that had never existed. A model reasons about the action it is told
+    about, so the line has to describe the action that was taken.
+    """
+    kind = attempt.identity.action_type
+    subject = attempt.identity.subject
+
+    if kind == REVERT_FEATURE_FLAG:
+        return f"set {subject} {'on' if attempt.enabled else 'off'}"
+
+    if kind == RESTART_SERVICE:
+        return f"restarted {subject}"
+
+    assert_never(kind)

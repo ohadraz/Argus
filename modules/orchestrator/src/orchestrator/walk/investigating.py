@@ -1,15 +1,24 @@
-"""One round of investigation: what it found, and its account of finding it."""
+"""One round of investigation: what it found, and its account of finding it.
+
+The round also reads the flag provider, which the node that proposes an action
+used to do. It has to: what memory demotes, and what the walk skips, is the
+action a candidate would be answered with - and that question cannot be asked
+before the history is in hand. Read once here and carried, so that the round
+that chose a candidate and the node that acts on it reason about one account of
+the provider rather than two.
+"""
 
 from __future__ import annotations
 
 from argus_core.events import (
     AgentInvoked,
     CandidatesReordered,
+    FlagChangesRetrieved,
     Publisher,
     nobody,
     publish,
 )
-from argus_core.models import Actor, Hypothesis, IncidentStatus
+from argus_core.models import Actor, FlagChange, Hypothesis, IncidentStatus
 
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
@@ -19,9 +28,14 @@ from argus_core.replay import nobody as records_nothing
 from incident_memory.describing import what_it_looked_like
 from incident_memory.ordering import demoting_what_was_refuted
 
-from orchestrator.walk.candidates import the_next_worth_trying
+from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_do
 from orchestrator.walk.deltas import Narration, StateDelta
-from orchestrator.walk.ports import Investigate, RecallSimilar, RecordHypothesis
+from orchestrator.walk.ports import (
+    FetchFlagChanges,
+    Investigate,
+    RecallSimilar,
+    RecordHypothesis,
+)
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -31,6 +45,7 @@ def investigator_node(
     record_hypothesis: RecordHypothesis,
     investigate: Investigate,
     recall_similar: RecallSimilar,
+    fetch_flag_changes: FetchFlagChanges,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
 ) -> StateDelta:
@@ -65,6 +80,12 @@ def investigator_node(
         already_read=state.already_read,
         already_refuted=state.attempts,
     )
+    # The flag provider's account of what changed, read here rather than in
+    # the node that proposes an action. What memory compares is not a candidate
+    # but the action that answers it, and that question cannot be asked before
+    # the history is in hand - so it is read at the top of the round, once, and
+    # carried to everything in the round that needs it.
+    flag_changes = _what_the_provider_recorded(state, fetch_flag_changes, publisher)
     # What memory makes of this round's candidates, before anything is chosen
     # from them. Read once here rather than per candidate: one search, a
     # deterministic order, and one line accounting for it.
@@ -73,19 +94,20 @@ def investigator_node(
     # what this incident looks like as far as anyone knows yet - the alert's own
     # words plus what the investigation just concluded.
     reordered = demoting_what_was_refuted(
-        findings.candidates,
+        what_each_would_do(findings.candidates, flag_changes, state.alert.service),
         recall_similar(
             what_it_looked_like(state.alert, findings.candidates[0]),
             state.alert.service
         )
     )
-    candidates = reordered.candidates
+    candidates = [entry.candidate for entry in reordered.candidates]
 
-    if reordered.on_the_strength_of is not None:
+    if reordered.moved is not None and reordered.on_the_strength_of is not None:
         publish(
             CandidatesReordered(
                 incident_id=state.incident_id,
-                subject=str(reordered.moved),
+                action_type=reordered.moved.action_type,
+                subject=reordered.moved.subject,
                 on_the_strength_of=reordered.on_the_strength_of
             ),
             publisher
@@ -96,9 +118,11 @@ def investigator_node(
     # The best answer this round has that the walk has not already disproved.
     # On a first round that is simply the best answer; on a later one it matters,
     # because a re-investigation is free to reach the same conclusion as the one
-    # that was just refuted, and acting on it again would change the same flag
-    # back and forth until the round budget ran out.
-    next_up = the_next_worth_trying(candidates, state.attempts, start=0)
+    # that was just refuted, and acting on it again would take the same action
+    # over and over until the round budget ran out - a flag moved back and
+    # forth, or a service restarted once per round, which is the same loop
+    # wearing a different word.
+    next_up = the_next_worth_trying(reordered.candidates, state.attempts, start=0)
     hypothesis = next_up[1] if next_up is not None else candidates[0]
     # A named cause is enough to start the walk. Confidence used to gate this,
     # and gating it here was answering the wrong question: a mitigation that is
@@ -124,6 +148,11 @@ def investigator_node(
         hypothesis=hypothesis,
         candidates=candidates,
         candidate_index=next_up[0] if next_up is not None else 0,
+        # Carried on, including where it is `None`: the nodes after this one
+        # act on the same history this round was reasoned from, and a provider
+        # that could not be read has to reach them as that rather than as a
+        # history that happens to be empty.
+        flag_changes=flag_changes,
         # Everything read across this incident, not only this round's, so a
         # third round is told about the first as well as the second.
         already_read=[*state.already_read, *findings.already_read],
@@ -132,6 +161,39 @@ def investigator_node(
         nothing_worth_trying=nothing_worth_trying,
         narration=Narration(action=_what_the_investigation_did(hypothesis)),
     )
+
+
+def _what_the_provider_recorded(state: IncidentState,
+                                fetch_flag_changes: FetchFlagChanges,
+                                publisher: Publisher) -> list[FlagChange] | None:
+    """What the flag provider says changed, or `None` where it would not say.
+
+    A provider that cannot be read answers nothing rather than raising. "I
+    could not find out what changed" and "nothing changed" lead to the same
+    place - no action, and a human - and neither is a reason to fail the
+    graph. They are not the same fact, though, which is why the failure is
+    `None` and not an empty list: everything downstream that reasons about a
+    flag reasons differently about the two.
+
+    Published from here, because this is where it is read. The account carries
+    the whole basis of every action this round might propose - which flag
+    moved, which way, and when - and by the time an action exists that history
+    has already been reduced to one decision about one flag. The failure is
+    deliberately unpublished: an empty history on the page would state that
+    nothing had changed, and the two look identical there while meaning
+    opposite things.
+    """
+    try:
+        flag_changes = fetch_flag_changes()
+    except Exception:
+        return None
+
+    publish(
+        FlagChangesRetrieved(incident_id=state.incident_id, changes=flag_changes),
+        publisher
+    )
+
+    return flag_changes
 
 
 def _what_the_investigation_did(hypothesis: Hypothesis) -> str:

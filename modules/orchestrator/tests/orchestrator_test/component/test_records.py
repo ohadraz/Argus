@@ -13,6 +13,8 @@ transition, and it fails alone.
 
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 from argus_core import connect_from_env
 from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
@@ -25,7 +27,7 @@ from orchestrator.records import Records
 from orchestrator_test.framework.builders import a_determined_hypothesis
 
 DONT_CARE_ACTOR = Actor.MITIGATION
-DONT_CARE_ACTION = REVERT_FEATURE_FLAG
+DONT_CARE_ACTION: Final = REVERT_FEATURE_FLAG
 SOME_STATUS = IncidentStatus.MITIGATING
 
 
