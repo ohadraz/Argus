@@ -311,7 +311,7 @@ stateDiagram-v2
 
 **A mitigation that worked does not end the incident.** `fixing` is reached by two roads, and a confirmed mitigation is one of them: the symptom is gone and the fault that caused it is still in the code, with a flag holding it off or a fresh process yet to fill up. Calling that resolved would file a postmortem about an incident that is still waiting to happen - and for a leak it is not even a pause, only the length of time the new process takes to climb back. Only a fix reaches `resolved`. The other road to `fixing` is Argus running out of mitigations it may take, and the two are worth telling apart in the record even though they arrive at the same node.
 
-What admits the walk is a *named* cause, not a confident one: a generic mitigation taken alone, confirmed against the service and put back where there is anything to put back costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
+What admits the walk is a *named* cause, not a confident one: a generic mitigation taken alone, confirmed against the service and put back where there is anything to put back costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead - and so does one whose cause is named exactly and answered by nothing in the declared set, which is a different thing and is refused in different words: a cause nobody could act on is a gap in the evidence, where a kind of failure no mitigation reaches is a decision. An upstream dependency's outage is the second, and the distinction is what a human picking the incident up acts on. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
 
 `acknowledged` is where an incident sits between being accepted and being picked up: Argus has the alert and has committed to handling it, and the walk is queued for a worker (§7.1). It is a status rather than an event because it is the incident's own state and can last - a worker that is down leaves incidents there, and a screen reporting them as `investigating` would claim attention nobody is paying. The interval between it and `investigating` is how long the incident waited for a worker, which is the one duration the timeline could not otherwise report.
 
@@ -602,7 +602,7 @@ Every action is tiered, and the tier determines how much autonomy the agent has:
 | Read-only | query logs, read Slack, read code | Fully autonomous |
 | Generic mitigation | toggle a flag back, restart a service | Autonomous, but announced in Slack immediately + logged, with whatever it left to put back recorded |
 | Outside the declared set | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
-| Give up / escalate | the investigation's budget binds before it names a cause, or no mitigation Argus may take resolves the alert | Autonomous - pages a human with full context, doesn't keep guessing |
+| Give up / escalate | the investigation's budget binds before it names a cause, no mitigation Argus may take resolves the alert, or the cause is named and the declared set answers that kind of failure with nothing | Autonomous - pages a human with full context, doesn't keep guessing |
 
 What admits an action is **membership of a closed, declared set** - a kind of
 action somebody wrote down and defended - and not any property of the particular
@@ -685,6 +685,7 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
   - *Bad deploy* - the deploy-record (HEAD of the designated branch) points at a seeded bad commit.
   - *Bug / config drift* - a seeded buggy commit is checked out; the repo's own test for it fails.
   - *Resource leak* - the service retains state per request and releases none of it, so its heap climbs for as long as the process is up. Nothing is seeded into the code: the fault is in the deployed source, and what staging decides is when the accumulation began.
+  - *Upstream dependency failure* - the payment provider the account page reads a shopper's card from stops answering. The condition is another company's service, not a flag, a process or a commit, so nothing Argus may do touches it; what staging decides is when the provider went down.
   - *No evidence* - nothing is seeded; nothing for Argus to find, forcing escalation.
   - *Multiple causes* - two of the above seeded together (e.g. bad flag + bad deploy), to test against false attribution to only one.
 - **The log/metric generator reacts to live state, not a script.** It emits an anomaly matching the chosen root cause(s) *while the underlying condition(s) remain true*, and stops once all seeded conditions become false - regardless of who changed them or why. A leak's condition is the process's own uptime rather than a flag's value: the heap is computed from how long the serving process has been up, so restarting it reclaims the heap and nothing else does. The climb then begins again, because the fault is still in the deployed code - which is what makes this the one scenario a mitigation cannot resolve. *Upstream dependency failure* has no Argus-controllable condition, so it never stops via Argus action - same "no honest resolution possible" property as *No evidence*, forcing escalation. This makes grading honest: revert the wrong flag or roll back the wrong thing, and the anomaly just keeps appearing, no separate "mark failed" logic needed.
@@ -701,7 +702,7 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
 | Bug / config drift | buggy commit checked out, a test fails against it | repo's test suite passes against Code-Fix's PR branch | open PR, human merges (out of Argus's autonomy) |
 | Resource leak | the deployed service retains per-request state; staging says when the climb began | never by a flag, and never by the telemetry going quiet - only the repo's test suite passing against Code-Fix's PR branch | restart the service to reclaim the heap, confirm memory fell and the process changed, then propose the fix - mitigated, not resolved |
 | No evidence | nothing correlated | never, automatically | exhaust the mitigations it may take, escalate |
-| Upstream dependency failure | simulated downstream failure, no controllable cause | never, automatically | exhaust the mitigations it may take, escalate |
+| Upstream dependency failure | the payment provider the account page reads a card from refuses; no flag, no deploy, no process involved | never - the condition belongs to another company, and only a reset clears it | name the cause, take nothing, escalate: no generic mitigation answers this mode |
 | Multiple causes | two of the above seeded together | all seeded conditions reverted | mitigate/fix each without false-attributing to only one |
 
 ## 16. Retrieval Windowing Strategy
@@ -954,7 +955,7 @@ A library of scripted chaos scenarios injected into the Target Environment (§15
 1. Feature flag toggled → error spike (single cause, one flag to put back)
 2. Bad deployment → latency spike (single cause, mitigated by a rollback)
 3. Config drift (e.g. wrong env var) → needs a code/config fix, not just rollback
-4. Upstream dependency failure → not fixable by the agent; correct behavior is detect-and-escalate
+4. Upstream dependency failure → the shop's account page reads a shopper's card from a payment provider it does not own, and the provider stops answering. Errors and latency move together, memory is flat and nothing changed, so the cause is determinable and no generic mitigation reaches it - the one scenario where escalation is the correct outcome rather than the one left over
 5. Two simultaneous causes → tests whether the agent avoids false attribution to only one
 6. Ambiguous alert, no clear cause in logs → tests escalation behavior
 7. A Slack expert posts a correcting hint mid-incident → tests whether the agent incorporates human input

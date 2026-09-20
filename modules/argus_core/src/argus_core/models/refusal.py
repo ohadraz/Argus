@@ -25,9 +25,17 @@ class Refusal(StrEnum):
     disagreeing.
     """
 
-    # The investigation named a cause and no mitigation answers it. Not a
-    # failure of the gate - there was never an action for it to judge.
+    # There was a mitigation for this cause and it could not say what to act
+    # on - a flag the provider never recorded moving, a window naming two
+    # changes and no way to choose. Not a failure of the gate: there was never
+    # an action for it to judge, and what is missing is evidence.
     NO_MITIGATION_PROPOSED = "no-mitigation-proposed"
+    # The cause is known and nothing in the closed set answers it at all. The
+    # other silence that reaches the gate with no action, and a different thing
+    # to say to whoever picks the incident up: not "work out what to do" but
+    # "this is not ours to do anything about". An upstream dependency's outage
+    # is the case it was named for.
+    NOTHING_ANSWERS_THIS_MODE = "nothing-answers-this-mode"
     # There is something to do and nobody has pre-authorised doing it. The one
     # refusal that is the autonomy boundary doing its job (spec §13): the set of
     # generic mitigations is closed, and a kind absent from it is one nobody has

@@ -44,6 +44,7 @@ from agent_mitigation.strategies import (
     MitigationStrategy,
     RestartServiceStrategy,
     Strategies,
+    a_mitigation_answers,
 )
 from agent_mitigation.tools import (
     FlagChangesSince,
@@ -81,6 +82,7 @@ __all__ = [
     "UndoChange",
     "Undone",
     "Verdict",
+    "a_mitigation_answers",
     "argus_changed_flag_since",
     "fetch_recent_flag_changes",
     "flag_changes_over",

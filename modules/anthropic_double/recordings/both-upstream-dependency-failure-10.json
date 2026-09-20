@@ -1,0 +1,54 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAISxQgKjgEIEhgCKkAfJ4JZCQ94iU7wWfX/BrxLdd8nuUXt/T3SU6MIwn5ZN0yl56IJiQ50xijWsGLMuXzH0chNDtCwCY1nSKOX88zAMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAcz3v9UGEgzhtNhRcF/oULNXgWEaDGH/sznueZxxwIksriIwnKmAQ/LqYbUcjNE4YYL2ASWMusBrOT82Gp8m00h9fdm06qPoDXy3hST0OGYTPjJ+KuMGLxFlpmjj/6HPBSE5LmLc4jAR9GOEgdCS0d6CAerlK8Z67N0Ur/cm12FRPLqO6ZsM5s3qsn5DkCdcT2Q+5+eXULroOISri2m3+kpN6JAXz0l+tONFnfds5E0bPEHSGUm/xb/H+/EHQ4ygcSCfbeetYT7nUB3Z4mhQ7dvF/KZjXJQbNQxQymuoOq4m3IG07w7cpkK3xDqR7Yaf2SVJycUonGfcdWkdZ3fWrbi7qbRsywy5JPLGSqr1Omdptd2hoLMGK8h9yTnCO0MCW3Z9bgq/8GPyZTyAHeEig3IQLtmThk2svcjHuqA+ZLhRCnaga2JTaxI9xuJUUlllQysoTgmzDgqF5IY6WnvREii0zyS1nHXw4ur881jmjr8swvYnrSzq8TzRq65N9geXCj8COCysYF4FN0C77iTtpal5APkEfnXXGZjCODTS5LslbNGZjadCnFWBr4WBNgAQoovr+nHg45ZfwdnEML1HzpO5UqfV0hpVPAj0ugPNTEo0RfT9CYyr+09uTJPXbS9nlAEA5CREsCeWQ6Ua7QLz6YXEvOz66Yjbx+GIlIhI9m6xp9Aki21saB4zZstO+eDh8Lhf91pcXwwUnEGx1dfpLxmslLHfc1O0SWgIme1hIbTG2E0kl6xVl5Yi5/vQGCg65LIVvVVJIMVi5y+szr+tJS45vVNsM9066NRYTFK3Qdzbwn2qfqABiihI18yXJw5SKYkBJBhg00Cvzn7ODnw7HzWTLzlwoYcLe/E9SaCK6P+J184h0r/mFGhi1ri8sPV5WEa1uNnPmldBCtclHcjF2ngTwxf36KQvLzIUE/bV0hp54o9cKMZGingETnUuiv+9cnqZsvuIz2F7yYifO2+JY+DfQ9AyWoWoaN/AKeF9UFQpkxgkhoT+2EdWOajUSw86Yp1383bRYAydKVikvpUFiVlrOPUxoLEWK0jt1BcpBxi+/dNYFu5Y+yJLzmwPTAH0kuhX3tNthgHu9kS2G20zuk+76T3pbOuLtnXElMyfFV4yJ6XzIpBIhBq/jWQ2hKZq3Q7q8RidIPgLeR0Qsn1lNcjDod+1samwb18ifhy1qNHRB71pmJuDIvK9wYVf1rAVCrLPpLaGLiw8qR5yePcRB1hrCvEySf/Fm49lgplQvhUKgS8lztx5HZfbGAE=",
+      "thinking": "",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01UDh6QwBWrWbiSBR3LUcqze",
+      "input": {
+        "description": "calling the upstream payment provider for card lookups with retries and timeout, raising an error on 503"
+      },
+      "name": "search_repository_by_meaning",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01NBRH8fyUgmfiK9uyp3xAAQ",
+      "input": {
+        "description": "account page rendering that fetches card details and spend summary"
+      },
+      "name": "search_repository_by_meaning",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CfEvqjADovVyy56oqgGaL",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 413
+    },
+    "cache_creation_input_tokens": 413,
+    "cache_read_input_tokens": 2743,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 433,
+    "output_tokens_details": {
+      "thinking_tokens": 283
+    },
+    "service_tier": "standard"
+  }
+}

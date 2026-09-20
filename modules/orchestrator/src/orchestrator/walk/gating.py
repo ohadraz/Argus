@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from agent_mitigation import a_mitigation_answers
 from argus_core.events import ActionRefused, Publisher, nobody, publish
-from argus_core.models import Action, Attempt, Refusal, the_identity_of
+from argus_core.models import (
+    Action,
+    Attempt,
+    FailureMode,
+    Refusal,
+    the_identity_of,
+)
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import Admitted, RecordOutcome
@@ -18,6 +25,8 @@ from orchestrator.walk.state import IncidentState
 # carries the value anything counting refusals reads.
 _WHAT_THE_ROW_SAYS = {
     Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed for this cause",
+    Refusal.NOTHING_ANSWERS_THIS_MODE: "no mitigation Argus can take answers "
+                                       "this kind of failure",
     Refusal.NOT_A_GENERIC_MITIGATION: "actions of this kind are not among the "
                                       "mitigations Argus may take unasked",
     Refusal.ALREADY_TRIED_ENOUGH: "this has already been tried on this subject "
@@ -67,7 +76,11 @@ def tier_gate_node(
     stopped.
     """
     refusal = _why_the_action_cannot_proceed(
-        state.proposed_action, admitted, state.attempts, attempts_per_subject
+        state.proposed_action,
+        admitted,
+        state.attempts,
+        attempts_per_subject,
+        state.hypothesis.failure_mode if state.hypothesis is not None else None
     )
 
     if refusal is None:
@@ -94,15 +107,23 @@ def tier_gate_node(
 def _why_the_action_cannot_proceed(action: Action | None,
                                    admitted: Admitted,
                                    attempts: Sequence[Attempt],
-                                   attempts_per_subject: int) -> Refusal | None:
+                                   attempts_per_subject: int,
+                                   failure_mode: FailureMode | None) -> Refusal | None:
     """Which refusal this is, or `None` when there is none to give.
 
-    Three rejections reach the same status for different reasons, and a human
-    reading the incident needs to know which: nothing to do at all, something
-    to do that nobody pre-authorised, or something that has already been done
-    to this subject as often as it may be. Answered as the value, so that the
-    sentence a reader sees is derived from it in one place rather than written
-    here and matched on somewhere else.
+    Four rejections reach the same status for different reasons, and a human
+    reading the incident needs to know which: a kind of failure nothing answers,
+    nothing to do about a cause that does have an answer, something to do that
+    nobody pre-authorised, or something that has already been done to this
+    subject as often as it may be. Answered as the value, so that the sentence a
+    reader sees is derived from it in one place rather than written here and
+    matched on somewhere else.
+
+    The first two are both "no action arrived", and telling them apart is the
+    whole reason the mode is read here. Which modes have an answer is asked of
+    the policy that holds the mapping rather than looked up locally: a gate
+    keeping its own copy of what Argus can do is a second copy to fall out of
+    step with the first.
 
     Admission is asked of the set of declared mitigations rather than read off
     the action. Nothing about an instance can put its kind in or out of that
@@ -114,6 +135,13 @@ def _why_the_action_cannot_proceed(action: Action | None,
     has had enough of it.
     """
     if action is None:
+        # A mode nobody determined is not a mode nothing answers. There was
+        # nothing to look a mitigation up by, which is the investigation coming
+        # up short - and telling a reader that this kind of failure has no
+        # answer would be saying something about a kind nobody named.
+        if failure_mode is not None and not a_mitigation_answers(failure_mode):
+            return Refusal.NOTHING_ANSWERS_THIS_MODE
+
         return Refusal.NO_MITIGATION_PROPOSED
 
     if not admitted(action):

@@ -16,6 +16,7 @@ from agent_mitigation import (
     MitigationStrategy,
     RestartServiceStrategy,
     Strategies,
+    a_mitigation_answers,
     propose_action,
 )
 from argus_core.models import (
@@ -261,6 +262,89 @@ def _nothing_was_proposed() -> Assertion[Action | None]:
         if action is not None:
             raise AssertionError(
                 f"Expected no action to be proposed, got [{action}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_nothing_answers_an_upstream_dependency_failure() -> None:
+    # The absence is the decision, not an omission. Argus's mitigations reach
+    # its own deployment - a flag it can put back, a process it can restart -
+    # and another company's service is outside all of them. A strategy
+    # registered here would be Argus claiming it could do something about an
+    # outage it cannot reach.
+    Scenario() \
+        .given(
+            an_upstream_failure := a_hypothesis_blaming(
+                FailureMode.UPSTREAM_DEPENDENCY_FAILURE
+            )
+        ) \
+        .when(
+            lambda: propose_action(an_upstream_failure, [], DONT_CARE_SERVICE)
+        ) \
+        .then(
+            _nothing_was_proposed()
+        )
+
+
+@pytest.mark.unit
+def test_a_mode_nothing_answers_says_so_when_asked() -> None:
+    # Asked of the policy that holds the mapping, because the gate has to tell
+    # two silences apart - a mode with no mitigation at all, and a mode whose
+    # mitigation could not identify what to act on - and a gate holding its own
+    # copy of the set would be a second place for the answer to drift.
+    Scenario() \
+        .given(
+            the_mode_nothing_answers := FailureMode.UPSTREAM_DEPENDENCY_FAILURE
+        ) \
+        .when(
+            lambda: a_mitigation_answers(the_mode_nothing_answers)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
+
+
+@pytest.mark.unit
+def test_a_mode_with_a_strategy_is_answered() -> None:
+    Scenario() \
+        .given(
+            the_mode_a_revert_answers := FailureMode.FEATURE_FLAG_TOGGLE
+        ) \
+        .when(
+            lambda: a_mitigation_answers(the_mode_a_revert_answers)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
+
+
+@pytest.mark.unit
+def test_no_mode_at_all_is_answered_by_nothing() -> None:
+    # A candidate that named no cause has nothing to look a strategy up by,
+    # which is not the same as a cause whose answer is "nothing can be done" -
+    # and the two must not end up reading the same way to whoever picks the
+    # incident up.
+    Scenario() \
+        .given(
+            no_mode_was_determined := None
+        ) \
+        .when(
+            lambda: a_mitigation_answers(no_mode_was_determined)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
+
+
+def _the_answer_is(expected: bool) -> Assertion[bool]:
+    def assertion(answered: bool) -> bool:
+        if answered is not expected:
+            raise AssertionError(
+                f"Expected [{expected}], got [{answered}]."
             )
 
         return True

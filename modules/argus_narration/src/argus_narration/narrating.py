@@ -96,6 +96,12 @@ _AGENTS = {
 # with one enum is one of them eventually disagreeing.
 _WHY_IT_WAS_REFUSED = {
     Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed",
+    # Said as what it is rather than as an absence. This one is Argus having
+    # understood the incident and having nothing that reaches it - a reader who
+    # took it for a thin investigation would go looking for evidence instead of
+    # for whoever can call the third party.
+    Refusal.NOTHING_ANSWERS_THIS_MODE: "nothing Argus can do answers this kind "
+                                       "of failure",
     Refusal.NOT_A_GENERIC_MITIGATION: "is not a mitigation Argus may take unasked"
 }
 

@@ -107,8 +107,10 @@ explanations the evidence permits, and below 0.5 you are guessing - prefer no \
 cause at all.
 
 `subject` names the specific thing the cause is about - for a feature flag, \
-the flag's own name, copied verbatim from the evidence. Something acts on that \
-name, so a name that is not in the evidence identifies nothing.
+the flag's own name; for a failure arriving from a service this one depends \
+on, that service as the evidence names it - copied verbatim either way. \
+Something acts on that name, so a name that is not in the evidence identifies \
+nothing.
 
 `from_state` and `to_state` are what that subject moved between, in the words \
 the evidence uses - `off` and `on` for a feature flag, two versions for a \

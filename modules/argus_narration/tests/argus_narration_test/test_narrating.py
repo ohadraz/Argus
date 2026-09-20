@@ -1049,3 +1049,25 @@ def _the_only_candidate_moved(was: str, now: str) -> Assertion[list[NarrationLin
         return True
 
     return assertion
+
+@pytest.mark.unit
+def test_a_failure_nothing_answers_says_so_rather_than_saying_nothing_was_proposed() -> None:
+    # The line a person reads when Argus knew exactly what happened and could
+    # do nothing about it. "No mitigation was proposed" would read as an
+    # investigation that came up short, which is the opposite of this: the
+    # cause is named, and what it needs is somebody who can reach the thing
+    # that is broken.
+    some_refusal = ActionRefused(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        refusal=Refusal.NOTHING_ANSWERS_THIS_MODE
+    )
+
+    Scenario() \
+        .given(some_refusal) \
+        .when(lambda: build_narration([some_refusal])) \
+        .then(all_of(
+            _the_only_line_marks(
+                "nothing Argus can do answers this kind of failure"),
+            _the_lines_are_credited_to(["Argus"])))
+

@@ -33,3 +33,12 @@ class FailureMode(StrEnum):
     # graph; `memory-leak` would be one value per resource, each mapping to the
     # same restart.
     RESOURCE_LEAK = "resource-leak"
+    # A service this one depends on and does not own stopped answering, and the
+    # failure arrived here. The one mode in the set that no mitigation answers,
+    # which is not an omission: everything Argus may do reaches its own
+    # deployment, and nothing it can revert or restart reaches somebody else's
+    # outage. Named for the propagation rather than for what the dependency is
+    # - a payment provider, a queue, an identity service are one pattern, and
+    # the pattern is what decides the response: say what happened, and hand it
+    # to a person who can call them.
+    UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"

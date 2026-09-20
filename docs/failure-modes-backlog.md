@@ -22,8 +22,8 @@ pattern. See "A note on the name" below.
 | Family | Share | Modes | Argus |
 |---|---|---|---|
 | Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Partly.** `bad-deployment` and `feature-flag-toggle` are both here |
-| Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | No. The spec's "upstream dependency failure" scenario is FM-01, and correct behaviour is escalate |
-| Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Next.** See below |
+| Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Partly.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage |
+| Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** `resource-leak` is the leak half of FM-13; demand saturation is not built |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
 | Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | No |
@@ -33,7 +33,7 @@ pattern. See "A note on the name" below.
 ## FM-13 Resource exhaustion, split by response
 
 13% of incidents, 2,185 in the sample, and described as one of the most
-automatable patterns in the taxonomy - which is why it is next. It looks
+automatable patterns in the taxonomy - which is why it was built first. It looks
 different on the surface every time and is always the same shape underneath: a
 finite resource consumed faster than it is replenished.
 
@@ -45,16 +45,16 @@ exactly the level `FailureMode` has to name:
 - **Resource leak / runaway consumption** - growth uncorrelated with traffic.
   Response: **restart, then fix.**
 
-`resource-leak` is the value being added. `resource-exhaustion` would be too
-coarse, because it maps to two different mitigations.
+`resource-leak` is the value, and `resource-exhaustion` would be too coarse:
+it maps to two different mitigations.
 
 ### Scenarios to stage under resource leak
 
 Same failure mode, same mitigation, different resource - so each is a scenario
 and none is a new `FailureMode`:
 
-- **Memory leak** - the one being built. Heap climbs, latency follows, OOM and
-  restart. Metric: `memory_used_bytes` against `memory_limit_bytes`.
+- **Memory leak** - built. Heap climbs, latency follows, OOM and restart.
+  Metric: `memory_used_bytes` against `memory_limit_bytes`.
 - **Connection-pool exhaustion** - connections checked out and never returned.
   Latency climbs as requests queue for a pool slot, then errors as they time
   out waiting. Metric: pool in-use against pool size.
@@ -78,7 +78,7 @@ Worth noting that CPU saturation is the scenario that proves the split is real:
 it looks like a leak on a latency graph and a restart makes it briefly better
 before it returns, which is the mistake a system without the distinction makes.
 
-## What is worth building after resource leak
+## What is worth building next
 
 In order of share, minus what is out of scope for a demo:
 
@@ -88,11 +88,17 @@ In order of share, minus what is out of scope for a demo:
 2. **FM-06 Aggregate-masked tail degradation** (3%, but cheap here). The p99
    moves while the average does not. Argus reads p50 and p95 already, and this
    is the scenario that says whether reading them is enough.
-3. **FM-01 Cross-org cascade** (28%, the second-largest family). Already in the
-   spec as "upstream dependency failure", where correct behaviour is to
-   recognise it is not fixable and escalate. Argus has the escalation path; what
-   is missing is the evidence that distinguishes an upstream failure from an
-   internal one.
+3. **FM-23 Hidden internal coupling** (the rest of propagation's 28%). The
+   half of that family FM-01 does not cover: the dependency is one of your own
+   services, nobody remembered it was on the path, and the correct response is
+   neither escalate-and-wait nor revert.
+
+**FM-01 Cross-org cascade is built.** `upstream-dependency-failure` stages a
+payment provider that stops answering: errors and latency move together, memory
+is flat, nothing changed, and the mode maps to no generic mitigation - so the
+incident is named exactly and handed to a person. What it added beyond the
+scenario was the distinction at the gate between a cause nothing answers and an
+action nobody could identify.
 
 ## Why they are called modes
 

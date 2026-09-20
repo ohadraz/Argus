@@ -1,0 +1,52 @@
+{
+  "container": null,
+  "content": [
+    {
+      "text": "I'll pull logs around the onset and the change history.",
+      "type": "text"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01TZAzpPQVEUKij4R1C9BAtp",
+      "input": {
+        "window_end": "2026-09-20T15:24:54Z",
+        "window_start": "2026-09-20T15:14:00Z"
+      },
+      "name": "get_logs",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01XXYd1eWnEQn9C2BnwLmiNp",
+      "input": {},
+      "name": "get_changes",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CfEvXAmokm55fz6q87pXs",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 15303
+    },
+    "cache_creation_input_tokens": 15303,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 140,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard"
+  }
+}

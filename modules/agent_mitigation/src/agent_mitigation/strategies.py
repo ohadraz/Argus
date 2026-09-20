@@ -13,6 +13,13 @@ what to do about it. Whether Argus may then take that action unasked is a
 different question with a different answer, and it lives in `admitting` - a
 strategy says what would help, and has no business also saying what is
 permitted.
+
+A second question is asked of the registry rather than of any strategy, and
+`a_mitigation_answers` is it: whether this kind of failure has an answer here
+at all. The gate needs it to tell two silences apart - a mitigation that could
+not identify what to act on, and a mode nothing in the set addresses - and
+asking it here is what keeps the gate from holding its own copy of what Argus
+can do.
 """
 
 from __future__ import annotations
@@ -38,7 +45,8 @@ __all__ = [
     "MitigationStrategy",
     "RestartServiceStrategy",
     "RevertFeatureFlagStrategy",
-    "Strategies"
+    "Strategies",
+    "a_mitigation_answers"
 ]
 
 
@@ -149,10 +157,38 @@ class RestartServiceStrategy:
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
 
+# Which mitigation answers which cause. A mode absent from this is one Argus
+# has nothing to offer for, and `UPSTREAM_DEPENDENCY_FAILURE` is absent
+# deliberately rather than pending: every mitigation here acts on Argus's own
+# deployment, and another company's outage is reachable by none of them. The
+# day something is registered for it, that will be a claim that Argus can shed
+# load or fail over - which is a mitigation somebody has to build and defend,
+# not a gap to be filled in.
 DEFAULT_STRATEGIES: Strategies = {
     FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
     FailureMode.RESOURCE_LEAK: RestartServiceStrategy()
 }
+
+
+def a_mitigation_answers(failure_mode: FailureMode | None,
+                         strategies: Strategies = DEFAULT_STRATEGIES) -> bool:
+    """Whether anything Argus knows how to do answers this kind of failure.
+
+    Asked by the gate, which has to tell two silences apart: an incident that
+    reached it with no action because nothing answers the mode at all, and one
+    that reached it with no action because the mitigation that does answer the
+    mode could not identify what to act on. Both end the same way and mean
+    different things to whoever picks the incident up.
+
+    Answered here rather than by the gate reading this mapping itself, for the
+    reason the mapping is here at all: which cause has an answer is policy, and
+    policy kept in two places is policy that comes to differ.
+
+    A candidate that determined no mode is not answered either. There is
+    nothing to look up, which is a gap in the investigation rather than a
+    statement about what can be done - and the refusal that follows says so.
+    """
+    return failure_mode is not None and failure_mode in strategies
 
 
 def _the_change_to_undo(subject: str | None,

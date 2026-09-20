@@ -74,6 +74,7 @@ RECORDED_ABSENCE_OF_EVIDENCE = "no-evidence"
 RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
 RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
 RECORDED_RESOURCE_LEAK = "resource-leak"
+RECORDED_UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
 
 # Not arbitrary! the Target Service names itself in its own log
 THE_SERVICE_NAME = "io-shop"

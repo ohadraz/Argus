@@ -1,0 +1,53 @@
+{
+  "container": null,
+  "content": [
+    {
+      "text": "I'll start by searching for the named error and file.",
+      "type": "text"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Twc4oTyhoGUJjkdct24S7F",
+      "input": {
+        "query": "PaymentProviderFailed"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01WZxJTBxX3GFKVmDFP4HrQR",
+      "input": {
+        "query": "account page request failed"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CfEvq8jGmAgUoQn9im1Zw",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2482
+    },
+    "cache_creation_input_tokens": 2482,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 121,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard"
+  }
+}

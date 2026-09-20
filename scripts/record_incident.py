@@ -57,6 +57,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_RESOURCE_LEAK,
+    RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
     THE_SERVICE_NAME,
     stored_as,
 )
@@ -124,6 +125,14 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
     # on a leak - and a walk recorded against an error-rate alert would be
     # answering a question this scenario never asks.
     _Recording(RECORDED_RESOURCE_LEAK, "resource-leak", "HighMemoryUsage"),
+    # The one incident nothing Argus may do can touch. Its alert is the error
+    # rate, because that is what a dependency's outage does to the shop that
+    # depends on it - every account page waits on the provider and then fails.
+    _Recording(
+        RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
+        "upstream-dependency-failure",
+        "HighErrorRate"
+    ),
     _Recording(RECORDED_ABSENCE_OF_EVIDENCE, None, "HighErrorRate")
 )
 
