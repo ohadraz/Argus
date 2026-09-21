@@ -33,6 +33,8 @@ CALM_RATE = 0.01
 FAILING_RATE = CALM_RATE * 30
 CALM_P50_MS = 80
 CALM_P95_MS = 200
+CALM_P99_MS = 350
+
 # What the shop's heap sits at when nothing is accumulating, and where a leak
 # has taken it by the time the incident is visible. Three times rather than a
 # few percent: the departure rule works in units of the baseline's own spread,
@@ -207,6 +209,7 @@ def a_window_of(error_rates: list[float],
             error_rate=error_rate,
             p50_ms=CALM_P50_MS,
             p95_ms=CALM_P95_MS,
+            p99_ms=CALM_P99_MS,
             request_volume=dont_care_volume,
             memory_used_bytes=memory_used,
             process_start_time_seconds=dont_care_started_at

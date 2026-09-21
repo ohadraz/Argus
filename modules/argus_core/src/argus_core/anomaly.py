@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from math import inf
 from statistics import median
 from typing import NamedTuple
 
@@ -22,6 +23,13 @@ _MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE = 0.1
 # most quiet minutes report the identical figure and the average deviation
 # between them is zero however much the rate actually moves.
 _QUIET_SPREAD_QUANTILE = 0.9
+
+# How many of a series' own steps a reading may move before the move is
+# evidence rather than quantisation. Two, because one is the smallest change
+# the series can express at all: a rate over two hundred requests reports 1.0%
+# and 1.5% and nothing between, so a single step apart is what two identical
+# minutes look like when one of them caught one more failure.
+_WITHIN_THE_NOISE_OF_ITS_OWN_STEPS = 2.0
 
 # How much of a window its opening is taken to be. A tenth, bounded below at
 # three minutes, and both bounds are load-bearing. Longer, and the opening
@@ -69,11 +77,22 @@ class _CalmStretch(NamedTuple):
     the slope rather than the noise.
 
     The floor travels with the stretch rather than being one number for the
-    module, because it is a statement about how much the stretch has seen.
+    module, because it is a statement about how much the stretch has seen. So
+    does `spread`, and for the same reason: the two stretches are different
+    shapes of evidence and a spread read the same way from both is wrong about
+    one of them.
+
+    The value-ordered half is a sample of ordinary minutes with the incident
+    removed, so what a bar has to clear is how far those minutes range - and
+    reading a quantile *inside* the lowest half never looks at an ordinary
+    minute at all. The opening is a stretch of consecutive time that may be
+    rising, so its range is the slope rather than the noise, and a bar built
+    from it would grow with the very climb it is there to date.
     """
 
     minutes: Callable[[Sequence[float]], list[float]]
     minimum_spread_as_fraction_of_baseline: float
+    spread: Callable[[Sequence[float], float], float]
 
 
 class AnomalyThresholds(NamedTuple):
@@ -236,7 +255,11 @@ def has_recovered_since(buckets: Sequence[MetricBucket],
 
     No minute at or after `moment` is **not** recovery. Absence of evidence
     would otherwise confirm a mitigation the instant it was taken, before the
-    service had any chance to answer.
+    service had any chance to answer. Nor is a stretch in which no minute has
+    fallen clear at all, which is the same situation one reading later: the
+    service has not answered yet. That is what keeps the paragraph above from
+    reading the single minute since an action as the lone noisy one it is
+    entitled to disregard.
     """
     still_the_incident = _minutes_still_at_the_incidents_level(buckets, thresholds)
     since_moment = [
@@ -314,7 +337,16 @@ def _stays_clear_of_the_incident(still_the_incident: Sequence[bool],
     spellings of it would eventually disagree about some window, and the
     postmortem would then date recovery at a minute Mitigation had refused to
     confirm a mitigation on.
+
+    A stretch with no clear minute in it at all is the service not having
+    answered yet, and that is not the same as a stretch that came back and
+    caught one noisy sample. The distinction is what lets a lone departed minute
+    be disregarded without also disregarding the first minute after an action,
+    which is a lone departed minute too and is the only reading there is.
     """
+    if all(still_the_incident):
+        return False
+
     return not _departs_for_long_enough_to_be_the_incident(
         still_the_incident, thresholds
     )
@@ -332,10 +364,14 @@ def _minutes_still_at_the_incidents_level(
     of its requests and one that doubles its latency have recovered by the same
     proportion and by wildly different amounts.
 
-    All three signals, matching what an onset is found in. A mitigation judged
-    on the symptoms alone would confirm a restart the instant latency eased,
-    with the heap already climbing again behind it - and would judge a leak
-    recovered on the strength of the metric that reacts to it last.
+    Every signal an onset is found in, and for the same reason each was added
+    there. A mitigation judged on the symptoms alone would confirm a restart
+    the instant latency eased, with the heap already climbing again behind it -
+    and would judge a leak recovered on the strength of the metric that reacts
+    to it last. The tail is the sharpest case: an incident found in the tail
+    alone left every other series where it was, so asking those whether they
+    have returned to their baselines confirms a mitigation the instant it is
+    taken.
     """
     if not buckets:
         return []
@@ -343,16 +379,19 @@ def _minutes_still_at_the_incidents_level(
     error_rates = [bucket.error_rate for bucket in buckets]
     medians = [float(bucket.p50_ms) for bucket in buckets]
     latencies = [float(bucket.p95_ms) for bucket in buckets]
+    tails = [float(bucket.p99_ms) for bucket in buckets]
     memory = [float(bucket.memory_used_bytes) for bucket in buckets]
     error_rate_ceiling = _subsided_threshold(error_rates, thresholds)
     median_ceiling = _subsided_threshold(medians, thresholds)
     latency_ceiling = _subsided_threshold(latencies, thresholds)
+    tail_ceiling = _subsided_threshold(tails, thresholds)
     memory_ceiling = _subsided_threshold(memory, thresholds)
 
     return [
         bucket.error_rate > error_rate_ceiling
         or bucket.p50_ms > median_ceiling
         or bucket.p95_ms > latency_ceiling
+        or bucket.p99_ms > tail_ceiling
         or bucket.memory_used_bytes > memory_ceiling
         for bucket in buckets
     ]
@@ -361,15 +400,37 @@ def _minutes_still_at_the_incidents_level(
 def _subsided_threshold(values: Sequence[float],
                         thresholds: AnomalyThresholds) -> float:
     """What a minute has to have fallen below to count as no longer the
-    incident.
+    incident, or `inf` where this series never was the incident.
 
-    Above the departure threshold by construction: a minute that never departed
-    has certainly subsided, so the floor here is the bar `find_onset` uses. On
-    a window with no incident in it the two are the same, and nothing is
-    reported as still elevated.
+    A signal that never departed in this window has no incident level, and
+    asking whether it has fallen back from one is asking a question with no
+    answer. The old spelling answered it anyway, by flooring at the bar
+    `find_onset` uses - on the reasoning that a minute which never departed has
+    certainly subsided. That step is only safe while the departure bar sits
+    above ordinary noise, and for a sampled error rate it does not: the bar is
+    derived from the window's lowest half by value, whose own upper quantile is
+    still below the middle of the series, so on a rate quantised into
+    half-percent steps the measured spread is one step or exactly zero. The bar
+    then lands a few thousandths above a baseline that ordinary minutes clear
+    five times over, and every calm minute reads as still being the incident.
+
+    What that cost was a real mitigation: the configuration rollback ends an
+    incident whose error rate never moved at all - the cache fallback is
+    designed behaviour - so recovery was being judged on a signal that had no
+    incident in it, and a shop back at its baseline on every other measure was
+    refused.
+
+    So a series that never reached the incident level is excluded rather than
+    floored. `inf` says that plainly: no minute can exceed it, so this signal
+    contributes nothing to whether the incident is still going on - which is
+    what the reasoning above always meant.
     """
     departed = _departure_threshold(values, thresholds, _THE_QUIETEST_MINUTES)
     at_its_worst = max(values, default=departed)
+
+    if at_its_worst <= departed:
+        return inf
+
     subsided = thresholds.recovery_fraction_of_the_rise
 
     return max(departed, at_its_worst - subsided * (at_its_worst - departed))
@@ -380,37 +441,47 @@ def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool],
     """Whether any run of departed minutes is long enough to be a state rather
     than noise.
 
-    The same threshold `find_onset` anchors on, so the two agents agree about
-    what "still broken" means: a run that reaches
-    `anomaly_persistence_minutes`, or one still going when the window ends -
-    which has not failed to persist, it has yet to be given the chance.
+    A run that reaches `anomaly_persistence_minutes`, and only that. `find_onset`
+    additionally counts a run still going when the window ends - an incident that
+    began a minute ago has not failed to persist, it has yet to be given the
+    chance - and that allowance is exactly wrong at this end.
+
+    The window Mitigation reads is the window it has just polled, so its final
+    minute is always the freshest sample and always the end of whatever run it
+    is in. Crediting that run with persistence it has not shown lets one noisy
+    minute deny a verdict every minute before it supports, and waiting does not
+    clear it: the window only grows, and each new last minute is a fresh chance
+    to land noisy. A real relapse is unaffected - it is still departed at the
+    next poll, where it is a run of two and evidence rather than a sample.
+
+    What the two ends share is the bar a minute has to clear. What a run of them
+    has to prove is asked differently, because starting an incident and ending
+    one are different questions.
     """
-    required = thresholds.persistence_minutes
-
-    for index, departed in enumerate(departures):
-        if not departed or (index > 0 and departures[index - 1]):
-            continue
-
-        length = _run_length_from(departures, index)
-
-        if length >= required or index + length == len(departures):
-            return True
-
-    return False
+    return any(
+        _run_length_from(departures, index) >= thresholds.persistence_minutes
+        for index, departed in enumerate(departures)
+        if departed and (index == 0 or not departures[index - 1])
+    )
 
 
 def _departures(buckets: Sequence[MetricBucket],
                 thresholds: AnomalyThresholds,
                 calm: _CalmStretch) -> list[bool]:
     """Whether each minute, in window order, has left the baseline on error
-    rate, p95 latency or memory.
+    rate, any of the three latency quantiles, or memory.
 
-    All three are checked because different failures move different metrics - a
-    bad flag spikes errors, a slow dependency does not, and a leak moves neither
-    until it has been climbing for hours. Memory is a leak's earliest and
-    clearest signal, and it runs ahead of the latency and the errors it
+    All of them are checked because different failures move different metrics -
+    a bad flag spikes errors, a slow dependency does not, and a leak moves
+    neither until it has been climbing for hours. Memory is a leak's earliest
+    and clearest signal, and it runs ahead of the latency and the errors it
     eventually causes: a detector reading only those would date every leak at
     the minute it became a user-visible failure.
+
+    The three quantiles are three signals rather than one for the same reason.
+    A fault that removes a fast path lives entirely in the median; a fault
+    reaching a few requests in a hundred is below the p95 by arithmetic and
+    lives entirely in the tail. Each is an incident the others cannot see.
     """
     if not buckets:
         return []
@@ -424,6 +495,9 @@ def _departures(buckets: Sequence[MetricBucket],
     latency_ceiling = _departure_threshold(
         [float(bucket.p95_ms) for bucket in buckets], thresholds, calm
     )
+    tail_ceiling = _departure_threshold(
+        [float(bucket.p99_ms) for bucket in buckets], thresholds, calm
+    )
     memory_ceiling = _departure_threshold(
         [float(bucket.memory_used_bytes) for bucket in buckets], thresholds, calm
     )
@@ -432,6 +506,7 @@ def _departures(buckets: Sequence[MetricBucket],
         bucket.error_rate > error_rate_ceiling
         or bucket.p50_ms > median_ceiling
         or bucket.p95_ms > latency_ceiling
+        or bucket.p99_ms > tail_ceiling
         or bucket.memory_used_bytes > memory_ceiling
         for bucket in buckets
     ]
@@ -459,23 +534,76 @@ def _departure_threshold(values: Sequence[float],
     rather than a mean for the same reason - one 30% minute moves a mean, and
     moves a median not at all.
 
-    The spread is how far the quiet stretch's own worst minutes sit above that
-    baseline, rather than how far its average minute does. The two agree on a
-    continuous metric and disagree completely on a sampled one, where most
-    quiet minutes report the identical quantised figure: the average deviation
-    is then zero, the threshold collapses onto the baseline, and every
-    ordinary minute reads as the incident starting.
+    How the spread is read belongs to the stretch, because the two stretches are
+    different shapes of evidence - see `_CalmStretch`.
+
+    The value-ordered half reads its range, and that is the correction to this
+    function's history of being wrong. That stretch is the window's lowest half
+    *by value*, so a quantile taken inside it is still below the middle of the
+    series: the 90th percentile of the lowest half is about the 45th of the
+    whole, and the distance from there to the 25th is not a measure of how far
+    ordinary minutes reach. It cannot be, because it never looks at one. On a
+    rate sampled over a couple of hundred requests and quantised into
+    half-percent steps the two quantiles land on the identical figure, the
+    measured spread is exactly zero, and the bar falls back on a floor of a
+    tenth of the baseline - a few thousandths above a level calm minutes clear
+    five times over.
+
+    The cost was paid at both ends. Calm windows reported an onset in a little
+    over half of all runs, and a configuration rollback that had genuinely
+    ended an incident was refused, because the error rate - which never moves
+    in that scenario at all - read as still elevated on every minute after it.
+
+    Neither stretch reaches above the lowest half of the window, and that is
+    deliberate. Taking the window's own upper quantile would measure the fault
+    rather than the noise: a flag toggle putting a tenth of the window at thirty
+    percent errors would set a bar no incident could ever clear.
+
+    Floored twice over, and the second floor is the one that matters on a short
+    window. A stretch of four quantised minutes has a range of one step or none,
+    so the range degenerates exactly where the quantile did - and the fraction
+    of the baseline that catches it is a tenth of one percent, which is nothing.
+    A series only resolves differences the size of its own step, so a departure
+    inside a couple of those is a departure the measurement cannot claim to have
+    seen. Read from the series rather than from `request_volume`, because the
+    reported volume is not always the number of requests a rate was actually
+    measured over, and a floor derived from an overstated one is no floor.
     """
     deviations = thresholds.deviations_from_baseline
 
     quiet = calm.minutes(values)
     baseline = median(quiet)
-    wobble = _quantile(quiet, _QUIET_SPREAD_QUANTILE) - baseline
     spread = max(
-        wobble, baseline * calm.minimum_spread_as_fraction_of_baseline
+        calm.spread(quiet, baseline),
+        baseline * calm.minimum_spread_as_fraction_of_baseline,
+        _WITHIN_THE_NOISE_OF_ITS_OWN_STEPS * _what_the_series_resolves(quiet)
     )
 
     return baseline + deviations * spread
+
+
+def _what_the_series_resolves(quiet: Sequence[float]) -> float:
+    """The finest difference these readings actually distinguish.
+
+    The smallest gap between two distinct values. A rate sampled over two
+    hundred requests moves in half-percent steps whatever it reports its volume
+    as, and this is what says so. Continuous enough series answer with the
+    millisecond they are rounded to, which floors nothing.
+
+    Asked of the quiet stretch rather than of the whole window, because a
+    smallest gap is only a quantisation step among readings that are all
+    ordinary. Across a whole window the two nearest distinct values may be the
+    calm level and the incident's, and a floor built from that measures the
+    fault and then hides it.
+
+    Zero where every reading is identical, which is right: a series that never
+    moved offers no evidence about how far it moves, and the other two floors
+    are what stand in for that.
+    """
+    distinct = sorted(set(quiet))
+    gaps = [later - earlier for earlier, later in zip(distinct, distinct[1:], strict=False)]
+
+    return min(gaps) if gaps else 0.0
 
 
 def _the_quietest_minutes(values: Sequence[float]) -> list[float]:
@@ -496,19 +624,44 @@ def _opening_length(window_length: int) -> int:
     )
 
 
+def _how_far_the_quiet_minutes_range(quiet: Sequence[float],
+                                     _baseline: float) -> float:
+    """The distance from the quietest minute to the least quiet one.
+
+    Two-sided, which a quantile taken inside the lowest half cannot be, and
+    safe from the incident, which is not in that half by construction.
+    """
+    return max(quiet) - min(quiet)
+
+
+def _how_far_the_opening_climbs(opening: Sequence[float],
+                                baseline: float) -> float:
+    """How far the opening's worst minutes sit above its median.
+
+    Not its range, because these minutes are consecutive rather than selected:
+    an opening that is already rising has a range equal to its own slope, and a
+    bar built from that grows with the climb it exists to date - which is how a
+    ramp filling the whole window came to report a confident start in the middle
+    of itself.
+    """
+    return _quantile(opening, _QUIET_SPREAD_QUANTILE) - baseline
+
+
 # What is unusual for this service, and what this window looked like when it
 # began. Neither is discarded in favour of the other: the first is what tells an
 # older resolved departure from the current one, the second is the only one that
 # can see a climb.
 _THE_QUIETEST_MINUTES = _CalmStretch(
     minutes=_the_quietest_minutes,
-    minimum_spread_as_fraction_of_baseline=_MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE
+    minimum_spread_as_fraction_of_baseline=_MINIMUM_SPREAD_AS_FRACTION_OF_BASELINE,
+    spread=_how_far_the_quiet_minutes_range
 )
 _THE_WINDOWS_OPENING = _CalmStretch(
     minutes=_the_windows_opening,
     minimum_spread_as_fraction_of_baseline=(
         _MINIMUM_OPENING_SPREAD_AS_FRACTION_OF_BASELINE
-    )
+    ),
+    spread=_how_far_the_opening_climbs
 )
 
 

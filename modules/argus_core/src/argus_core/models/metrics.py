@@ -21,6 +21,16 @@ class MetricBucket(BaseModel):
     describing a configuration in force rather than a quantity accumulated - so
     a minute containing a restart reports the new process.
 
+    `p99_ms` is the slowest one request in a hundred, and it is required where
+    `cache_hit_ratio` below is not. The difference is what an absence would
+    mean: a deployment consulting no cache genuinely has no hit ratio, where no
+    deployment lacks a tail - so a missing `p99_ms` would be a measurement that
+    went astray rather than a fact about the service, and nothing should be
+    invited to read it as one. It is carried beside the other two quantiles
+    rather than derived from them, because a fault reaching a few requests in a
+    hundred moves it and moves neither of them, which is the only reason to
+    report a third quantile at all.
+
     `cache_hit_ratio` is the share of the minute's lookups a cache answered,
     and it is a ratio where memory is a pair - unlike a limit there is no
     threshold whose crossing anybody forecasts, so what a reader asks of it is
@@ -41,6 +51,7 @@ class MetricBucket(BaseModel):
     error_rate: float
     p50_ms: int
     p95_ms: int
+    p99_ms: int
     request_volume: int
     memory_used_bytes: int
     memory_limit_bytes: int | None = None

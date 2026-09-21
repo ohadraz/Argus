@@ -26,7 +26,7 @@ pattern. See "A note on the name" below.
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** `resource-leak` is the leak half of FM-13; demand saturation is not built |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
-| Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | No |
+| Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Partly.** `slow-canary-rollout` is FM-06: diagnosed and mitigated by putting the flag back. In-flight compatibility is not built |
 | AI-specific | 2% | Output-quality degradation (FM-17), accelerator heterogeneity (FM-33) | No |
 | External/adversarial | 1% | External attack (FM-15), supply-chain breach (FM-16) | No, and out of scope |
 
@@ -82,13 +82,45 @@ before it returns, which is the mistake a system without the distinction makes.
 
 In order of share, minus what is out of scope for a demo:
 
-1. **FM-06 Aggregate-masked tail degradation** (3%, but cheap here). The p99
-   moves while the average does not. Argus reads p50 and p95 already, and this
-   is the scenario that says whether reading them is enough.
-2. **FM-23 Hidden internal coupling** (the rest of propagation's 28%). The
+1. **FM-23 Hidden internal coupling** (the rest of propagation's 28%). The
    half of that family FM-01 does not cover: the dependency is one of your own
    services, nobody remembered it was on the path, and the correct response is
    neither escalate-and-wait nor revert.
+2. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
+   3%). A deploy that is correct on both sides of itself and wrong for the
+   requests that span it.
+
+**FM-06 Aggregate-masked tail degradation is built.** `slow-canary-rollout`
+stages the account page's newest figure going out to three percent of traffic,
+computed by a walk of the shopper's purchase history once per item. The pages
+are correct, so the error rate never moves; ninety-seven requests in a hundred
+are untouched, so neither does the median; and three in a hundred is below the
+95th percentile by arithmetic, so neither does the tail a monitoring stack
+watches. The incident exists in the 99th percentile and nowhere else.
+
+It answers the question the entry used to ask - whether reading p50 and p95 is
+enough - with no. So `p99_ms` joined the metric bucket and became the fifth
+series the detector judges departure and recovery on, beside the error rate, the
+median, the p95 and the heap. Without it the walk never starts, because there is
+no onset to start it.
+
+Two things it added beyond the scenario. The on-call provider learned to read
+the tail: an incident below the p95 and below the error rate bounded to no
+minutes at all, so the provider held nothing and every figure counted from
+person-minutes was counted over a night nobody was woken for. And the Target
+Service gained its first cohort that is an exact count of a minute's sample
+rather than a per-request draw - at three in a hundred of two hundred requests a
+binomial draw shows the incident in the p95 or hides it from the p99 about one
+minute in twenty-five, and a scenario whose whole claim is that the p95 never
+sees this cannot be wrong about it that often.
+
+It is the mirror of the cache misconfiguration, deliberately, and both are built
+from the same mixture of a cached path and a recomputed one. That incident hides
+*in* the tail, because the tail already described a slow request. This one hides
+*behind* it, because it never reaches that far down the distribution. It is also
+the one generated scenario that is resolved as well as mitigated: what ends it
+is a flag going back, and nothing is left in a heap or a values file for a new
+process or a re-sync to bring back.
 
 **FM-10 Config-induced failure is built.** `config-induced-failure` stages a
 deploy that moves the cache's port in `deploy/values-production.yaml`: every

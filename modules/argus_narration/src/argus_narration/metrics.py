@@ -47,6 +47,11 @@ class BucketRow(BaseModel):
     error_rate: float
     p50_ms: int
     p95_ms: int
+    # The slowest one request in a hundred. Shown beside the other two rather
+    # than left off as a detail, because it is the only column an incident
+    # reaching a few requests in a hundred appears in - a table without it
+    # would show a reader four flat series and no reason anybody was paged.
+    p99_ms: int
     request_volume: int
     # What the service's memory was doing, already in the units a person reads
     # it in. A byte count is the wrong thing to put in a table a reader scans
@@ -64,6 +69,7 @@ def a_bucket_row(bucket: MetricBucket) -> BucketRow:
         error_rate=bucket.error_rate,
         p50_ms=bucket.p50_ms,
         p95_ms=bucket.p95_ms,
+        p99_ms=bucket.p99_ms,
         request_volume=bucket.request_volume,
         memory=_memory_said(bucket.memory_used_bytes, bucket.memory_limit_bytes),
         elevated=bucket.error_rate >= _ELEVATED_ERROR_RATE

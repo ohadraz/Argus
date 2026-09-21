@@ -96,6 +96,7 @@ def test_a_minutes_numbers_are_the_ones_that_were_measured() -> None:
         error_rate=0.31,
         p50_ms=120,
         p95_ms=240,
+        p99_ms=420,
         request_volume=200,
         memory_used_bytes=440 * A_MEGABYTE,
         process_start_time_seconds=DONT_CARE_STARTED_AT
@@ -163,6 +164,7 @@ def _a_bucket(error_rate: float = 0.01,
         error_rate=error_rate,
         p50_ms=120,
         p95_ms=240,
+        p99_ms=420,
         request_volume=200,
         memory_used_bytes=memory_used_bytes,
         memory_limit_bytes=memory_limit_bytes,
@@ -227,9 +229,11 @@ def _it_reports_what_was_measured(measured: MetricBucket) -> Assertion[BucketRow
     first figure to differ would send a reader looking for the wrong mistake.
     """
     def assertion(row: BucketRow) -> bool:
-        reported = (row.error_rate, row.p50_ms, row.p95_ms, row.request_volume)
+        reported = (row.error_rate, row.p50_ms, row.p95_ms, row.p99_ms,
+                    row.request_volume)
         expected = (
-            measured.error_rate, measured.p50_ms, measured.p95_ms, measured.request_volume
+            measured.error_rate, measured.p50_ms, measured.p95_ms, measured.p99_ms,
+            measured.request_volume
         )
 
         if reported != expected:

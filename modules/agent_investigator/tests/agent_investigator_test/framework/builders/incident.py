@@ -18,6 +18,8 @@ CALM_MINUTES = 10
 CALM_ERROR_RATE = 0.01
 CALM_P50_MS = 80
 CALM_P95_MS = 200
+CALM_P99_MS = 350
+
 DONT_CARE_REQUEST_VOLUME = 1000
 # Flat across every window here: these incidents are about the error rate, and
 # a leak is the one shape none of them stages.
@@ -63,6 +65,7 @@ def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
             error_rate=error_rate,
             p50_ms=CALM_P50_MS,
             p95_ms=CALM_P95_MS,
+            p99_ms=CALM_P99_MS,
             request_volume=DONT_CARE_REQUEST_VOLUME,
             memory_used_bytes=CALM_MEMORY_BYTES,
             process_start_time_seconds=DONT_CARE_STARTED_AT

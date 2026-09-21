@@ -22,6 +22,7 @@ def a_bucket(**overrides: object) -> MetricBucket:
         "error_rate": 0.01,
         "p50_ms": 25,
         "p95_ms": 185,
+        "p99_ms": 200,
         "request_volume": 1200,
         "memory_used_bytes": 461_373_440,
         "memory_limit_bytes": 2_147_483_648,

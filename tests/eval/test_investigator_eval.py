@@ -84,6 +84,7 @@ CALM_ERROR_RATE = 0.01
 SPIKED_ERROR_RATE = 0.38
 CALM_P50_MS = 45
 CALM_P95_MS = 220
+CALM_P99_MS = 380
 CALM_MEMORY_BYTES = 440 * 1024**2
 MEMORY_LIMIT_BYTES = 2 * 1024**3
 DONT_CARE_STARTED_AT = 1_756_000_000.0
@@ -370,12 +371,14 @@ def a_bucket_at(offset_minutes: int,
                 error_rate: float,
                 p50_ms: int = CALM_P50_MS,
                 p95_ms: int = CALM_P95_MS,
+                p99_ms: int = CALM_P99_MS,
                 memory_used_bytes: int = CALM_MEMORY_BYTES) -> MetricBucket:
     return MetricBucket(
         bucket_id=_minute(offset_minutes),
         error_rate=error_rate,
         p50_ms=p50_ms,
         p95_ms=p95_ms,
+        p99_ms=p99_ms,
         request_volume=1200,
         memory_used_bytes=memory_used_bytes,
         memory_limit_bytes=MEMORY_LIMIT_BYTES,

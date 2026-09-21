@@ -58,6 +58,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_RESOURCE_LEAK,
+    RECORDED_SLOW_CANARY_ROLLOUT,
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
     THE_SERVICE_NAME,
     stored_as,
@@ -139,6 +140,13 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
     # alert would be answering a question this scenario never asks, and what the
     # two latency cases are told apart by is the evidence rather than the page.
     _Recording(RECORDED_CACHE_MISCONFIGURED, "cache-misconfigured", "HighLatency"),
+    # The mirror of the one above: that incident hides in the tail, this one
+    # behind it. Its alert is latency too, and for the same reason - nothing
+    # fails here either - but the summary names the percentile, because a rule
+    # written against p95 would never fire on this at all.
+    _Recording(
+        RECORDED_SLOW_CANARY_ROLLOUT, "slow-canary-rollout", "HighLatency"
+    ),
     _Recording(RECORDED_ABSENCE_OF_EVIDENCE, None, "HighErrorRate")
 )
 

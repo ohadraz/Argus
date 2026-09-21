@@ -1,0 +1,36 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01AZabNkf6LmHWRjHtCHtDcx",
+      "input": {},
+      "name": "list_repository_files",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_011CfGmv1s7nF4i9tzj35WkX",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 182
+    },
+    "cache_creation_input_tokens": 182,
+    "cache_read_input_tokens": 2117,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 29,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard"
+  }
+}

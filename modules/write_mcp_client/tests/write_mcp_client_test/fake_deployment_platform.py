@@ -178,6 +178,7 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
             "error_rate": 0.01,
             "p50_ms": 80,
             "p95_ms": 200,
+            "p99_ms": 350,
             "request_volume": 1000,
             "memory_used_bytes": 440 * 1024**2,
             "memory_limit_bytes": None,
