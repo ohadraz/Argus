@@ -24,7 +24,30 @@ class ModelDidNotAnswer(Exception):
     vendor's. What a caller does about a refusal is the same decision whoever
     answered, and a caller that had to import an adapter to name the failure
     it handles would know which vendor it was talking to.
+
+    Carries what the attempt was billed, because not answering is not the same
+    as being free. A refusal is a complete response and charged as one; a turn
+    cut short generated to its cap before it was stopped, so its output is
+    produced and billed in full. A caller that retried on either without
+    charging for it would have a loop no bound could see - the one count that
+    would notice is the one that never moves.
+
+    Said as a `Turn` with nothing in it rather than as a second shape for
+    spend. That is what happened - tokens went, nothing came back - and it
+    means whoever is keeping a budget charges this the way it charges an
+    answer, with one arithmetic rather than two to keep in agreement. The
+    empty `tool_calls` is a fact too: an attempt that carried nothing asked
+    for nothing, and a call count that moved would bound the wrong thing.
+
+    Free by default, because most of these are raised by code with no usage to
+    hand - a double, a test, an adapter that failed before the model answered.
     """
+
+    def __init__(self, message: str, billed: Turn | None = None) -> None:
+        super().__init__(message)
+        self.billed = billed if billed is not None else Turn(
+            text="", tool_calls=[], input_tokens=0, output_tokens=0
+        )
 
 
 class ModelRefused(ModelDidNotAnswer):
@@ -40,13 +63,17 @@ class AnswerTruncated(ModelDidNotAnswer):
     """The model ran out of output room before finishing.
 
     Separate from the others because nothing is wrong with the model or the
-    request - there was simply not enough room. This is the one failure here
-    that a retry, with more room, can actually resolve.
+    request - there was simply not enough room. It is the one failure here
+    that more room would resolve, which is not the same as one a retry
+    resolves: asking again through a seam that carries no larger bound puts
+    the identical request, and differs from the first attempt only by
+    resampling. A caller with no way to offer more room has nothing to buy.
 
-    Whether that retry is worth buying is the caller's call, not an adapter's:
-    a retry costs tokens, and only the thing holding the budget knows whether
-    there are any left. Raised rather than returned so that deciding is not
-    something a caller can forget to do.
+    What to do about it is still the caller's call, not an adapter's - and
+    the call costs something either way, which is why this carries what the
+    attempt was billed. A turn stopped at its cap generated every token of
+    that cap before it was stopped. Raised rather than returned so that
+    deciding is not something a caller can forget to do.
     """
 
 

@@ -13,6 +13,7 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 from agent_investigator import Findings, Reading, investigate
+from agent_investigator.budget import Budget
 from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from argus_core import new_id, parse_iso
 from argus_core.events import (
@@ -40,7 +41,6 @@ from argus_testkit import Assertion, Kept, Scenario, all_of, calling
 
 from agent_investigator_test.framework.builders.budget import (
     a_budget,
-    a_clock_that_runs_out_after,
     a_clock_that_runs_out_after_one_look,
 )
 from agent_investigator_test.framework.builders.configuration import (
@@ -467,47 +467,21 @@ def test_the_model_is_told_when_one_turn_is_all_that_is_left() -> None:
 
 
 @pytest.mark.unit
-def test_a_turn_cut_short_is_asked_again_when_there_is_budget_for_it() -> None:
-    # Nothing is wrong with the model or the request - there was not enough
-    # room - so the investigation is not over, and everything already read is
-    # still worth an answer. The type says a retry can help; only the loop
-    # knows whether there is anything left to buy one with.
-    some_answer = "the payments flag was switched on at 11:10"
-    once_for_ask_and_once_for_retry = 2
-    investigation = an_investigation(
-        a_model_that_says(
-            a_turn_that_was_cut_short(),
-            a_turn_answering(an_explanation(summary=some_answer))
-        )
-    )
-
-    Scenario() \
-        .given(
-            calling(investigation.metrics_showed(a_window_that_starts_calm()))
-        ) \
-        .when(
-            lambda: investigation.investigate()
-        ) \
-        .then(
-            all_of(
-                _the_candidates_say(some_answer),
-                _the_model_was_asked(investigation.model, times=once_for_ask_and_once_for_retry)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_turn_cut_short_escalates_when_there_is_no_budget_to_ask_again() -> None:
-    # The other half of the same contract, and the reason it is a test rather
-    # than a type: an exception can always be swallowed, and a loop that
-    # retried regardless of the budget would pass the test above and spend for
-    # ever here. The summary says both things - it was cut short, and which
-    # bound left no room to try again.
+def test_a_turn_cut_short_ends_the_investigation_rather_than_being_asked_again() -> None:
+    # Asking again would be asking the same question. The transcript is
+    # unchanged by a turn that carried nothing, and the seam a loop holds has
+    # no room to give - so a second attempt differs from the first only by
+    # resampling, while reliably spending another whole cap of output to find
+    # that out. Two of these tests used to live here, one for a retry and one
+    # for the bound that eventually stopped the retrying; with nothing being
+    # retried there is one outcome to state.
+    #
+    # Whatever the budget has left is deliberately not part of this. A retry
+    # this loop cannot make cheaper is not one the budget should be consulted
+    # about, and an escalation that named a bound would tell a human the
+    # investigation was too expensive when it was not.
     once_and_never_asked_again = 1
-    investigation = an_investigation(
-        a_model_that_says(a_turn_that_was_cut_short()),
-        budget=a_budget(now=a_clock_that_runs_out_after_one_look())
-    )
+    investigation = an_investigation(a_model_that_is_always_cut_short())
 
     Scenario() \
         .given(
@@ -519,37 +493,9 @@ def test_a_turn_cut_short_escalates_when_there_is_no_budget_to_ask_again() -> No
         .then(
             all_of(
                 _no_cause_was_determined(),
-                _the_summary_mentions(THE_ANSWER_WAS_CUT_SHORT, THE_TIME_BOUND),
+                _the_summary_mentions(THE_ANSWER_WAS_CUT_SHORT),
+                _the_summary_avoids(THE_TIME_BOUND),
                 _the_model_was_asked(investigation.model, times=once_and_never_asked_again)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_model_that_is_cut_short_every_turn_is_still_ended_by_the_clock() -> None:
-    # A retry spent on another truncated turn buys nothing, and nothing
-    # charges it for the attempt: a turn that produced no turn adds no tool
-    # calls and no tokens. The clock is the only bound that still moves, so it
-    # is the only thing that can end this - and it has to, or an investigation
-    # meeting a model in this state never finishes at all.
-    three_turns = 3
-    investigation = an_investigation(
-        a_model_that_is_always_cut_short(),
-        budget=a_budget(now=a_clock_that_runs_out_after(looks=three_turns))
-    )
-
-    Scenario() \
-        .given(
-            calling(investigation.metrics_showed(a_window_that_starts_calm()))
-        ) \
-        .when(
-            lambda: investigation.investigate()
-        ) \
-        .then(
-            all_of(
-                _no_cause_was_determined(),
-                _the_summary_mentions(THE_ANSWER_WAS_CUT_SHORT, THE_TIME_BOUND),
-                _the_model_was_asked(investigation.model, times=three_turns)
             )
         )
 
@@ -651,6 +597,54 @@ def test_the_minutes_are_carried_as_rows_rather_than_as_an_object_each() -> None
                 )
             )
         )
+
+
+@pytest.mark.unit
+def test_a_turn_cut_short_is_charged_for_what_it_generated() -> None:
+    # It carried nothing and it was billed in full: running out of room means
+    # the model generated to the cap and was stopped there. A loop that
+    # retried without charging for it would be an unmanaged loop however many
+    # bounds it checked afterwards - the bound that could see the spend is the
+    # one that never moves.
+    some_truncated_output = 16_000
+    some_budget = a_budget()
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_that_was_cut_short(output_tokens=some_truncated_output),
+            a_turn_answering(an_explanation())
+        ),
+        budget=some_budget
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_tokens_charged_were(some_budget, some_truncated_output)
+        )
+
+
+def _the_tokens_charged_were(budget: Budget, tokens: int) -> Assertion[Findings]:
+    """What the investigation was charged, as a figure.
+
+    Read off the budget rather than inferred from whether a bound bound: a
+    test that moved a ceiling until the loop stopped would pass on a turn
+    charged twice as readily as on one charged once, and would report neither.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        charged = budget.tokens_spent()
+        if charged != tokens:
+            raise AssertionError(
+                f"Expected [{tokens}] tokens to have been charged, got [{charged}]."
+            )
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.unit
@@ -856,6 +850,27 @@ def _the_summary_mentions(*expected: str) -> Assertion[Findings]:
         missing = [mention for mention in expected if mention.lower() not in summary]
         if missing:
             raise AssertionError(f"Expected the summary to mention {missing}, got [{summary}].")
+
+        return True
+
+    return assertion
+
+
+def _the_summary_avoids(*forbidden: str) -> Assertion[Findings]:
+    """What an escalation must not blame.
+
+    The counterpart to the assertion above, and needed because the failure it
+    guards reads perfectly well. An outcome reported through the
+    out-of-budget sentence when no bound was reached tells a human the
+    investigation was too expensive, which is a different incident from the
+    one they have - and it arrives with the bound's own name missing from the
+    middle of the sentence, where nothing thinks to look.
+    """
+    def assertion(findings: Findings) -> bool:
+        summary = findings.candidates[0].summary.lower()
+        blamed = [mention for mention in forbidden if mention.lower() in summary]
+        if blamed:
+            raise AssertionError(f"Expected the summary not to blame {blamed}, got [{summary}].")
 
         return True
 

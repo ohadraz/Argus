@@ -102,13 +102,21 @@ MAX_TOKENS = 16000
 # would be a second opinion about a third party rather than a check on this one.
 EPHEMERAL_CACHE: Final = CacheControlEphemeralParam(type="ephemeral")
 
+# Named for the field rather than left as bare keys, like the vocabulary
+# above: these are Anthropic's spellings of how a turn ended, and a test
+# restating one would be a second opinion about a third party. `Final` for the
+# same reason as the rest - the SDK types `stop_reason` as a `Literal`.
+REFUSAL_STOP_REASON: Final = "refusal"
+TRUNCATED_STOP_REASON: Final = "max_tokens"
+PAUSED_STOP_REASON: Final = "pause_turn"
+
 # The stop reasons that mean the model did not finish its turn. Each is its own
 # type because they differ in what to do next; anything not listed is a turn
 # that ended normally and is read as one.
 _STOP_REASON_ERRORS: dict[str, type[ModelDidNotAnswer]] = {
-    "refusal": ModelRefused,
-    "max_tokens": AnswerTruncated,
-    "pause_turn": TurnPaused,
+    REFUSAL_STOP_REASON: ModelRefused,
+    TRUNCATED_STOP_REASON: AnswerTruncated,
+    PAUSED_STOP_REASON: TurnPaused,
 }
 
 
@@ -175,6 +183,32 @@ def to_turn(message: Message) -> Turn:
         # measured zero rather than an absence a caller should have to decide
         # about. `input_tokens` is only the uncached remainder once either is
         # non-zero, which is why all three travel together or not at all.
+        cache_read_tokens=message.usage.cache_read_input_tokens or 0,
+        cache_write_tokens=message.usage.cache_creation_input_tokens or 0
+    )
+
+
+def _what_it_cost(message: Message) -> Turn:
+    """What an attempt was billed, with nothing to show for it.
+
+    A `Turn` rather than a second shape for spend, so that whoever keeps a
+    budget charges this the way it charges an answer - one arithmetic over the
+    four counts instead of two to keep in agreement. Empty of content on
+    purpose: the part the model managed to write is not an answer and nothing
+    should be able to mistake it for one, while what it cost is a fact the
+    caller has to have. No tool calls for the same reason - an attempt that
+    carried nothing asked for nothing, and a call count that moved here would
+    bound the wrong thing.
+
+    Read off the same four fields `to_turn` reads, and deliberately not by
+    calling it: that builds a turn out of the content, which is exactly what
+    this one must not carry.
+    """
+    return Turn(
+        text="",
+        tool_calls=[],
+        input_tokens=message.usage.input_tokens,
+        output_tokens=message.usage.output_tokens,
         cache_read_tokens=message.usage.cache_read_input_tokens or 0,
         cache_write_tokens=message.usage.cache_creation_input_tokens or 0
     )
@@ -358,8 +392,14 @@ class AnthropicLLMClient:
 
         error_type = _STOP_REASON_ERRORS.get(answer.stop_reason or "")
         if error_type is not None:
+            # Billed before it is raised, because this is the only place the
+            # counts exist. The API reports them on a response this method
+            # then declines to return, so a failure raised without them takes
+            # what the attempt cost with it - and a turn stopped at its cap
+            # cost a whole cap of output.
             raise error_type(
-                f"the model did not complete its turn (stop_reason={answer.stop_reason})"
+                f"the model did not complete its turn (stop_reason={answer.stop_reason})",
+                billed=_what_it_cost(answer)
             )
 
         return to_turn(answer)

@@ -280,19 +280,22 @@ def investigate(
     while True:
         try:
             turn = speak(transcript, tools)
-        except AnswerTruncated:
-            # Recoverable, and the loop is the only one that can say whether
-            # recovering is affordable: the turn carried nothing, so nothing
-            # was charged for it and the transcript is unchanged - asking
-            # again is asking the same question, not continuing a broken one.
-            reached = spend.bounds_reached()
-            if reached:
-                return _ran_out(
-                    alert, incident_id, metric_buckets, reached, dispatcher, narrator,
-                    cut_short=True
-                )
+        except AnswerTruncated as cut_short:
+            # Charged before anything else, because running out of room means
+            # the model generated to its cap and was stopped there: the turn
+            # carried nothing back and was billed in full for it.
+            #
+            # Then ended, rather than asked again. A retry here would put the
+            # same question to the same evidence - the transcript is
+            # unchanged by a turn that carried nothing - through a seam that
+            # has no more room to offer it, so it differs from the first
+            # attempt only by resampling, and reliably spends another whole
+            # cap of output to discover that. When the seam can carry a
+            # larger bound, a retry becomes a thing with a mechanism behind
+            # it and this is where it goes back.
+            spend.record(cut_short.billed)
 
-            continue
+            return _cut_short(alert, incident_id, metric_buckets, dispatcher, narrator)
         except ModelRefused:
             return _declined(alert, incident_id, metric_buckets, dispatcher, narrator)
 
@@ -426,8 +429,7 @@ def _ran_out(alert: Alert,
              metric_buckets: list[MetricBucket],
              reached: list[Bound],
              dispatcher: Dispatcher,
-             narrator: Narrator,
-             cut_short: bool = False) -> Findings:
+             narrator: Narrator) -> Findings:
     """The outcome when the budget bound before the model answered.
 
     Every bound that ran out is named, not the first noticed: two bounds
@@ -435,19 +437,50 @@ def _ran_out(alert: Alert,
     which one a human hears about should not depend on the order the checks
     happen to be written in.
 
-    `cut_short` says the last turn was one the model never finished. It is
-    worth saying because it reads as a different failure: the investigation
-    was not merely out of budget, it was out of budget at the one moment more
-    of it would have bought a finished answer.
+    Only ever reached with a bound in hand. A turn the model never finished
+    has its own ending below, because it is not a question of affordability
+    and a sentence built from the bounds reached would have an empty space
+    where the reason belongs.
     """
     spent = ", ".join(bound.value for bound in reached)
-    ended = (
-        f"the model's last turn was cut short and the investigation ran out of {spent} "
-        f"before it could be asked again"
-        if cut_short
-        else f"the investigation ran out of {spent} before it identified one"
-    )
+    ended = f"the investigation ran out of {spent} before it identified one"
     undetermined = _undetermined(alert, incident_id, ended, metric_buckets)
+    _say_formed(narrator, undetermined)
+    narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
+
+    return Findings(candidates=[undetermined], already_read=dispatcher.readings)
+
+
+def _cut_short(alert: Alert,
+               incident_id: str,
+               metric_buckets: list[MetricBucket],
+               dispatcher: Dispatcher,
+               narrator: Narrator) -> Findings:
+    """The outcome when the model's turn ran out of room before it finished.
+
+    Its own ending rather than a flag on the out-of-budget one, because it is
+    a different account of the same silence: nothing here was too expensive.
+    Told that an investigation ran out of budget, a human buys it more and
+    gets the identical turn cut off at the identical place.
+
+    Final in the same way a refusal is, and for a related reason. The
+    transcript is unchanged by a turn that carried nothing, so a second
+    attempt puts the same question to the same evidence; and the seam a loop
+    holds carries no larger bound to put it with. What separates the two is
+    that a refusal would still be a refusal with more room, and this would
+    not - so this is the one that comes back when the seam can say how much
+    room to use.
+
+    What was read still comes back, as it does from every other ending here: a
+    later round should not pay to read it again on the way to a human.
+    """
+    undetermined = _undetermined(
+        alert,
+        incident_id,
+        "the model's turn was cut short before it finished, and asking again "
+        "would put the same question with no more room to answer it",
+        metric_buckets
+    )
     _say_formed(narrator, undetermined)
     narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
 

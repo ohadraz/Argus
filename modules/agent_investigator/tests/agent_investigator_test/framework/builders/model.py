@@ -161,14 +161,29 @@ def a_turn_answering(*explanations: dict[str, Any],
     )
 
 
-def a_turn_that_was_cut_short() -> AnswerTruncated:
+def a_turn_that_was_cut_short(output_tokens: int = NO_TOKENS,
+                              input_tokens: int = NO_TOKENS) -> AnswerTruncated:
     """A turn that ran out of room before the model finished it.
 
     The one failure a retry can actually fix - nothing is wrong with the model
     or the request, there was simply not enough space - which is why the loop
     is allowed to buy another turn with budget it has left.
+
+    Costed, because a cut-short turn is the one failure that is billed in
+    full: running out of room means the model generated to the cap and was
+    stopped there, so the tokens were produced and charged for even though
+    nothing usable came back. Zero by default, as every other turn here is, so
+    that only a test about what a retry costs has to say a figure.
     """
-    return AnswerTruncated("the model ran out of room before finishing its turn")
+    return AnswerTruncated(
+        "the model ran out of room before finishing its turn",
+        billed=Turn(
+            text="",
+            tool_calls=[],
+            input_tokens=input_tokens,
+            output_tokens=output_tokens
+        )
+    )
 
 
 def a_turn_the_model_declined() -> ModelRefused:
