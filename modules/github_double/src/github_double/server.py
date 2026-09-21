@@ -153,12 +153,12 @@ def download_the_archive(owner: str, repo: str, ref: str) -> Response:
 
 @app.get("/repos/{owner}/{repo}/commits/{ref:path}")
 def read_the_commit_a_ref_points_at(owner: str, repo: str, ref: str) -> JSONResponse:
-    """Where a ref points, as the reconciler asks it.
+    """Where a ref points, as the catch-up pass asks it.
 
     The commits API rather than the git-data one two endpoints below, and they
     are not interchangeable: that one takes a commit id and answers its tree,
     this one takes anything nameable - `heads/main`, a tag, a sha - and answers
-    which commit it is. A reconciler with no push on record asks this, so a
+    which commit it is. A catch-up pass with no push on record asks this, so a
     double without it leaves the index unbuildable for exactly the deployment
     that has no webhook.
 
@@ -186,7 +186,7 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
     """What changed between two commits - the index's question, not a fix's.
 
     The one endpoint here that exists for `code_index` rather than for Code-Fix.
-    A reconciler with an index already asks what moved since the commit it was
+    A catch-up pass with an index already asks what moved since the commit it was
     built from and reconsiders only that, so without this the incremental half
     of spec §11 can never run against a stack - every pass would either backfill
     or fail, and a suite that pushed would be asserting a gap nothing closes.

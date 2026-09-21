@@ -90,7 +90,7 @@ Bringing the index up to that commit SHALL happen away from any incident's path.
 
 #### Scenario: Only what changed is re-indexed
 - **GIVEN** a verified push that added, modified or removed four files
-- **WHEN** the index is reconciled
+- **WHEN** the index is caught up
 - **THEN** the chunks for those paths are replaced and the rest of the index is
   left alone
 
@@ -114,7 +114,7 @@ commit rather than replaying each in turn.
 
 #### Scenario: Three pushes leave one target
 - **GIVEN** three pushes arrive before the index is brought up
-- **WHEN** the index is reconciled
+- **WHEN** the index is caught up
 - **THEN** it indexes the third commit and does not index the first two
 
 #### Scenario: A lost notification is not lost work

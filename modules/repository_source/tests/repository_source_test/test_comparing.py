@@ -1,6 +1,6 @@
 """What changed between two commits, as paths (spec §11).
 
-The question a reconciler asks so it does not have to consider a repository
+The question a catch-up pass asks so it does not have to consider a repository
 entire. Everything unchanged is already in the index under an id derived from
 what it says, so a full pass embeds nothing it has seen before - but it still
 asks the store, once per file, whether it holds it. At forty files that is
@@ -157,7 +157,7 @@ def test_a_comparison_too_large_to_list_says_it_cannot_say() -> None:
 
 @pytest.mark.unit
 def test_a_comparison_that_could_not_be_made_raises() -> None:
-    # Not an empty list. "Nothing changed" would have the reconciler record
+    # Not an empty list. "Nothing changed" would have the catch-up pass record
     # the index as current over passages nobody updated, which is the one
     # outcome the watermark exists to prevent.
     refused = create_autospec(httpx.get)

@@ -1,10 +1,10 @@
 """Where a branch currently points (spec §11).
 
-What the reconciler asks when nothing has told it anything. A push webhook
+What the catch-up pass asks when nothing has told it anything. A push webhook
 records where the repository went, but a deployment that has never received a
 delivery - no tunnel, a webhook nobody configured, a secret that does not match
 - has no record at all, and an index that waited to be told would then never be
-built. Asking is what makes the reconciler level-triggered rather than
+built. Asking is what makes the catch-up pass level-triggered rather than
 edge-triggered wearing a reconciler's name.
 
 One call, one string. It is deliberately not a way to read anything: the
@@ -66,7 +66,7 @@ def test_a_branch_is_asked_for_as_a_branch_and_not_as_a_name() -> None:
 def test_a_branch_that_could_not_be_read_is_refused_rather_than_answered() -> None:
     # Nothing sensible is available to answer instead. An empty string would
     # be compared against the indexed commit, differ from it, and have the
-    # reconciler try to build an index at a commit that does not exist - every
+    # catch-up pass try to build an index at a commit that does not exist - every
     # pass, forever.
     refused = create_autospec(httpx.get)
     refused.side_effect = httpx.ConnectError("no route to host")

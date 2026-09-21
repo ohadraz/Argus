@@ -1,6 +1,6 @@
 """What changed between two commits, as paths (spec §11).
 
-The question that keeps a reconciler from considering a repository entire.
+The question that keeps a catch-up pass from considering a repository entire.
 Everything unchanged is already in the index under an id derived from what it
 says, so a full pass embeds nothing it has seen before - but it still asks the
 store, once per file, whether it holds it. At forty files that is free; at a
@@ -72,8 +72,8 @@ def paths_changed_between(base: str,
     refuses everywhere else.
 
     Raises `RepositoryUnreadable` when the comparison could not be made, for
-    the reason reading the source does: an empty answer would have a
-    reconciler record the index as current over passages nobody updated.
+    the reason reading the source does: an empty answer would have a catch-up
+    pass record the index as current over passages nobody updated.
     """
     url = (
         f"{settings.github_api_url}/repos/{settings.github_repository}"

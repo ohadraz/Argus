@@ -164,7 +164,7 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[QdrantClient | 
     store to speak of is settled once, by the process, before a graph exists.
 
     Not a `with` around the client itself: `QdrantClient` closes but is not a
-    context manager, which is the same bargain `code_index`'s reconciler makes.
+    context manager, which is the same bargain `code_index`'s catch-up makes.
     """
     if not settings.incident_memory_enabled:
         yield None

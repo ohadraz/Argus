@@ -1,10 +1,10 @@
 """The push that tells Argus its index of the service's source is behind (§11).
 
 The edge in an edge-triggered notification, level-triggered reconciliation
-pair. It records that the repository has moved and does no work of its own: the
-reconciler compares what is recorded here with what the index describes and
-closes the gap, so a delivery that never arrives costs a delay rather than a
-permanently stale index.
+pair. It records that the repository has moved and does no work of its own:
+the catch-up pass compares what is recorded here with what the index describes
+and closes the gap, so a delivery that never arrives costs a delay rather than
+a permanently stale index.
 
 It cannot do the work even if it wanted to. `argus_web` serves HTML without
 installing an agent, and indexing here would put an ONNX runtime and a
@@ -74,8 +74,8 @@ class PushSettings(SettingsSlice):
     github_webhook_secret: str
     # Whether this deployment keeps an index for the row to be about. Where it
     # does not, nothing ever reads what is written here - the read tier
-    # registers no tool to search an index and the reconciler exits before it
-    # opens a store - and a mechanism switched off everywhere but its
+    # registers no tool to search an index and the catch-up pass exits before
+    # it opens a store - and a mechanism switched off everywhere but its
     # bookkeeping is one that leaves rows nobody can account for.
     code_search: CodeSearch
 

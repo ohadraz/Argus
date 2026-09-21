@@ -28,12 +28,12 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from code_index.building import IndexSettings
-from code_index.reconciling import (
+from code_index.catching_up import (
     BranchHead,
     ChangedPaths,
     Indexer,
     IndexRecord,
-    reconcile,
+    catch_up,
 )
 from code_index.records import RepositoryIndex
 from repository_source import RepositoryUnreadable
@@ -62,7 +62,7 @@ def test_an_index_that_has_never_been_built_is_built_whole() -> None:
 
     Scenario() \
         .when(
-            lambda: reconcile(
+            lambda: catch_up(
                 settings=some_settings(),
                 recorded=nothing_recorded(),
                 head_of=a_branch_at(WHAT_IS_DEPLOYED),
@@ -89,7 +89,7 @@ def test_an_index_that_has_fallen_behind_considers_only_what_changed() -> None:
 
     Scenario() \
         .when(
-            lambda: reconcile(
+            lambda: catch_up(
                 settings=some_settings(),
                 recorded=an_index_at(WHAT_IS_INDEXED, pushed=WHAT_IS_DEPLOYED),
                 head_of=a_branch_at(WHAT_IS_DEPLOYED),
@@ -114,7 +114,7 @@ def test_an_index_already_describing_what_is_deployed_is_left_alone() -> None:
 
     Scenario() \
         .when(
-            lambda: reconcile(
+            lambda: catch_up(
                 settings=some_settings(),
                 recorded=an_index_at(WHAT_IS_DEPLOYED, pushed=WHAT_IS_DEPLOYED),
                 head_of=a_branch_at(WHAT_IS_DEPLOYED),
@@ -141,7 +141,7 @@ def test_a_repository_nothing_has_reported_a_push_for_is_asked_where_it_is() -> 
 
     Scenario() \
         .when(
-            lambda: reconcile(
+            lambda: catch_up(
                 settings=some_settings(),
                 recorded=an_index_at(WHAT_IS_INDEXED, pushed=None),
                 head_of=branch,
@@ -166,7 +166,7 @@ def test_a_push_that_was_reported_is_not_asked_about_again() -> None:
 
     Scenario() \
         .when(
-            lambda: reconcile(
+            lambda: catch_up(
                 settings=some_settings(),
                 recorded=an_index_at(WHAT_IS_INDEXED, pushed=WHAT_IS_DEPLOYED),
                 head_of=branch,
@@ -187,7 +187,7 @@ def test_a_comparison_that_cannot_say_has_the_whole_repository_considered() -> N
 
     Scenario() \
         .when(
-            lambda: reconcile(
+            lambda: catch_up(
                 settings=some_settings(),
                 recorded=an_index_at(WHAT_IS_INDEXED, pushed=WHAT_IS_DEPLOYED),
                 head_of=a_branch_at(WHAT_IS_DEPLOYED),
@@ -210,7 +210,7 @@ def test_a_pass_that_failed_leaves_the_work_where_it_was() -> None:
     Scenario() \
         .when(
             attempting(
-                lambda: reconcile(
+                lambda: catch_up(
                     settings=some_settings(),
                     recorded=an_index_at(WHAT_IS_INDEXED, pushed=WHAT_IS_DEPLOYED),
                     head_of=a_branch_at(WHAT_IS_DEPLOYED),

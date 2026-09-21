@@ -1,9 +1,9 @@
 """Whether the index describes the code that is deployed.
 
-The question every other part of this module asks first. The reconciler asks it
-to find out whether there is work; retrieval asks it to find out whether an
-answer needs a warning on it; Code-Fix asks it to find out what to tell the
-model before it reads a single passage.
+The question every other part of this module asks first. The catch-up pass
+asks it to find out whether there is work; retrieval asks it to find out
+whether an answer needs a warning on it; Code-Fix asks it to find out what to
+tell the model before it reads a single passage.
 
 A comparison rather than a stored verdict, which is the whole reason nothing
 here needs a retry counter or a queue of unprocessed notifications. Two strings

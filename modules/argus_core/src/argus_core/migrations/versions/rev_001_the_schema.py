@@ -363,8 +363,8 @@ CREATE TABLE IF NOT EXISTS repository_index (
     indexed_sha TEXT,
     -- The commit the repository is at, as the last push reported it. Null
     -- before anything has reported one, which is the ordinary state of a first
-    -- deployment: the reconciler asks the provider for the deployed branch's
-    -- head rather than waiting to be told.
+    -- deployment: the catch-up pass asks the provider for the deployed
+    -- branch's head rather than waiting to be told.
     --
     -- The difference between this and `indexed_sha` is the whole mechanism -
     -- the work list, the retry and what a reader is told when what it searched

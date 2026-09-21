@@ -79,7 +79,7 @@ def test_every_file_in_the_repository_ends_up_in_the_store(
 def test_a_finished_index_records_the_commit_it_was_built_from(
     store: QdrantClient, records: psycopg.Connection
 ) -> None:
-    # Without this the index is current and cannot say so, and the reconciler
+    # Without this the index is current and cannot say so, and the catch-up pass
     # rebuilds it on every pass forever.
     Scenario() \
         .when(lambda: _indexed(store, records, {SOME_PATH: SOME_SOURCE})) \

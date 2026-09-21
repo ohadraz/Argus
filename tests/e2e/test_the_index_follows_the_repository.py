@@ -3,7 +3,7 @@
 An edge-triggered notification, level-triggered reconciliation pair, and both
 halves are here. `argus_web` verifies the delivery and writes down the commit
 the branch moved to - that and nothing else, because indexing in the process
-that serves a page would install an ONNX runtime to render HTML. The reconciler
+that serves a page would install an ONNX runtime to render HTML. The catch-up pass
 sees the two commits differ and closes the gap.
 
 So the wait in the second assertion is the point rather than an inconvenience:
@@ -12,12 +12,12 @@ work. A delivery that never arrives costs a stale index until the next pass, and
 one that arrives signed by nobody costs nothing at all.
 
 Both cases push a commit that exists and that no branch points at. It has to be
-real, because the reconciler goes and reads it: a fabricated sha would have the
+real, because the catch-up pass goes and reads it: a fabricated sha would have the
 pass fail on a repository that has no such commit, and the case would then be
 asserting the retry rather than the catch-up.
 
 Not collected where this deployment keeps no index. Under `CODE_SEARCH=grep` the
-endpoint records nothing, the reconciler exits before it opens a store, and
+endpoint records nothing, the catch-up pass exits before it opens a store, and
 there is no watermark for a push to move - so the session leaves this file out
 rather than the file skipping itself. A skip is a result, and two of them on
 every run teach a reader to read past the line that will one day say something
@@ -61,7 +61,7 @@ from tests.e2e.framework.argus import (
 PUSH_WEBHOOK_PATH = "/webhooks/github/push"
 
 # A file the fixture repository does not have, inside the scope the deployment
-# indexes - so the comparison the reconciler makes has something in it, and what
+# indexes - so the comparison the catch-up pass makes has something in it, and what
 # it embeds is a passage it has never seen.
 A_FILE_THE_REPOSITORY_DID_NOT_HAVE: Final = "src/io_shop/refunds.py"
 SOME_SOURCE: Final = (
@@ -69,7 +69,7 @@ SOME_SOURCE: Final = (
     "    return sum(line.price_cents for line in order.lines)\n"
 )
 
-# How long the reconciler is given to notice and close the gap. Several of its
+# How long the catch-up loop is given to notice and close the gap. Several of its
 # own intervals plus room for the pass itself: a push can arrive the moment a
 # pass went to sleep, so one interval is the wait before it even looks.
 THE_INDEX_CATCHES_UP_SECONDS: Final = int(
@@ -175,7 +175,7 @@ def _the_stored_passages_describe(sha: str) -> Assertion[Any]:
 
     `indexed_sha` rather than a search for the new file: what a passage says is
     `code_index`'s own suite's subject, asserted there against a real store. What
-    this case is about is the pair converging - a notification the reconciler
+    this case is about is the pair converging - a notification the catch-up pass
     acted on, rather than one it recorded and left.
     """
     def assertion(_: Any) -> bool:
@@ -196,8 +196,8 @@ def _nothing_was_recorded_about(sha: str) -> Assertion[Any]:
     """The refusal left the watermark wherever it was.
 
     Said as "not this commit" rather than "unchanged", because the row is
-    rebuilt by whichever reconcile pass runs next and comparing it with what it
-    held a moment ago would be asserting the reconciler's timing. What must
+    rebuilt by whichever catch-up pass runs next and comparing it with what it
+    held a moment ago would be asserting the catch-up pass's timing. What must
     never be true is that an unsigned caller's commit is in it.
     """
     def assertion(_: Any) -> bool:
@@ -272,11 +272,11 @@ def _a_commit_the_deployed_branch_does_not_point_at() -> str:
     """A real commit, one file ahead of what is deployed, on no branch at all.
 
     Written through the repository's own API rather than staged in a fixture,
-    because the reconciler reads it back the same way: a commit the provider
+    because the catch-up pass reads it back the same way: a commit the provider
     cannot serve is a pass that fails, and this case would then be waiting for a
     retry it never asked about.
 
-    On no branch, deliberately. What the reconciler follows is the commit it was
+    On no branch, deliberately. What the catch-up pass follows is the commit it was
     told about, and a push that also moved `main` could not tell that apart from
     it asking the provider where the branch is.
     """

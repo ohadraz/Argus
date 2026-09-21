@@ -222,7 +222,7 @@ def test_a_tag_or_anything_that_is_not_a_branch_records_nothing() -> None:
 @pytest.mark.unit
 def test_a_push_to_a_repository_argus_does_not_index_records_nothing() -> None:
     # One deployment indexes one repository. A row written for another is work
-    # the reconciler will pick up and a repository it has no credential to
+    # the catch-up pass will pick up and a repository it has no credential to
     # read - and a webhook pointed somewhere by mistake should be inert rather
     # than quietly productive.
     watermark = a_watermark()
@@ -245,7 +245,7 @@ def test_a_push_to_a_repository_argus_does_not_index_records_nothing() -> None:
 @pytest.mark.unit
 def test_a_deployment_that_keeps_no_index_records_nothing() -> None:
     # Nothing reads this row where there is no index: the read tier registers
-    # no tool to search one and the reconciler exits before it opens a store.
+    # no tool to search one and the catch-up pass exits before it opens a store.
     # Written anyway, it is a row kept current for nobody - and the one thing
     # worse than a setting that switches a mechanism off is one that switches
     # off all of it but the bookkeeping.

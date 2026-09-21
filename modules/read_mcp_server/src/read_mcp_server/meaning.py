@@ -138,7 +138,7 @@ def the_commit_indexed_for(repository: str,
                            connections: Connections) -> IndexedSha:
     """The real watermark read, bound to the repository this deployment serves.
 
-    Asked per call rather than read once at startup, because the reconciler
+    Asked per call rather than read once at startup, because the catch-up loop
     moves the mark while this process is running: a server that cached it would
     go on warning about a gap that had been closed an hour ago, and a reader
     that stops believing the warning is a reader the true case cannot reach.

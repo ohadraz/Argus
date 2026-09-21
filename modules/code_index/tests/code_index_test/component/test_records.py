@@ -124,7 +124,7 @@ def test_an_index_that_finished_on_a_repository_never_pushed_is_recorded_too(
     records: psycopg.Connection
 ) -> None:
     # A first index that ran before any push arrived - the cold start, where
-    # the reconciler asked the provider for the branch head itself rather than
+    # the catch-up pass asked the provider for the branch head itself rather than
     # waiting to be told.
     record_indexed(records, SOME_REPOSITORY, SOME_SHA)
 

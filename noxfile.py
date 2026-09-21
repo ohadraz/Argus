@@ -324,7 +324,7 @@ def index(session: nox.Session) -> None:
     """
     Registers `index` as a nox session, i.e., runnable via
     `uv run python -m nox -s index`.
-    Runs the reconciler that keeps the index of the Target Service's source
+    Runs the loop that keeps the index of the Target Service's source
     describing what is deployed: every pass compares the commit the stored
     passages were built from with the commit the repository is at, and closes
     the gap. It runs until killed, and most of its passes find nothing to do.
@@ -339,7 +339,7 @@ def index(session: nox.Session) -> None:
     bringing a stack up.
     """
     session.run(
-        "uv", "run", "python", "-m", "code_index.reconciling", external=True
+        "uv", "run", "python", "-m", "code_index.catching_up", external=True
     )
 
 @nox.session
@@ -1230,12 +1230,13 @@ _E2E_SETTINGS = {
     # on, so one hiccup there is one red run. No key, because the provider
     # needs none and the stand-in asks for none.
     "EXCHANGE_RATE_BASE_URL": "http://localhost:8080/frankfurter",
-    # How long the reconciler sleeps between passes. Short, because an e2e case
-    # that pushes waits for the index to catch up with it - and the default is
-    # a minute, which is the right pause for a deployment and a minute of a
-    # suite sitting on a row that is already decided. What it does *not* do is
-    # make the index arrive sooner than a suite can observe: a pass costs what
-    # it costs, and this only stops the wait being mostly sleep.
+    # How long the catch-up loop sleeps between passes. Short, because an e2e
+    # case that pushes waits for the index to catch up with it - and the
+    # default is a minute, which is the right pause for a deployment and a
+    # minute of a suite sitting on a row that is already decided. What it does
+    # *not* do is make the index arrive sooner than a suite can observe: a
+    # pass costs what it costs, and this only stops the wait being mostly
+    # sleep.
     "CODE_INDEX_INTERVAL_SECONDS": "5",
     # Where Argus answers, which is what a message in a channel links back to.
     # Set for every stack rather than only the suites: a demo whose postmortem
@@ -1379,8 +1380,8 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # No readiness URL: it listens on nothing, and what it is ready for is
         # a row in the database rather than a port. The pass that mattered was
         # the one before the services.
-        "reconciler",
-        ["-m", "code_index.reconciling"],
+        "index-catch-up",
+        ["-m", "code_index.catching_up"],
         None
     ),
     (
@@ -1518,13 +1519,13 @@ def _run_against_the_stack(
         )
         # And the index, in the schema's slot and for the same reason. Code-Fix
         # searches the repository by meaning from its first turn, so a stack
-        # that started Argus and let the reconciler catch up in its own time
+        # that started Argus and let the loop catch up in its own time
         # would have the first run of a suite race the first pass - and
         # whichever won would decide what the model was handed. One pass to
         # completion here; the loop among the services keeps it current after
         # that.
         session.run(
-            "uv", "run", "python", "-m", "code_index.reconciling", "--once",
+            "uv", "run", "python", "-m", "code_index.catching_up", "--once",
             external=True
         )
         _start_each_of(

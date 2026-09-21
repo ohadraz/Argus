@@ -1,6 +1,6 @@
 """Where a branch currently points (spec §11).
 
-What a reconciler asks when nothing has told it anything. A push webhook
+What a catch-up pass asks when nothing has told it anything. A push webhook
 records where the repository went, but a deployment that has never received a
 delivery - no tunnel, a webhook nobody configured, a secret that does not
 match - has no record at all, and an index that waited to be told would then
@@ -45,7 +45,7 @@ def the_head_of(branch: str,
 
     Raises `RepositoryUnreadable` rather than answering emptily. Nothing
     sensible is available instead: an empty string compared against the
-    indexed commit would differ from it, and a reconciler would then try to
+    indexed commit would differ from it, and a catch-up pass would then try to
     build an index at a commit that does not exist, every pass, forever.
     """
     url = (

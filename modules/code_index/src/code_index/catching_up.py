@@ -18,6 +18,12 @@ delivery - no tunnel, a webhook nobody configured, a secret that does not
 match - has nothing recorded, and asking the repository where its branch is,
 is what makes this level-triggered rather than an edge-triggered handler
 wearing a reconciler's name. The notification only ever saves the question.
+
+Named for catching up rather than for reconciling, because Argo CD reconciles
+the Target Service's deployment and the two are different mechanisms sharing
+one word. Catching up is also the truer verb for a single pass: most passes
+find the two commits equal and answer `None`, where a name promising work
+every call would describe the rare pass rather than the ordinary one.
 """
 
 from __future__ import annotations
@@ -45,7 +51,7 @@ from code_index.records import RepositoryIndex, get
 logger = logging.getLogger(__name__)
 
 
-class ReconcileSettings(SettingsSlice):
+class CatchUpSettings(SettingsSlice):
     """How often the loop looks, and where it looks.
 
     The interval is the longest an index may describe yesterday's code while
@@ -94,7 +100,7 @@ class ChangedPaths(Protocol):
 
 
 class Pass(Protocol):
-    """One reconcile pass, with everything it needs already bound to it."""
+    """One catch-up pass, with everything it needs already bound to it."""
 
     def __call__(self) -> str | None: ...
 
@@ -110,21 +116,21 @@ class Indexer(Protocol):
     def __call__(self, sha: str, paths: list[str] | None, /) -> None: ...
 
 
-def reconcile(*,
-              settings: IndexSettings,
-              recorded: IndexRecord,
-              head_of: BranchHead,
-              changed_between: ChangedPaths,
-              index: Indexer) -> str | None:
+def catch_up(*,
+             settings: IndexSettings,
+             recorded: IndexRecord,
+             head_of: BranchHead,
+             changed_between: ChangedPaths,
+             index: Indexer) -> str | None:
     """Closes the gap between what is indexed and what is deployed.
 
     Answers the commit the index was brought to, or `None` when there was
-    nothing to do - which is the ordinary pass, and the one a loop makes most
-    of.
+    nothing to catch up on - which is the ordinary pass, and the one a loop
+    makes most of.
 
     Raises whatever the provider or the store raised. A failure must leave the
     two commits differing: swallowing it would hand the next pass a repository
-    that looks reconciled and passages nobody updated.
+    that looks caught up and passages nobody updated.
     """
     on_record = recorded()
     indexed = on_record.indexed_sha if on_record is not None else None
@@ -139,9 +145,9 @@ def reconcile(*,
     return deployed
 
 
-def reconcile_forever(interval_seconds: float,
-                      pass_over: Pass) -> None:
-    """Reconciles for as long as the process lives, waking on its own schedule.
+def catch_up_forever(interval_seconds: float,
+                     pass_over: Pass) -> None:
+    """Catches up for as long as the process lives, waking on its own schedule.
 
     A timer rather than a notification, and that is the property worth
     keeping: a reconciler only ever woken by an edge is edge-triggered wearing
@@ -157,7 +163,7 @@ def reconcile_forever(interval_seconds: float,
         try:
             pass_over()
         except Exception:
-            logger.exception("a reconcile pass failed; the gap is left in place")
+            logger.exception("a catch-up pass failed; the gap is left in place")
 
         time.sleep(interval_seconds)
 
@@ -196,7 +202,7 @@ def _what_to_consider(indexed: str | None,
 
 
 def main(argv: list[str] | None = None) -> None:
-    """The process: a pool, a store, a model, then reconcile until killed.
+    """The process: a pool, a store, a model, then catch up until killed.
 
     `--once` makes one pass and exits, which is what a stack runs before the
     services that read the index - in the slot the schema job already
@@ -209,7 +215,7 @@ def main(argv: list[str] | None = None) -> None:
     embedder loads a model. A `main` rather than module-level code, so that
     importing this module starts nothing.
 
-    The schema is checked before the first pass. A reconciler that indexed a
+    The schema is checked before the first pass. A process that indexed a
     repository and then found no table to record the commit in would have
     spent the whole build and left the index looking as though it had never
     run.
@@ -220,18 +226,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--once",
         action="store_true",
-        help="make one pass and exit, rather than reconciling until killed"
+        help="make one pass and exit, rather than catching up until killed"
     )
     once = parser.parse_args(argv).once
 
     settings = get_settings()
     index_settings = IndexSettings.of(settings)
-    reconcile_settings = ReconcileSettings.of(settings)
+    catch_up_settings = CatchUpSettings.of(settings)
 
     # Before a pool, a store or a model. A deployment searching by grep alone
     # has no reader for any of this, and an index built for nobody costs a
     # repository download and an ONNX runtime to sit unread.
-    if reconcile_settings.code_search is CodeSearch.GREP:
+    if catch_up_settings.code_search is CodeSearch.GREP:
         logger.info("no index is kept here: code search is grep alone")
 
         return
@@ -245,7 +251,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # The client is closed in a `finally` rather than a `with`: it holds a
     # session like a pool does, and unlike a pool it is not a context manager.
-    store = QdrantClient(url=reconcile_settings.qdrant_url)
+    store = QdrantClient(url=catch_up_settings.qdrant_url)
 
     with open_pool(DatabaseSettings.of(settings)) as pool:
         with pool.connection() as conn:
@@ -262,7 +268,7 @@ def main(argv: list[str] | None = None) -> None:
             this process sleeps.
             """
             with pool.connection() as conn:
-                return reconcile(
+                return catch_up(
                     settings=index_settings,
                     recorded=partial(get, conn, repository),
                     head_of=partial(the_head_of, settings=source_settings),
@@ -280,14 +286,14 @@ def main(argv: list[str] | None = None) -> None:
                     )
                 )
 
-        logger.info("reconciling the index of %s", repository)
+        logger.info("catching the index of %s up", repository)
 
         try:
             if once:
                 pass_over()
             else:
-                reconcile_forever(
-                    reconcile_settings.code_index_interval_seconds, pass_over
+                catch_up_forever(
+                    catch_up_settings.code_index_interval_seconds, pass_over
                 )
         finally:
             store.close()

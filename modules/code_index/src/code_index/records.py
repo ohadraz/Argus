@@ -30,8 +30,8 @@ class RepositoryIndex(BaseModel):
     Both commits are optional and mean different absences. No `indexed_sha` is
     an index that has never been built - a backfill. No `pending_sha` is a
     repository nothing has reported a push for yet, which is the ordinary state
-    of a first deployment and means the reconciler must ask the provider for
-    the deployed branch's head rather than wait to be told.
+    of a first deployment and means the catch-up pass must ask the provider
+    for the deployed branch's head rather than wait to be told.
     """
 
     repository: str

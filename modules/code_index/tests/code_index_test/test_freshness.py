@@ -1,13 +1,13 @@
 """Whether the index describes the code that is deployed.
 
 One comparison, and the whole of what the rest of the module hangs off. The
-reconciler reads it to decide whether there is work; retrieval reads it to
+catch-up pass reads it to decide whether there is work; retrieval reads it to
 decide whether an answer needs a warning on it; Code-Fix reads it to decide
 what to tell the model before it starts reading passages.
 
 Three states, not two. An index that has never been built and one that has
 fallen behind are both "not current" and are not the same thing: the first is a
-backfill and the second is a handful of changed paths, and a reconciler that
+backfill and the second is a handful of changed paths, and a catch-up pass that
 could not tell them apart would re-index a whole repository to catch up on one
 file. `indexed_sha is None` is what says nothing has been indexed - the absence
 of a mark rather than a mark that happens to differ.

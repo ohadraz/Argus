@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     # the repository: the index describes the Target Service's source, and a
     # deployment pointed at a different repository is a different index.
     code_index_collection: str = Field(default="target_service_source")
-    # How often the reconciler looks. A bound on how long the index may
+    # How often the catch-up loop looks. A bound on how long the index may
     # describe yesterday's code while nobody is telling it otherwise, rather
     # than a performance knob: where a push delivery arrives the gap closes on
     # the next pass anyway, and where none ever arrives - no tunnel, a webhook

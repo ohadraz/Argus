@@ -168,7 +168,7 @@ Localizing is **agentic search**: the agent searches and reads the repository as
 
 There are two ways to find code and the agent is offered both: **substring search** over the repository at the deployed commit, and **retrieval by meaning** over an index of it (§11.5). Neither is a fallback for the other. A cause that has a name - an exception class, a function, a flag key - is found faster by searching for the name; a cause that has only a description is found at all by searching for the description. Which one to use is a question about the hypothesis in hand, so the model chooses per call rather than a threshold choosing for it.
 
-`CODE_SEARCH` decides which exist, and it switches a whole mechanism rather than a tool list: set to `grep` the read tier registers no retrieval-by-meaning tool and opens no store, the reconciler (§11.5) builds nothing, and the push webhook records nothing - a deployment that will not search by meaning does none of that work. `both` is what a deployment runs. The single channels exist so the benchmark can run each alone over the same incidents (§21), which is the only way to compare two retrievers.
+`CODE_SEARCH` decides which exist, and it switches a whole mechanism rather than a tool list: set to `grep` the read tier registers no retrieval-by-meaning tool and opens no store, the catch-up loop (§11.5) builds nothing, and the push webhook records nothing - a deployment that will not search by meaning does none of that work. `both` is what a deployment runs. The single channels exist so the benchmark can run each alone over the same incidents (§21), which is the only way to compare two retrievers.
 
 The index describes one commit, and that commit may be older than the one being fixed. Every answer it gives says so when it is behind, and the agent can ask how fresh the index is before it starts reading, rather than learning it from a result it has already acted on. It writes tests freely and no path is withheld from it: the test that fails before the fix and passes after is the most valuable half of the proposal, and a repo with a file the agent may not touch is one where the fix cannot carry its own evidence. Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence) - what keeps a bad patch out of service is that a person merges it.
 
@@ -553,9 +553,9 @@ A passage's id is derived from what it says, which is what makes re-indexing che
 
 A collection of its own, beside the one long-term memory keeps (§11.2). Two corpora with different access patterns sharing one server: the repository index is rewritten continuously as code moves and wants cheap deletes, upserts and first-class filtering, where long-term memory is appended to once per incident and wants nothing more than similarity over a few hundred descriptions. Neither collection is asked to be the other.
 
-**The index knows which commit it describes.** One row in Postgres per repository carries two commits: the one the stored passages were built from, and the one the repository is at. Everything follows from their difference. A reconciler compares them and closes the gap - embedding only the paths a comparison says changed, or the whole repository when it is empty or the provider cannot say what changed - and records the new commit only once the work is done, so a pass that failed leaves the same work waiting without anything recording that it is owed. There is no attempt count, no backoff and no queue of unprocessed notifications: the state is the goal, not the history of trying to reach it.
+**The index knows which commit it describes.** One row in Postgres per repository carries two commits: the one the stored passages were built from, and the one the repository is at. Everything follows from their difference. A catch-up pass compares them and closes the gap - embedding only the paths a comparison says changed, or the whole repository when it is empty or the provider cannot say what changed - and records the new commit only once the work is done, so a pass that failed leaves the same work waiting without anything recording that it is owed. There is no attempt count, no backoff and no queue of unprocessed notifications: the state is the goal, not the history of trying to reach it.
 
-A push webhook (§7.9) records where the repository has moved to and does nothing else. It is an edge that shortens a wait, never the thing that makes the index correct: a deployment with no tunnel, or a delivery that never arrives, costs a delay of one reconcile interval rather than an index that is permanently stale. The same difference is what a reader is told when it matters - an index behind the deployed commit says so in every answer it gives.
+A push webhook (§7.9) records where the repository has moved to and does nothing else. It is an edge that shortens a wait, never the thing that makes the index correct: a deployment with no tunnel, or a delivery that never arrives, costs a delay of one catch-up interval rather than an index that is permanently stale. The same difference is what a reader is told when it matters - an index behind the deployed commit says so in every answer it gives.
 
 Indexing never runs on an incident's path. It is a process of its own, so the walk that needs an answer is never the walk that pays to build one.
 
@@ -574,7 +574,7 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 | Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API - reads via `argus-read-mcp`; the Communicator posts through its own adapter (§7.5) |
 | Email | SMTP is already the standard | - | `argus-write-mcp` via configured SMTP relay |
 | Long-term memory | N/A - internal to Argus | - | Qdrant directly - written by the step that closes a walk and read by the step that fixes candidate order (§11.2), both inside the Orchestrator's own process. No tool, because no model ever asks for it |
-| Repository index | N/A - internal to Argus | - | Qdrant directly - queried by `argus-read-mcp`; written only by the reconciler that keeps it current (§11.5), which is on no incident's path |
+| Repository index | N/A - internal to Argus | - | Qdrant directly - queried by `argus-read-mcp`; written only by the catch-up loop that keeps it current (§11.5), which is on no incident's path |
 
 ### 12.1 MCP server topology
 
@@ -852,7 +852,7 @@ flowchart TB
         RELAY[relay<br/>follows the event log, posts what a human hears]
         PG[(Postgres)]
         QDRANT[(Qdrant<br/>long-term memory + repository index)]
-        INDEXER[reconciler<br/>keeps the repository index at the deployed commit]
+        INDEXER[index catch-up<br/>keeps the repository index at the deployed commit]
         BO[Backoffice]
     end
     subgraph TargetDeploy["Target Service + Target Environment - Docker Compose / Railway"]
@@ -888,7 +888,7 @@ flowchart TB
 
 Only modules with their own network entrypoint - the Web Application, each MCP server, the Backoffice (§20.1) - appear as separate boxes and ship their own Dockerfile; `docker-compose.yml` wires them together locally, and the same images deploy as separate Railway/Fly services for the hosted demo. `argus_core`, the Orchestrator, and the agent packages have no box here - they're installed inside the Web Application's image and run in-process within it.
 
-The reconciler is the one box here that serves no request. It wakes on its own schedule, compares the commit the index describes with the commit the repository is at, and closes the gap (§11.5) - so the index is built off every incident's path, and a stack brings it to the deployed commit once before the services that read it start.
+The index catch-up is the one box here that serves no request. It wakes on its own schedule, compares the commit the index describes with the commit the repository is at, and closes the gap (§11.5) - so the index is built off every incident's path, and a stack brings it to the deployed commit once before the services that read it start.
 
 The Target Environment deploys independently of Argus, reflecting that in a real deployment it would simply be swapped for actual production infrastructure.
 
@@ -931,7 +931,7 @@ argus/
 │   ├── argus_incidents/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
 │   ├── orchestrator/                # LangGraph graph, FSM, tier-gate node
 │   ├── argus_narration/             # the event-to-sentence renderer every destination reads
-│   ├── code_index/                   # the repository index: chunking, embedding, the store, the watermark, the reconciler
+│   ├── code_index/                   # the repository index: chunking, embedding, the store, the watermark, the catch-up loop
 │   ├── incident_memory/              # what earlier incidents were done about: the record, the text it is found by, the store, and the ordering it informs
 │   ├── repository_source/            # reading a repository at a commit: its source, what changed between two, where a branch points
 │   ├── argus_web/                   # HTTP surface: alert webhook, incident read API, config API

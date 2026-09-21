@@ -164,7 +164,7 @@ async def receive_github_push(request: Request,
     """Records that the Target Service's repository has moved (spec §11).
 
     The edge of an edge-triggered notification, level-triggered reconciliation
-    pair: one row is written and nothing is indexed here. The reconciler
+    pair: one row is written and nothing is indexed here. The catch-up pass
     closes the gap, so a delivery that never arrives costs a delay rather than
     a permanently stale index - and indexing in this process would install an
     ONNX runtime to serve a page.
