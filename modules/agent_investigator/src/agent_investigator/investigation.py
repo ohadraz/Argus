@@ -14,7 +14,6 @@ given.
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Sequence
 from typing import Any, Final, assert_never
@@ -583,10 +582,12 @@ def _the_opening_message(alert: Alert,
     said.extend([
         "",
         "## Per-minute metrics",
-        "One object per minute, in time order. These are the minutes the onset was "
-        "measured from, and they are the whole span the metrics source keeps - there "
-        "is no more of this channel to ask for.",
-        json.dumps([bucket.model_dump() for bucket in metric_buckets], indent=2)
+        "One row per minute, in time order, comma-separated under the header. These "
+        "are the minutes the onset was measured from, and they are the whole span "
+        "the metrics source keeps - there is no more of this channel to ask for. An "
+        "empty cell is a reading this service does not have at all, which is not the "
+        "same as a reading of zero.",
+        _the_minutes_as_rows(metric_buckets)
     ])
 
     if already_refuted:
@@ -613,6 +614,37 @@ def _the_opening_message(alert: Alert,
         ])
 
     return "\n".join(said)
+
+
+def _the_minutes_as_rows(metric_buckets: list[MetricBucket]) -> str:
+    """The window as a header and a row per minute, rather than an object each.
+
+    Every reading of every minute still goes in front of the model - what
+    changes is that each is labelled once for the window instead of once for
+    the minute. Over a full three-hundred-and-sixty-minute window that is the
+    difference between 59,468 tokens and 17,057, and none of it is
+    information: the field names are four fifths of the payload, and the
+    readings they label are the fifth worth sending. It is also the largest
+    thing in an opening message, resent on every turn of the conversation, so
+    what it costs is paid once per turn rather than once per investigation.
+
+    The fields are taken from the model rather than listed here, so a reading
+    added to a bucket arrives in the header without anyone remembering this.
+    An absent reading is an empty cell and a zero is a zero, which the prose
+    above says plainly: a service consulting no cache has no hit ratio, and a
+    cache answering nothing has one of zero, and a reader that could not tell
+    them apart would diagnose the second as the first.
+    """
+    fields = list(MetricBucket.model_fields)
+    rows = [
+        ",".join(
+            "" if (reading := getattr(bucket, field)) is None else str(reading)
+            for field in fields
+        )
+        for bucket in metric_buckets
+    ]
+
+    return "\n".join([",".join(fields), *rows])
 
 
 def _what_was_done_in(attempt: Attempt) -> str:

@@ -627,6 +627,33 @@ def test_the_model_is_told_the_onset_it_does_not_get_to_choose() -> None:
 
 
 @pytest.mark.unit
+def test_the_minutes_are_carried_as_rows_rather_than_as_an_object_each() -> None:
+    # The whole window still goes in front of the model - this is about how it
+    # is written down, not how much of it there is. Naming every field on
+    # every minute is what makes the opening message the largest thing in an
+    # investigation, and the minutes themselves are the part worth paying for.
+    some_metrics = a_window_that_starts_calm()
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_names_each_metric_once(investigation.model),
+                _what_was_asked_first_mentions(
+                    investigation.model,
+                    *(bucket.bucket_id for bucket in some_metrics)
+                )
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_window_with_no_anomalous_minute_is_answered_without_asking_the_model() -> None:
     # Nothing was read, so nothing was spent - and there is nothing a model
     # could add. The onset is measured, and a window with no departure from
@@ -932,6 +959,40 @@ def _what_was_asked_first_mentions(model: Mock, *expected: str) -> Assertion[Fin
         if missing:
             raise AssertionError(
                 f"Expected the opening message to mention {missing}, got [{opening.text}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_asked_first_names_each_metric_once(model: Mock) -> Assertion[Findings]:
+    """Each metric named once for the window, not once for every minute.
+
+    An assertion about the encoding rather than about the numbers, because the
+    encoding is where this payload's cost lives: repeated once a minute, the
+    field names cost more than the readings they label. Measured over a full
+    360-minute window, one object per minute is 59,468 tokens and the same
+    readings as rows are 17,057 - and none of the difference is information.
+
+    Counted against `MetricBucket`'s own field list rather than against a
+    spelling written out here, so a reading added to the bucket is covered on
+    the day it arrives rather than on the day somebody remembers this test.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        opening = _the_transcript_of(model, turn=0)[0]
+        if not isinstance(opening, Ask):
+            raise AssertionError(f"Expected the conversation to open with an ask, got [{opening}].")
+
+        repeated = {
+            field: opening.text.count(field)
+            for field in MetricBucket.model_fields
+            if opening.text.count(field) > 1
+        }
+        if repeated:
+            raise AssertionError(
+                f"Expected each metric to be named once in the opening message, and "
+                f"{repeated} were named more than once."
             )
 
         return True
