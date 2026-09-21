@@ -127,6 +127,100 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
 
 
 @pytest.mark.component
+def test_a_run_that_failed_has_its_changes_put_back(a_clean_database: None) -> None:
+    # The worst moment to fail is after Code-Fix has started, because a
+    # mitigation has already been applied by then. A run that ends there
+    # having only written "failed" in the queue leaves production altered, no
+    # postmortem written, and nothing remembered - and the walk is not coming
+    # back to tidy up, because the run it would have tidied up in is the one
+    # that died.
+    #
+    # Unwinding is what the process does with an incident that ended without
+    # finishing, and a run that failed ended without finishing. That it is
+    # already the answer for a withdrawn incident is not a reason to give a
+    # different one here: the world is in the same state either way, and
+    # `unwind_incident` is written to be safe over an incident that had
+    # already tidied up after itself.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "the model was rate limited partway through the walk"
+    unwound: list[str] = []
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError(what_went_wrong)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_incident_unwound_was(unwound, incident_id),
+                _the_run_is_failed(conn, incident_id, what_went_wrong)
+            ))
+
+
+@pytest.mark.component
+def test_an_unwind_that_fails_after_a_failed_run_still_records_the_failure(
+    a_clean_database: None
+) -> None:
+    # Two failures in a row, and the second must not eat the first. The queue
+    # is the only record anything has that this incident stopped; if putting
+    # the changes back throws and takes the whole handler with it, the run
+    # stays claimed until its lease expires and the reason it failed is never
+    # written down anywhere.
+    #
+    # The reason recorded is the walk's, not the unwind's. What a human needs
+    # to know is why the incident stopped being worked - that tidying up
+    # afterwards also went wrong is a second fact, and it belongs in the log
+    # rather than in place of the first.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "the model was rate limited partway through the walk"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError(what_went_wrong)
+
+    def unwind_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError("the flag provider could not be reached either")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=unwind_that_fails,
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _the_run_is_failed(conn, incident_id, what_went_wrong)
+            )
+
+
+@pytest.mark.component
 def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: None) -> None:
     # Withdrawn before anybody took it. Walking it would start an investigation
     # into an incident a human already has in hand - and `run_incident`'s first

@@ -88,6 +88,21 @@ MODEL = "claude-opus-5"
 # this does not cap.
 MAX_TOKENS = 16000
 
+# How many times the SDK may retry a call that never reached a verdict - a
+# connection that dropped, a 429, a 5xx. Two, which is what the SDK would do
+# unasked; the point of saying it is that a retry policy nobody chose is not a
+# policy, and a default changing under us would change what an investigation
+# costs and how long it takes without anything here mentioning it.
+#
+# Not raised beyond the default, because retries are paid for out of the
+# investigation's own wall clock. The time bound is what answers to the human
+# waiting on the incident, and a call retrying with backoff for a minute has
+# spent a fifth of it before the model has said anything. Past two, a failure
+# reaching Argus is one it should act on rather than wait through: the walk
+# now unwinds what it changed and records why it stopped, which is a better
+# outcome than a longer silence.
+TRANSPORT_RETRIES = 2
+
 # What a turn offers the API to keep, so the next turn does not pay for it
 # again. Five minutes, which is the shorter of the two lifetimes and the right
 # one here: an investigation's turns follow each other in seconds, and each
@@ -368,6 +383,7 @@ class AnthropicLLMClient:
             # An empty setting means the real API, which is what the SDK does
             # with `base_url=None`. Passing "" would point it at nothing.
             base_url=base_url,
+            max_retries=TRANSPORT_RETRIES,
         )
 
     def converse(self,

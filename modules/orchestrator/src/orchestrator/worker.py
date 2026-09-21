@@ -69,7 +69,14 @@ def take_one_run(conn: psycopg.Connection,
 
     A walk that raises settles the run as failed and does not re-raise: one
     incident Argus could not finish must not stop it working on the next, and
-    the failure is recorded where the incident can be read beside it.
+    the failure is recorded where the incident can be read beside it. It is
+    also unwound, because a run that failed is a run that ended without
+    finishing - the same thing a withdrawal makes of one, and the same answer.
+    The moment worth picturing is a rate limit arriving at the Code-Fix node,
+    after a mitigation has already been applied: a run that only writes
+    "failed" in the queue there leaves production altered, no postmortem
+    written and nothing remembered, and no later run is coming to tidy up
+    after the one that died.
 
     The same question is asked either side of the walk, and three cases fall
     out of the two. An incident withdrawn before anybody claimed it is never
@@ -98,11 +105,36 @@ def take_one_run(conn: psycopg.Connection,
     except Exception as failure:
         logger.exception("run %s for incident %s failed",
                          claimed.id, claimed.incident_id)
+        _put_back_what_it_changed(unwind, claimed.incident_id)
         runs.fail(conn, claimed.id, f"{type(failure).__name__}: {failure}")
     else:
         runs.finish(conn, claimed.id)
 
     return True
+
+
+def _put_back_what_it_changed(unwind: Unwind, incident_id: str) -> None:
+    """Unwinds an incident whose run failed, and survives failing to.
+
+    Guarded because this runs inside the handler for a failure that has
+    already happened. An unwind that raised from there would take the whole
+    handler with it: the run would never be marked failed, so the one record
+    saying this incident stopped being worked would not exist, and it would
+    sit claimed until its lease expired. Two failures in a row must not cost
+    more than one.
+
+    Logged rather than swallowed. That putting the changes back also went
+    wrong is a second fact about the incident and a worse one - somebody has
+    to go and look - but it is not the reason the run failed, and it does not
+    belong in the queue in place of it.
+    """
+    try:
+        unwind(incident_id)
+    except Exception:
+        logger.exception(
+            "putting back the changes of incident %s after a failed run also failed",
+            incident_id
+        )
 
 
 def work_forever(connections: Connections,
