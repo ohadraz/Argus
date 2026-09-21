@@ -113,6 +113,86 @@ def test_tokens_are_counted_across_turns() -> None:
 
 
 @pytest.mark.unit
+def test_a_prompt_that_arrived_from_cache_is_still_charged() -> None:
+    # Caching changes where a prompt arrives from, not whether it arrived.
+    # `input_tokens` is only the uncached remainder once caching is on, so a
+    # budget summing that and the output counts a fraction of the transcript -
+    # and understates it most where the caching worked best. Measured against
+    # the recordings, that fraction is between a sixth and an eighteenth.
+    some_token_bound = 500
+    a_turn_whose_prompt_came_back_warm = _a_turn_asking_for(
+        1, costing_each_way=1, read_from_cache=some_token_bound
+    )
+
+    Scenario() \
+        .given(
+            some_budget := _a_budget(max_tokens=some_token_bound),
+            calling(lambda: some_budget.record(a_turn_whose_prompt_came_back_warm))
+        ) \
+        .when(
+            lambda: some_budget
+        ) \
+        .then(
+            _the_bounds_reached_were(Bound.TOKENS)
+        )
+
+
+@pytest.mark.unit
+def test_a_prompt_written_to_cache_is_charged_for_writing_it() -> None:
+    # The other half, and the one a fix counting only reads would miss. A
+    # cache write is the first turn paying a premium so the turns after it pay
+    # a tenth - it is the most expensive prompt of the run, not a free one.
+    some_token_bound = 500
+    a_turn_that_laid_the_transcript_down = _a_turn_asking_for(
+        1, costing_each_way=1, written_to_cache=some_token_bound
+    )
+
+    Scenario() \
+        .given(
+            some_budget := _a_budget(max_tokens=some_token_bound),
+            calling(lambda: some_budget.record(a_turn_that_laid_the_transcript_down))
+        ) \
+        .when(
+            lambda: some_budget
+        ) \
+        .then(
+            _the_bounds_reached_were(Bound.TOKENS)
+        )
+
+
+@pytest.mark.unit
+def test_what_a_budget_has_charged_can_be_read_without_binding_it() -> None:
+    # All four counts, as one figure, from a budget nowhere near its bounds.
+    # This is the number `get_tokens_spent` reports afterwards, and the two
+    # are the same arithmetic on purpose - a bound that stopped an
+    # investigation at one figure while a human was shown another would be two
+    # answers to what the incident cost.
+    some_tokens_each_way = 300
+    some_cache_read_tokens = 4_100
+    some_cache_write_tokens = 850
+    everything_the_turn_cost = (
+        some_tokens_each_way * 2 + some_cache_read_tokens + some_cache_write_tokens
+    )
+
+    Scenario() \
+        .given(
+            some_budget := _a_budget(),
+            calling(lambda: some_budget.record(_a_turn_asking_for(
+                1,
+                costing_each_way=some_tokens_each_way,
+                read_from_cache=some_cache_read_tokens,
+                written_to_cache=some_cache_write_tokens
+            )))
+        ) \
+        .when(
+            lambda: some_budget
+        ) \
+        .then(
+            _the_tokens_charged_were(everything_the_turn_cost)
+        )
+
+
+@pytest.mark.unit
 def test_time_runs_out_even_when_nothing_has_been_spent() -> None:
     # The bound that has nothing to do with what the model did. An incident
     # has a human waiting on it, and an investigation that is cheap and slow
@@ -205,6 +285,28 @@ def _the_bounds_reached_were(*bounds: Bound) -> Assertion[Budget]:
     return assertion
 
 
+def _the_tokens_charged_were(tokens: int) -> Assertion[Budget]:
+    """The figure the budget has charged, rather than a verdict about it.
+
+    Read as a number because a number is what it has to agree with:
+    `get_tokens_spent` reports the same arithmetic from the other side of the
+    system, and two totals that must match are only comparable if both can be
+    said. A total learnable only by moving a bound until it binds is one
+    nothing can be checked against, and one whose disagreement could only ever
+    be reported as "it bound when it should not have".
+    """
+    def assertion(budget: Budget) -> bool:
+        charged = budget.tokens_spent()
+        if charged != tokens:
+            raise AssertionError(
+                f"Expected [{tokens}] tokens to have been charged, got [{charged}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_is_the_last_turn_available() -> Assertion[Budget]:
     def assertion(budget: Budget) -> bool:
         if not budget.is_on_its_last_turn():
@@ -261,12 +363,21 @@ def _a_budget(max_tool_calls: int = 100,
     )
 
 
-def _a_turn_asking_for(calls: int, costing_each_way: int = 1) -> Turn:
+def _a_turn_asking_for(calls: int,
+                       costing_each_way: int = 1,
+                       read_from_cache: int = 0,
+                       written_to_cache: int = 0) -> Turn:
     """A turn requesting `calls` tools, charged `costing_each_way` in and out.
 
     Named for both directions because a turn is billed twice: what the model
     was sent, and what it wrote. A parameter called `costing` would say a turn
     costs half what it does.
+
+    The cache counts default to nothing, which is the turn a run against a
+    model that does not cache reports. Where they are named, they are the rest
+    of the prompt: `costing_each_way` covers only the uncached remainder once
+    either is non-zero, so a turn with a cache count is not a turn with extra
+    tokens bolted on - it is one whose prompt arrived somewhere else.
     """
     dont_care_what_it_said = "dont care what it said"
 
@@ -277,5 +388,7 @@ def _a_turn_asking_for(calls: int, costing_each_way: int = 1) -> Turn:
             for position in range(calls)
         ],
         input_tokens=costing_each_way,
-        output_tokens=costing_each_way
+        output_tokens=costing_each_way,
+        cache_read_tokens=read_from_cache,
+        cache_write_tokens=written_to_cache
     )

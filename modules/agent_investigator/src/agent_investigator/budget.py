@@ -106,9 +106,47 @@ class Budget:
         Tokens are counted in both directions. What the model was *sent* is
         most of the spend, because every turn resends the whole transcript -
         counting only what it wrote would under-report the expensive half.
+
+        All four counts, not two. With caching on, `input_tokens` is only the
+        uncached remainder and the rest of the prompt arrives as a cache read
+        or a cache write, so a sum of the two plain counts charges a fraction
+        of what was sent - measured against the recordings, between a sixth
+        and an eighteenth of it - and understates it most where the caching
+        worked best. This is the same arithmetic `get_tokens_spent` reports
+        afterwards, and deliberately: a bound that stopped an investigation at
+        one figure while a human was shown another would be two answers to
+        what the incident cost.
+
+        Counted rather than priced, which is why the cached counts are not
+        discounted to what they bill. A rate is the vendor's to change and
+        weighting by one would put today's prices in the enforcement path;
+        worse, a weighting that discounted the cache but left the output
+        counts alone would be wrong by the largest factor in the table while
+        looking precise. What this bounds is how much the model read and
+        wrote, and every one of these four is some of that.
         """
         self._tool_calls += len(turn.tool_calls)
-        self._tokens += turn.input_tokens + turn.output_tokens
+        self._tokens += (
+            turn.input_tokens
+            + turn.output_tokens
+            + turn.cache_read_tokens
+            + turn.cache_write_tokens
+        )
+
+    def tokens_spent(self) -> int:
+        """Every token charged so far, as a figure rather than as a verdict.
+
+        The same arithmetic `get_tokens_spent` reports from the other side of
+        the system, over the same four counts, and said here so that the two
+        can be compared. A total readable only by moving a bound until it
+        binds is a total nothing can be checked against - and the one thing
+        this number has to be is in agreement with the one a human is shown.
+
+        Separate from `bounds_reached` because the question differs. That asks
+        whether to carry on, which is all a loop needs; this asks what has
+        been spent, which is what a reader of the incident needs.
+        """
+        return self._tokens
 
     def bounds_reached(self) -> list[Bound]:
         """Every bound that has run out, in the order `Bound` declares them.
