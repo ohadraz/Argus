@@ -171,6 +171,58 @@ def test_the_models_thinking_is_not_what_it_said() -> None:
 
 
 @pytest.mark.unit
+def test_the_models_thinking_is_kept_even_though_it_is_not_what_it_said() -> None:
+    # Not narration, and not nothing either. For a system whose product is
+    # judgement, why a wrong hypothesis looked right is the most useful thing
+    # a later reader can have - and it exists only here: the reasoning is in
+    # the response this translation reads, and whatever is not carried out of
+    # it is gone the moment the response is discarded.
+    #
+    # Carried apart from what the model said rather than joined to it, which
+    # is what lets both be true at once: the replay log stores a whole turn
+    # and so keeps this for free, while nothing that narrates an incident
+    # reaches for it.
+    some_reasoning = "Could be the deploy. No - the timing is wrong."
+    some_narration = "The error rate climbs at 22:15; checking what changed before it."
+
+    Scenario() \
+        .given(
+            some_message := _a_message_that_thought_before_saying(
+                some_reasoning, some_narration
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message)
+        ) \
+        .then(
+            all_of(
+                _the_model_reasoned(some_reasoning),
+                _the_model_said(some_narration)
+            )
+        )
+
+
+def _the_model_reasoned(expected: str) -> Assertion[Turn]:
+    """What the model was working through on its way to the turn.
+
+    Asserted alongside what it said, never instead of it: the failure worth
+    catching is not that the reasoning went missing but that it arrived in
+    the wrong place, and a turn narrating its own discarded conclusions
+    passes any assertion that only asks whether the words are present
+    somewhere.
+    """
+    def assertion(turn: Turn) -> bool:
+        if turn.reasoning != expected:
+            raise AssertionError(
+                f"Expected the turn to have reasoned [{expected}], got [{turn.reasoning}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
 def test_everything_the_model_said_reaches_the_turn() -> None:
     # One turn's words can arrive as several blocks - a thinking model splits
     # them routinely - and they are one account, not the first of several. A

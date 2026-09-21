@@ -56,6 +56,19 @@ class Turn(BaseModel):
     """
 
     text: str
+    # What the model was working through, kept apart from what it said. The
+    # two are different kinds of thing: reasoning is the model revising
+    # itself, and an account of an incident built from it would put discarded
+    # conclusions in front of a human as held ones. It is carried anyway
+    # because for a system whose product is judgement, why a wrong hypothesis
+    # looked right is the most useful thing a later reader can have - and it
+    # survives nowhere else once the response it arrived in is discarded.
+    #
+    # Recorded but never sent back. A transcript that echoed it would resend
+    # it every turn for the rest of the conversation, on a loop whose prompt
+    # is already most of its cost; what is wanted here is a receipt, not a
+    # longer prompt. Empty where the model reasoned in the open or not at all.
+    reasoning: str = ""
     tool_calls: list[ToolCall]
     input_tokens: int
     output_tokens: int

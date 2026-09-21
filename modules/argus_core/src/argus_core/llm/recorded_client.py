@@ -24,7 +24,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from argus_core.llm.client import LLMClient
+from argus_core.llm.client import LLMClient, ModelDidNotAnswer
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Transcript
 from argus_core.models.turn import Turn
@@ -36,6 +36,16 @@ from argus_core.replay import CallType, Replay
 Clock = Callable[[], float]
 
 _MILLISECONDS_PER_SECOND = 1000
+
+# Which of a turn's fields a failed call's receipt copies. The counts and not
+# the content: a turn that did not answer carries an empty text and no tool
+# calls, and writing those down would make an entry that reads like an answer
+# nobody can tell apart from one that arrived empty. Named here rather than
+# spelled at the call site because `get_tokens_spent` sums exactly these, and
+# the two lists have to be the same list.
+_WHAT_IT_COST = {
+    "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"
+}
 
 
 class RecordedLLMClient:
@@ -118,8 +128,25 @@ def _what_went_wrong(error: Exception) -> dict[str, Any]:
     whoever raised it and may be reworded tomorrow.
 
     Recorded at all, rather than skipped, because these are the calls most
-    worth a receipt: a refusal is charged for and a truncation spends the wall
-    clock for nothing, and a log holding only the answers that arrived leaves
-    exactly the expensive runs unexplained.
+    worth a receipt: a refusal is charged for and a truncation generated a
+    whole cap of output before it was stopped, and a log holding only the
+    answers that arrived leaves exactly the expensive runs unexplained.
+
+    What it cost goes in under the same four names a completed turn uses, so
+    that the arithmetic reading them does not have to know which kind of entry
+    it is looking at. That matters beyond tidiness: a budget charges a failure
+    that carried counts, so a receipt filing them anywhere else - or nowhere -
+    would leave what an incident is reported to have spent lower than what was
+    enforced against it, which is the disagreement all of this counting exists
+    to remove.
+
+    Only a failure the interface defines carries them. Anything else reaching
+    here failed before the model answered, so there is no report to copy and
+    none is invented.
     """
-    return {"error": type(error).__name__, "detail": str(error)}
+    recorded: dict[str, Any] = {"error": type(error).__name__, "detail": str(error)}
+
+    if isinstance(error, ModelDidNotAnswer):
+        recorded.update(error.billed.model_dump(mode="json", include=_WHAT_IT_COST))
+
+    return recorded

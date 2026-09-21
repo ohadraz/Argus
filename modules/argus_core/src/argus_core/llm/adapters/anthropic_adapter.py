@@ -70,9 +70,6 @@ ASSISTANT_ROLE: Final = "assistant"
 TEXT_TYPE: Final = "text"
 TOOL_RESULT_TYPE: Final = "tool_result"
 TOOL_USE_TYPE: Final = "tool_use"
-# Read by nothing here, and named anyway: `to_turn` excludes thinking blocks
-# deliberately, and a kind of block this module has decided about belongs in
-# the list of kinds it knows. It is also what a test builds a response out of.
 THINKING_TYPE: Final = "thinking"
 MESSAGE_TYPE: Final = "message"
 
@@ -101,6 +98,25 @@ MAX_TOKENS = 16000
 # above: "ephemeral" is Anthropic's word, and a second spelling of it in a test
 # would be a second opinion about a third party rather than a check on this one.
 EPHEMERAL_CACHE: Final = CacheControlEphemeralParam(type="ephemeral")
+
+# How a turn asks to be told what the model was working through. Adaptive
+# because the depth of reasoning a question deserves is the model's to judge,
+# and summarised because the alternative is this model's default: the blocks
+# arrive with empty text and `to_turn` faithfully reads nothing out of them.
+#
+# Free. Thinking is billed the same under every display setting - what the
+# setting changes is only whether Argus is told any of it. Given that, the
+# question is whether the reasoning behind a hypothesis is worth keeping, and
+# for a system whose product is judgement there is no version of that question
+# with a no in it.
+#
+# Public and shared with the test that asserts on it, like the cache
+# breakpoint above, and whole rather than by field: a request that quietly
+# stopped asking would otherwise pass a test checking the one part of it
+# somebody remembered to look at.
+SUMMARISED_THINKING: Final = ThinkingConfigAdaptiveParam(
+    type="adaptive", display="summarized"
+)
 
 # Named for the field rather than left as bare keys, like the vocabulary
 # above: these are Anthropic's spellings of how a turn ended, and a test
@@ -144,12 +160,18 @@ def to_turn(message: Message) -> Turn:
     itself knows nothing about it, so a module holding one does not depend on
     whoever answered.
 
-    Both halves select by block type rather than by position. A response from a
-    thinking model opens with a thinking block, so the first block is the
+    Every half selects by block type rather than by position. A response from
+    a thinking model opens with a thinking block, so the first block is the
     model's reasoning far more often than it is the model's answer - and
     reasoning is not narration. It is the model working, frequently revising
     itself, and publishing it as Argus's account of an incident would put
     discarded conclusions in front of a human as though they were held ones.
+
+    Which is why it is carried in a field of its own rather than dropped or
+    joined to the text. Why a wrong hypothesis looked right is the most
+    useful thing a later reader of an incident can have, and this response is
+    the only place it ever exists; what is not read out of it here is gone.
+    Nothing that narrates goes near it, and nothing sends it back.
 
     Text is joined rather than taken first, because one turn's words arrive as
     however many blocks the API chose to break them into and they are one
@@ -166,6 +188,9 @@ def to_turn(message: Message) -> Turn:
             _BETWEEN_WHAT_IT_SAID.join(
                 block.text for block in message.content if block.type == TEXT_TYPE
             )
+        ),
+        reasoning=_BETWEEN_WHAT_IT_SAID.join(
+            block.thinking for block in message.content if block.type == THINKING_TYPE
         ),
         tool_calls=[
             ToolCall(
@@ -385,7 +410,7 @@ class AnthropicLLMClient:
             # it would freeze the saving at whatever the first turn sent.
             cache_control=EPHEMERAL_CACHE,
             output_config=OutputConfigParam(effort="high"),
-            thinking=ThinkingConfigAdaptiveParam(type="adaptive"),
+            thinking=SUMMARISED_THINKING,
             tools=offered,
             messages=to_messages(transcript),
         )

@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.llm.client import LLMClient, ModelRefused
+from argus_core.llm.client import AnswerTruncated, LLMClient, ModelRefused
 from argus_core.llm.recorded_client import RecordedLLMClient
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Ask, Transcript
@@ -139,6 +139,47 @@ def test_a_call_the_model_did_not_complete_is_recorded_too() -> None:
                 the_entry_was_recorded_for(recorded, SOME_INCIDENT_ID),
                 _the_failure_recorded_was(recorded, some_refusal),
                 _the_same_failure_reached_the_caller(some_refusal)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_call_that_produced_no_turn_still_records_what_it_cost() -> None:
+    # Producing nothing is not the same as costing nothing. A turn stopped at
+    # its cap generated every token of that cap before it was stopped, and
+    # the budget charges for it - so an entry recording the failure without
+    # its counts leaves the incident's reported total lower than the one the
+    # loop enforced, which is the disagreement the four-count sum exists to
+    # remove.
+    #
+    # These are also the least replaceable counts in the log. A completed
+    # turn's cost can be inferred from the turn; a failure's exists nowhere
+    # else once the adapter has raised.
+    some_truncation = AnswerTruncated(
+        "the model ran out of room before finishing its turn",
+        billed=Turn(
+            text="",
+            tool_calls=[],
+            input_tokens=3_104,
+            output_tokens=16_000,
+            cache_read_tokens=78_211,
+            cache_write_tokens=4_096
+        )
+    )
+
+    Scenario() \
+        .given(
+            recorded := a_recorder_that_keeps_what_it_is_given()
+        ) \
+        .when(
+            lambda: _what_was_raised_by(
+                _a_recorded_client(_a_client_that_fails(some_truncation), recorded)
+            )
+        ) \
+        .then(
+            all_of(
+                _the_failure_recorded_was(recorded, some_truncation),
+                _the_failure_recorded_cost(recorded, some_truncation.billed)
             )
         )
 
@@ -282,6 +323,41 @@ def _the_failure_recorded_was(recorded: KeptEntries, failure: Exception) -> Asse
         if response.get("error") != expected:
             raise AssertionError(
                 f"Expected the entry to record a [{expected}], got {response}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_failure_recorded_cost(recorded: KeptEntries, billed: Turn) -> Assertion[Any]:
+    """What a call that produced no turn was charged for producing nothing.
+
+    Under the same four keys a completed turn uses, because the same SQL adds
+    them up: `get_tokens_spent` reads the counts out of the stored response,
+    and a failure filing them anywhere else would be a spend the incident's
+    own total cannot see. That total already has to agree with what the
+    budget charged, and since a truncated turn is now charged, a receipt
+    without these counts puts the two paths back into disagreement on exactly
+    the calls that cost the most and explain the least.
+    """
+    def assertion(_result: Any) -> bool:
+        response = recorded.only().response
+        expected = {
+            count: getattr(billed, count)
+            for count in (
+                "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"
+            )
+        }
+        wrong = {
+            count: (wanted, response.get(count))
+            for count, wanted in expected.items()
+            if response.get(count) != wanted
+        }
+        if wrong:
+            raise AssertionError(
+                f"Expected the entry to record what the call cost, and {wrong} "
+                f"differed (expected, got) in {response}."
             )
 
         return True
