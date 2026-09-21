@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from agent_investigator.budget import InvestigationSettings
 from argus_core.anomaly import AnomalyThresholds
+from argus_core.models import Effort
 
 A_LOOKBACK_IN_MINUTES = 30
 A_LOOKAHEAD_IN_MINUTES = 10
@@ -31,11 +32,21 @@ SOME_DEVIATIONS_FROM_BASELINE = 3.0
 SOME_PERSISTENCE_IN_MINUTES = 2
 SOME_RECOVERY_FRACTION = 0.8
 
+# Which model a test's deployment names, and how hard it asks it to think.
+# Deliberately not the production defaults: a test asserting that the
+# configured model is the one asked for would pass against a loop that ignored
+# the setting entirely, if the setting happened to say what the code would
+# have said anyway.
+SOME_MODEL = "claude-sonnet-5"
+SOME_EFFORT: Effort = "medium"
+
 
 def some_investigation_settings(
     tool_calls: int = ROOM_TO_SPARE_IN_TOOL_CALLS,
     tokens: int = ROOM_TO_SPARE_IN_TOKENS,
     seconds: float = ROOM_TO_SPARE_IN_SECONDS,
+    model: str = SOME_MODEL,
+    effort: Effort = SOME_EFFORT,
     lookback_minutes: int = A_LOOKBACK_IN_MINUTES,
     lookahead_minutes: int = A_LOOKAHEAD_IN_MINUTES,
     log_ceiling_minutes: int = A_LOG_CEILING_IN_MINUTES,
@@ -51,6 +62,8 @@ def some_investigation_settings(
         investigation_max_tool_calls=tool_calls,
         investigation_max_tokens=tokens,
         investigation_max_seconds=seconds,
+        investigation_model=model,
+        investigation_effort=effort,
         log_initial_lookback_minutes=lookback_minutes,
         log_initial_lookahead_minutes=lookahead_minutes,
         log_max_window_minutes=log_ceiling_minutes,

@@ -22,6 +22,7 @@ from agent_codefix.proposing import (
     BranchWriter,
     FileLister,
     FileReader,
+    FixDeclined,
     FixNotAnswered,
     FixSettings,
     IndexNotice,
@@ -30,10 +31,16 @@ from agent_codefix.proposing import (
     SourceSearcher,
     propose_fix,
 )
-from argus_core.llm import a_conversation_recorded_for
+from argus_core.llm import (
+    AnswerTruncated,
+    ModelDidNotAnswer,
+    ModelRefused,
+    a_conversation_recorded_for,
+)
 from argus_core.models import (
     Ask,
     CodeSearch,
+    Effort,
     Evidence,
     FailureMode,
     Hypothesis,
@@ -73,6 +80,24 @@ DONT_CARE_HYPOTHESIS = a_hypothesis("the monthly spend figure divides by an empt
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_SOURCE = "def average_spend_per_item_this_month(account):\n    ...\n"
 SOME_FIXED_SOURCE = "def average_spend_per_item_this_month(account):\n    return 0\n"
+
+SOME_MODEL = "claude-sonnet-5"
+SOME_EFFORT: Effort = "medium"
+SOME_MAX_OUTPUT_TOKENS = 128_000
+
+# Past every bound a test can set, so the two bounds a test did not name stay
+# out of the way of the one it did.
+ROOM_TO_SPARE_IN_TOKENS = 1_000_000
+ROOM_TO_SPARE_IN_SECONDS = 3600.0
+
+# What a turn costs where the test is not about cost. Zero rather than a
+# plausible number, so a bound is only ever reached by a test that asked.
+NO_TOKENS = 0
+
+# The words the warning has to carry, not the sentence it carries them in -
+# a test pinning the whole wording breaks whenever the prose is improved,
+# and what matters is that the model was told which turn it is on.
+THE_LAST_CALL_WARNING = "last call"
 
 
 @pytest.mark.unit
@@ -768,7 +793,7 @@ def test_a_model_that_never_submits_says_so_rather_than_proposing_nothing() -> N
                 lambda: propose_fix(
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
-                    settings=some_settings(max_turns=3),
+                    settings=some_settings(max_tool_calls=3),
                     converse=model.converse,
                     **repository.ports()
                 )
@@ -779,6 +804,130 @@ def test_a_model_that_never_submits_says_so_rather_than_proposing_nothing() -> N
                 an_error_was_raised(FixNotAnswered),
                 _no_branch_was_written(repository)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_model_that_declines_says_so_rather_than_looking_like_a_broken_repository() -> None:
+    # A refusal is a complete answer that says no, and it is the one outcome
+    # more turns cannot fix: the same question over the same code is declined
+    # again. Its own failure, because the next move is its own - not a wider
+    # budget, not a repository to go and repair, and certainly not "the code
+    # is fine", which is what a reader concludes from no pull request and no
+    # reason.
+    #
+    # Uncaught, this reached the walk's broad handler and was reported as a
+    # fix that could not be proposed - the same sentence a GitHub outage
+    # produces. Two very different afternoons, told apart nowhere.
+    repository = a_repository()
+    model = a_model_that_declines()
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            an_error_was_raised(FixDeclined)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_cut_short_is_a_fix_that_did_not_finish() -> None:
+    # Reported as not having finished rather than as not having been
+    # possible, because that is what it is: a bound was too small. The bound
+    # is room rather than turns, which is the one thing the detail has to
+    # say - at a 128,000 ceiling an answer that still did not fit is a fix
+    # too large to write as whole files, and no amount of extra turns or
+    # repair changes that.
+    repository = a_repository()
+    model = a_model_that_is_cut_short()
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            an_error_was_raised(FixNotAnswered)
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_that_reads_expensively_is_stopped_by_what_it_spent() -> None:
+    # Code-Fix was bounded on turns and nothing else, which bounds the
+    # cheapest axis there is. Its reading is whole files and its answers are
+    # whole files, so a run can be frugal in turns and ruinous in tokens -
+    # measured, a run that reads the three largest files in the Target
+    # Service carries 47,950 tokens of source for every remaining turn.
+    #
+    # Stopped as not having finished, because that is what a bound is: the
+    # looking stopped, and no verdict on the code was reached.
+    a_generous_number_of_calls = 99
+    some_token_bound = 5_000
+    repository = a_repository()
+    model = a_model_that(*[asks_to_list_files(costing=some_token_bound)] * 3)
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(
+                        max_tool_calls=a_generous_number_of_calls,
+                        max_tokens=some_token_bound
+                    ),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            an_error_was_raised(FixNotAnswered)
+        )
+
+
+@pytest.mark.unit
+def test_a_model_on_its_last_call_is_told_so_before_it_spends_it() -> None:
+    # The difference between an answer and a run thrown away. A model that
+    # does not know it is on its last call spends it asking for one more
+    # file, and everything it read up to then goes in the bin as "no fix
+    # proposed" - which reads as a verdict on code nobody finished looking
+    # at. Code-Fix is where that costs most: it is the agent that reads whole
+    # files, so the turns being discarded are the expensive ones.
+    two_calls = 2
+    repository = a_repository()
+    model = a_model_that(asks_to_list_files(), asks_to_read(SOME_PATH))
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=two_calls),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            _the_model_was_told(model, THE_LAST_CALL_WARNING)
         )
 
 
@@ -1080,8 +1229,8 @@ def _what_came_back_is(pull_request: OpenedPullRequest) -> Assertion[Any]:
     return assertion
 
 
-def asks_to_list_files() -> Turn:
-    return _a_turn_calling("list_repository_files", {})
+def asks_to_list_files(costing: int = NO_TOKENS) -> Turn:
+    return _a_turn_calling("list_repository_files", {}, costing)
 
 
 def asks_to_search_for(query: str) -> Turn:
@@ -1110,12 +1259,22 @@ def submits_a_fix_touching(*paths: str,
     })
 
 
-def _a_turn_calling(tool: str, arguments: dict[str, Any]) -> Turn:
+def _a_turn_calling(tool: str,
+                    arguments: dict[str, Any],
+                    costing: int = NO_TOKENS) -> Turn:
+    """One turn asking for one thing, costing nothing unless a test says so.
+
+    Free by default so that a bound is only ever reached by a test that asked
+    for one - the same reason the investigator's turns are free. Costed where
+    it matters, which is the reading: Code-Fix reads whole files, so what a
+    turn costs is most of what a run costs, and until now no turn here could
+    cost anything at all.
+    """
     return Turn(
         text="",
         tool_calls=[ToolCall(id=f"call-{tool}", name=tool, arguments=arguments)],
-        input_tokens=0,
-        output_tokens=0
+        input_tokens=costing,
+        output_tokens=NO_TOKENS
     )
 
 
@@ -1129,7 +1288,7 @@ class _Model:
     repeated its last turn forever would hide that behind a hang.
     """
 
-    def __init__(self, turns: list[Turn]) -> None:
+    def __init__(self, turns: list[Turn | ModelDidNotAnswer]) -> None:
         self.turns = list(turns)
         self.transcripts: list[Transcript] = []
         self.tools_offered: list[list[ToolDefinition]] = []
@@ -1141,7 +1300,16 @@ class _Model:
         if not self.turns:
             raise AssertionError("The loop asked for more turns than were scripted.")
 
-        return self.turns.pop(0)
+        answered = self.turns.pop(0)
+
+        # A turn that is an exception is raised rather than returned, because
+        # that is what the seam does with it: a turn the model did not finish
+        # carries nothing to hand back, and what the loop does about it is the
+        # point of the tests that script one.
+        if isinstance(answered, ModelDidNotAnswer):
+            raise answered
+
+        return answered
 
     def everything_it_was_told(self) -> str:
         """Every word put to the model across the whole conversation.
@@ -1165,6 +1333,34 @@ class _Model:
 
 def a_model_that(*turns: Turn) -> _Model:
     return _Model(list(turns))
+
+
+def a_model_that_declines() -> _Model:
+    """A model whose first turn is a complete answer saying no.
+
+    Its own builder rather than a turn, because a refusal is not a turn: the
+    adapter raises it, so what a loop meets is an exception where a `Turn`
+    would have been. A test scripting one as content would be checking how
+    the loop reads words the model never sent in that shape.
+    """
+    return _Model([ModelRefused("the model declined to answer")])
+
+
+def a_model_that_is_cut_short() -> _Model:
+    """A model whose first turn ran out of room before it finished.
+
+    Costed, because a turn stopped at its cap generated every token of that
+    cap and was billed for all of them - and Code-Fix's cap is the largest in
+    the system, so this is the most expensive way a fix can fail.
+    """
+    return _Model([
+        AnswerTruncated(
+            "the model ran out of room before finishing its turn",
+            billed=Turn(
+                text="", tool_calls=[], input_tokens=0, output_tokens=128_000
+            )
+        )
+    ])
 
 
 class _Repository:
@@ -1252,23 +1448,44 @@ def a_repository(holding: list[str] | None = None,
 
 
 def some_settings(base_branch: str = "main",
-                  max_turns: int = 12,
-                  retrieval: CodeSearch = CodeSearch.BOTH
+                  max_tool_calls: int = 12,
+                  retrieval: CodeSearch = CodeSearch.BOTH,
+                  model: str = SOME_MODEL,
+                  effort: Effort = SOME_EFFORT,
+                  max_output_tokens: int = SOME_MAX_OUTPUT_TOKENS,
+                  max_tokens: int = ROOM_TO_SPARE_IN_TOKENS,
+                  max_seconds: float = ROOM_TO_SPARE_IN_SECONDS
                   ) -> FixSettings:
     """What the fix loop is bounded and aimed by.
 
     `base_branch` is what a fix is cut from and proposed onto - the branch that
-    is actually deployed. `max_turns` bounds the reading, for the reason the
-    investigation's budgets exist: a bound the model could talk its way past is
-    not a bound.
+    is actually deployed.
+
+    The three bounds exist for the reason the investigation's do: they fail
+    differently and none implies the others. An agent reading whole files is
+    cheap in calls and ruinous in tokens, which is exactly the case a call
+    count alone cannot see. Generous by default, so that a bound binding in a
+    test which never mentioned one would be the test's own doing.
 
     `retrieval` is which ways of finding code the model is offered. Both by
     default, because a deployment that has an index should use it - and because
     the tests that care which are offered say so, where the rest are about what
     happens once something has been found.
+
+    `model` and `effort` are which model writes the fix and how hard it is
+    asked to think. Deliberately not the production defaults: a test asserting
+    that the configured model is the one asked for would pass against a loop
+    ignoring the setting entirely, if the setting happened to name what the
+    code would have reached for anyway.
     """
     return FixSettings(
         github_base_branch=base_branch,
-        codefix_max_turns=max_turns,
-        code_search=retrieval
+        codefix_max_tool_calls=max_tool_calls,
+        codefix_max_tokens=max_tokens,
+        codefix_max_seconds=max_seconds,
+        code_search=retrieval,
+        codefix_model=model,
+        codefix_effort=effort,
+        codefix_max_output_tokens=max_output_tokens
     )
+

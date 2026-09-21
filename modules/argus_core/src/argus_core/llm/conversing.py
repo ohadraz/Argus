@@ -12,25 +12,43 @@ modules both name is a contract, and so is the factory that produces one.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import Protocol
 
 from argus_core.llm.building import build_llm_client
 from argus_core.llm.client import ClientFor, Conversation
+from argus_core.models.model_policy import ModelPolicy
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Transcript
 from argus_core.models.turn import Turn
 from argus_core.replay import Recorder, Replay
 
-# How a recorded conversation is built once the incident is known. Named as a
-# shape so a loop can take the factory itself as a seam: a test hands over
-# something it can assert was asked for, where production hands over the one
-# below.
-type Conversations = Callable[[str, Recorder], Conversation]
+
+class Conversations(Protocol):
+    """How a recorded conversation is built once the incident is known.
+
+    Named as a shape so a loop can take the factory itself as a seam: a test
+    hands over something it can assert was asked for, where production hands
+    over the one below.
+
+    A `Protocol` rather than a `Callable` alias because `policy` is
+    keyword-only and optional, which an alias cannot say. Keyword-only on
+    purpose: the incident and the recorder are what a conversation is *for*,
+    and which model answers it is a separate kind of fact that should not be
+    readable as a third unnamed thing at a call site.
+    """
+
+    def __call__(self,
+                 incident_id: str,
+                 recorder: Recorder,
+                 *,
+                 policy: ModelPolicy | None = None) -> Conversation: ...
 
 
 def a_conversation_recorded_for(
     incident_id: str,
     recorder: Recorder,
+    *,
+    policy: ModelPolicy | None = None,
     client_for: ClientFor = build_llm_client
 ) -> Conversation:
     """The conversational seam for real work, writing down what it costs.
@@ -54,7 +72,7 @@ def a_conversation_recorded_for(
     was asked for without a vendor answering. It defaults to the real builder,
     which already has this shape.
     """
-    client = client_for(Replay(incident_id, recorder))
+    client = client_for(Replay(incident_id, recorder), policy)
 
     def converse_and_record(transcript: Transcript,
                             tools: list[ToolDefinition], /) -> Turn:

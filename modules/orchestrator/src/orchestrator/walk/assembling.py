@@ -44,6 +44,7 @@ from argus_core.embedding import an_embedder
 from argus_core.events import Publisher
 from argus_core.llm import build_llm_client
 from argus_core.mcp_transport import McpClient
+from argus_core.models import ModelPolicy
 from argus_core.replay import Recorder
 from argus_incidents import (
     IsStillWanted,
@@ -299,7 +300,18 @@ def against(connections: Connections,
             incident_id,
             connections=connections,
             sources=sources,
-            client_for=build_llm_client,
+            # The postmortem's own model and effort, bound here because
+            # this is where an agent is assembled. It is the cheapest of
+            # the three to serve and the clearest candidate for a lower
+            # effort: one piece of prose, every figure already measured,
+            # and no tools to explore with.
+            client_for=partial(
+                build_llm_client,
+                policy=ModelPolicy(
+                    model=settings.postmortem_model,
+                    effort=settings.postmortem_effort
+                )
+            ),
             recorder=recorder),
         record_postmortem=records.postmortem,
         transition_incident=records.transition,

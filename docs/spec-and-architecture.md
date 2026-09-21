@@ -170,7 +170,7 @@ There are two ways to find code and the agent is offered both: **substring searc
 
 `CODE_SEARCH` decides which exist, and it switches a whole mechanism rather than a tool list: set to `grep` the read tier registers no retrieval-by-meaning tool and opens no store, the catch-up loop (§11.5) builds nothing, and the push webhook records nothing - a deployment that will not search by meaning does none of that work. `both` is what a deployment runs. The single channels exist so the benchmark can run each alone over the same incidents (§21), which is the only way to compare two retrievers.
 
-The index describes one commit, and that commit may be older than the one being fixed. Every answer it gives says so when it is behind, and the agent can ask how fresh the index is before it starts reading, rather than learning it from a result it has already acted on. It writes tests freely and no path is withheld from it: the test that fails before the fix and passes after is the most valuable half of the proposal, and a repo with a file the agent may not touch is one where the fix cannot carry its own evidence. Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence) - what keeps a bad patch out of service is that a person merges it.
+The index describes one commit, and that commit may be older than the one being fixed. Every answer it gives says so when it is behind, and the agent can ask how fresh the index is before it starts reading, rather than learning it from a result it has already acted on. It writes tests freely and no path is withheld from it: the test that fails before the fix and passes after is the most valuable half of the proposal, and a repo with a file the agent may not touch is one where the fix cannot carry its own evidence. Its loop is bounded on the same three axes as the investigation's (§9) and for the same reasons, and it is the agent that shows why one axis will not do: it reads whole files and carries every one it has read for the rest of the run, so it can be frugal in calls and ruinous in tokens. Its answers are whole files too, which is why its output ceiling is the model's own rather than the modest one a short verdict needs - past the point where a single response can be asked for in one piece, so the answer is streamed. Its binding has **no `merge_pull_request` function at all** (tier enforcement by absence) - what keeps a bad patch out of service is that a person merges it.
 
 ### 7.5 Communicator agent
 
@@ -783,18 +783,33 @@ The Investigator's opening (§9) is always the same: aggregate → locate onset 
 
 ## 17. Model Selection Per Task
 
-Free-tier terms and rate limits for hosted LLM APIs change often - verify current limits rather than treating the figures below as fixed.
+One provider, reached through one adapter (§12). Every model call Argus makes
+goes through `argus_core.llm`, and the single seam below it is a base URL - which
+is what lets the offline suites replay a recorded conversation through the real
+adapter, the real request parameters and the real response parsing. A second
+provider would be a second adapter, a second recording format and a second set
+of failure shapes to classify, bought for a saving that is not the constraint
+here.
 
-| Task | Recommended model class | Why | Suggested free option |
-|---|---|---|---|
-| Investigator ReAct loop | Fast, cheap, large context | High call volume; digesting windowed excerpts, not deep reasoning | Gemini 2.5 Flash / Flash-Lite (no card required, large context) |
-| Slack hint parsing | Fast, cheap | Short inputs, simple structured extraction, high volume | Groq free tier, open-weight model (e.g. Llama 3.3 70B) - low latency, generous cap |
-| Code-Fix (agentic search + patch drafting) | Strongest free reasoning/code model | Patch is graded directly against the repo's test; low call volume, tighter cap tolerable | Gemini 2.5 Pro free tier |
-| Postmortem + executive summary | Strong long-form writing | Graded against a completeness checklist; low call volume | Gemini 2.5 Pro free tier |
+Which model answers, and how hard it is asked to think, is **per agent and is
+configuration rather than code**. The agents are not the same shape of work:
 
-**Spreading load across providers** (e.g. Gemini for Investigator/Code-Fix/Postmortem, Groq for Slack) means a demo/benchmark burst doesn't exhaust one provider's cap and stall the pipeline. Both are reachable via thin, near-OpenAI-compatible SDKs, so model-per-node is a config value in `argus_core`'s LLM client factory, not a code change.
+| Agent | What it is doing | What that wants |
+|---|---|---|
+| Investigator | Deciding which evidence would settle the question, across a tool loop | Judgement over a long transcript; the bounds (§9) matter more than the depth |
+| Code-Fix | Agentic search, then writing whole files | The highest effort, and an output ceiling of the model's own - its answers are files, not verdicts (§7.4) |
+| Postmortem | One piece of prose, every figure already measured, no tools | The least of the three; nothing here is being reasoned out |
 
-**If free-tier limits bottleneck benchmark runs** specifically, self-hosting an open-weight model (Llama 3.1/3.3, Qwen2.5) via Ollama or vLLM removes the rate-limit ceiling, at the cost of setup time and somewhat weaker Code-Fix/Postmortem quality.
+A deployment that names none of these gets the same model and the same effort
+for all three, so the choice is one a benchmark can make rather than one a
+reader has to. Which level each agent should run at is a measurement against the
+eval (§21), not an assertion here - which is the reason it is configuration at
+all.
+
+Effort is bound when an agent's client is built, not passed per call. A loop
+holds a conversation and nothing else: it has no business choosing a model, a
+token bound or an effort level, and the composition root that assembles the
+agent already knows which agent it is assembling.
 
 ## 18. Engineering Practices
 

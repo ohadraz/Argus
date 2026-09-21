@@ -23,10 +23,12 @@ from __future__ import annotations
 from argus_core.config import LLMSettings, get_settings
 from argus_core.llm.client import LLMClient
 from argus_core.llm.recorded_client import RecordedLLMClient
+from argus_core.models.model_policy import ModelPolicy
 from argus_core.replay import Replay
 
 
-def build_llm_client(replay: Replay | None = None) -> LLMClient:
+def build_llm_client(replay: Replay | None = None,
+                     policy: ModelPolicy | None = None) -> LLMClient:
     """Builds the client agents get by default, keeping a receipt when asked to.
 
     Built rather than fetched, and named so: each call constructs a client
@@ -52,11 +54,12 @@ def build_llm_client(replay: Replay | None = None) -> LLMClient:
     deferred by this except the cost: a caller that reaches this line was always
     going to need Anthropic.
     """
-    from argus_core.llm.adapters.anthropic_adapter import MODEL, AnthropicLLMClient
+    from argus_core.llm.adapters.anthropic_adapter import AnthropicLLMClient
 
-    client = AnthropicLLMClient(LLMSettings.of(get_settings()))
+    asked_of = policy if policy is not None else ModelPolicy()
+    client = AnthropicLLMClient(LLMSettings.of(get_settings()), policy=asked_of)
 
     if replay is None:
         return client
 
-    return RecordedLLMClient(client, replay, target=MODEL)
+    return RecordedLLMClient(client, replay, target=asked_of.model)

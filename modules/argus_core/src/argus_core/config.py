@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from argus_core.models.code_search import CodeSearch
+from argus_core.models.model_policy import DEFAULT_EFFORT, DEFAULT_MODEL, Effort
 
 # The longest single wait inside a walk: Mitigation standing by for the service
 # to answer an action. Named here because two settings are stated in terms of
@@ -74,10 +75,29 @@ class Settings(BaseSettings):
     # deployed, since a fix against anything else patches a repository nobody
     # is running.
     github_base_branch: str = Field(default="main")
-    # How many turns Code-Fix gets to read the repository before it has to
-    # answer. A bound rather than a budget, and never expressed to the model:
+    # What one attempt at a fix may spend. Three bounds rather than one, for
+    # the reason the investigation has three: they fail differently and none
+    # implies the others, and this is the agent a call count alone cannot
+    # bound. It reads whole files and writes whole files, so a run can be
+    # frugal in calls and ruinous in tokens - a run that reads the three
+    # largest files in the Target Service carries 47,950 tokens of source for
+    # every remaining turn, which at twelve turns is most of a six-figure
+    # bill nothing was counting.
+    #
+    # Calls rather than turns, because a model may ask for several files at
+    # once and a bound counting turns would let it read several times what it
+    # was allowed while still looking healthy. Never expressed to the model:
     # one it could ask to extend would not be a bound (spec §9).
-    codefix_max_turns: int = Field(default=12, gt=0)
+    codefix_max_tool_calls: int = Field(default=12, gt=0)
+    # Larger than the investigation's, because what this agent reads is source
+    # rather than windows of metrics, and it carries every file it has read
+    # for the rest of the run.
+    codefix_max_tokens: int = Field(default=400_000, ge=1)
+    # Longer than the investigation's, and for the opposite reason to the
+    # bound above: nobody is waiting on this one. The incident is already
+    # mitigated by the time Code-Fix runs, so what this protects is the
+    # worker's own progress rather than a human's patience.
+    codefix_max_seconds: float = Field(default=600.0, gt=0.0)
     # Which ways of finding code this deployment has: `grep`, `meaning` or
     # `both`. It decides more than what Code-Fix is offered - `grep` builds no
     # index, opens no vector store and registers no retrieval tool, so a
@@ -253,6 +273,37 @@ class Settings(BaseSettings):
     # the seam sits below the SDK, so the real adapter, the real
     # `messages.parse` and the real schema transform still run.
     anthropic_base_url: str = Field(default="")
+
+    # Which model answers each agent, and how hard it is asked to think.
+    #
+    # Per agent rather than once, because the agents are not the same shape of
+    # work. The postmortem writes one piece of prose with every figure already
+    # measured and no tools to explore; the investigator runs a tool loop whose
+    # whole judgement is which evidence would settle the question; Code-Fix is
+    # agentic coding, where the higher efforts earn their cost. A single level
+    # across the three is wrong for at least one of them, and which one is not
+    # knowable from here - it is a thing to measure against the eval, which is
+    # why these are configuration rather than constants.
+    #
+    # The defaults are what every agent used when there was one setting for all
+    # of them, so a deployment that names none of these behaves exactly as it
+    # did. `high` is also the API's own default, stated rather than relied on.
+    investigation_model: str = Field(default=DEFAULT_MODEL)
+    investigation_effort: Effort = Field(default=DEFAULT_EFFORT)
+    codefix_model: str = Field(default=DEFAULT_MODEL)
+    codefix_effort: Effort = Field(default=DEFAULT_EFFORT)
+    # How much room one fix gets to be written in. Alone among the agents
+    # Code-Fix answers with whole files, and the largest in the Target
+    # Service is 21,484 tokens - so the 16,000 every other agent is happy
+    # with makes a whole class of fix impossible rather than tight, and no
+    # retry helps because the same request overflows the same ceiling every
+    # time. Past 21,333 the answer is streamed, which is the only way the
+    # SDK will carry one that large; 128,000 is the model's own ceiling and
+    # a ceiling is not a reservation, so asking for all of it costs nothing
+    # for the fixes that turn out to be small.
+    codefix_max_output_tokens: int = Field(default=128_000, gt=0)
+    postmortem_model: str = Field(default=DEFAULT_MODEL)
+    postmortem_effort: Effort = Field(default=DEFAULT_EFFORT)
 
     # The bot the Communicator posts as. Empty by default, and empty means it
     # says nothing: a workspace nobody configured is not a workspace to guess

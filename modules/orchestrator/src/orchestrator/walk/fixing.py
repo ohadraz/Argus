@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_codefix import FixNotAnswered
+from agent_codefix import FixDeclined, FixNotAnswered
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
 from argus_core.models import FixOutcome, OpenedPullRequest
 
@@ -57,6 +57,20 @@ def codefix_node(state: IncidentState,
             proposal=None,
             action="no code-level fix was proposed",
             detail=f"the agent did not finish looking: {error}",
+        )
+    except FixDeclined as declined:
+        # Above the broad clause for the same reason as the one above it,
+        # and for a different failure: this one says nothing about the
+        # repository. The model was asked and said no, which is neither an
+        # outage to repair nor a budget to widen, and it read as the first
+        # of those for as long as it fell through to the clause below.
+        return _said(
+            narrator,
+            found=False,
+            outcome=FixOutcome.DECLINED,
+            proposal=None,
+            action="no code-level fix was proposed",
+            detail=f"the model declined to write one: {declined}",
         )
     except Exception as error:
         # Caught deliberately, and caught broadly. What opens a pull request is

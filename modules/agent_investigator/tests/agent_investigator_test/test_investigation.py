@@ -25,6 +25,7 @@ from argus_core.events import (
     OnsetDetected,
     RetrievalRequested,
 )
+from argus_core.llm import a_conversation_recorded_for
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -34,6 +35,7 @@ from argus_core.models import (
     Attempt,
     Evidence,
     MetricBucket,
+    ModelPolicy,
     RetrievalChannel,
 )
 from argus_core.replay import CallType, ReplayEntry
@@ -48,7 +50,10 @@ from agent_investigator_test.framework.builders.configuration import (
     some_thresholds,
 )
 from agent_investigator_test.framework.builders.incident import (
+    CALM_ERROR_RATE,
+    DONT_CARE_STARTED_AT,
     a_steady_window,
+    a_window_of,
     a_window_that_starts_calm,
     an_alert,
     the_onset_of,
@@ -573,6 +578,61 @@ def test_the_model_is_told_the_onset_it_does_not_get_to_choose() -> None:
 
 
 @pytest.mark.unit
+def test_the_investigation_is_held_with_the_model_its_deployment_named() -> None:
+    # Per agent, and this is the agent it matters most for: the investigator
+    # is the one whose judgement is the product, so which model answers it and
+    # how hard it is asked to think are the two settings most worth being able
+    # to move without a release.
+    #
+    # Asserted where the conversation is built rather than where it is used.
+    # A loop holds a `(transcript, tools) -> Turn` and is told nothing about
+    # models or effort - that is the seam working as intended, and it means
+    # the only place the choice is visible is the asking.
+    some_policy = ModelPolicy(model="claude-haiku-4-5", effort="low")
+    conversations = create_autospec(a_conversation_recorded_for, instance=False)
+    conversations.return_value = a_model_that_says(a_turn_answering(an_explanation()))
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                settings=some_investigation_settings(
+                    model=some_policy.model, effort=some_policy.effort
+                ),
+                conversations=conversations
+            )
+        ) \
+        .then(
+            _the_conversation_was_asked_for_with(conversations, some_policy)
+        )
+
+
+def _the_conversation_was_asked_for_with(conversations: Any,
+                                         policy: ModelPolicy) -> Assertion[Findings]:
+    """Which model the loop asked to be built for it, and at what effort.
+
+    Read off the request for a conversation rather than off any turn, because
+    a turn looks the same whoever answered it. A loop given the wrong model
+    investigates perfectly well and bills differently, which is a failure
+    nothing downstream of here can see.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        asked = conversations.call_args
+
+        if asked is None or asked.kwargs.get("policy") != policy:
+            raise AssertionError(
+                f"Expected a conversation asked for with [{policy}], got [{asked}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
 def test_the_minutes_are_carried_as_rows_rather_than_as_an_object_each() -> None:
     # The whole window still goes in front of the model - this is about how it
     # is written down, not how much of it there is. Naming every field on
@@ -625,6 +685,39 @@ def test_a_turn_cut_short_is_charged_for_what_it_generated() -> None:
         ) \
         .then(
             _the_tokens_charged_were(some_budget, some_truncated_output)
+        )
+
+
+@pytest.mark.unit
+def test_a_reading_the_service_does_not_have_is_not_a_reading_of_zero() -> None:
+    # The one distinction rows can silently lose. A service consulting no
+    # cache has no hit ratio; a cache answering nothing has one of zero, and
+    # `MetricBucket` says plainly that a reader must be able to tell a
+    # deployment without a fast path from one whose fast path has gone.
+    #
+    # An encoding that wrote both as `0` would be handing the model a cache
+    # that is failing where there is no cache at all - and the model would be
+    # right to chase it.
+    a_cache_answering_nothing = 0.0
+    some_metrics = a_window_of(
+        [CALM_ERROR_RATE, CALM_ERROR_RATE, 0.09, 0.18],
+        cache_hit_ratios=[None, a_cache_answering_nothing, None, None]
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                f",{DONT_CARE_STARTED_AT},\n",
+                f",{DONT_CARE_STARTED_AT},{a_cache_answering_nothing}"
+            )
         )
 
 

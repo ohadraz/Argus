@@ -187,6 +187,12 @@ ignore_imports = [
     "** -> argus_core.replay",
     "** -> argus_core.schema",
     "** -> argus_core.anomaly",
+    # What bounds an agent loop, reached by both agents that keep one. A
+    # door rather than a shared module by accident: the bounds moved here
+    # when Code-Fix came to need the same three, and an agent reaching
+    # into the other for them is the import this whole contract exists to
+    # refuse.
+    "** -> argus_core.budget",
     "** -> argus_core.source_scope",
     # Narrower than the doors above it, and for the reason `llm` and
     # `mcp_transport` are narrow: `embedding` is an optional dependency, taken

@@ -58,7 +58,18 @@ def a_steady_window() -> list[MetricBucket]:
     return a_window_of([CALM_ERROR_RATE] * (CALM_MINUTES + 2))
 
 
-def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
+def a_window_of(error_rates: list[float],
+                cache_hit_ratios: list[float | None] | None = None) -> list[MetricBucket]:
+    """Minutes carrying these error rates, and nothing else worth noticing.
+
+    `cache_hit_ratios` is the one reading here that can genuinely be absent,
+    and it is a parameter because absent and zero are different facts: a
+    service consulting no cache has no hit ratio, and a cache answering
+    nothing has one of zero. Anything rendering the window has to keep those
+    apart, and a builder that could only produce one of them could not ask.
+    """
+    ratios = cache_hit_ratios if cache_hit_ratios is not None else [None] * len(error_rates)
+
     return [
         MetricBucket(
             bucket_id=_the_minute_at(offset),
@@ -68,9 +79,10 @@ def a_window_of(error_rates: list[float]) -> list[MetricBucket]:
             p99_ms=CALM_P99_MS,
             request_volume=DONT_CARE_REQUEST_VOLUME,
             memory_used_bytes=CALM_MEMORY_BYTES,
-            process_start_time_seconds=DONT_CARE_STARTED_AT
+            process_start_time_seconds=DONT_CARE_STARTED_AT,
+            cache_hit_ratio=ratio
         )
-        for offset, error_rate in enumerate(error_rates)
+        for offset, (error_rate, ratio) in enumerate(zip(error_rates, ratios, strict=True))
     ]
 
 

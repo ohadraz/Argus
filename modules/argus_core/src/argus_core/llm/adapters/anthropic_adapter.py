@@ -36,6 +36,12 @@ from argus_core.llm.client import (
     TurnPaused,
 )
 from argus_core.llm.escapes import with_escapes_resolved
+from argus_core.models.model_policy import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    DEFAULT_MODEL,
+    LARGEST_UNSTREAMED_ANSWER,
+    ModelPolicy,
+)
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import (
     Ask,
@@ -81,12 +87,21 @@ TOOL_USE_STOP_REASON: Final = "tool_use"
 # them together would misrepresent where the model paused.
 _BETWEEN_WHAT_IT_SAID = "\n"
 
-MODEL = "claude-opus-5"
+# Which model answers when nobody said. Aliased from the one declaration
+# rather than spelled again here: an agent's model is configuration now, and
+# two copies of a default are two answers the day one of them is updated.
+#
+# Still named in this module because this is where a reader looks for "what
+# does Argus actually talk to", and because the contract suite calls the real
+# API with it - that check is only worth anything if it names what the adapter
+# would have named.
+MODEL: Final = DEFAULT_MODEL
 
-# Non-streaming, so this stays under the SDK's HTTP timeout. A turn is a short
-# thing to say plus the calls it asks for; the tokens go on thinking, which
-# this does not cap.
-MAX_TOKENS = 16000
+# How much room an answer gets when nobody said, aliased from the one
+# declaration for the same reason `MODEL` is. Named here because the contract
+# suite asks the real API with it, and that check means something only if it
+# asks the way the adapter would.
+MAX_TOKENS: Final = DEFAULT_MAX_OUTPUT_TOKENS
 
 # How many times the SDK may retry a call that never reached a verdict - a
 # connection that dropped, a 429, a 5xx. Two, which is what the SDK would do
@@ -369,14 +384,25 @@ class AnthropicLLMClient:
 
     def __init__(self,
                  settings: LLMSettings,
+                 policy: ModelPolicy | None = None,
                  client: anthropic.Anthropic | None = None) -> None:
         """Builds the SDK client this talks through, unless handed one.
+
+        `policy` is which model answers and how hard it is asked to think, and
+        it is held here rather than taken per call. Which agent this client
+        serves is fixed for the whole of an incident while the transcript is
+        not, so binding it once keeps the choice out of a seam whose subject
+        is a conversation - and leaves a loop holding something that knows of
+        no model, no effort and no client, which is the whole point of that
+        seam. Defaulted, so a caller with no opinion gets what every agent got
+        when there was one answer for all of them.
 
         `client` is the seam a test reaches for when what it is checking is the
         request rather than the answer - the same need `_api_key_for` already
         answers from the other side. Configuration still decides everything
         about a real one; passing a client only says that this one is not.
         """
+        self._policy = policy if policy is not None else ModelPolicy()
         base_url = settings.anthropic_base_url or None
         self._client = client if client is not None else anthropic.Anthropic(
             api_key=_api_key_for(settings.anthropic_api_key, base_url),
@@ -389,7 +415,7 @@ class AnthropicLLMClient:
     def converse(self,
                  transcript: Transcript,
                  tools: list[ToolDefinition],
-                 max_tokens: int = MAX_TOKENS) -> Turn:
+                 max_tokens: int | None = None) -> Turn:
         """Takes one turn of a conversation in which the model may ask for tools.
 
         The only way of asking. It hands the model a transcript and a set of
@@ -401,9 +427,18 @@ class AnthropicLLMClient:
         business, and a client that remembered it would make two investigations
         share state through this object.
 
-        Adaptive thinking at high effort: the judgement being asked for is
-        which evidence would settle the question, which is exactly what gets
-        worse without reasoning.
+        Adaptive thinking, at whatever effort this client's agent was
+        given: the judgement being asked for is which evidence would settle
+        the question, which is exactly what gets worse without reasoning.
+
+        How much room the answer gets comes from the policy unless a caller
+        names a figure, and above `LARGEST_UNSTREAMED_ANSWER` the answer is
+        streamed. That is not a preference about latency: past that line the
+        SDK refuses an ordinary request before sending it, so an agent whose
+        answers are whole files has no other way to ask for the room it
+        needs. Below the line nothing streams, because nothing gains by it:
+        the same message arrives either way, and the simpler request is the
+        one whose failures are easier to read.
 
         A turn that is not a turn raises rather than returning: a refusal, a
         truncated answer, or a pause. The three differ in what to do next, so
@@ -415,21 +450,9 @@ class AnthropicLLMClient:
         # the SDK to hold one. The shape is the API's, and this is the module
         # that already knows that, so the cast belongs here and nowhere else.
         offered = [cast(ToolParam, tool.to_wire()) for tool in tools]
+        room = max_tokens if max_tokens is not None else self._policy.max_output_tokens
 
-        answer = self._client.messages.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            # Asked for at the top level rather than pinned to a block: the API
-            # places the breakpoint on the last cacheable block and moves it
-            # forward as the transcript grows, which is the shape of this loop -
-            # every turn's prefix is the previous turn's entire request. Pinning
-            # it would freeze the saving at whatever the first turn sent.
-            cache_control=EPHEMERAL_CACHE,
-            output_config=OutputConfigParam(effort="high"),
-            thinking=SUMMARISED_THINKING,
-            tools=offered,
-            messages=to_messages(transcript),
-        )
+        answer = self._answered(transcript, offered, room)
 
         error_type = _STOP_REASON_ERRORS.get(answer.stop_reason or "")
         if error_type is not None:
@@ -444,3 +467,53 @@ class AnthropicLLMClient:
             )
 
         return to_turn(answer)
+
+    def _answered(self,
+                  transcript: Transcript,
+                  offered: list[ToolParam],
+                  room: int) -> Message:
+        """One response, asked for whichever way this much room allows.
+
+        The two calls take the same arguments and mean the same thing; only
+        the transport differs, and `get_final_message` assembles the streamed
+        one back into exactly what the other returns. So everything after
+        this - the stop reason, the counts, the translation - is written once
+        and never learns which way the answer arrived.
+        """
+        asked = self._request(transcript, offered, room)
+
+        # Cast because the arguments arrive as a mapping: built once so the
+        # two ways of asking cannot drift, which costs mypy the overload it
+        # would otherwise resolve. What comes back is a `Message` either way -
+        # that is the whole reason the rest of `converse` can be written once.
+        if room <= LARGEST_UNSTREAMED_ANSWER:
+            return cast(Message, self._client.messages.create(**asked))
+
+        with self._client.messages.stream(**asked) as streamed:
+            return cast(Message, streamed.get_final_message())
+
+    def _request(self,
+                 transcript: Transcript,
+                 offered: list[ToolParam],
+                 room: int) -> dict[str, Any]:
+        """Everything one turn asks for, as the arguments both ways take.
+
+        Built once rather than at each call so the two cannot drift: a
+        breakpoint or an effort level that reached only the unstreamed path
+        would be a difference nothing here declares and only the bill would
+        notice.
+        """
+        return dict(
+            model=self._policy.model,
+            max_tokens=room,
+            # Asked for at the top level rather than pinned to a block: the API
+            # places the breakpoint on the last cacheable block and moves it
+            # forward as the transcript grows, which is the shape of this loop -
+            # every turn's prefix is the previous turn's entire request. Pinning
+            # it would freeze the saving at whatever the first turn sent.
+            cache_control=EPHEMERAL_CACHE,
+            output_config=OutputConfigParam(effort=self._policy.effort),
+            thinking=SUMMARISED_THINKING,
+            tools=offered,
+            messages=to_messages(transcript),
+        )

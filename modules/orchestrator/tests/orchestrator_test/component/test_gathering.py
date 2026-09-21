@@ -46,6 +46,7 @@ from argus_core.models import (
     FixOutcome,
     Hypothesis,
     IncidentStatus,
+    ModelPolicy,
     OpenedPullRequest,
     PostmortemDocument,
     ToolCall,
@@ -430,7 +431,7 @@ def _a_model_submitting(root_cause: str,
     be sent back as invented and this stand-in would answer the same thing
     twice.
     """
-    def client_for(replay: Replay) -> LLMClient:
+    def client_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
         clients_asked_for.append(replay)
 
         return _AModelSubmitting({

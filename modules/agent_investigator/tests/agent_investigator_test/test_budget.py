@@ -1,83 +1,47 @@
-"""What stops an investigation that the model would happily continue.
+"""What one investigation may spend, read off what this deployment configured.
 
-The loop hands the model tools and lets it decide what to read; this is the
-half that decides when it has to stop. Three bounds, checked between turns,
-because they fail differently and none of them implies the others - a model
-reading three-hour windows is cheap in calls and ruinous in tokens, and one
-looping on a narrow window is the reverse.
+The arithmetic is the kernel's and is tested there. What is left here is the
+mapping, which sounds too small to be worth a test and is exactly the shape of
+thing that fails silently: three numbers going into three parameters of the
+same types, in a module whose counterpart in Code-Fix does the same job over
+fields with different names. Swap two and everything still builds, every type
+checks, and an investigation runs to a bound nobody chose.
 
-Nothing here asks the model anything. A bound the model could be persuaded to
-respect is not a bound, so every one of these is arithmetic the loop does on
-its own.
+The failure has no symptom of its own, either. A budget handed the time bound
+as its token bound does not raise - it stops early, or late, and reports
+having run out of something, which reads exactly like a deployment that
+configured a number badly.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
-from agent_investigator.budget import Bound, Budget
+from agent_investigator.budget import Bound, a_budget_for
+from argus_core.budget import Budget
 from argus_core.models import ToolCall, Turn
-from argus_testkit import Assertion, Scenario, calling
+from argus_testkit import Assertion, Scenario
+
+from agent_investigator_test.framework.builders.configuration import (
+    some_investigation_settings,
+)
 
 
 @pytest.mark.unit
-def test_an_investigation_that_has_done_nothing_has_reached_no_bound() -> None:
-    # The state every investigation opens in. A budget that reported a bound
-    # before the first turn would end every investigation before it started.
-    Scenario() \
-        .given(
-            some_budget := _a_budget()
-        ) \
-        .when(
-            lambda: some_budget
-        ) \
-        .then(
-            _no_bound_was_reached()
-        )
-
-
-@pytest.mark.unit
-def test_a_turn_inside_every_bound_reaches_none_of_them() -> None:
-    # The ordinary case, and the one worth stating: recording a turn is not
-    # itself what ends an investigation.
-    some_generous_token_bound = 10_000
-    some_generous_tool_call_bound = 10
-    a_turn_well_inside_them = some_generous_token_bound // 100
+def test_the_call_bound_is_the_one_this_deployment_configured() -> None:
+    # Each of the three is asserted on its own, because the failure being
+    # guarded is a crossed wire rather than a missing one: a budget built
+    # from all three settings in the wrong order satisfies any assertion
+    # that only asks whether some bound binds eventually.
+    some_call_bound = 2
 
     Scenario() \
         .given(
-            some_budget := _a_budget(max_tool_calls=some_generous_tool_call_bound,
-                                    max_tokens=some_generous_token_bound),
-            calling(lambda: some_budget.record(
-                _a_turn_asking_for(1, costing_each_way=a_turn_well_inside_them)))
+            budget := a_budget_for(
+                some_investigation_settings(tool_calls=some_call_bound)
+            )
         ) \
         .when(
-            lambda: some_budget
-        ) \
-        .then(
-            _no_bound_was_reached()
-        )
-
-
-@pytest.mark.unit
-def test_tool_calls_are_counted_across_turns() -> None:
-    # Across, not within. A model that asks for two channels a turn reaches a
-    # three-call bound on its second turn, and a budget counting turns rather
-    # than calls would let it read twice what it was allowed.
-    some_tool_call_bound = 3
-    some_slightly_below_bound_calls_a_turn = some_tool_call_bound - 1
-
-    Scenario() \
-        .given(
-            some_budget := _a_budget(max_tool_calls=some_tool_call_bound),
-            calling(lambda: some_budget.record(
-                _a_turn_asking_for(some_slightly_below_bound_calls_a_turn))),
-            calling(lambda: some_budget.record(
-                _a_turn_asking_for(some_slightly_below_bound_calls_a_turn)))
-        ) \
-        .when(
-            lambda: some_budget
+            lambda: _having_charged(budget, _a_turn_costing(calls=some_call_bound))
         ) \
         .then(
             _the_bounds_reached_were(Bound.TOOL_CALLS)
@@ -85,27 +49,17 @@ def test_tool_calls_are_counted_across_turns() -> None:
 
 
 @pytest.mark.unit
-def test_tokens_are_counted_across_turns() -> None:
-    # The bound a wide window blows through while the call count still looks
-    # healthy. Both directions count: what the model was sent is most of the
-    # spend, because every turn resends the whole transcript.
+def test_the_token_bound_is_the_one_this_deployment_configured() -> None:
     some_token_bound = 500
-    # Both directions are counted, so a turn costs twice this. One turn stays
-    # inside the bound and two pass it - which is what makes this a test of
-    # accumulation rather than of a single expensive turn.
-    some_turn_costing_less_than_the_bound = some_token_bound // 4 + 10
-    a_turn_the_bound_allows = _a_turn_asking_for(
-        1, costing_each_way=some_turn_costing_less_than_the_bound
-    )
 
     Scenario() \
         .given(
-            some_budget := _a_budget(max_tokens=some_token_bound),
-            calling(lambda: some_budget.record(a_turn_the_bound_allows)),
-            calling(lambda: some_budget.record(a_turn_the_bound_allows))
+            budget := a_budget_for(
+                some_investigation_settings(tokens=some_token_bound)
+            )
         ) \
         .when(
-            lambda: some_budget
+            lambda: _having_charged(budget, _a_turn_costing(tokens=some_token_bound))
         ) \
         .then(
             _the_bounds_reached_were(Bound.TOKENS)
@@ -113,168 +67,68 @@ def test_tokens_are_counted_across_turns() -> None:
 
 
 @pytest.mark.unit
-def test_a_prompt_that_arrived_from_cache_is_still_charged() -> None:
-    # Caching changes where a prompt arrives from, not whether it arrived.
-    # `input_tokens` is only the uncached remainder once caching is on, so a
-    # budget summing that and the output counts a fraction of the transcript -
-    # and understates it most where the caching worked best. Measured against
-    # the recordings, that fraction is between a sixth and an eighteenth.
-    some_token_bound = 500
-    a_turn_whose_prompt_came_back_warm = _a_turn_asking_for(
-        1, costing_each_way=1, read_from_cache=some_token_bound
-    )
+def test_the_time_bound_is_the_one_this_deployment_configured() -> None:
+    # The one no amount of spending reaches, which is what makes it the
+    # easiest of the three to wire to the wrong field and never notice: a
+    # time bound fed a token count runs for as many seconds as the model was
+    # allowed tokens, and nothing about that looks wrong until an incident
+    # has sat for an afternoon.
+    no_time_at_all = 0.0
 
     Scenario() \
         .given(
-            some_budget := _a_budget(max_tokens=some_token_bound),
-            calling(lambda: some_budget.record(a_turn_whose_prompt_came_back_warm))
+            budget := a_budget_for(
+                some_investigation_settings(seconds=no_time_at_all)
+            )
         ) \
         .when(
-            lambda: some_budget
-        ) \
-        .then(
-            _the_bounds_reached_were(Bound.TOKENS)
-        )
-
-
-@pytest.mark.unit
-def test_a_prompt_written_to_cache_is_charged_for_writing_it() -> None:
-    # The other half, and the one a fix counting only reads would miss. A
-    # cache write is the first turn paying a premium so the turns after it pay
-    # a tenth - it is the most expensive prompt of the run, not a free one.
-    some_token_bound = 500
-    a_turn_that_laid_the_transcript_down = _a_turn_asking_for(
-        1, costing_each_way=1, written_to_cache=some_token_bound
-    )
-
-    Scenario() \
-        .given(
-            some_budget := _a_budget(max_tokens=some_token_bound),
-            calling(lambda: some_budget.record(a_turn_that_laid_the_transcript_down))
-        ) \
-        .when(
-            lambda: some_budget
-        ) \
-        .then(
-            _the_bounds_reached_were(Bound.TOKENS)
-        )
-
-
-@pytest.mark.unit
-def test_what_a_budget_has_charged_can_be_read_without_binding_it() -> None:
-    # All four counts, as one figure, from a budget nowhere near its bounds.
-    # This is the number `get_tokens_spent` reports afterwards, and the two
-    # are the same arithmetic on purpose - a bound that stopped an
-    # investigation at one figure while a human was shown another would be two
-    # answers to what the incident cost.
-    some_tokens_each_way = 300
-    some_cache_read_tokens = 4_100
-    some_cache_write_tokens = 850
-    everything_the_turn_cost = (
-        some_tokens_each_way * 2 + some_cache_read_tokens + some_cache_write_tokens
-    )
-
-    Scenario() \
-        .given(
-            some_budget := _a_budget(),
-            calling(lambda: some_budget.record(_a_turn_asking_for(
-                1,
-                costing_each_way=some_tokens_each_way,
-                read_from_cache=some_cache_read_tokens,
-                written_to_cache=some_cache_write_tokens
-            )))
-        ) \
-        .when(
-            lambda: some_budget
-        ) \
-        .then(
-            _the_tokens_charged_were(everything_the_turn_cost)
-        )
-
-
-@pytest.mark.unit
-def test_time_runs_out_even_when_nothing_has_been_spent() -> None:
-    # The bound that has nothing to do with what the model did. An incident
-    # has a human waiting on it, and an investigation that is cheap and slow
-    # has still failed them.
-    some_time_bound_seconds = 60.0
-    a_clock = a_clock_that_reads(0.0)
-
-    Scenario() \
-        .given(
-            some_budget := _a_budget(max_seconds=some_time_bound_seconds, now=a_clock),
-            calling(lambda: a_clock.moves_to(some_time_bound_seconds))
-        ) \
-        .when(
-            lambda: some_budget
+            lambda: budget
         ) \
         .then(
             _the_bounds_reached_were(Bound.TIME)
         )
 
 
-@pytest.mark.unit
-def test_the_last_turn_is_known_before_the_bound_binds() -> None:
-    # So the model can be told. A turn's warning is what lets it spend its
-    # last one answering instead of reading - and the loop can only warn if it
-    # can see the bound coming rather than only having hit it.
-    some_tool_call_bound = 3
+def _having_charged(budget: Budget, turn: Turn) -> Budget:
+    """The budget, with one turn already spent against it.
 
-    Scenario() \
-        .given(
-            some_budget := _a_budget(max_tool_calls=some_tool_call_bound),
-            calling(lambda: some_budget.record(_a_turn_asking_for(some_tool_call_bound - 1)))
-        ) \
-        .when(
-            lambda: some_budget
-        ) \
-        .then(
-            _it_is_the_last_turn_available()
-        )
+    A `when` that does the spending rather than a `given` that does, because
+    charging is the act under test here: what is being asked is which bound a
+    figure was wired to, and that is only visible once something has been
+    spent against it.
+    """
+    budget.record(turn)
+
+    return budget
 
 
-@pytest.mark.unit
-def test_a_budget_with_room_to_spare_is_not_on_its_last_turn() -> None:
-    # The other side of the same question, and the one that would break
-    # quietly: a loop warning every turn teaches the model to ignore warnings.
-    some_tool_call_bound = 10
+def _a_turn_costing(calls: int = 0, tokens: int = 0) -> Turn:
+    """A turn that spends against exactly one axis.
 
-    Scenario() \
-        .given(
-            some_budget := _a_budget(max_tool_calls=some_tool_call_bound),
-            calling(lambda: some_budget.record(_a_turn_asking_for(1)))
-        ) \
-        .when(
-            lambda: some_budget
-        ) \
-        .then(
-            _it_is_not_the_last_turn_available()
-        )
-
-
-def _no_bound_was_reached() -> Assertion[Budget]:
-    """An investigation the loop may carry on with - nothing has run out."""
-    def assertion(budget: Budget) -> bool:
-        reached = budget.bounds_reached()
-        if reached:
-            raise AssertionError(f"Expected no bound to be reached, got {reached}.")
-
-        return True
-
-    return assertion
+    Nothing on the axes a test did not name, so a bound reporting itself
+    reached is one this turn actually spent against.
+    """
+    return Turn(
+        text="dont care what it said",
+        tool_calls=[
+            ToolCall(id=f"toolu_{position}", name="get_logs", arguments={})
+            for position in range(calls)
+        ],
+        input_tokens=tokens,
+        output_tokens=0
+    )
 
 
 def _the_bounds_reached_were(*bounds: Bound) -> Assertion[Budget]:
-    """Every bound that ran out, not the first one noticed.
+    """Exactly these bounds, and no others.
 
-    All of them, because the escalation summary names them to a human and two
-    bounds running together is a different account of the incident than one.
-    Reporting a single winner would also make the answer depend on the order
-    the checks happen to be written in, which is not a fact about the
-    investigation.
+    Exactly, because a crossed wire shows up as the wrong bound rather than
+    as no bound: a test satisfied by "at least the one I named" would pass on
+    a budget that had reached all three.
     """
     def assertion(budget: Budget) -> bool:
         reached = budget.bounds_reached()
+
         if reached != list(bounds):
             raise AssertionError(
                 f"Expected the bounds {list(bounds)} to be reached, got {reached}."
@@ -283,112 +137,3 @@ def _the_bounds_reached_were(*bounds: Bound) -> Assertion[Budget]:
         return True
 
     return assertion
-
-
-def _the_tokens_charged_were(tokens: int) -> Assertion[Budget]:
-    """The figure the budget has charged, rather than a verdict about it.
-
-    Read as a number because a number is what it has to agree with:
-    `get_tokens_spent` reports the same arithmetic from the other side of the
-    system, and two totals that must match are only comparable if both can be
-    said. A total learnable only by moving a bound until it binds is one
-    nothing can be checked against, and one whose disagreement could only ever
-    be reported as "it bound when it should not have".
-    """
-    def assertion(budget: Budget) -> bool:
-        charged = budget.tokens_spent()
-        if charged != tokens:
-            raise AssertionError(
-                f"Expected [{tokens}] tokens to have been charged, got [{charged}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_is_the_last_turn_available() -> Assertion[Budget]:
-    def assertion(budget: Budget) -> bool:
-        if not budget.is_on_its_last_turn():
-            raise AssertionError("Expected the budget to be on its last turn, and it was not.")
-
-        return True
-
-    return assertion
-
-
-def _it_is_not_the_last_turn_available() -> Assertion[Budget]:
-    def assertion(budget: Budget) -> bool:
-        if budget.is_on_its_last_turn():
-            raise AssertionError("Expected the budget to have room to spare, and it did not.")
-
-        return True
-
-    return assertion
-
-
-class a_clock_that_reads:
-    """A clock a test moves by hand.
-
-    A real one cannot be made to run out inside a unit test without the test
-    sleeping for the bound it is checking. Injected as a plain callable, so
-    the production default is `time.monotonic` and nothing is patched.
-    """
-
-    def __init__(self, seconds: float) -> None:
-        self.seconds = seconds
-
-    def __call__(self) -> float:
-        return self.seconds
-
-    def moves_to(self, seconds: float) -> None:
-        self.seconds = seconds
-
-
-def _a_budget(max_tool_calls: int = 100,
-             max_tokens: int = 1_000_000,
-             max_seconds: float = 3600.0,
-             now: Callable[[], float] | None = None) -> Budget:
-    """A budget whose unnamed bounds are far enough away to stay out of the way.
-
-    Each test names the one bound it is about, so the others must not reach
-    first - a default that happened to bind would make the test pass for the
-    wrong reason.
-    """
-    return Budget(
-        max_tool_calls=max_tool_calls,
-        max_tokens=max_tokens,
-        max_seconds=max_seconds,
-        now=now if now is not None else a_clock_that_reads(0.0)
-    )
-
-
-def _a_turn_asking_for(calls: int,
-                       costing_each_way: int = 1,
-                       read_from_cache: int = 0,
-                       written_to_cache: int = 0) -> Turn:
-    """A turn requesting `calls` tools, charged `costing_each_way` in and out.
-
-    Named for both directions because a turn is billed twice: what the model
-    was sent, and what it wrote. A parameter called `costing` would say a turn
-    costs half what it does.
-
-    The cache counts default to nothing, which is the turn a run against a
-    model that does not cache reports. Where they are named, they are the rest
-    of the prompt: `costing_each_way` covers only the uncached remainder once
-    either is non-zero, so a turn with a cache count is not a turn with extra
-    tokens bolted on - it is one whose prompt arrived somewhere else.
-    """
-    dont_care_what_it_said = "dont care what it said"
-
-    return Turn(
-        text=dont_care_what_it_said,
-        tool_calls=[
-            ToolCall(id=f"toolu_{position}", name="get_logs", arguments={})
-            for position in range(calls)
-        ],
-        input_tokens=costing_each_way,
-        output_tokens=costing_each_way,
-        cache_read_tokens=read_from_cache,
-        cache_write_tokens=written_to_cache
-    )

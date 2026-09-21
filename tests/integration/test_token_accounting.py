@@ -24,11 +24,12 @@ import httpx
 import psycopg
 import pytest
 from agent_investigator import investigate
-from agent_investigator.budget import Budget, InvestigationSettings
+from agent_investigator.budget import InvestigationSettings, a_budget_for
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_core import connect_from_env, get_settings
 from argus_core.anomaly import AnomalyThresholds
+from argus_core.budget import Budget
 from argus_core.models import Alert, ChangeEvent, MetricBucket
 from argus_incidents.publishing import calls_into
 from argus_incidents.repository import incidents, replay
@@ -64,7 +65,7 @@ def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
     with psycopg.connect(DATABASE_URL) as conn:
         incident_id = incidents.create(conn, _an_alert())
         conn.commit()  # the recorder writes on a connection of its own
-        the_budget = Budget.from_settings(InvestigationSettings.of(get_settings()))
+        the_budget = a_budget_for(InvestigationSettings.of(get_settings()))
 
         Scenario() \
             .given(

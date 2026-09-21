@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from agent_codefix.proposing import FixNotAnswered
+from agent_codefix.proposing import FixDeclined, FixNotAnswered
 from argus_core.events import FixAttempted, IncidentEvent
 from argus_core.models import Alert, FixOutcome, Hypothesis, IncidentStatus, OpenedPullRequest
 from argus_testkit import Assertion, Scenario, all_of
@@ -228,6 +228,36 @@ def test_an_agent_that_never_answered_is_not_reported_as_having_found_nothing() 
         .then(all_of(
             _exactly_one_attempt_was_announced(
                 FixOutcome.NOT_ANSWERED, None, published
+            ),
+            _the_updates_carry("fix_found", False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_model_that_declined_is_not_reported_as_a_repository_that_refused() -> None:
+    # Three different afternoons reached the same sentence. "Could not
+    # propose a fix" is what a reader sees when GitHub is down, when the
+    # branch could not be pushed - and, until now, when the model simply
+    # said no. The first two send somebody to go and repair something; the
+    # third has nothing to repair and no wider budget that would help,
+    # because the same question over the same code is declined again.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            a_model_that_declined := _an_agent_raising(
+                FixDeclined("the model declined to write a fix")
+            )
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 a_model_that_declined,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            _exactly_one_attempt_was_announced(
+                FixOutcome.DECLINED, None, published
             ),
             _the_updates_carry("fix_found", False)
         ))

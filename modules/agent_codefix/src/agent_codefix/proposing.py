@@ -10,30 +10,37 @@ It does not investigate. The cause is settled by the time Code-Fix is called,
 and a model asked to find it again would spend its whole reading budget
 rediscovering what it was already handed.
 
-Bounded, like the investigation is, and for the same reason: a model reading
-file after file without ever answering is a run that has to end somewhere. The
-bound is never expressed to the model, because a bound it could ask to extend
-would not be one.
+Bounded on three axes, like the investigation is, and for the same reason:
+they fail differently and none implies the others. This is the agent a call
+count alone cannot bound - it reads whole files and carries every one it has
+read for the rest of the run, so it can be frugal in calls and ruinous in
+tokens. No bound is ever expressed to the model, because one it could ask to
+extend would not be one.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from functools import partial
-from typing import Protocol
+from typing import Final, Protocol
 
 from argus_core import SettingsSlice
+from argus_core.budget import Budget
 from argus_core.llm import (
+    AnswerTruncated,
     Conversation,
     Conversations,
+    ModelRefused,
     a_conversation_recorded_for,
 )
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Ask,
     CodeSearch,
+    Effort,
     Exchange,
     Hypothesis,
+    ModelPolicy,
     OpenedPullRequest,
     ToolCall,
     ToolDefinition,
@@ -72,7 +79,7 @@ from agent_codefix.prompting import (
 
 
 class FixNotAnswered(Exception):
-    """The agent never answered within the turns it had.
+    """The agent never answered within the budget it had.
 
     Not a verdict on the code. "I read it and there is nothing to change" is a
     conclusion a human acts on; this is a run that stopped mid-sentence, and the
@@ -80,9 +87,65 @@ class FixNotAnswered(Exception):
     turns exploring and was recorded as having found no fix - a statement about
     the budget dressed as a statement about the service.
 
+    Which bound ran out is carried in the message rather than assumed. It was
+    always turns while turns were the only way to run out; there are three
+    now, they are widened in three different places, and a reader told the
+    wrong one widens a budget that was never the problem. An answer too large
+    to write arrives here too - at the model's whole output ceiling that is a
+    fix that cannot be expressed as whole files, which is a different
+    afternoon again.
+
     Raised rather than returned because the caller's move differs: a verdict
     ends the question, where this is a job that did not get done and may be
-    worth more turns, a narrower cause, or a person.
+    worth a wider bound, a narrower cause, or a person.
+    """
+
+
+def a_budget_for(settings: FixSettings) -> Budget:
+    """What one attempt at a fix may spend, as this deployment configures it.
+
+    Beside the settings it reads rather than on `Budget`, which is the
+    kernel's and knows none of its callers by name. The investigator has one
+    of these too, over fields of its own - what the two share is the
+    arithmetic, not what their numbers are called.
+    """
+    return Budget(
+        max_tool_calls=settings.codefix_max_tool_calls,
+        max_tokens=settings.codefix_max_tokens,
+        max_seconds=settings.codefix_max_seconds
+    )
+
+
+# What the model is told when one call is all that is left, ridden in on the
+# last result rather than sent as a message of its own: it is not a separate
+# thing to weigh, it is the condition the rest of the reply is read under.
+#
+# Without it a model spends its last call asking for one more file, and
+# everything it read is thrown away as no fix proposed - which reads as a
+# verdict on code nobody finished looking at. It costs more here than in the
+# investigation, because the turns being discarded are whole files.
+_ONE_CALL_LEFT: Final = (
+    "\n\nThis is your last call: there is no budget for another read. Submit "
+    "the fix now, from what you have already seen, or say there is nothing to "
+    "change."
+)
+
+
+class FixDeclined(Exception):
+    """The model was asked to write a fix and said no.
+
+    Its own failure rather than one of the others, because none of their next
+    moves is this one. More turns will not help - the same question over the
+    same code is declined again, which is what separates this from running
+    out of turns. Nothing is broken, so there is nothing to go and repair,
+    which is what separates it from a repository that refused. And the code
+    was never judged, so "there is nothing here to change" would be a verdict
+    nobody reached.
+
+    Told apart because it used to reach the walk's broad handler and be
+    reported as a fix that could not be proposed - the same sentence a GitHub
+    outage produces. A reader seeing no pull request and that reason goes
+    looking for an outage that never happened.
     """
 
 
@@ -173,7 +236,31 @@ class FixSettings(SettingsSlice):
     """
 
     github_base_branch: str
-    codefix_max_turns: int
+    # Three bounds rather than one, for the reason the investigation has
+    # three: they fail differently and none implies the others. This
+    # agent is the case a call count alone cannot see - it reads whole
+    # files and writes whole files, so a run can be frugal in calls and
+    # ruinous in tokens. Measured, one that reads the three largest files
+    # in the Target Service carries 47,950 tokens of source for every
+    # remaining turn.
+    #
+    # Calls rather than turns, because a model may ask for several files
+    # at once and a bound counting turns would let it read several times
+    # what it was allowed while still looking healthy.
+    codefix_max_tool_calls: int
+    codefix_max_tokens: int
+    codefix_max_seconds: float
+    # Which model writes the fix and how hard it is asked to think. Here
+    # with the bound rather than anywhere else because both are what a
+    # deployment decides about one attempt at a fix, and both are read once
+    # when the loop starts. This is the agent the choice matters most for:
+    # its answers are whole files, which is the workload where the higher
+    # efforts earn their cost and the cheaper models most obviously do not.
+    codefix_model: str
+    codefix_effort: Effort
+    # Whole files, so far more room than any other agent needs, and past
+    # the line where the answer has to be streamed to arrive at all.
+    codefix_max_output_tokens: int
     # Which ways of finding code this deployment has, and so which the model
     # is offered. Both in production, where the model chooses per question;
     # one alone where the benchmark is comparing them, or where nothing builds
@@ -335,7 +422,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     pull request is opened for it: an empty proposal sends somebody to read a
     diff with nothing in it.
 
-    Raises `FixNotAnswered` when the model never submitted within its turns,
+    Raises `FixNotAnswered` when the model never submitted within its budget,
     which is a different thing entirely and used to arrive looking identical.
 
     Raises whatever the repository raised. A push that was refused and a fix
@@ -364,14 +451,16 @@ def propose_fix(hypothesis: Hypothesis | None,
         index_notice=index_notice,
         list_files=list_files,
         read_file=read_file,
-        converse=converse or conversations(incident_id, recorder)
-    )
-
-    if submitted is None:
-        raise FixNotAnswered(
-            f"the agent read for {settings.codefix_max_turns} turns without "
-            f"submitting a fix"
+        converse=converse or conversations(
+            incident_id,
+            recorder,
+            policy=ModelPolicy(
+                model=settings.codefix_model,
+                effort=settings.codefix_effort,
+                max_output_tokens=settings.codefix_max_output_tokens
+            )
         )
+    )
 
     patch = submitted.patch()
 
@@ -404,21 +493,46 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               index_notice: IndexNotice,
                               list_files: FileLister,
                               read_file: FileReader,
-                              converse: Conversation) -> SubmittedFix | None:
-    """The conversation, until the model submits or runs out of turns.
+                              converse: Conversation) -> SubmittedFix:
+    """The conversation, until the model submits or runs out of budget.
 
     Every turn that is not a submission is answered and put back, including the
     ones that failed: a model guessing at a path is doing its job badly for one
     turn, not failing, and ending here would throw away every file it had read
     correctly up to then.
+
+    Raises rather than returning nothing when the budget runs out. What
+    stopped it is the whole of what a reader can act on, and only here is it
+    known - a caller handed `None` would have to guess at which of three
+    bounds bound, and the old one guessed "turns" because that was the only
+    answer there was.
     """
     tools = tools_for(settings)
     transcript: list[Exchange] = [
         Ask(text=_the_opening_message(hypothesis, settings, index_notice))
     ]
+    spend = a_budget_for(settings)
 
-    for _ in range(settings.codefix_max_turns):
-        turn = converse(transcript, tools)
+    while not spend.bounds_reached():
+        try:
+            turn = converse(transcript, tools)
+        except ModelRefused as declined:
+            # Final, and final for its own reason: the evidence would be
+            # declined again, so the turns left are not worth spending.
+            raise FixDeclined(f"the model declined to write a fix: {declined}") from declined
+        except AnswerTruncated as cut_short:
+            # A bound was too small, which is what `FixNotAnswered` already
+            # means - but room rather than turns, and that difference is the
+            # whole of what a reader can act on. Code-Fix asks for the
+            # model's entire output ceiling, so an answer that still did not
+            # fit is a fix too large to write as whole files, and neither a
+            # wider budget nor another attempt changes that.
+            raise FixNotAnswered(
+                "the fix did not fit in the room the model had to write it: "
+                f"{cut_short}"
+            ) from cut_short
+
+        spend.record(turn)
         transcript.append(turn)
 
         submitted = _the_submission_in(turn)
@@ -426,16 +540,54 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         if submitted is not None:
             return submitted
 
-        transcript.append(
-            ToolResults(results=[
+        transcript.append(_what_it_is_told_next(
+            [
                 _answer(
                     call, settings, search, search_by_meaning, list_files, read_file
                 )
                 for call in turn.tool_calls
-            ])
-        )
+            ],
+            one_call_left=spend.is_on_its_last_call()
+        ))
 
-    return None
+    # Which bound ended it, named for the human who has to act on it. It was
+    # "turns" while the call count was the only way to run out; there are
+    # three ways now, they are widened in three different places, and
+    # widening the one that was never the problem is a wasted afternoon.
+    raise FixNotAnswered(
+        "the agent read until it ran out of "
+        f"{', '.join(bound.value for bound in spend.bounds_reached())} "
+        "without submitting a fix"
+    )
+
+
+def _what_it_is_told_next(results: list[ToolResult],
+                          one_call_left: bool) -> ToolResults:
+    """What comes back from one turn's requests, and the warning if it is due.
+
+    The warning rides on the last result rather than travelling as a message
+    of its own, because it is not a separate thing to weigh - it is the
+    condition under which everything else in this reply should be read. The
+    investigator's loop says it the same way, for the same reason.
+
+    Without it a model spends its last call asking for one more file and
+    everything it read is thrown away as no fix proposed - which reads as a
+    verdict on code nobody finished looking at. That costs more here than
+    anywhere else: the turns being discarded are whole files.
+    """
+    if not one_call_left or not results:
+        return ToolResults(results=results)
+
+    last = results[-1]
+
+    return ToolResults(results=[
+        *results[:-1],
+        ToolResult(
+            call_id=last.call_id,
+            content=last.content + _ONE_CALL_LEFT,
+            failed=last.failed
+        )
+    ])
 
 
 def _the_submission_in(turn: Turn) -> SubmittedFix | None:

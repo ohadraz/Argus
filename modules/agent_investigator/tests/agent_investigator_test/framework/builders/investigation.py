@@ -14,10 +14,11 @@ from typing import NamedTuple
 from unittest.mock import Mock, create_autospec
 
 from agent_investigator import Findings, Reading, investigate
-from agent_investigator.budget import Budget
+from agent_investigator.budget import Budget, InvestigationSettings
 from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from argus_core import new_id
 from argus_core.events import Publisher, nobody
+from argus_core.llm import Conversations, a_conversation_recorded_for
 from argus_core.models import Alert, Attempt, ChangeEvent, MetricBucket
 
 from agent_investigator_test.framework.builders.budget import a_budget
@@ -42,16 +43,29 @@ class Investigation(NamedTuple):
                     incident_id: str | None = None,
                     already_refuted: list[Attempt] | None = None,
                     already_read: list[Reading] | None = None,
-                    publisher: Publisher = nobody) -> Findings:
+                    publisher: Publisher = nobody,
+                    settings: InvestigationSettings | None = None,
+                    conversations: Conversations | None = None) -> Findings:
+        """The loop, run with whatever this investigation was built around.
+
+        `conversations` is the one argument here that changes which seam is
+        exercised rather than what it answers. Left out, the scripted model
+        goes in as `converse` and the factory is never reached - which is what
+        every test of the loop's own decisions wants. Named, the factory is
+        under test and nothing is handed in already built, so what the loop
+        asked to be built with is observable.
+        """
+
         return investigate(
             alert or an_alert(),
             incident_id=incident_id or new_id(),
             fetch_metrics=self.metrics_fetcher,
             fetch_logs=self.log_fetcher,
             fetch_change_events=self.change_fetcher,
-            settings=some_investigation_settings(),
+            settings=settings or some_investigation_settings(),
             thresholds=some_thresholds(),
-            converse=self.model,
+            converse=None if conversations is not None else self.model,
+            conversations=conversations or a_conversation_recorded_for,
             budget=self.budget,
             already_refuted=already_refuted,
             already_read=already_read,

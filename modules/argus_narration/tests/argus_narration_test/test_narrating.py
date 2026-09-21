@@ -713,6 +713,47 @@ def test_a_fix_that_proposed_nothing_names_no_address() -> None:
 
 
 @pytest.mark.unit
+def test_a_model_that_declined_is_not_read_as_a_repository_that_refused() -> None:
+    # Two very different afternoons reached the same line. "Could not propose
+    # a fix" is what a reader sees when the repository refuses - so a model
+    # that simply said no sent somebody hunting for an outage that never
+    # happened. Nothing is broken here and no wider budget helps: the same
+    # question over the same code is declined again.
+    declined = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.DECLINED,
+        pull_request=None,
+        detail="the model declined to write one"
+    )
+
+    Scenario() \
+        .given(declined) \
+        .when(lambda: build_narration([declined])) \
+        .then(_the_only_line_mentions("declined"))
+
+
+@pytest.mark.unit
+def test_a_fix_that_stopped_says_which_bound_stopped_it() -> None:
+    # It said "ran out of turns" while turns were the only way to run out.
+    # There are three now, they are widened in three different places, and a
+    # reader told the wrong one widens a budget that was never the problem -
+    # an answer too large to write arrives here too, and no number of extra
+    # turns makes a file fit.
+    ran_out_of_tokens = "tokens"
+    stopped = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_ANSWERED,
+        pull_request=None,
+        detail=f"the agent read until it ran out of {ran_out_of_tokens}"
+    )
+
+    Scenario() \
+        .given(stopped) \
+        .when(lambda: build_narration([stopped])) \
+        .then(_the_only_line_mentions(ran_out_of_tokens))
+
+
+@pytest.mark.unit
 def test_a_fix_that_was_not_warranted_reads_as_a_verdict_on_the_code() -> None:
     # The true answer for every incident a flag caused, and a useful one: the
     # code was read and there was nothing in it to change. A line that merely

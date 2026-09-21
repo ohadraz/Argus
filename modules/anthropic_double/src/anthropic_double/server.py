@@ -16,16 +16,18 @@ this file exists.
 
 from __future__ import annotations
 
+import json
 import os
 from collections import deque
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, model_validator
 
 from anthropic_double import recordings
+from anthropic_double.streaming import SSE_MEDIA_TYPE, as_stream
 
 UPSTREAM_BASE_URL = os.environ.get("ANTHROPIC_DOUBLE_UPSTREAM", "https://api.anthropic.com")
 
@@ -214,10 +216,23 @@ def _error_body(status: int) -> dict[str, Any]:
     }
 
 
-def _serve(seed: Seed) -> JSONResponse:
+def _serve(seed: Seed, streaming: bool = False) -> Response:
+    """One seeded answer, said whichever way the caller asked for it.
+
+    Only a real answer can be streamed. An error is an error in both shapes -
+    the SDK reads a non-200 as a failure before it looks for events - so a
+    seeded status keeps the body it always had.
+    """
     if seed.recording is not None:
-        return JSONResponse(status_code=200, content=recordings.load(seed.recording))
+        answered = recordings.load(seed.recording)
+        if streaming:
+            return StreamingResponse(as_stream(answered), media_type=SSE_MEDIA_TYPE)
+        return JSONResponse(status_code=200, content=answered)
+
     body = seed.body if seed.body is not None else _error_body(seed.status)
+    if streaming and seed.status == 200:
+        return StreamingResponse(as_stream(body), media_type=SSE_MEDIA_TYPE)
+
     return JSONResponse(status_code=seed.status, content=body)
 
 
@@ -240,15 +255,30 @@ async def _record_upstream(request: Request) -> JSONResponse:
 
 
 @app.post("/v1/messages")
-async def messages(request: Request) -> JSONResponse:
+async def messages(request: Request) -> Response:
     """The one route the SDK calls. Seeded answer, or recorded one, or a loud 400.
 
     There is no default response. A test that forgot to seed gets an error
     naming what it forgot, not a plausible hypothesis - a double that guesses
     is a double that can make a broken investigation look like a working one.
+
+    Whether the caller asked to be streamed changes only how the answer is
+    said, never which answer it is. Code-Fix streams because its answers are
+    whole files and the SDK will not carry one that large any other way; a
+    recording is the assembled message either way, so the same stored body
+    serves both and nothing about the evidence depends on the transport.
+
+    Recording deliberately ignores the question and forwards plain JSON
+    upstream. What is worth storing is what the model said, and a stored
+    stream would be a stored transport - it would have to be reassembled
+    before anything could read it, by code that would then be the only reader
+    of a shape nothing else uses.
     """
+    asked: dict[str, Any] = json.loads(await request.body())
+    streaming = bool(asked.get("stream"))
+
     if _state.seeds:
-        return _serve(_state.take_next_seed())
+        return _serve(_state.take_next_seed(), streaming)
 
     if _state.record_as is not None:
         return await _record_upstream(request)

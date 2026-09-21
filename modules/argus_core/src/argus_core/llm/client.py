@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Protocol
 
+from argus_core.models.model_policy import ModelPolicy
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Transcript
 from argus_core.models.turn import Turn
@@ -137,16 +137,29 @@ class Conversation(Protocol):
                  tools: list[ToolDefinition], /) -> Turn: ...
 
 
-# How a caller that records its calls gets a client for one incident. A factory
-# rather than a client, because the receipt belongs to an incident while the
-# client does not: a wrapper holding one incident, shared across a process,
-# would file every later incident's calls under the first one.
-#
 # Here rather than beside either caller: the investigator's loop and the
 # postmortem's gathering both name this, which makes it a contract, and a
 # contract kept inside one of the parties is one the other reaches into.
 # `client.py` rather than `building.py` because a type belongs with the
 # interface it produces rather than with the one function that produces one.
-# Not for what it costs: naming either is free now that the adapter is reached
-# inside `build_llm_client` rather than at the top of the module holding it.
-type ClientFor = Callable[[Replay], LLMClient]
+class ClientFor(Protocol):
+    """How a caller that records its calls gets a client for one incident.
+
+    A factory rather than a client, because the receipt belongs to an incident
+    while the client does not: a wrapper holding one incident, shared across a
+    process, would file every later incident's calls under the first one.
+
+    `policy` is which model is to answer and how hard it is asked to think,
+    and it is optional here rather than required so that a caller with no
+    opinion is not made to invent one. Where it is named, it is named by
+    whoever assembled the agent - the same place that already decides which
+    payment provider answers the revenue question.
+
+    A `Protocol` rather than a `Callable` alias, because an alias cannot say
+    that the second argument has a default, and every existing caller passes
+    only the first.
+    """
+
+    def __call__(self,
+                 replay: Replay,
+                 policy: ModelPolicy | None = None) -> LLMClient: ...

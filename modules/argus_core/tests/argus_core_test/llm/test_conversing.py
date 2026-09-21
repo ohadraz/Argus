@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 from argus_core.llm.client import LLMClient
 from argus_core.llm.conversing import a_conversation_recorded_for
+from argus_core.models.model_policy import ModelPolicy
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Ask, Transcript
 from argus_core.models.turn import Turn
@@ -150,18 +151,26 @@ class _AClientThatAnswers:
 
 
 class _AClientAskedFor:
-    """A stand-in for `build_llm_client`, remembering the `Replay` it was handed.
+    """A stand-in for `build_llm_client`, remembering what it was handed.
 
     The seam this file exists to check. The real one builds an SDK client from
     configuration, which a unit test has none of and should not need: what is
     under test is what the factory asks for, not what answers.
+
+    The policy is kept beside the `Replay` because it arrives the same way and
+    for the same reason - both are what this incident's client is to be built
+    around, and neither is visible anywhere downstream once it has been. A
+    conversation built for the wrong model answers exactly like one built for
+    the right one.
     """
 
     def __init__(self, client: LLMClient) -> None:
         self._client = client
         self.replay: Replay | None = None
+        self.policy: ModelPolicy | None = None
 
-    def for_replay(self, replay: Replay) -> LLMClient:
+
+    def for_replay(self, replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
         """The seam itself, as a method rather than `__call__`.
 
         `Scenario.given` runs a callable step, so an object that *is* the
@@ -169,8 +178,10 @@ class _AClientAskedFor:
         `asked_for.for_replay`, only the factory can call it.
         """
         self.replay = replay
+        self.policy = policy
 
         return self._client
+
 
     def the_replay(self) -> Replay:
         if self.replay is None:

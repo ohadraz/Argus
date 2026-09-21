@@ -549,7 +549,19 @@ def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
             # Said as what it is: the looking stopped, not the question. A
             # reader who took this for "there is nothing to fix" would close an
             # incident on code nobody finished reading.
-            return "", "Ran out of turns before proposing a fix"
+            #
+            # Which bound ran out comes from the detail rather than the
+            # sentence. It used to say "turns", which was the only way to run
+            # out until the answer itself could be too large to write - and a
+            # fix that overflowed the model's whole output ceiling reported as
+            # having run out of turns would send somebody to widen a budget
+            # that was never the problem.
+            return "", f"Stopped before proposing a fix - {event.detail}"
+        case FixOutcome.DECLINED:
+            # Neither an outage nor a verdict. Said plainly so that nobody
+            # goes looking for something to repair: the model was asked and
+            # said no, and the same question would be declined again.
+            return "", f"The model declined to propose a fix - {event.detail}"
 
     return "", event.detail
 

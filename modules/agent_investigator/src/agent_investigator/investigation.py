@@ -37,6 +37,7 @@ from argus_core.events import (
 from argus_core.llm import (
     AnswerTruncated,
     Conversation,
+    Conversations,
     ModelRefused,
     a_conversation_recorded_for,
     on_one_line,
@@ -53,6 +54,7 @@ from argus_core.models import (
     Findings,
     Hypothesis,
     MetricBucket,
+    ModelPolicy,
     Reading,
     RetrievalChannel,
     ToolCall,
@@ -68,7 +70,12 @@ from argus_core.replay import CallType, Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
 
-from agent_investigator.budget import Bound, Budget, InvestigationSettings
+from agent_investigator.budget import (
+    Bound,
+    Budget,
+    InvestigationSettings,
+    a_budget_for,
+)
 from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from agent_investigator.tools import (
     ANSWER_TOOL,
@@ -146,6 +153,7 @@ def investigate(
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
     converse: Conversation | None = None,
+    conversations: Conversations = a_conversation_recorded_for,
     budget: Budget | None = None,
     already_read: Sequence[Reading] | None = None,
     already_refuted: Sequence[Attempt] | None = None,
@@ -190,7 +198,13 @@ def investigate(
     # incident to a collaborator the caller supplied, and both would otherwise
     # have to thread an incident id through every call that uses them.
     replay = Replay(incident_id, recorder)
-    speak = converse or a_conversation_recorded_for(incident_id, recorder)
+    speak = converse or conversations(
+        incident_id,
+        recorder,
+        policy=ModelPolicy(
+            model=settings.investigation_model, effort=settings.investigation_effort
+        )
+    )
 
     # Read by the loop rather than offered as the first tool call, so that the
     # onset is a measurement instead of a decision. Anchored on the alert
@@ -259,7 +273,7 @@ def investigate(
         fetch_logs=fetch_logs,
         fetch_change_events=fetch_change_events
     )
-    spend = budget if budget is not None else Budget.from_settings(settings)
+    spend = budget if budget is not None else a_budget_for(settings)
     tools = investigator_tools()
     transcript: list[Exchange] = [
         Ask(text=_the_opening_message(
@@ -320,7 +334,7 @@ def investigate(
         if reached:
             return _ran_out(alert, incident_id, metric_buckets, reached, dispatcher, narrator)
 
-        transcript.append(_what_the_model_is_told_next(results, spend.is_on_its_last_turn()))
+        transcript.append(_what_the_model_is_told_next(results, spend.is_on_its_last_call()))
 
 
 def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResult | None:
