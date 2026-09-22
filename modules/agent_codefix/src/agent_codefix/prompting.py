@@ -28,6 +28,42 @@ from pydantic import BaseModel, field_validator
 # apart - and a spelling that differed between the two would leave a field
 # quietly always missing.
 SUBMIT_TOOL_NAME: Final = "submit_fix"
+
+# What is true of fixing a fault whatever the fault was, and so what Code-Fix
+# is told once rather than at the top of each incident. It travels as the
+# request's `system` (see `ModelPolicy.brief`), which is what lets it - and the
+# tool list rendered before it - be read from cache on every incident after the
+# first rather than re-sent and re-billed each time.
+#
+# Three things, and each is here because the model got it wrong without being
+# told. A mitigation has usually already hidden the symptom, so the code reads
+# as fine and is not. The change that exposed a fault is not the fault, which
+# is the one every reader of an incident gets backwards. And submitting nothing
+# is a conclusion that needs evidence, not a way out of a hard read.
+#
+# Nothing about a particular incident may be added here, ever. The saving is
+# that the bytes do not change between incidents, so a single interpolated
+# detail would not merely dilute it - it would end it, silently, with every
+# test still passing.
+STANDING_BRIEF: Final = "\n\n".join([
+    "A mitigation has probably already hidden the symptom - a flag turned "
+    "off, a version rolled back - so the code you are reading is the code "
+    "that was broken, whether or not anything looks broken right now.",
+
+    "A change that exposed a fault is not the fault. If switching a flag on "
+    "broke the service, the fault is the code that could not survive that "
+    "flag being on, and your job is to make it safe to turn back on. The same "
+    "goes for a deploy, a config change or a new kind of input: something "
+    "changed, and the code did not cope. Fix the not coping. Reverting was "
+    "somebody buying time - it left the fault in place behind a switch nobody "
+    "now dares touch, which is what you are here to end.",
+
+    "Submit no files only if you have read the code and there is genuinely "
+    "nothing in it to change - never merely because a configuration change "
+    "triggered the incident. That is the common case and it is still a code "
+    "fault."
+])
+
 SUMMARY_FIELD: Final = "summary"
 EXPLANATION_FIELD: Final = "explanation"
 FILES_FIELD: Final = "files"

@@ -71,3 +71,24 @@ class ModelPolicy(BaseModel):
     model: str = DEFAULT_MODEL
     effort: Effort = DEFAULT_EFFORT
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
+    # What this agent is told about itself, once, ahead of every incident it
+    # ever handles: what it is, what its tools are for, what ends the
+    # conversation. It sits beside the model and the effort because it is the
+    # same kind of fact - a property of the agent rather than of the incident -
+    # and it is bound in the same place, by whoever assembles that agent.
+    #
+    # It is sent as the request's `system` rather than inside the first
+    # message, which buys two things. Caching is a prefix match rendered
+    # `tools` then `system` then `messages`, so standing text held in
+    # `messages[0]` puts the first varying byte a few hundred tokens in and
+    # every incident pays full price for words nobody has edited since they
+    # were written; held here, the prefix up to it is byte-identical for every
+    # incident this agent will ever see. And an operator's instructions stop
+    # sharing a channel with the evidence they are used to judge.
+    #
+    # Empty means an agent with nothing standing to say, and that is a real
+    # answer rather than an unset one: the postmortem is a single call per
+    # incident with every figure already measured, so there is nothing for a
+    # later request to reuse and a breakpoint there would buy a write premium
+    # against a prefix nothing reads.
+    brief: str = ""

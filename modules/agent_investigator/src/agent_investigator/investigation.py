@@ -202,7 +202,9 @@ def investigate(
         incident_id,
         recorder,
         policy=ModelPolicy(
-            model=settings.investigation_model, effort=settings.investigation_effort
+            model=settings.investigation_model,
+            effort=settings.investigation_effort,
+            brief=BRIEF
         )
     )
 
@@ -596,7 +598,14 @@ def _the_opening_message(alert: Alert,
                          already_refuted: Sequence[Attempt],
                          already_read: Sequence[Reading],
                          opened_already_elevated: bool) -> str:
-    """Everything the model is told before it decides anything.
+    """Everything about *this incident* the model is told before it decides.
+
+    This incident, and nothing standing. What the Investigator is and what its
+    tools are for is `BRIEF`, and that travels as the request's `system` rather
+    than at the top of this message - see `ModelPolicy.brief`. The split is not
+    tidiness: it is what lets the unchanging half be read from cache on every
+    incident after the first, and what stops an operator's instructions sharing
+    a channel with the evidence they are used to judge.
 
     The onset is stated as a fact rather than offered as a question, and where
     it is only a lower bound that is said plainly - a model that does not know
@@ -604,8 +613,6 @@ def _the_opening_message(alert: Alert,
     and confidence will not tell it: it cannot miss what it was never shown.
     """
     said = [
-        BRIEF,
-        "",
         "## Alert",
         f"service: {alert.service}",
         f"name: {alert.alert_name}",

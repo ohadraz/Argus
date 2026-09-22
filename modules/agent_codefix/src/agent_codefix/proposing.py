@@ -64,6 +64,7 @@ from read_mcp_client import (
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
 from agent_codefix.prompting import (
+    STANDING_BRIEF,
     SUBMIT_FIX,
     SUBMIT_TOOL_NAME,
     SubmittedFix,
@@ -457,7 +458,8 @@ def propose_fix(hypothesis: Hypothesis | None,
             policy=ModelPolicy(
                 model=settings.codefix_model,
                 effort=settings.codefix_effort,
-                max_output_tokens=settings.codefix_max_output_tokens
+                max_output_tokens=settings.codefix_max_output_tokens,
+                brief=STANDING_BRIEF
             )
         )
     )
@@ -791,6 +793,15 @@ def _what_is_known_about_the_index(settings: FixSettings,
 def _the_opening_message(hypothesis: Hypothesis | None,
                          settings: FixSettings,
                          index_notice: IndexNotice) -> str:
+    """Everything about *this incident* Code-Fix is told before it reads anything.
+
+    This incident, and nothing standing. What is always true of fixing a fault
+    - that a mitigation has probably hidden the symptom, that the change which
+    exposed a fault is not the fault, that submitting nothing needs a reason -
+    is `STANDING_BRIEF`, and it travels as the request's `system`. It is the
+    same every time, so it belongs where the same thing every time can be read
+    back from cache instead of re-sent and re-billed once per incident.
+    """
     return "\n".join([
         "An incident has been investigated and traced to a cause in this "
         "service's code. Your job is to fix that cause permanently.",
@@ -800,25 +811,7 @@ def _the_opening_message(hypothesis: Hypothesis | None,
         *_what_is_known_about_the_index(settings, index_notice),
         "",
         f"{_how_to_start_looking(settings)} Read the files it names, then "
-        f"call {SUBMIT_TOOL_NAME} with every file you are changing, in full.",
-        "",
-        "A mitigation has probably already hidden the symptom - a flag turned "
-        "off, a version rolled back - so the code you are reading is the code "
-        "that was broken, whether or not anything looks broken right now.",
-        "",
-        "A change that exposed a fault is not the fault. If switching a flag "
-        "on broke the service, the fault is the code that could not survive "
-        "that flag being on, and your job is to make it safe to turn back on. "
-        "The same goes for a deploy, a config change or a new kind of input: "
-        "something changed, and the code did not cope. Fix the not coping. "
-        "Reverting was somebody buying time - it left the fault in place "
-        "behind a switch nobody now dares touch, which is what you are here "
-        "to end.",
-        "",
-        "Submit no files only if you have read the code and there is genuinely "
-        "nothing in it to change - never merely because a configuration change "
-        "triggered the incident. That is the common case and it is still a "
-        "code fault."
+        f"call {SUBMIT_TOOL_NAME} with every file you are changing, in full."
     ])
 
 

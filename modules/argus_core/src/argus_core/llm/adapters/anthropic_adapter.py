@@ -22,6 +22,7 @@ from anthropic.types import (
     Message,
     MessageParam,
     OutputConfigParam,
+    TextBlockParam,
     ThinkingConfigAdaptiveParam,
     ToolParam,
     ToolResultBlockParam,
@@ -375,6 +376,23 @@ def _api_key_for(configured_key: str, base_url: str | None) -> str:
     return configured_key
 
 
+def _the_standing_brief(brief: str) -> list[TextBlockParam]:
+    """An agent's standing instructions, as the one block they are sent in.
+
+    A list of blocks rather than the plain string the API also accepts,
+    because a breakpoint is a field on a block: sent as a string the words
+    would arrive and the marker could not, and the saving this exists for
+    would silently be no saving at all.
+
+    One block, and nothing appended to it ever. What makes the prefix worth
+    caching is that it is byte-identical across incidents, so anything about
+    the incident belongs in `messages` - where it already is.
+    """
+    return [
+        TextBlockParam(type=TEXT_TYPE, text=brief, cache_control=EPHEMERAL_CACHE)
+    ]
+
+
 class AnthropicLLMClient:
     """`LLMClient` backed by the real Anthropic Messages API.
 
@@ -502,8 +520,21 @@ class AnthropicLLMClient:
         breakpoint or an effort level that reached only the unstreamed path
         would be a difference nothing here declares and only the bill would
         notice.
+
+        Two breakpoints, and they are asked for in different ways because they
+        are caching different things. The top-level one rides the end of the
+        transcript and saves within one incident. The one on the standing
+        brief sits on a block that is identical in every incident this agent
+        ever handles - and since `tools` renders before `system`, the prefix it
+        closes includes the whole tool list, which is the larger half of the
+        saving for an agent carrying many tools.
+
+        The `system` key is absent rather than empty when an agent has nothing
+        standing to say. An empty block would still be a breakpoint, and a
+        breakpoint on nothing is a write premium charged every incident against
+        a prefix no later request can read.
         """
-        return dict(
+        asked = dict(
             model=self._policy.model,
             max_tokens=room,
             # Asked for at the top level rather than pinned to a block: the API
@@ -517,3 +548,8 @@ class AnthropicLLMClient:
             tools=offered,
             messages=to_messages(transcript),
         )
+
+        if self._policy.brief:
+            asked["system"] = _the_standing_brief(self._policy.brief)
+
+        return asked

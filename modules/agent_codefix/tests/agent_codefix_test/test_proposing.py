@@ -15,7 +15,7 @@ nothing.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import create_autospec
+from unittest.mock import Mock, create_autospec
 
 import pytest
 from agent_codefix.proposing import (
@@ -33,6 +33,8 @@ from agent_codefix.proposing import (
 )
 from argus_core.llm import (
     AnswerTruncated,
+    Conversation,
+    Conversations,
     ModelDidNotAnswer,
     ModelRefused,
     a_conversation_recorded_for,
@@ -270,8 +272,16 @@ def test_the_model_is_told_that_a_change_which_exposed_a_fault_is_not_the_fault(
     #
     # Reverting bought time. It is not a fix, and an agent that treats it as
     # one leaves the fault in place behind a toggle nobody dares move.
+    # Asserted against the policy Code-Fix builds rather than against its
+    # opening message, because that is where the instruction now travels:
+    # it is the same for every incident, so it is sent once as the
+    # request's `system` and read from cache thereafter. A test still
+    # reading the first message would pass only while the words were
+    # duplicated there, and fail when somebody removed the duplicate -
+    # which is backwards.
     repository = a_repository()
     model = a_model_that(submits_a_fix_touching(SOME_PATH))
+    built_with = _a_conversation_factory_returning(model.converse)
 
     Scenario() \
         .when(
@@ -279,14 +289,52 @@ def test_the_model_is_told_that_a_change_which_exposed_a_fault_is_not_the_fault(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=built_with,
                 **repository.ports()
             )
         ) \
         .then(all_of(
-            _the_model_was_told(model, "exposed"),
-            _the_model_was_told(model, "safe to turn back on")
+            _the_standing_brief_said(built_with, "exposed"),
+            _the_standing_brief_said(built_with, "safe to turn back on")
         ))
+
+
+def _a_conversation_factory_returning(converse: Conversation) -> Mock:
+    """A `Conversations` double handing back a scripted conversation.
+
+    Specced, so a change to how an agent's conversation is built fails here
+    rather than passing against a mock that answers to anything - and recorded,
+    because what this test is about is the argument it was called with rather
+    than what it returned.
+    """
+    factory: Mock = create_autospec(Conversations, instance=True)
+    factory.return_value = converse
+
+    return factory
+
+
+def _the_standing_brief_said(factory: Mock,
+                             expected: str) -> Assertion[OpenedPullRequest | None]:
+    """That the policy this agent's conversation was built with carries a
+    phrase the model was getting wrong without it."""
+    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+        policy = factory.call_args.kwargs.get("policy")
+
+        if policy is None:
+            raise AssertionError(
+                "Expected Code-Fix to build its conversation with a policy, "
+                "and none was passed."
+            )
+
+        if expected not in policy.brief:
+            raise AssertionError(
+                f"Expected the standing brief to say [{expected}]; it says "
+                f"[{policy.brief}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_search_was_made_at(repository: _Repository,

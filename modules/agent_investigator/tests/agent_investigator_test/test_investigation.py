@@ -14,6 +14,7 @@ from unittest.mock import Mock, create_autospec
 import pytest
 from agent_investigator import Findings, Reading, investigate
 from agent_investigator.budget import Budget
+from agent_investigator.investigation import BRIEF
 from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
 from argus_core import new_id, parse_iso
 from argus_core.events import (
@@ -589,7 +590,15 @@ def test_the_investigation_is_held_with_the_model_its_deployment_named() -> None
     # A loop holds a `(transcript, tools) -> Turn` and is told nothing about
     # models or effort - that is the seam working as intended, and it means
     # the only place the choice is visible is the asking.
-    some_policy = ModelPolicy(model="claude-haiku-4-5", effort="low")
+    # `brief` is part of the policy an agent is assembled with rather than
+    # an afterthought on it: it is the standing half of what this agent is
+    # told, sent once as the request's `system` so that every incident
+    # after the first reads it from cache instead of paying for it again.
+    # An expected policy omitting it would assert that the Investigator
+    # says nothing standing at all.
+    some_policy = ModelPolicy(
+        model="claude-haiku-4-5", effort="low", brief=BRIEF
+    )
     conversations = create_autospec(a_conversation_recorded_for, instance=False)
     conversations.return_value = a_model_that_says(a_turn_answering(an_explanation()))
     investigation = an_investigation(a_model_that_says())
