@@ -57,6 +57,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
+    RECORDED_LARGE_CODE_FIX,
     RECORDED_RESOURCE_LEAK,
     RECORDED_SLOW_CANARY_ROLLOUT,
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
@@ -147,6 +148,18 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
     _Recording(
         RECORDED_SLOW_CANARY_ROLLOUT, "slow-canary-rollout", "HighLatency"
     ),
+    # The flag scenario again, with the fault moved into the largest module the
+    # shop has. Everything a reader of the telemetry sees is the first
+    # recording's incident - same flag, same cohort, same error rate - and the
+    # answers are not the first recording's, because the file Code-Fix is sent
+    # to is twenty-odd thousand tokens rather than seven hundred. A whole-file
+    # answer of that size is what it is captured for.
+    #
+    # Worth capturing under `both` alone. The case that replays it is collected
+    # in that mode only - see `noxfile._the_cases_for`, which argues it - so a
+    # `grep` or `meaning` run of this name costs a real investigation and
+    # stores it where nothing looks.
+    _Recording(RECORDED_LARGE_CODE_FIX, "monthly-statement-panel", "HighErrorRate"),
     _Recording(RECORDED_ABSENCE_OF_EVIDENCE, None, "HighErrorRate")
 )
 

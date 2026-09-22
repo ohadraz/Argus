@@ -77,6 +77,7 @@ RECORDED_RESOURCE_LEAK = "resource-leak"
 RECORDED_UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
 RECORDED_CACHE_MISCONFIGURED = "cache-misconfigured"
 RECORDED_SLOW_CANARY_ROLLOUT = "slow-canary-rollout"
+RECORDED_LARGE_CODE_FIX = "monthly-statement-panel"
 
 # Not arbitrary! the Target Service names itself in its own log
 THE_SERVICE_NAME = "io-shop"

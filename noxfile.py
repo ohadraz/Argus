@@ -61,8 +61,12 @@ MODULES: list[str] = _discover_modules()
 # mode-independent breakage is reported minutes before the other two have
 # embedded anything.
 _SEARCHING_BY_GREP_ALONE: Final = "grep"
+# The mode a deployment runs, and so the one a push runs. Named because two
+# sessions decide what to collect by comparing against it, and a mode spelled
+# twice is a mode that will one day be spelled differently.
+_SEARCHING_BOTH_WAYS: Final = "both"
 _CODE_SEARCH_MODES: Final[tuple[str, ...]] = (
-    _SEARCHING_BY_GREP_ALONE, "meaning", "both"
+    _SEARCHING_BY_GREP_ALONE, "meaning", _SEARCHING_BOTH_WAYS
 )
 
 
@@ -1632,8 +1636,37 @@ def e2e(session: nox.Session) -> None:
     For the free counterpart that checks the same pipeline with every model
     answer replayed from a recording, see `e2e_replay` - that is the one CI
     runs on every push.
+
+    One case is left out of the default run: the large-fix case, which stages
+    an incident whose fault is in the largest module the Target Service has, so
+    that the fix Code-Fix writes is a whole file of twenty-odd thousand tokens.
+    Under replay that costs nothing and is the only case that exercises an
+    answer of that size at all. Here it is billed as output on every run, at
+    several times what any other case spends, to re-establish something the
+    free run already establishes - which is the definition of a bad reason to
+    spend money before a merge.
+
+    Left uncollected rather than skipped, for the reason `_the_cases_for`
+    gives: a skip is a result, and a run reporting the same one every time
+    teaches a reader to read past the line that will one day say something
+    else. Run it deliberately by naming it -
+    `nox -s e2e -- tests/e2e/test_proposing_a_large_code_fix.py` - which is
+    also how any other subset of this suite is run against the real API.
     """
-    _run_against_the_stack(session, ["tests/e2e"])
+    # Nothing at all when a case was named: `_run_against_the_stack` appends
+    # `session.posargs` to pytest itself, so naming them here as well would
+    # collect the same file twice - and the default's `--ignore` would then
+    # quietly win over the very case somebody asked for by name.
+    _run_against_the_stack(session, [] if session.posargs else _THE_CASES_WORTH_PAYING_FOR)
+
+
+# The one case whose answer is a whole large file, and so the one whose cost
+# under the real API is unlike every other case here. It stays in `e2e_replay`,
+# where it is free and is the only thing that drives a fix of that size end to
+# end; it is what this session leaves out.
+_THE_LARGE_FIX_CASE: Final = "tests/e2e/test_proposing_a_large_code_fix.py"
+
+_THE_CASES_WORTH_PAYING_FOR: Final = ["tests/e2e", f"--ignore={_THE_LARGE_FIX_CASE}"]
 
 
 @nox.session
@@ -1702,18 +1735,32 @@ _CASES_ABOUT_THE_INDEX: Final = "tests/e2e/test_the_index_follows_the_repository
 
 
 def _the_cases_for(mode: str) -> list[str]:
-    """The suite, less what this mode has no index for.
+    """The suite, less what this mode has no index for and less what it has no
+    recording of.
 
     Left uncollected rather than skipped inside the case. A skip is a result,
     and a run that reports the same two every time teaches a reader to read past
     the line that will one day say something else. Under `grep` there is no
     store, no watermark and no push to move one - those cases are not pending
     against this stack, they are about a mechanism it does not have.
-    """
-    if mode != _SEARCHING_BY_GREP_ALONE:
-        return ["tests/e2e"]
 
-    return ["tests/e2e", f"--ignore={_CASES_ABOUT_THE_INDEX}"]
+    The large-fix case is left out of the other two modes for a different
+    reason, and it is a decision rather than an absence. Its claim is that an
+    answer the size of a whole large file survives the round trip - streamed,
+    reassembled, parsed and written - and nothing in that claim varies by which
+    tool the model found the file with. The walks that differ per mode are
+    already covered by its sibling, so recording it three times would buy three
+    recordings of one assertion, at a real investigation each.
+    """
+    left_out = []
+
+    if mode != _SEARCHING_BOTH_WAYS:
+        left_out.append(f"--ignore={_THE_LARGE_FIX_CASE}")
+
+    if mode == _SEARCHING_BY_GREP_ALONE:
+        left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")
+
+    return ["tests/e2e", *left_out]
 
 
 @nox.session

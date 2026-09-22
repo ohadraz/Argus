@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import io
 import tarfile
+from pathlib import Path
 from typing import Final
 
 from pydantic import BaseModel
@@ -24,17 +25,43 @@ from pydantic import BaseModel
 # and plausible rather than a copy of the demo app: what a replayed walk does
 # with a file is decided by its recording, so the content only has to be
 # readable source that the scoping setting admits.
+#
+# Two files are an exception, and the first is an exception to that exact
+# reasoning. The large-fix scenario is about the *size* of what Code-Fix emits,
+# and size is settled here rather than by any recording - a model asked to
+# rewrite three lines writes three lines, whatever it was recorded doing. So
+# that file is a real copy of the module the demo app's
+# `monthly-statement-panel` scenario breaks in, and a byte-for-byte one: the
+# shop's own log names the line the fault was raised on, and a lookalike would
+# send the model to a line that says something else.
+#
+# The second is copied because the first one reads it. `monthly_statement.py`
+# takes five fields off the `Purchase` that `accounts.py` defines, and a
+# three-line stub declaring none of them is not a simplification - it is a
+# contradiction, two files that cannot both be right, only one of which the
+# model was asked about. Fixing the other one would be a reasonable thing to
+# do and the wrong thing to have paid for.
+#
+# Snapshots, therefore, and ones that go stale if either module is edited
+# without this being recopied. What they have to keep is the large one's size,
+# the position of its fault, and the agreement between the two; they do not
+# have to be the demo app's current commit.
+_FIXTURE_DIR: Final = Path(__file__).parent / "fixture"
+_THE_LARGE_MODULE: Final = "src/io_shop/monthly_statement.py"
+_WHAT_THE_LARGE_MODULE_READS: Final = "src/io_shop/accounts.py"
+
 DEFAULT_BASE_BRANCH: Final = "main"
 DEFAULT_FILES: Final = {
+    _THE_LARGE_MODULE: (_FIXTURE_DIR / "monthly_statement.py.txt").read_text(
+        encoding="utf-8"
+    ),
+    _WHAT_THE_LARGE_MODULE_READS: (_FIXTURE_DIR / "accounts.py.txt").read_text(
+        encoding="utf-8"
+    ),
     "src/io_shop/spend_summary.py": (
         "def average_spend_per_item_this_month(account):\n"
         "    bought = [p for p in account.purchases if p.in_current_month]\n"
         "    return account.total_this_month_cents // len(bought)\n"
-    ),
-    "src/io_shop/accounts.py": (
-        "class Account:\n"
-        "    def __init__(self, purchases, total_cents, total_this_month_cents):\n"
-        "        self.purchases = purchases\n"
     ),
     "tests/io_shop/test_spend_summary.py": (
         "def test_the_monthly_average_is_correct_for_a_shopper_who_did_buy():\n"
