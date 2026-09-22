@@ -25,6 +25,7 @@ from collections.abc import Callable
 from typing import Any
 
 from argus_core.llm.client import LLMClient, ModelDidNotAnswer
+from argus_core.models.model_policy import DEFAULT_MAX_OUTPUT_TOKENS
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Transcript
 from argus_core.models.turn import Turn
@@ -55,6 +56,14 @@ class RecordedLLMClient:
     has no model to ask for - and it should not grow one. What Argus is
     configured to call is deployment knowledge, held where the client is built.
 
+    `room` is the same fact about the same policy, and arrives the same way for
+    the same reason: how much the wrapped client allows an answer is not
+    askable through the interface, and a receipt is worth keeping only if it
+    says what the call was actually given. It defaults to `ModelPolicy`'s own
+    default so that a wrapper told nothing records what a client built from
+    nothing would use - the one declaration of that figure, referenced rather
+    than repeated.
+
     A monotonic clock by default, not a wall clock: what is being measured is a
     duration, and a wall clock can step sideways mid-call and record a model
     that answered before it was asked.
@@ -64,16 +73,18 @@ class RecordedLLMClient:
                  client: LLMClient,
                  replay: Replay,
                  target: str,
+                 room: int = DEFAULT_MAX_OUTPUT_TOKENS,
                  clock: Clock = time.monotonic) -> None:
         self._client = client
         self._replay = replay
         self._target = target
+        self._room = room
         self._clock = clock
 
     def converse(self,
                  transcript: Transcript,
                  tools: list[ToolDefinition],
-                 max_tokens: int = 16000) -> Turn:
+                 max_tokens: int | None = None) -> Turn:
         """Takes one turn through the wrapped client, and writes down the turn.
 
         The transcript is recorded as it stood when the call was made, tools
@@ -81,12 +92,25 @@ class RecordedLLMClient:
         without the conversation that produced it is an answer to a question
         nobody kept, and without the tools it is an answer whose options are
         unknown.
+
+        `max_tokens` is handed on exactly as it arrived, `None` included. A
+        default of this decorator's own would not be a convenience but the last
+        word on the subject: the seam a loop holds calls with two arguments,
+        every production conversation is recorded, and the client below reads
+        any supplied figure as the caller's word. A figure invented here is
+        therefore a per-agent policy that can never take effect - and the
+        agents whose answers are whole files are the ones it would silence.
+
+        The receipt records the room the call actually got, which is that
+        figure where the caller named one and the wrapped client's own where it
+        did not. A null would read as a fact about the call rather than as the
+        absence of an opinion about it.
         """
         started_at = self._clock()
         asked = {
             "transcript": [exchange.model_dump(mode="json") for exchange in transcript],
             "tools": [tool.model_dump(mode="json") for tool in tools],
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens if max_tokens is not None else self._room
         }
 
         try:

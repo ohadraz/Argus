@@ -22,7 +22,7 @@ without all five installed and reachable.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from decimal import Decimal
 
@@ -407,7 +407,7 @@ class _AModelSubmitting:
     def converse(self,
                  transcript: Transcript,
                  tools: list[ToolDefinition],
-                 max_tokens: int = 0) -> Turn:
+                 max_tokens: int | None = None) -> Turn:
         return Turn(
             text="",
             tool_calls=[ToolCall(id=new_id(),
@@ -536,7 +536,7 @@ def _carries_the_proposal_at(expected: str) -> Assertion[IncidentEvidence]:
 
         if proposed != expected:
             raise AssertionError(
-                f"expected the fix proposed at [{expected}], got [{proposed}]")
+                f"Expected the fix proposed at [{expected}], got [{proposed}].")
 
         return True
 
@@ -547,7 +547,7 @@ def _carries_no_proposal() -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.pull_request is not None:
             raise AssertionError(
-                f"expected no fix proposed, got [{evidence.pull_request}]")
+                f"Expected no fix proposed, got [{evidence.pull_request}].")
 
         return True
 
@@ -614,14 +614,15 @@ def _ends_at(expected: object) -> Assertion[IncidentEvidence]:
     return assertion
 
 
-def _mentions_among(reading: object, expected: str) -> Assertion[IncidentEvidence]:
+def _mentions_among(reading: Callable[[IncidentEvidence], list[str]],
+                    expected: str) -> Assertion[IncidentEvidence]:
     """One line of the bundle, whichever list it belongs in.
 
     The lists differ in what they hold and not in how they are checked, so the
     test names the list and the line and nothing else.
     """
     def assertion(evidence: IncidentEvidence) -> bool:
-        lines = reading(evidence)  # type: ignore[operator]
+        lines = reading(evidence)
 
         if not any(expected in line for line in lines):
             raise AssertionError(f"Expected [{expected}] among {lines}.")

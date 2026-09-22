@@ -109,12 +109,19 @@ class LLMClient(Protocol):
     the wire is not being the wire, and a Protocol that named the SDK's types
     would put Anthropic in every caller that holds a conversation. The adapter
     renders a `Transcript` into messages; nobody above it knows what one is.
+
+    `max_tokens` is how much room the answer gets, and `None` is an answer to
+    that question rather than the absence of one: it says the caller has no
+    opinion, and whatever policy the implementation was built with decides. An
+    implementation needs that distinction - a figure it cannot tell apart from
+    silence is a policy it can never apply - so it is stated here rather than
+    left to whichever implementation thought of it first.
     """
 
     def converse(self,
                  transcript: Transcript,
                  tools: list[ToolDefinition],
-                 max_tokens: int = ...) -> Turn: ...
+                 max_tokens: int | None = ...) -> Turn: ...
 
 
 class Conversation(Protocol):

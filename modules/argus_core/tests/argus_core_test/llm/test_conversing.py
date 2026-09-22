@@ -36,8 +36,9 @@ from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Ask, Transcript
 from argus_core.models.turn import Turn
 from argus_core.replay import CallType, Replay
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
+from argus_core_test.framework.llm import a_turn_that_said
 from argus_core_test.framework.replay import (
     KeptEntries,
     a_recorder_that_keeps_what_it_is_given,
@@ -56,7 +57,7 @@ def test_a_recorded_conversation_answers_from_the_client_it_was_built_with() -> 
     # First, that it is still a conversation. A seam that recorded perfectly and
     # returned something other than the model's turn would fail every
     # investigation while every assertion about recording still passed.
-    a_turn = _a_turn_that_said("the error rate climbs at 22:15")
+    a_turn = a_turn_that_said("the error rate climbs at 22:15")
 
     Scenario() \
         .given(
@@ -68,7 +69,7 @@ def test_a_recorded_conversation_answers_from_the_client_it_was_built_with() -> 
             )
         ) \
         .then(
-            _the_turn_returned_was(a_turn)
+            the_answer_was(a_turn)
         )
 
 
@@ -82,7 +83,7 @@ def test_the_conversation_and_the_tools_reach_the_client_unchanged() -> None:
     Scenario() \
         .given(
             asked_for := _a_client_asked_for(
-                answering := _a_client_that_answers(_a_turn_that_said(DONT_CARE_TURN))
+                answering := _a_client_that_answers(a_turn_that_said(DONT_CARE_TURN))
             )
         ) \
         .when(
@@ -111,7 +112,7 @@ def test_the_client_is_asked_for_one_recording_this_incident_to_this_recorder() 
     #
     # An incident id that is not this file's usual one, so that a factory
     # ignoring what it was given and reaching for a default cannot pass.
-    asked_for = _a_client_asked_for(_a_client_that_answers(_a_turn_that_said(DONT_CARE_TURN)))
+    asked_for = _a_client_asked_for(_a_client_that_answers(a_turn_that_said(DONT_CARE_TURN)))
 
     Scenario() \
         .given(
@@ -143,7 +144,7 @@ class _AClientThatAnswers:
     def converse(self,
                  transcript: Transcript,
                  tools: list[ToolDefinition],
-                 max_tokens: int = 1) -> Turn:
+                 max_tokens: int | None = None) -> Turn:
         self.asked_about = transcript
         self.offered = tools
 
@@ -249,27 +250,6 @@ def _a_tool(name: str = "get_logs") -> ToolDefinition:
         properties={"window_start": {"type": "string"}},
         required=["window_start"]
     )
-
-
-def _a_turn_that_said(said: str) -> Turn:
-    dont_care_tokens = 1
-
-    return Turn(
-        text=said,
-        tool_calls=[],
-        input_tokens=dont_care_tokens,
-        output_tokens=dont_care_tokens
-    )
-
-
-def _the_turn_returned_was(turn: Turn) -> Assertion[Turn]:
-    def assertion(returned: Turn) -> bool:
-        if returned != turn:
-            raise AssertionError(f"Expected [{turn!r}] back, got [{returned!r}].")
-
-        return True
-
-    return assertion
 
 
 def _the_client_was_asked_about(client: _AClientThatAnswers,

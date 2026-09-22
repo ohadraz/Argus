@@ -18,18 +18,11 @@ under every display setting; what changes is only whether Argus is told.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
-import anthropic
 import pytest
-from anthropic.types import Message, TextBlock, Usage
-from argus_core.config import LLMSettings
 from argus_core.llm.adapters.anthropic_adapter import (
-    ASSISTANT_ROLE,
-    END_TURN_STOP_REASON,
-    MESSAGE_TYPE,
     SUMMARISED_THINKING,
-    TEXT_TYPE,
     AnthropicLLMClient,
 )
 from argus_core.models import LARGEST_UNSTREAMED_ANSWER, Effort, ModelPolicy
@@ -39,6 +32,8 @@ from argus_core.models.turn import Turn
 from argus_testkit import Assertion, Scenario
 from argus_testkit.assertions import all_of
 
+from argus_core_test.framework.llm import an_api_that_answers, settings_that_reach_no_api
+
 
 @pytest.mark.unit
 def test_a_turn_asks_to_be_told_what_the_model_was_working_through() -> None:
@@ -46,8 +41,8 @@ def test_a_turn_asks_to_be_told_what_the_model_was_working_through() -> None:
     # made on the way out. A turn that came back with empty reasoning looks
     # identical whether the model reasoned in silence or was never asked to
     # say so, and only the request can tell the two apart.
-    some_api = _an_api_that_answers()
-    investigator = AnthropicLLMClient(_settings_that_reach_no_api(), client=some_api)
+    some_api = an_api_that_answers()
+    investigator = AnthropicLLMClient(settings_that_reach_no_api(), client=some_api)
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
     Scenario() \
@@ -73,9 +68,9 @@ def test_a_turn_asks_the_model_its_agent_was_given_to_ask() -> None:
     # chooses nothing - it holds a `(transcript, tools) -> Turn` and knows of
     # no model, no effort and no client, exactly as before.
     some_policy = ModelPolicy(model="claude-haiku-4-5", effort="low")
-    some_api = _an_api_that_answers()
+    some_api = an_api_that_answers()
     an_agents_client = AnthropicLLMClient(
-        _settings_that_reach_no_api(), policy=some_policy, client=some_api
+        settings_that_reach_no_api(), policy=some_policy, client=some_api
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
@@ -104,9 +99,9 @@ def test_an_answer_too_large_to_arrive_at_once_is_streamed() -> None:
     # that line by 151: the cap is not tight for that class of fix, it is
     # impossible, and no retry can help because the same request overflows
     # the same ceiling every time.
-    some_api = _an_api_that_answers()
+    some_api = an_api_that_answers()
     writing_whole_files = AnthropicLLMClient(
-        _settings_that_reach_no_api(),
+        settings_that_reach_no_api(),
         policy=ModelPolicy(max_output_tokens=LARGEST_UNSTREAMED_ANSWER + 1),
         client=some_api
     )
@@ -131,9 +126,9 @@ def test_an_answer_that_fits_is_asked_for_in_one_piece() -> None:
     # arrives either way, so an adapter that streamed unconditionally would
     # take on the harder-to-read failure mode for every agent in order to
     # serve the one that needs it.
-    some_api = _an_api_that_answers()
+    some_api = an_api_that_answers()
     saying_something_short = AnthropicLLMClient(
-        _settings_that_reach_no_api(),
+        settings_that_reach_no_api(),
         policy=ModelPolicy(max_output_tokens=LARGEST_UNSTREAMED_ANSWER),
         client=some_api
     )
@@ -203,50 +198,6 @@ def _a_tool() -> ToolDefinition:
         properties={"window_start": {"type": "string"}},
         required=["window_start"]
     )
-
-
-def _settings_that_reach_no_api() -> LLMSettings:
-    """Configuration for a client that has been handed its own API stand-in."""
-    return LLMSettings(anthropic_api_key="", anthropic_base_url="")
-
-
-def _an_api_that_answers(said: str = "dont care what it said") -> Mock:
-    """An SDK client that completes its turn and records what it was asked.
-
-    Specced against `anthropic.Anthropic` so a rename of the client's own
-    surface fails here rather than passing against a mock that would answer to
-    anything.
-
-    Answers both ways of asking, because which one the adapter chose is the
-    subject of two tests here and must not be the thing that makes them pass.
-    A specced `Mock` cannot be a context manager on its own - the protocol is
-    looked up on the type - so the streamed side is a `MagicMock` handing back
-    an object with the one method the adapter calls on it.
-    """
-    dont_care_input_tokens = 1
-    dont_care_output_tokens = 1
-
-    answered = Message(
-        id="dont_care_id",
-        model="dont_care_model",
-        role=ASSISTANT_ROLE,
-        type=MESSAGE_TYPE,
-        stop_reason=END_TURN_STOP_REASON,
-        stop_sequence=None,
-        content=[TextBlock(type=TEXT_TYPE, text=said)],
-        usage=Usage(
-            input_tokens=dont_care_input_tokens, output_tokens=dont_care_output_tokens
-        )
-    )
-
-    api = Mock(spec=anthropic.Anthropic)
-    api.messages.create.return_value = answered
-
-    streamed = MagicMock()
-    streamed.__enter__.return_value.get_final_message.return_value = answered
-    api.messages.stream.return_value = streamed
-
-    return api
 
 
 def _the_answer_was_streamed(api: Mock, max_output_tokens: int) -> Assertion[Turn]:

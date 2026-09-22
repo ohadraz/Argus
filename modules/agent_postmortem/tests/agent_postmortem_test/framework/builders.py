@@ -552,7 +552,7 @@ def a_model_answering_in_turn(*answers: dict[str, Any],
         def converse(self,
                      transcript: Transcript,
                      tools: list[ToolDefinition],
-                     max_tokens: int = 4096) -> Turn:
+                     max_tokens: int | None = None) -> Turn:
             assert tools, "the postmortem must ask for a structured answer"
 
             if recording_into is not None:
@@ -562,7 +562,7 @@ def a_model_answering_in_turn(*answers: dict[str, Any],
 
             if not self._remaining:
                 raise AssertionError(
-                    "the model was called more times than the test expected")
+                    "The model was called more times than the test expected.")
 
             return a_submission_of(self._remaining.pop(0), tools[0].name)
 
@@ -590,7 +590,7 @@ def a_model_answering_in_prose_then(*answers: dict[str, Any],
         def converse(self,
                      transcript: Transcript,
                      tools: list[ToolDefinition],
-                     max_tokens: int = 4096) -> Turn:
+                     max_tokens: int | None = None) -> Turn:
             if recording_into is not None:
                 recording_into.take(transcript)
 
@@ -619,7 +619,7 @@ def a_model_calling(tool_name: str,
         def converse(self,
                      transcript: Transcript,
                      tools: list[ToolDefinition],
-                     max_tokens: int = 4096) -> Turn:
+                     max_tokens: int | None = None) -> Turn:
             if recording_into is not None:
                 recording_into.take(transcript)
 
@@ -642,3 +642,12 @@ def a_submission_of(arguments: dict[str, Any], tool_name: str) -> Turn:
 
 def _prose(text: str) -> Turn:
     return Turn(text=text, tool_calls=[], input_tokens=0, output_tokens=0)
+
+
+def hours_between(start: datetime, end: datetime) -> float:
+    """The span, worked out here rather than asked of the code under test.
+
+    A test computing its expectation the way the code does would agree with it
+    however wrong both were.
+    """
+    return (end - start) / timedelta(hours=1)
