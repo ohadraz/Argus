@@ -22,7 +22,6 @@ it.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -75,6 +74,7 @@ from agent_postmortem_test.framework.builders import (
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
     an_evidence_bundle,
+    hours_between,
     rates_published,
     revenue_that_was,
     some_sources,
@@ -114,7 +114,7 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
     some_summary = "Checkout failed for half an hour after a flag change; reverted."
     some_tokens_spent = 48_120
     expected_loss = (
-        Decimal(SOME_CALM_HOURLY_REVENUE) * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        Decimal(SOME_CALM_HOURLY_REVENUE) * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - SOME_REVENUE_DURING_THE_INCIDENT
     )
 
@@ -159,7 +159,7 @@ def test_money_taken_abroad_is_converted_on_the_page_and_disclosed_beside_it() -
     some_rate_date = ONSET.date()
     expected_loss = (
         Decimal(some_calm_hourly_revenue_abroad) / some_rate
-        * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - some_revenue_abroad_during_the_incident / some_rate
     )
 
@@ -393,7 +393,7 @@ def test_an_answer_refused_twice_still_produces_a_document_that_says_it_is_parti
     # a model that would not answer costs the document its prose and none of
     # its arithmetic.
     expected_loss = (
-        Decimal(SOME_CALM_HOURLY_REVENUE) * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        Decimal(SOME_CALM_HOURLY_REVENUE) * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - SOME_REVENUE_DURING_THE_INCIDENT
     )
 
@@ -428,12 +428,3 @@ def _takings_that_were_normal_until_the_onset() -> Revenue:
         per_hour={SOME_CURRENCY: SOME_CALM_HOURLY_REVENUE},
         until=ONSET,
         and_then={SOME_CURRENCY: SOME_REVENUE_DURING_THE_INCIDENT})
-
-
-def _hours_between(start: datetime, end: datetime) -> float:
-    """The span, worked out here rather than asked of the agent.
-
-    A test computing its expectation the way the code does would agree with it
-    however wrong both were.
-    """
-    return (end - start) / timedelta(hours=1)

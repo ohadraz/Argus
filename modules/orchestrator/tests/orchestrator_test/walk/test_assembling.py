@@ -110,8 +110,8 @@ def _a_client_that_must_not_be_reached() -> McpClient:
 def _connections_that_must_not_be_opened() -> Connections:
     @contextmanager
     def no_connections() -> Generator[psycopg.Connection]:
-        raise AssertionError("assembling must not open a connection")
-        yield  # pragma: no cover - unreachable, and what makes this a generator
+        raise AssertionError("Assembling must not open a connection.")
+        yield  # unreachable, and what makes this a generator
 
     return no_connections
 
@@ -128,7 +128,7 @@ def _every_collaborator_was_supplied() -> Assertion[Collaborators]:
                    if getattr(collaborators, field.name) is None]
 
         if missing:
-            raise AssertionError(f"assembled without {sorted(missing)}")
+            raise AssertionError(f"Assembled without {sorted(missing)}")
 
         return True
 
@@ -139,7 +139,7 @@ def _nothing_is_defaulted() -> Assertion[list[str]]:
     def assertion(defaulted: list[str]) -> bool:
         if defaulted:
             raise AssertionError(
-                "every collaborator must be named at the point of assembly, "
+                "Every collaborator must be named at the point of assembly, "
                 f"but these default themselves: {sorted(defaulted)}"
             )
 
@@ -170,7 +170,7 @@ def _putting_a_change_back_needs_only(supplied: frozenset[str]) -> Assertion[Col
 
         if undo is None:
             raise AssertionError(
-                "taking an action was bound without an undo, so a refuted "
+                "Taking an action was bound without an undo, so a refuted "
                 "mitigation has nothing to put itself back with."
             )
 
@@ -202,7 +202,7 @@ def _nothing_beyond(supplied: frozenset[str], required: set[str], what: str) -> 
 
     if unbound:
         raise AssertionError(
-            f"assembling left {sorted(unbound)} unbound, so the walk would "
+            f"Assembling left {sorted(unbound)} unbound, so the walk would "
             f"raise TypeError the first time it tried to {what} - and every "
             f"gate would pass until it did."
         )

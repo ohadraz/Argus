@@ -25,7 +25,7 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.scenario import Scenario, attempting
 from code_index.building import IndexSettings
 from code_index.catching_up import (
@@ -74,7 +74,7 @@ def test_an_index_that_has_never_been_built_is_built_whole() -> None:
             all_of(
                 _the_index_was_brought_to(index, WHAT_IS_DEPLOYED),
                 _the_whole_repository_was_considered(index),
-                _what_came_back_is(WHAT_IS_DEPLOYED)
+                the_answer_was(WHAT_IS_DEPLOYED)
             )
         )
 
@@ -125,7 +125,7 @@ def test_an_index_already_describing_what_is_deployed_is_left_alone() -> None:
         .then(
             all_of(
                 _nothing_was_indexed(index),
-                _what_came_back_is(None)
+                the_answer_was(None)
             )
         )
 
@@ -290,16 +290,6 @@ def _the_branch_was_not_asked_about(branch: Any) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected the provider not to be asked, got {branch.call_args_list}."
             )
-
-        return True
-
-    return assertion
-
-
-def _what_came_back_is(sha: str | None) -> Assertion[str | None]:
-    def assertion(answered: str | None) -> bool:
-        if answered != sha:
-            raise AssertionError(f"Expected [{sha}] to come back, got [{answered}].")
 
         return True
 

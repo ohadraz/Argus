@@ -30,6 +30,7 @@ from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
 
 from argus_incidents_test.framework import no_column_is_empty
+from argus_incidents_test.framework.builders import an_incident_created_for
 
 SOME_MODEL = "claude-opus-5"
 
@@ -53,7 +54,7 @@ def test_a_recorded_call_comes_back_with_both_payloads_whole() -> None:
     }
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_for(conn, _an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         an_entry = _an_entry_for(incident_id, request=some_request, response=some_response)
         the_recorded_calls_are = partial(_the_recorded_calls_are, conn, incident_id)
 
@@ -73,7 +74,7 @@ def test_the_calls_of_an_incident_come_back_in_the_order_they_were_made() -> Non
     # whichever order two identical timestamps happened to sort is not a
     # conversation.
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_for(conn, _an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         the_first_call = _an_entry_for(incident_id, request={"turn": 1})
         the_second_call = _an_entry_for(incident_id, request={"turn": 2})
         a_call_was_recorded = partial(_a_call_was_recorded, conn)
@@ -97,8 +98,8 @@ def test_calls_made_for_another_incident_are_not_this_incidents() -> None:
     # computed over a run that mixed two of them is wrong in a way no assertion
     # downstream would catch.
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_for(conn, _an_alert())
-        another_incident_id = _an_incident_created_for(conn, _an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
+        another_incident_id = an_incident_created_for(conn, _an_alert())
         this_incidents_call = _an_entry_for(incident_id)
         a_call_was_recorded = partial(_a_call_was_recorded, conn)
         the_recorded_calls_are = partial(_the_recorded_calls_are, conn, incident_id)
@@ -123,9 +124,18 @@ def test_an_incident_that_made_no_calls_reads_as_empty_rather_than_missing() -> 
     # is a real path. Nothing recorded is a fact about the run, not a lookup
     # that failed.
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_for(conn, _an_alert())
-
-        assert replay.get_by_incident(conn, incident_id) == []
+        Scenario() \
+            .given(
+                an_incident_that_never_called_anything := an_incident_created_for(conn, _an_alert())
+            ) \
+            .when(
+                lambda: replay.get_by_incident(
+                    conn, an_incident_that_never_called_anything
+                )
+            ) \
+            .then(
+                _no_calls_were_recorded()
+            )
 
 
 @pytest.mark.integration
@@ -141,16 +151,26 @@ def test_what_an_incident_spent_is_every_count_its_model_calls_reported() -> Non
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
-        replay.record(conn, _a_model_call(incident_id,
-                                          input_tokens=some_input_tokens,
-                                          output_tokens=some_output_tokens,
-                                          cache_read_tokens=some_cache_read_tokens,
-                                          cache_write_tokens=some_cache_write_tokens))
 
-        spent = replay.get_tokens_spent(conn, incident_id)
-
-    assert spent == (some_input_tokens + some_output_tokens
-                     + some_cache_read_tokens + some_cache_write_tokens)
+        Scenario() \
+            .given(
+                calling(lambda: replay.record(conn, _a_model_call(
+                    incident_id,
+                    input_tokens=some_input_tokens,
+                    output_tokens=some_output_tokens,
+                    cache_read_tokens=some_cache_read_tokens,
+                    cache_write_tokens=some_cache_write_tokens
+                )))
+            ) \
+            .when(
+                lambda: replay.get_tokens_spent(conn, incident_id)
+            ) \
+            .then(
+                _what_was_spent_was(
+                    some_input_tokens + some_output_tokens
+                    + some_cache_read_tokens + some_cache_write_tokens
+                )
+            )
 
 
 @pytest.mark.integration
@@ -165,16 +185,24 @@ def test_what_an_incident_spent_counts_nothing_for_the_tools_it_called() -> None
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
-        replay.record(conn, ReplayEntry(
-            incident_id=incident_id,
-            call_type=CallType.MCP,
-            target=dont_care_tool,
-            request=dont_care_request,
-            response=dont_care_response,
-            latency_ms=dont_care_latency_ms
-        ))
 
-        assert replay.get_tokens_spent(conn, incident_id) == 0
+        Scenario() \
+            .given(
+                calling(lambda: replay.record(conn, ReplayEntry(
+                    incident_id=incident_id,
+                    call_type=CallType.MCP,
+                    target=dont_care_tool,
+                    request=dont_care_request,
+                    response=dont_care_response,
+                    latency_ms=dont_care_latency_ms
+                )))
+            ) \
+            .when(
+                lambda: replay.get_tokens_spent(conn, incident_id)
+            ) \
+            .then(
+                _what_was_spent_was(0)
+            )
 
 
 @pytest.mark.integration
@@ -182,13 +210,57 @@ def test_an_incident_that_called_no_model_spent_nothing_rather_than_nothing_know
     # A real path: escalating on retrieval alone never reaches a model. Zero
     # is the measurement, and the postmortem is entitled to print it.
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
-
-        assert replay.get_tokens_spent(conn, incident_id) == 0
+        Scenario() \
+            .given(
+                an_incident_that_never_reached_a_model := incidents.create(
+                    conn, Alert(service="io-shop", alert_name="HighErrorRate")
+                )
+            ) \
+            .when(
+                lambda: replay.get_tokens_spent(
+                    conn, an_incident_that_never_reached_a_model
+                )
+            ) \
+            .then(
+                _what_was_spent_was(0)
+            )
 
 
 def _an_alert() -> Alert:
     return Alert(service="io-shop", alert_name="HighErrorRate")
+
+
+def _no_calls_were_recorded() -> Assertion[list[ReplayEntry]]:
+    """That the log answered with an empty run rather than a failed lookup.
+
+    The distinction the test above is named for: an incident escalated on
+    retrieval alone never reaches a model, so nothing recorded is a fact about
+    that run. A reader that could not tell it from a missing incident would
+    report a real run as an error.
+    """
+    def assertion(recorded: list[ReplayEntry]) -> bool:
+        if recorded != []:
+            raise AssertionError(f"Expected no calls to have been recorded, got {recorded}.")
+
+        return True
+
+    return assertion
+
+
+def _what_was_spent_was(expected: int) -> Assertion[int]:
+    """The incident's token total, as a figure.
+
+    Zero is a measurement here rather than an absence, which is why it is
+    asserted the same way as any other total: the postmortem prints what this
+    returns, and "nothing was spent" is a thing it is entitled to print.
+    """
+    def assertion(spent: int) -> bool:
+        if spent != expected:
+            raise AssertionError(f"Expected [{expected}] tokens spent, got [{spent}].")
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.integration
@@ -198,8 +270,7 @@ def test_a_recorded_call_leaves_no_column_of_its_row_empty() -> None:
     # over. One that arrived empty would not fail a query - it would quietly
     # leave a call out of the sum.
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
 
         Scenario() \
             .when(
@@ -208,10 +279,6 @@ def test_a_recorded_call_leaves_no_column_of_its_row_empty() -> None:
             .then(
                 no_column_is_empty(conn, "replay_log", "incident_id", incident_id)
             )
-
-
-def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
-    return incidents.create(conn, alert)
 
 
 def _an_entry_for(incident_id: str,

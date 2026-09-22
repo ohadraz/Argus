@@ -174,8 +174,8 @@ def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:
     """
     @contextmanager
     def no_connections() -> Generator[psycopg.Connection]:
-        raise AssertionError("assembling the graph must not open a connection")
-        yield  # pragma: no cover - unreachable, and what makes this a generator
+        raise AssertionError("Assembling the graph must not open a connection.")
+        yield  # unreachable, and what makes this a generator
 
     # No store either: a unit test that held a real `QdrantClient` would open a
     # session to whatever answers on the configured address, and long-term
@@ -197,7 +197,7 @@ def _the_nodes_are(expected: list[str]) -> Assertion[list[str]]:
     def assertion(registered: list[str]) -> bool:
         if registered != expected:
             raise AssertionError(
-                f"expected the nodes {expected}, the graph has {registered}"
+                f"Expected the nodes {expected}, the graph has {registered}"
             )
 
         return True
@@ -215,7 +215,7 @@ def _the_edges_are(expected: frozenset[Edge]) -> Assertion[frozenset[Edge]]:
 
         if missing or unexpected:
             raise AssertionError(
-                f"the graph does not match the spec.\n"
+                f"The graph does not match the spec.\n"
                 f"  wired nowhere: {sorted(missing)}\n"
                 f"  wired but unspecified: {sorted(unexpected)}"
             )
@@ -228,7 +228,7 @@ def _the_edges_are(expected: frozenset[Edge]) -> Assertion[frozenset[Edge]]:
 def _the_limit_is(expected: int) -> Assertion[int]:
     def assertion(limit: int) -> bool:
         if limit != expected:
-            raise AssertionError(f"expected a limit of {expected}, got {limit}")
+            raise AssertionError(f"Expected a limit of {expected}, got {limit}")
 
         return True
 

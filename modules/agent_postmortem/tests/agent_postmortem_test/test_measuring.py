@@ -19,7 +19,7 @@ the money, because the money was measured by the party that took it.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from math import isclose
 
@@ -42,6 +42,7 @@ from agent_postmortem_test.framework.builders import (
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
     an_evidence_bundle,
+    hours_between,
     metrics_recording_the_window_into,
     metrics_showing_error_rates,
     metrics_that_answer_with_nothing,
@@ -79,7 +80,7 @@ def test_the_incident_is_measured_from_its_onset_rather_than_from_the_alert() ->
     # those minutes as calm trade would raise the baseline using the very
     # minutes the shop was already failing in, and shorten the incident the
     # loss is spread over - wrong twice, both times flatteringly.
-    an_incident_dated_from_its_onset = _hours_between(ONSET, ENDED_AT)
+    an_incident_dated_from_its_onset = hours_between(ONSET, ENDED_AT)
 
     Scenario() \
         .given(
@@ -103,7 +104,7 @@ def test_the_loss_is_what_the_calm_hour_predicted_less_what_came_in() -> None:
     # payment provider reported.
     expected_loss = (
         Decimal(SOME_CALM_HOURLY_REVENUE)
-        * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - SOME_REVENUE_DURING_THE_INCIDENT
     )
 
@@ -136,7 +137,7 @@ def test_an_incident_with_no_onset_is_not_costed() -> None:
     #
     # The duration is still measured, from the alert, because the model is told
     # how long the incident ran whether or not anybody can price it.
-    an_incident_dated_from_the_alert = _hours_between(STARTED_AT, ENDED_AT)
+    an_incident_dated_from_the_alert = hours_between(STARTED_AT, ENDED_AT)
 
     Scenario() \
         .given(
@@ -188,7 +189,7 @@ def test_takings_abroad_are_converted_at_the_published_rate() -> None:
     some_rate = Decimal("0.80")
     expected_loss = (
         Decimal(some_calm_hourly_revenue_abroad) / some_rate
-        * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - some_revenue_abroad_during_the_incident / some_rate
     )
 
@@ -233,7 +234,7 @@ def test_a_currency_the_table_has_no_rate_for_is_left_out_and_named() -> None:
     dont_care_revenue_that_cannot_be_priced = Decimal("50.00")
     expected_loss = (
         Decimal(some_calm_hourly_revenue)
-        * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - SOME_REVENUE_DURING_THE_INCIDENT
     )
 
@@ -277,7 +278,7 @@ def test_rates_that_cannot_be_read_still_leave_the_takings_that_needed_no_rate()
     dont_care_revenue_abroad = Decimal("50.00")
     expected_loss = (
         Decimal(some_calm_hourly_revenue)
-        * Decimal(str(_hours_between(ONSET, ENDED_AT)))
+        * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - SOME_REVENUE_DURING_THE_INCIDENT
     )
 
@@ -565,15 +566,6 @@ def test_a_title_no_band_covers_leaves_the_response_measured_but_unpriced() -> N
         )
 
 
-def _hours_between(start: datetime, end: datetime) -> float:
-    """The span, worked out here rather than asked of the code under test.
-
-    A test computing its expectation the way the code does would agree with it
-    however wrong both were.
-    """
-    return (end - start) / timedelta(hours=1)
-
-
 def _ran_for(expected: float) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
         if not isclose(measured.duration_in_hours, expected):
@@ -663,7 +655,7 @@ def _the_rise_was(expected: float) -> Assertion[Measurements]:
         if rates is None or not isclose(rates.rise, expected):
             raise AssertionError(
                 f"Expected a rise of [{expected}], got "
-                f"[{rates.rise if rates else None}]")
+                f"[{rates.rise if rates else None}].")
 
         return True
 

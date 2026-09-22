@@ -24,4 +24,24 @@ different recording, a shared constant would silently move the other.
 
 from __future__ import annotations
 
+import httpx
+from anthropic_double import recordings
+
 RECORDED_TOOL_USE_TURN = "grep-feature-flag-toggle"
+
+
+def the_double_is_answering(dont_care_double: httpx.Client) -> bool:
+    """That the recording these suites rest on is actually in the store.
+
+    Checked rather than assumed: a missing recording makes the double answer
+    with an error, the investigation escalate before a model call is charged
+    for, and a test about what was recorded or spent fail for a reason that has
+    nothing to do with either - or worse, compare two zeroes and pass.
+
+    Takes the double it does not use, so it reads as a step in the arrangement
+    of a scenario that already holds one rather than as a free-floating check.
+    """
+    if RECORDED_TOOL_USE_TURN not in recordings.available():
+        raise AssertionError(f"No recording named {RECORDED_TOOL_USE_TURN!r} to answer from.")
+
+    return True

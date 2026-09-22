@@ -205,11 +205,11 @@ def _a_provider_that_cannot_be_read() -> Published:
 def _the_rate_for(currency: str, was: Decimal) -> Assertion[RateTable | None]:
     def assertion(table: RateTable | None) -> bool:
         if table is None:
-            raise AssertionError(f"expected a rate for [{currency}], got no table")
+            raise AssertionError(f"Expected a rate for [{currency}], got no table.")
 
         if table.per_unit.get(currency) != was:
             raise AssertionError(
-                f"expected [{currency}] at {was}, got {table.per_unit.get(currency)}"
+                f"Expected [{currency}] at {was}, got {table.per_unit.get(currency)}"
             )
 
         return True
@@ -223,11 +223,11 @@ def _the_rates_were_published_on(day: date) -> Assertion[RateTable | None]:
     must never answer."""
     def assertion(table: RateTable | None) -> bool:
         if table is None:
-            raise AssertionError(f"expected a table published on {day}, got none")
+            raise AssertionError(f"Expected a table published on {day}, got none.")
 
         if table.on != day:
             raise AssertionError(
-                f"expected rates published on {day}, they were published on {table.on}"
+                f"Expected rates published on {day}, they were published on {table.on}"
             )
 
         return True
@@ -238,7 +238,7 @@ def _the_rates_were_published_on(day: date) -> Assertion[RateTable | None]:
 def _no_rates_were_answered() -> Assertion[RateTable | None]:
     def assertion(table: RateTable | None) -> bool:
         if table is not None:
-            raise AssertionError(f"expected no rates at all, got {table}")
+            raise AssertionError(f"Expected no rates at all, got {table}")
 
         return True
 
@@ -249,7 +249,7 @@ def _nobody_was_asked(asked: Kept[str]) -> Assertion[RateTable | None]:
     def assertion(dont_care_table: RateTable | None) -> bool:
         if asked.taken:
             raise AssertionError(
-                f"expected the provider not to be asked, it was asked for {asked.taken}"
+                f"Expected the provider not to be asked, it was asked for {asked.taken}"
             )
 
         return True
@@ -262,8 +262,8 @@ def _the_provider_was_asked_about(base: str,
     def assertion(dont_care_table: RateTable | None) -> bool:
         if asked.only() != base:
             raise AssertionError(
-                f"expected the provider to be asked about [{base}], it was asked "
-                f"about [{asked.only()}]"
+                f"Expected the provider to be asked about [{base}], it was asked "
+                f"about [{asked.only()}]."
             )
 
         return True
@@ -275,7 +275,7 @@ def _nothing_was_kept(held: Kept[PublishedRates]) -> Assertion[RateTable | None]
     def assertion(dont_care_table: RateTable | None) -> bool:
         if held.taken:
             raise AssertionError(
-                f"expected nothing to be kept, {held.taken} was"
+                f"Expected nothing to be kept, {held.taken} was."
             )
 
         return True
@@ -287,7 +287,7 @@ def _the_rates_kept_were(expected: PublishedRates,
                          held: Kept[PublishedRates]) -> Assertion[RateTable | None]:
     def assertion(dont_care_table: RateTable | None) -> bool:
         if held.only() != expected:
-            raise AssertionError(f"expected {expected} to be kept, {held.only()} was")
+            raise AssertionError(f"Expected {expected} to be kept, {held.only()} was.")
 
         return True
 

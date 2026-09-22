@@ -18,9 +18,7 @@ provider's own answer about the flag is the evidence.
 from __future__ import annotations
 
 from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 
-import httpx
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
@@ -29,7 +27,6 @@ from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     about_the_hypothesis,
@@ -39,6 +36,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG, the_flag_provider_reports
+from tests.e2e.framework.world import a_scenario_was_seeded
 from tests.framework.assertions import the_cause_was_identified_as
 
 
@@ -106,7 +104,7 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
 
     Scenario() \
         .given(
-            calling(_a_flag_was_toggled_but_is_not_the_cause()),
+            calling(a_scenario_was_seeded("flag-toggle-red-herring")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
         ) \
         .when(
@@ -127,21 +125,4 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
 
 
 def _a_fallback_flag_was_switched_off() -> Callable[[], bool]:
-    return _a_scenario_was_seeded("fallback-disabled")
-
-
-def _a_flag_was_toggled_but_is_not_the_cause() -> Callable[[], bool]:
-    return _a_scenario_was_seeded("flag-toggle-red-herring")
-
-
-def _a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": scenario_id},
-            timeout=10.0,
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario
+    return a_scenario_was_seeded("fallback-disabled")

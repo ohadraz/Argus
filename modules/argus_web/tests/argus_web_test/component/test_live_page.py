@@ -9,9 +9,6 @@ tests having an opinion.
 """
 from __future__ import annotations
 
-import re
-from typing import Final
-
 import psycopg
 import pytest
 from argus_core import connect_from_env
@@ -25,14 +22,19 @@ from argus_core.events import (
 )
 from argus_core.models import Alert, FailureMode, IncidentStatus, MetricBucket
 from argus_incidents.repository import events, incidents
-from argus_testkit import Assertion, Scenario, all_of
-from argus_web.app import app
-from fastapi.testclient import TestClient
+from argus_testkit import Scenario, all_of
+
+from argus_web_test.framework.assertions import (
+    the_page_keeps_asking,
+    the_page_links_to,
+    the_page_says,
+    the_page_shows,
+)
+from argus_web_test.framework.reading import page_at
 
 # What htmx's "ask again in a moment" looks like in the rendered page. Named
 # because the claim is about the page continuing to ask at all, and a spelling
 # repeated in each test is one that can drift in one of them.
-_POLLS_FOR_MORE: Final = "hx-trigger"
 
 
 @pytest.mark.component
@@ -44,10 +46,10 @@ def test_the_front_page_says_when_nothing_is_happening() -> None:
 
     Scenario() \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(
-            _the_page_shows("idle", "true")
+            the_page_shows("idle", "true")
         )
 
 
@@ -61,10 +63,10 @@ def test_the_front_page_keeps_asking_so_an_incident_arrives_on_its_own() -> None
 
     Scenario() \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(
-            _the_page_keeps_asking()
+            the_page_keeps_asking()
         )
 
 
@@ -84,10 +86,10 @@ def test_the_front_page_shows_the_incident_that_has_not_finished() -> None:
             still_running, already_finished
         ) \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(
-            _the_page_shows("live-incident", still_running)
+            the_page_shows("live-incident", still_running)
         )
 
 
@@ -105,11 +107,11 @@ def test_with_nothing_running_the_front_page_shows_the_newest_one_as_finished() 
             incident_id
         ) \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(all_of(
-            _the_page_shows("live-incident", incident_id),
-            _the_page_shows("running", "false")
+            the_page_shows("live-incident", incident_id),
+            the_page_shows("running", "false")
         ))
 
 
@@ -129,10 +131,10 @@ def test_the_front_page_narrates_what_argus_did_in_the_order_it_did_it() -> None
             incident_id
         ) \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(
-            _the_page_shows(
+            the_page_shows(
                 "line", "alert-acknowledged", "onset-detected", "hypothesis-formed"
             )
         )
@@ -163,11 +165,11 @@ def test_a_metrics_retrieval_is_shown_as_a_table_with_the_bad_minutes_marked() -
             incident_id
         ) \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(all_of(
-            _the_page_shows("bucket", "2026-08-30T10:12Z", "2026-08-30T10:14Z"),
-            _the_page_shows("elevated", "false", "true")
+            the_page_shows("bucket", "2026-08-30T10:12Z", "2026-08-30T10:14Z"),
+            the_page_shows("elevated", "false", "true")
         ))
 
 
@@ -197,10 +199,10 @@ def test_a_log_retrieval_is_shown_with_its_levels_distinguished() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(
-            _the_page_shows("level", "info", "warn", "error")
+            the_page_shows("level", "info", "warn", "error")
         )
 
 
@@ -228,10 +230,10 @@ def test_the_evidence_shown_is_the_evidence_that_was_read() -> None:
             a_line_that_was_read
         ) \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(
-            _the_page_says(a_line_that_was_read)
+            the_page_says(a_line_that_was_read)
         )
 
 
@@ -248,11 +250,11 @@ def test_the_front_page_reaches_the_history_and_the_incidents_own_page() -> None
             incident_id
         ) \
         .when(
-            lambda: _get("/")
+            lambda: page_at("/")
         ) \
         .then(all_of(
-            _the_page_links_to("/history"),
-            _the_page_links_to(f"/incidents/{incident_id}")
+            the_page_links_to("/history"),
+            the_page_links_to(f"/incidents/{incident_id}")
         ))
 
 
@@ -269,10 +271,10 @@ def test_the_polled_live_fragment_carries_the_incident_on_its_own() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get("/now")
+            lambda: page_at("/now")
         ) \
         .then(
-            _the_page_shows("live-incident", incident_id)
+            the_page_shows("live-incident", incident_id)
         )
 
 
@@ -292,73 +294,11 @@ def test_an_incidents_own_page_narrates_it_too() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            _the_page_shows("line", "onset-detected")
+            the_page_shows("line", "onset-detected")
         )
-
-
-def _get(path: str) -> str:
-    with TestClient(app) as client:
-        response = client.get(path)
-
-    assert response.status_code == 200, (
-        f"Expected 200 from {path}, got {response.status_code}."
-    )
-
-    return response.text
-
-
-def _attribute(name: str, html: str) -> list[str]:
-    """Every value of one `data-` attribute, in the order the document carries
-    them - which is the order a reader sees."""
-    return re.findall(rf'data-{name}="([^"]*)"', html)
-
-
-def _the_page_shows(attribute: str, *values: str) -> Assertion[str]:
-    """Exactly these values of one `data-` attribute, in this order."""
-    def assertion(page: str) -> bool:
-        shown = _attribute(attribute, page)
-
-        if shown != list(values):
-            raise AssertionError(
-                f"Expected [{attribute}] to be {list(values)}, got {shown}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_page_says(text: str) -> Assertion[str]:
-    def assertion(page: str) -> bool:
-        if text not in page:
-            raise AssertionError(f"Expected the page to say [{text}], it did not.")
-
-        return True
-
-    return assertion
-
-
-def _the_page_links_to(href: str) -> Assertion[str]:
-    def assertion(page: str) -> bool:
-        if f'href="{href}"' not in page:
-            raise AssertionError(f"Expected the page to link to [{href}], it did not.")
-
-        return True
-
-    return assertion
-
-
-def _the_page_keeps_asking() -> Assertion[str]:
-    def assertion(page: str) -> bool:
-        if _POLLS_FOR_MORE not in page:
-            raise AssertionError("Expected the page to keep asking for more, it did not.")
-
-        return True
-
-    return assertion
 
 
 def _no_incidents_at_all(conn: psycopg.Connection) -> None:

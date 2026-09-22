@@ -26,7 +26,7 @@ def reports_root_cause(expected: str) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.root_cause != expected:
             raise AssertionError(
-                f"expected the root cause [{expected}], got [{document.root_cause}]")
+                f"Expected the root cause [{expected}], got [{document.root_cause}].")
 
         return True
 
@@ -37,8 +37,8 @@ def reports_no_root_cause() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.root_cause is not None:
             raise AssertionError(
-                f"expected no root cause where the model named none, "
-                f"got [{document.root_cause}]")
+                f"Expected no root cause where the model named none, "
+                f"got [{document.root_cause}].")
 
         return True
 
@@ -49,7 +49,7 @@ def reports_executive_summary(expected: str) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.executive_summary != expected:
             raise AssertionError(
-                f"expected the summary [{expected}], got [{document.executive_summary}]")
+                f"Expected the summary [{expected}], got [{document.executive_summary}].")
 
         return True
 
@@ -60,8 +60,8 @@ def estimates_a_loss_of(expected: Decimal | None) -> Assertion[PostmortemDocumen
     def assertion(document: PostmortemDocument) -> bool:
         if document.customer_loss_estimate != expected:
             raise AssertionError(
-                f"expected an estimate of [{expected}], "
-                f"got [{document.customer_loss_estimate}]")
+                f"Expected an estimate of [{expected}], "
+                f"got [{document.customer_loss_estimate}].")
 
         return True
 
@@ -72,8 +72,8 @@ def estimates_nothing() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.customer_loss_estimate is not None:
             raise AssertionError(
-                f"expected no estimate where a term of it could not be read, "
-                f"got [{document.customer_loss_estimate}]")
+                f"Expected no estimate where a term of it could not be read, "
+                f"got [{document.customer_loss_estimate}].")
 
         return True
 
@@ -84,8 +84,8 @@ def states_the_estimate_is_in(expected: str) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.estimate_currency != expected:
             raise AssertionError(
-                f"expected the estimate to be reported in [{expected}], got "
-                f"[{document.estimate_currency}]")
+                f"Expected the estimate to be reported in [{expected}], got "
+                f"[{document.estimate_currency}].")
 
         return True
 
@@ -96,8 +96,8 @@ def reports_engineer_minutes(expected: int) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.engineer_minutes != expected:
             raise AssertionError(
-                f"expected [{expected}] engineer minutes, "
-                f"got [{document.engineer_minutes}]")
+                f"Expected [{expected}] engineer minutes, "
+                f"got [{document.engineer_minutes}].")
 
         return True
 
@@ -108,8 +108,8 @@ def reports_no_engineer_minutes() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.engineer_minutes is not None:
             raise AssertionError(
-                f"expected no engineer minutes where nobody could say, "
-                f"got [{document.engineer_minutes}]")
+                f"Expected no engineer minutes where nobody could say, "
+                f"got [{document.engineer_minutes}].")
 
         return True
 
@@ -127,13 +127,13 @@ def reports_engineer_minutes_across(minutes: int,
     def assertion(document: PostmortemDocument) -> bool:
         if document.engineer_minutes != minutes:
             raise AssertionError(
-                f"expected [{minutes}] engineer minutes, "
-                f"got [{document.engineer_minutes}]")
+                f"Expected [{minutes}] engineer minutes, "
+                f"got [{document.engineer_minutes}].")
 
         if document.responders != responders:
             raise AssertionError(
-                f"expected [{minutes}] engineer minutes across [{responders}] "
-                f"responder(s), got [{document.responders}] responder(s)")
+                f"Expected [{minutes}] engineer minutes across [{responders}] "
+                f"responder(s), got [{document.responders}] responder(s).")
 
         return True
 
@@ -144,7 +144,7 @@ def reports_responders(expected: int) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.responders != expected:
             raise AssertionError(
-                f"expected [{expected}] responders, got [{document.responders}]")
+                f"Expected [{expected}] responders, got [{document.responders}].")
 
         return True
 
@@ -160,7 +160,7 @@ def reports_the_titles(*expected: str) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if sorted(document.responder_titles) != sorted(expected):
             raise AssertionError(
-                f"expected the titles {sorted(expected)}, got "
+                f"Expected the titles {sorted(expected)}, got "
                 f"{sorted(document.responder_titles)}")
 
         return True
@@ -172,7 +172,7 @@ def reports_tokens_spent(expected: int) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.tokens_spent != expected:
             raise AssertionError(
-                f"expected [{expected}] tokens spent, got [{document.tokens_spent}]")
+                f"Expected [{expected}] tokens spent, got [{document.tokens_spent}].")
 
         return True
 
@@ -191,7 +191,7 @@ def proposes_the_fix_at(expected: str | None) -> Assertion[PostmortemDocument]:
 
         if proposed != expected:
             raise AssertionError(
-                f"expected the fix proposed at [{expected}], got [{proposed}]")
+                f"Expected the fix proposed at [{expected}], got [{proposed}].")
 
         return True
 
@@ -202,8 +202,8 @@ def reports_a_responder_cost_of(expected: Decimal) -> Assertion[PostmortemDocume
     def assertion(document: PostmortemDocument) -> bool:
         if document.responder_cost_estimate != expected:
             raise AssertionError(
-                f"expected a responder cost of [{expected}], got "
-                f"[{document.responder_cost_estimate}]")
+                f"Expected a responder cost of [{expected}], got "
+                f"[{document.responder_cost_estimate}].")
 
         return True
 
@@ -216,7 +216,7 @@ def reports_a_cost_ranging_from(minimum: Decimal,
         got = (document.responder_cost_minimum, document.responder_cost_maximum)
         if got != (minimum, maximum):
             raise AssertionError(
-                f"expected the responder cost to range from [{minimum}] to "
+                f"Expected the responder cost to range from [{minimum}] to "
                 f"[{maximum}], got {got}")
 
         return True
@@ -228,8 +228,8 @@ def reports_the_cost_in(expected: str) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.responder_cost_currency != expected:
             raise AssertionError(
-                f"expected the responder cost in [{expected}], got "
-                f"[{document.responder_cost_currency}]")
+                f"Expected the responder cost in [{expected}], got "
+                f"[{document.responder_cost_currency}].")
 
         return True
 
@@ -240,8 +240,8 @@ def reports_no_responder_cost() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.responder_cost_estimate is not None:
             raise AssertionError(
-                f"expected no responder cost where the response could not be "
-                f"priced, got [{document.responder_cost_estimate}]")
+                f"Expected no responder cost where the response could not be "
+                f"priced, got [{document.responder_cost_estimate}].")
 
         return True
 
@@ -253,7 +253,7 @@ def discloses_the_assumption(expected: str) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if expected not in document.assumptions:
             raise AssertionError(
-                f"expected the assumption [{expected}], got {document.assumptions}")
+                f"Expected the assumption [{expected}], got {document.assumptions}")
 
         return True
 
@@ -270,7 +270,7 @@ def discloses_an_assumption_naming(subject: str) -> Assertion[PostmortemDocument
     def assertion(document: PostmortemDocument) -> bool:
         if not any(subject in assumption for assumption in document.assumptions):
             raise AssertionError(
-                f"expected an assumption mentioning [{subject}], "
+                f"Expected an assumption mentioning [{subject}], "
                 f"got {document.assumptions}")
 
         return True
@@ -289,7 +289,7 @@ def discloses_an_assumption_mentioning(label: str,
         if not any(label in stated and detail in stated
                    for stated in document.assumptions):
             raise AssertionError(
-                f"expected an assumption mentioning [{label}] and [{detail}], "
+                f"Expected an assumption mentioning [{label}] and [{detail}], "
                 f"got {document.assumptions}")
 
         return True
@@ -301,8 +301,8 @@ def discloses_no_assumption_about(unexpected: str) -> Assertion[PostmortemDocume
     def assertion(document: PostmortemDocument) -> bool:
         if any(unexpected in stated for stated in document.assumptions):
             raise AssertionError(
-                f"expected no apology for a question that was answered, "
-                f"got [{unexpected}]")
+                f"Expected no apology for a question that was answered, "
+                f"got [{unexpected}].")
 
         return True
 
@@ -313,7 +313,7 @@ def is_marked_complete() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if not document.checklist_complete:
             raise AssertionError(
-                "expected a document with every field filled to be marked complete")
+                "Expected a document with every field filled to be marked complete.")
 
         return True
 
@@ -324,7 +324,7 @@ def is_marked_incomplete() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.checklist_complete:
             raise AssertionError(
-                "expected a document still missing a field to say so on its face")
+                "Expected a document still missing a field to say so on its face.")
 
         return True
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import timedelta
 from functools import partial
 from typing import Any
@@ -10,6 +9,7 @@ import httpx
 import pytest
 from argus_core import parse_iso, to_iso
 from argus_core.models import ChangeEvent, ChangeKind
+from argus_testkit import raising, returning
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
 from read_mcp_server.argocd import (
@@ -26,7 +26,7 @@ def test_a_revision_history_entry_becomes_a_deploy_event() -> None:
     some_revision = "9f4c1e7b2a3d5c8e"
     some_deploy_minute = A_DEPLOY_MINUTE
     argocd = a_mock_argocd_server()
-    argocd_reported = partial(_returning, argocd)
+    argocd_reported = partial(returning, argocd)
 
     Scenario() \
         .given(
@@ -55,7 +55,7 @@ def test_a_deploy_event_carries_who_deployed_it_and_from_where() -> None:
     some_repo_url = "https://github.com/kuki/k8s-configs"
     some_deploy_minute = A_DEPLOY_MINUTE
     argocd = a_mock_argocd_server()
-    argocd_reported = partial(_returning, argocd)
+    argocd_reported = partial(returning, argocd)
 
     Scenario() \
         .given(
@@ -86,7 +86,7 @@ def test_an_entry_without_a_deploy_start_time_still_maps() -> None:
     some_deploy_minute = A_DEPLOY_MINUTE
     some_revision = "9f4c1e7b2a3d5c8e"
     argocd = a_mock_argocd_server()
-    argocd_reported = partial(_returning, argocd)
+    argocd_reported = partial(returning, argocd)
 
     Scenario() \
         .given(
@@ -118,7 +118,7 @@ def test_deploys_outside_the_window_are_discarded() -> None:
     window_end = a_while_after(some_deploy_minute)
     the_revision_deployed_inside_the_window = "inside"
     argocd = a_mock_argocd_server()
-    argocd_reported = partial(_returning, argocd)
+    argocd_reported = partial(returning, argocd)
 
     Scenario() \
         .given(
@@ -150,7 +150,7 @@ def test_an_application_that_never_deployed_yields_no_events() -> None:
     # broken one.
     some_deploy_minute = A_DEPLOY_MINUTE
     argocd = a_mock_argocd_server()
-    argocd_reported = partial(_returning, argocd)
+    argocd_reported = partial(returning, argocd)
 
     Scenario() \
         .given(
@@ -173,7 +173,7 @@ def test_an_application_that_never_deployed_yields_no_events() -> None:
 def test_a_configured_token_is_sent_as_a_bearer_credential() -> None:
     some_token = "some-argocd-token"
     get = a_mock_http_get()
-    the_server_answered_with = partial(_returning, get)
+    the_server_answered_with = partial(returning, get)
     the_request_carried = partial(_the_request_carried, get)
 
     Scenario() \
@@ -198,7 +198,7 @@ def test_no_configured_token_means_no_authorization_header() -> None:
     # a placeholder would be inventing one.
     no_token = ""
     get = a_mock_http_get()
-    the_server_answered_with = partial(_returning, get)
+    the_server_answered_with = partial(returning, get)
     the_request_carried = partial(_the_request_carried, get)
 
     Scenario() \
@@ -222,7 +222,7 @@ def test_the_request_goes_to_the_configured_application_path() -> None:
     some_base_url = "http://kuki-argocd:9000"
     a_real_argocd_path = "/api/v1/applications/{application}"
     get = a_mock_http_get()
-    the_server_answered_with = partial(_returning, get)
+    the_server_answered_with = partial(returning, get)
     the_requested_url_was = partial(_the_requested_url_was, get)
 
     Scenario() \
@@ -248,7 +248,7 @@ def test_a_path_without_a_placeholder_is_used_as_written() -> None:
     some_base_url = "http://kuki-argocd:9000"
     a_path_naming_no_application = "/argocd"
     get = a_mock_http_get()
-    the_server_answered_with = partial(_returning, get)
+    the_server_answered_with = partial(returning, get)
     the_requested_url_was = partial(_the_requested_url_was, get)
 
     Scenario() \
@@ -275,7 +275,7 @@ def test_an_error_response_raises_rather_than_reporting_no_changes() -> None:
     # "The deploy API was down" and "nothing changed" are opposite facts.
     # Collapsing them would let an outage become evidence of absence.
     get = a_mock_http_get()
-    the_server_answered_with = partial(_returning, get)
+    the_server_answered_with = partial(returning, get)
 
     Scenario() \
         .given(
@@ -296,7 +296,7 @@ def test_an_error_response_raises_rather_than_reporting_no_changes() -> None:
 @pytest.mark.unit
 def test_an_unreachable_server_raises_rather_than_reporting_no_changes() -> None:
     get = a_mock_http_get()
-    the_server_was_unreachable = partial(_raising, get)
+    the_server_was_unreachable = partial(raising, get)
 
     Scenario() \
         .given(
@@ -416,20 +416,6 @@ def an_application_that_never_deployed() -> dict[str, Any]:
         "metadata": {"name": SOME_APPLICATION, "namespace": "argocd"},
         "status": {}
     }
-
-
-def _returning(double: Any, value: Any) -> Callable[[], None]:
-    def step() -> None:
-        double.return_value = value
-
-    return step
-
-
-def _raising(double: Any, error: Exception) -> Callable[[], None]:
-    def step() -> None:
-        double.side_effect = error
-
-    return step
 
 
 def _the_deploys_are(*expected_revisions: str) -> Assertion[list[ChangeEvent]]:

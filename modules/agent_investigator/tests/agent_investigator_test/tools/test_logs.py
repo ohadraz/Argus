@@ -183,7 +183,7 @@ def _the_logs_read_were(reader: Mock,
     def assertion(dont_care_result: ToolResult) -> bool:
         if reader.call_count != 1 or reader.call_args != call(window_start, window_end):
             raise AssertionError(
-                f"expected the logs to be read once over "
+                f"Expected the logs to be read once over "
                 f"[{window_start}..{window_end}], and they were read "
                 f"{reader.call_count} time(s) as {reader.call_args}"
             )

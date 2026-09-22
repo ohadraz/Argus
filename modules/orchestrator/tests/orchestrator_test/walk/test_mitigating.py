@@ -48,6 +48,7 @@ from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, NEXT_CANDIDATE_ROUTE
 from orchestrator.walk.state import IncidentState
 
+from orchestrator_test.framework.assertions import the_route_is
 from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     a_random_id,
@@ -90,11 +91,6 @@ def still_wanted() -> MagicMock:
 @pytest.fixture
 def change_landed() -> MagicMock:
     return cast(MagicMock, create_autospec(ports.ChangeLanded, instance=True))
-
-
-@pytest.fixture
-def record_outcome() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.RecordOutcome, instance=True))
 
 
 @pytest.mark.unit
@@ -739,7 +735,7 @@ def test_an_action_that_stopped_the_symptom_goes_on_to_look_for_a_fix() -> None:
     Scenario() \
         .given(a_mitigated_incident := _an_incident_in(IncidentStatus.MITIGATED)) \
         .when(lambda: route_after_mitigation(a_mitigated_incident)) \
-        .then(_the_route_is(FIXING_ROUTE))
+        .then(the_route_is(FIXING_ROUTE))
 
 
 @pytest.mark.unit
@@ -750,7 +746,7 @@ def test_a_refuted_action_is_handed_to_the_walk() -> None:
     Scenario() \
         .given(a_mitigating_incident := _an_incident_in(IncidentStatus.MITIGATING)) \
         .when(lambda: route_after_mitigation(a_mitigating_incident)) \
-        .then(_the_route_is(NEXT_CANDIDATE_ROUTE))
+        .then(the_route_is(NEXT_CANDIDATE_ROUTE))
 
 
 @pytest.mark.unit
@@ -758,7 +754,7 @@ def test_an_action_that_could_not_be_answered_for_reaches_a_human() -> None:
     Scenario() \
         .given(an_escalated_incident := _an_incident_in(IncidentStatus.ESCALATED)) \
         .when(lambda: route_after_mitigation(an_escalated_incident)) \
-        .then(_the_route_is(ESCALATED_ROUTE))
+        .then(the_route_is(ESCALATED_ROUTE))
 
 
 @pytest.mark.unit
@@ -1016,7 +1012,7 @@ def _the_action_row_records_the_way_back(expected: UndoDescriptor,
         recorded = complete_action.call_args.kwargs["undo_descriptor"]
         if recorded != expected:
             raise AssertionError(
-                f"expected the action row to record {expected}, it recorded "
+                f"Expected the action row to record {expected}, it recorded "
                 f"{recorded}."
             )
 
@@ -1128,16 +1124,6 @@ def _no_earlier_outcome_was_looked_up(already_taken: MagicMock
             raise AssertionError(
                 "Expected no earlier outcome to be looked up, one was."
             )
-
-        return True
-
-    return assertion
-
-
-def _the_route_is(expected: str) -> Assertion[str]:
-    def assertion(route: str) -> bool:
-        if route != expected:
-            raise AssertionError(f"Expected the route [{expected}], got [{route}].")
 
         return True
 

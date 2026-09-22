@@ -197,8 +197,8 @@ def _it_links_to_the_minute(expected: str) -> Assertion[Finding]:
     def assertion(finding: Finding) -> bool:
         if finding.links_to_minute != expected:
             raise AssertionError(
-                f"expected a link to the minute [{expected}], "
-                f"got [{finding.links_to_minute}]"
+                f"Expected a link to the minute [{expected}], "
+                f"got [{finding.links_to_minute}]."
             )
 
         return True
@@ -210,8 +210,8 @@ def _it_links_to_no_minute() -> Assertion[Finding]:
     def assertion(finding: Finding) -> bool:
         if finding.links_to_minute:
             raise AssertionError(
-                "expected no link - a link that lands on the wrong row is worse "
-                f"than none - got [{finding.links_to_minute}]"
+                "Expected no link - a link that lands on the wrong row is worse "
+                f"than none - got [{finding.links_to_minute}]."
             )
 
         return True
@@ -223,8 +223,8 @@ def _it_links_to_the_lines(expected: str) -> Assertion[Finding]:
     def assertion(finding: Finding) -> bool:
         if finding.links_to_lines != expected:
             raise AssertionError(
-                f"expected a link to the lines of [{expected}], "
-                f"got [{finding.links_to_lines}]"
+                f"Expected a link to the lines of [{expected}], "
+                f"got [{finding.links_to_lines}]."
             )
 
         return True
@@ -236,7 +236,7 @@ def _it_links_to_no_lines() -> Assertion[Finding]:
     def assertion(finding: Finding) -> bool:
         if finding.links_to_lines:
             raise AssertionError(
-                f"expected no link to any lines, got [{finding.links_to_lines}]"
+                f"Expected no link to any lines, got [{finding.links_to_lines}]."
             )
 
         return True
@@ -247,7 +247,7 @@ def _it_links_to_no_lines() -> Assertion[Finding]:
 def _it_reads(expected: str) -> Assertion[Finding]:
     def assertion(finding: Finding) -> bool:
         if finding.text != expected:
-            raise AssertionError(f"expected [{expected}], got [{finding.text}]")
+            raise AssertionError(f"Expected [{expected}], got [{finding.text}].")
 
         return True
 

@@ -56,7 +56,7 @@ def _exactly_one_event_was_published() -> Assertion[list[IncidentEvent]]:
     def assertion(published: list[IncidentEvent]) -> bool:
         if len(published) != 1:
             raise AssertionError(
-                f"expected one event, got {len(published)}: {published}"
+                f"Expected one event, got {len(published)}: {published}"
             )
 
         return True
@@ -70,13 +70,13 @@ def _the_acknowledgement_is_about(incident_id: str,
         acknowledged = published[0]
         if not isinstance(acknowledged, AlertAcknowledged):
             raise AssertionError(
-                f"expected an AlertAcknowledged, got {type(acknowledged).__name__}"
+                f"Expected an AlertAcknowledged, got {type(acknowledged).__name__}"
             )
 
         if (acknowledged.incident_id, acknowledged.alert) != (incident_id, alert):
             raise AssertionError(
-                f"expected an acknowledgement of {alert} on [{incident_id}], got "
-                f"{acknowledged.alert} on [{acknowledged.incident_id}]"
+                f"Expected an acknowledgement of {alert} on [{incident_id}], got "
+                f"{acknowledged.alert} on [{acknowledged.incident_id}]."
             )
 
         return True

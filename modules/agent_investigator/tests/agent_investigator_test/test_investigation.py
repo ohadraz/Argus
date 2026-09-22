@@ -75,6 +75,7 @@ from agent_investigator_test.framework.builders.model import (
     an_explanation,
     some_windows,
 )
+from agent_investigator_test.framework.recording import a_recorder_that_keeps_what_it_is_given
 
 # ---- from test_loop.py ----
 
@@ -1666,7 +1667,7 @@ def test_the_metrics_the_loop_reads_for_itself_are_written_down() -> None:
 
     Scenario() \
         .given(
-            recorded := _a_recorder_that_keeps_what_it_is_given()
+            recorded := a_recorder_that_keeps_what_it_is_given()
         ) \
         .when(
             lambda: _an_investigation_recording_to(recorded, saw=some_buckets)
@@ -1689,7 +1690,7 @@ def test_an_investigation_that_stops_at_the_metrics_still_writes_the_read_down()
 
     Scenario() \
         .given(
-            recorded := _a_recorder_that_keeps_what_it_is_given()
+            recorded := a_recorder_that_keeps_what_it_is_given()
         ) \
         .when(
             lambda: _an_investigation_recording_to(
@@ -1699,16 +1700,6 @@ def test_an_investigation_that_stops_at_the_metrics_still_writes_the_read_down()
         .then(
             _a_metrics_read_was_recorded_for(recorded, SOME_INCIDENT_ID)
         )
-
-
-def _a_recorder_that_keeps_what_it_is_given() -> Kept[ReplayEntry]:
-    """A recorder that collects entries instead of storing them.
-
-    Handed over as `recorded.take`: a `Scenario` calls anything callable it is
-    given, and a recorder that ran while the test was being arranged would
-    record nothing and report it faithfully.
-    """
-    return Kept()
 
 
 def _an_investigation_recording_to(recorded: Kept[ReplayEntry],

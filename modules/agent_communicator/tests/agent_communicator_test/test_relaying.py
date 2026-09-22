@@ -23,16 +23,16 @@ from agent_communicator.policy import Register
 from agent_communicator.relaying import Outcome, relay_once
 from argus_core import new_id
 from argus_core.events import (
-    ActionTaken,
     IncidentEvent,
-    OnsetDetected,
     RetrievalRequested,
-    StatusChanged,
 )
-from argus_core.models import IncidentStatus, RetrievalChannel
+from argus_core.models import RetrievalChannel
 from argus_incidents.repository import events
 from argus_narration import NarrationLine, a_narration_line
 from argus_testkit import Assertion, Scenario, all_of, calling
+
+from agent_communicator_test.framework.assertions import it_delivered
+from agent_communicator_test.framework.builders import three_steps_of
 
 AN_INCIDENT = new_id()
 
@@ -45,12 +45,12 @@ def test_everything_since_the_place_is_delivered_in_order() -> None:
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
         .then(all_of(
-            _it_delivered(3),
+            it_delivered(3),
             _the_lines_delivered_were(a_relay, ["onset-detected",
                                                 "action-taken",
                                                 "status-changed"]),
@@ -68,12 +68,12 @@ def test_a_line_already_behind_the_place_is_not_said_again() -> None:
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(the_first_two)
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
         .then(all_of(
-            _it_delivered(1),
+            it_delivered(1),
             _the_lines_delivered_were(a_relay, ["status-changed"])
         ))
 
@@ -86,7 +86,7 @@ def test_the_place_moves_to_the_last_line_that_landed() -> None:
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
@@ -103,12 +103,12 @@ def test_a_line_that_could_not_be_said_now_stops_the_batch_where_it_is() -> None
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
         .then(all_of(
-            _it_delivered(1),
+            it_delivered(1),
             _the_lines_delivered_were(a_relay, ["onset-detected"]),
             _the_place_is_now(the_place, 1)
         ))
@@ -124,12 +124,12 @@ def test_a_line_that_will_never_be_said_is_passed_over_rather_than_waited_on() -
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
         .then(all_of(
-            _it_delivered(1),
+            it_delivered(1),
             _the_lines_delivered_were(a_relay, ["onset-detected"]),
             _the_place_is_now(the_place, 3)
         ))
@@ -144,12 +144,12 @@ def test_a_look_with_nothing_new_says_nothing_and_stays_where_it_is() -> None:
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(the_end_of_the_log)
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
         .then(all_of(
-            _it_delivered(0),
+            it_delivered(0),
             _the_lines_delivered_were(a_relay, []),
             _the_place_is_now(the_place, the_end_of_the_log)
         ))
@@ -169,7 +169,7 @@ def test_a_line_nobody_needs_to_hear_is_not_delivered() -> None:
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
         .then(all_of(
-            _it_delivered(3),
+            it_delivered(3),
             _the_lines_delivered_were(a_relay, ["onset-detected",
                                                 "action-taken",
                                                 "status-changed"])
@@ -203,7 +203,7 @@ def test_how_loudly_each_line_is_said_travels_with_it() -> None:
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
         .when(lambda: relay_once(the_log, the_place, a_relay)) \
@@ -218,7 +218,7 @@ def test_the_words_delivered_are_the_ones_the_dashboard_shows() -> None:
     # a second narrator, and the day the two disagreed there would be no way to
     # tell which of them had it right.
     a_relay = _a_relay_that_takes_everything()
-    the_steps = _three_steps_of(AN_INCIDENT)
+    the_steps = three_steps_of(AN_INCIDENT)
 
     Scenario() \
         .given(
@@ -239,7 +239,7 @@ def test_the_log_is_asked_for_no_more_than_one_batch() -> None:
 
     Scenario() \
         .given(
-            the_log := _a_log_holding(_three_steps_of(AN_INCIDENT)),
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0),
             calling(lambda: relay_once(the_log, the_place, a_relay, batch=room_for_two))
         ) \
@@ -330,28 +330,9 @@ def _a_relay_that_will_never_say_more(landed: int) -> _ARelay:
     return _ARelay(gives_up_after=landed, gives_up_with=Outcome.NEVER)
 
 
-def _three_steps_of(incident_id: str) -> list[IncidentEvent]:
-    """An incident's onset, the action taken for it, and where it ended.
-
-    Three things a human is meant to hear, so that what these tests measure is
-    the reading, the order and the place rather than the policy.
-    """
-    return [
-        OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:03:00Z"),
-        ActionTaken(
-            incident_id=incident_id,
-            hypothesis_id=None,
-            action_type="revert-feature-flag",
-            subject="monthly-spend-feature",
-            enabled=False
-        ),
-        StatusChanged(incident_id=incident_id, to_status=IncidentStatus.RESOLVED)
-    ]
-
-
 def _three_steps_with_a_look_between(incident_id: str) -> list[IncidentEvent]:
     """The same three, with a retrieval in the middle that nobody hears."""
-    onset, action, ending = _three_steps_of(incident_id)
+    onset, action, ending = three_steps_of(incident_id)
 
     return [
         onset,
@@ -364,18 +345,6 @@ def _three_steps_with_a_look_between(incident_id: str) -> list[IncidentEvent]:
         action,
         ending
     ]
-
-
-def _it_delivered(expected: int) -> Assertion[int]:
-    def assertion(delivered: int) -> bool:
-        if delivered != expected:
-            raise AssertionError(
-                f"Expected {expected} lines to be delivered, it reported {delivered}."
-            )
-
-        return True
-
-    return assertion
 
 
 def _it_asked_for(expected: int) -> Assertion[int | None]:

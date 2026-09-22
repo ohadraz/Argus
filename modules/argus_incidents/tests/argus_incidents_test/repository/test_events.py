@@ -422,7 +422,7 @@ def _row_counts(conn: psycopg.Connection) -> dict[str, int]:
     counted = {}
     with conn.cursor() as cursor:
         for table in ("incident", "hypothesis", "action"):
-            cursor.execute(f"SELECT count(*) FROM {table}")  # noqa: S608 - fixed names
+            cursor.execute(f"SELECT count(*) FROM {table}")  # the names are fixed above
             row = cursor.fetchone()
             assert row is not None
             counted[table] = row[0]

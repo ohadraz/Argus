@@ -34,7 +34,7 @@ from agent_investigator.retrieval import (
 )
 from argus_core.mcp_transport import McpClient
 from argus_core.models import ChangeEvent, ChangeKind, FlagChange
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, the_same_error_reached_the_caller
 
 A_SERVICE = "kukibuki-service"
 DONT_CARE_FLAG = "kukibuki"
@@ -175,7 +175,7 @@ def test_a_flag_history_that_cannot_be_read_is_a_failure_of_the_investigation() 
             lambda: _what_was_raised_reading_changes(some_provider_failure)
         ) \
         .then(
-            _the_same_failure_reached_the_caller(some_provider_failure)
+            the_same_error_reached_the_caller(some_provider_failure)
         )
 
 
@@ -480,18 +480,6 @@ def _the_change_says_it_was_switched(direction: str) -> Assertion[list[ChangeEve
 
         if direction not in said.split():
             raise AssertionError(f"Expected the summary to say [{direction}], got [{said}].")
-
-        return True
-
-    return assertion
-
-
-def _the_same_failure_reached_the_caller(
-    failure: Exception
-) -> Assertion[Exception | None]:
-    def assertion(raised: Exception | None) -> bool:
-        if raised is not failure:
-            raise AssertionError(f"Expected [{failure!r}] to reach the caller, got [{raised!r}].")
 
         return True
 

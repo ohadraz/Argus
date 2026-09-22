@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core.llm.escapes import with_escapes_resolved
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Scenario, the_answer_was
 
 
 @pytest.mark.unit
@@ -46,7 +46,7 @@ def test_an_escaped_character_is_accepted_as_the_character_it_names() -> None:
     Scenario() \
         .given(claim_with_its_dash_escaped) \
         .when(lambda: with_escapes_resolved(claim_with_its_dash_escaped)) \
-        .then(_it_reads(
+        .then(the_answer_was(
             f"The change record for {some_span}{the_character_it_names}"
             f"{some_span_it_ran_to} is complete."
         ))
@@ -71,7 +71,7 @@ def test_a_character_escaped_more_than_once_is_still_that_character() -> None:
     Scenario() \
         .given(claim_with_its_arrow_escaped_twice) \
         .when(lambda: with_escapes_resolved(claim_with_its_arrow_escaped_twice)) \
-        .then(_it_reads(
+        .then(the_answer_was(
             f"Two flags flipped ({some_flag} {some_state_it_left}"
             f"{the_character_it_names}{some_state_it_reached})."
         ))
@@ -91,7 +91,7 @@ def test_a_character_the_model_wrote_directly_is_left_as_it_wrote_it() -> None:
     Scenario() \
         .given(claim_carrying_a_written_arrow) \
         .when(lambda: with_escapes_resolved(claim_carrying_a_written_arrow)) \
-        .then(_it_reads(claim_carrying_a_written_arrow))
+        .then(the_answer_was(claim_carrying_a_written_arrow))
 
 
 @pytest.mark.unit
@@ -111,7 +111,7 @@ def test_an_escape_naming_no_character_is_left_exactly_as_written() -> None:
     Scenario() \
         .given(claim_with_a_malformed_escape) \
         .when(lambda: with_escapes_resolved(claim_with_a_malformed_escape)) \
-        .then(_it_reads(claim_with_a_malformed_escape))
+        .then(the_answer_was(claim_with_a_malformed_escape))
 
 
 @pytest.mark.unit
@@ -126,7 +126,7 @@ def test_a_backslash_that_names_no_character_at_all_is_left_alone() -> None:
     Scenario() \
         .given(some_proposed_code) \
         .when(lambda: with_escapes_resolved(some_proposed_code)) \
-        .then(_it_reads(some_proposed_code))
+        .then(the_answer_was(some_proposed_code))
 
 
 @pytest.mark.unit
@@ -143,14 +143,4 @@ def test_half_a_character_is_left_as_written_rather_than_half_resolved() -> None
     Scenario() \
         .given(claim_carrying_half_a_character) \
         .when(lambda: with_escapes_resolved(claim_carrying_half_a_character)) \
-        .then(_it_reads(claim_carrying_half_a_character))
-
-
-def _it_reads(expected: str) -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        if said != expected:
-            raise AssertionError(f"expected [{expected}], got [{said}]")
-
-        return True
-
-    return assertion
+        .then(the_answer_was(claim_carrying_half_a_character))

@@ -190,7 +190,7 @@ def _nothing_was_raised() -> Assertion[Exception | None]:
     def assertion(raised: Exception | None) -> bool:
         if raised is not None:
             raise AssertionError(
-                f"expected the failure to be survived, got [{type(raised).__name__}]: {raised}"
+                f"Expected the failure to be survived, got [{type(raised).__name__}]: {raised}"
             )
 
         return True
@@ -202,7 +202,7 @@ def _slack_holds_nothing(base_url: str) -> Assertion[Any]:
     def assertion(_result: Any) -> bool:
         held = httpx.get(f"{base_url}/double-control/posted").json()["posted"]
         if held:
-            raise AssertionError(f"expected nothing delivered, got {held}")
+            raise AssertionError(f"Expected nothing delivered, got {held}")
 
         return True
 
@@ -221,7 +221,7 @@ def _it_was_refused_for(reason: str) -> Assertion[Posted]:
     def assertion(answered: Posted) -> bool:
         if reason not in answered.refusal:
             raise AssertionError(
-                f"expected the refusal to name [{reason}], got [{answered.refusal}]"
+                f"Expected the refusal to name [{reason}], got [{answered.refusal}]."
             )
 
         return True
@@ -239,7 +239,7 @@ def _it_is_worth_another_go(expected: bool) -> Assertion[Posted]:
     def assertion(answered: Posted) -> bool:
         if answered.worth_another_go != expected:
             raise AssertionError(
-                f"expected worth_another_go={expected}, got {answered.worth_another_go}"
+                f"Expected worth_another_go={expected}, got {answered.worth_another_go}"
             )
 
         return True

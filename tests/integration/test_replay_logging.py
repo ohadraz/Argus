@@ -24,21 +24,24 @@ import psycopg
 import pytest
 from agent_investigator import investigate
 from agent_investigator.budget import InvestigationSettings
-from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_core import connect_from_env, get_settings
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import Alert, ChangeEvent, MetricBucket
+from argus_core.models import Alert
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.publishing import calls_into
 from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
 
-from tests.framework.recordings import RECORDED_TOOL_USE_TURN
+from tests.framework.investigating import (
+    logs_that_say_little,
+    metrics_that_show_an_onset,
+    no_changes,
+    the_configured_thresholds,
+)
+from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
 
 DATABASE_URL = get_settings().database_url
 
-SOME_ONSET = "2026-08-29T22:15:00Z"
 
 
 @pytest.fixture
@@ -67,17 +70,17 @@ def test_an_investigations_calls_reach_the_replay_log(
 
         Scenario() \
             .given(
-                calling(lambda: _the_double_is_answering(double))
+                calling(lambda: the_double_is_answering(double))
             ) \
             .when(
                 lambda: investigate(
                     alert=_an_alert(),
                     incident_id=incident_id,
-                    fetch_metrics=_metrics_that_show_an_onset,
-                    fetch_logs=_logs_that_say_little,
-                    fetch_change_events=_no_changes,
+                    fetch_metrics=metrics_that_show_an_onset,
+                    fetch_logs=logs_that_say_little,
+                    fetch_change_events=no_changes,
                     settings=InvestigationSettings.of(get_settings()),
-                    thresholds=_the_configured_thresholds(),
+                    thresholds=the_configured_thresholds(),
                     recorder=calls_into(connect_from_env)
                 )
             ) \
@@ -102,17 +105,17 @@ def test_an_investigation_that_records_nowhere_still_investigates(
 
         Scenario() \
             .given(
-                calling(lambda: _the_double_is_answering(double))
+                calling(lambda: the_double_is_answering(double))
             ) \
             .when(
                 lambda: investigate(
                     alert=_an_alert(),
                     incident_id=incident_id,
-                    fetch_metrics=_metrics_that_show_an_onset,
-                    fetch_logs=_logs_that_say_little,
-                    fetch_change_events=_no_changes,
+                    fetch_metrics=metrics_that_show_an_onset,
+                    fetch_logs=logs_that_say_little,
+                    fetch_change_events=no_changes,
                     settings=InvestigationSettings.of(get_settings()),
-                    thresholds=_the_configured_thresholds(),
+                    thresholds=the_configured_thresholds(),
                 )
             ) \
             .then(
@@ -125,59 +128,6 @@ def test_an_investigation_that_records_nowhere_still_investigates(
 
 def _an_alert() -> Alert:
     return Alert(service="io-shop", alert_name="HighErrorRate")
-
-
-def _the_double_is_answering(double: httpx.Client) -> bool:
-    """That the recording this test rests on is actually in the store.
-
-    Checked rather than assumed: a missing recording makes the double answer
-    with an error, the investigation escalate, and this test fail for a reason
-    that has nothing to do with the replay log.
-    """
-    if RECORDED_TOOL_USE_TURN not in recordings.available():
-        raise AssertionError(f"no recording named {RECORDED_TOOL_USE_TURN!r} to answer from")
-
-    return True
-
-
-def _metrics_that_show_an_onset(dont_care_window_start: str | None) -> list[MetricBucket]:
-    """Enough of a departure that the investigation does not stop at retrieval.
-
-    An incident with no metrics escalates before a model is ever called, which
-    would make this test pass an empty replay log for the wrong reason.
-    """
-    return [
-        MetricBucket(
-            bucket_id="2026-08-29T22:10:00Z",
-            error_rate=0.01,
-            p50_ms=40,
-            p95_ms=120,
-            p99_ms=200,
-            request_volume=200,
-            memory_used_bytes=440 * 1024**2,
-            process_start_time_seconds=1_756_000_000.0,
-        ),
-        MetricBucket(
-            bucket_id=SOME_ONSET,
-            error_rate=0.31,
-            p50_ms=60,
-            p95_ms=900,
-            p99_ms=1600,
-            request_volume=200,
-            memory_used_bytes=440 * 1024**2,
-            process_start_time_seconds=1_756_000_000.0,
-        ),
-    ]
-
-
-def _logs_that_say_little(dont_care_start: str, dont_care_end: str) -> list[str]:
-    return ["2026-08-29T22:15:00Z ERROR io-shop: request failed"]
-
-
-def _no_changes(dont_care_service: str,
-                dont_care_start: str,
-                dont_care_end: str) -> list[ChangeEvent]:
-    return []
 
 
 def _recorded_calls(conn: psycopg.Connection, incident_id: str) -> list[ReplayEntry]:
@@ -256,17 +206,3 @@ def _findings_were_reached() -> Assertion[object]:
         return True
 
     return assertion
-
-def _the_configured_thresholds() -> AnomalyThresholds:
-    """Where the algorithm draws its lines, read from this deployment.
-
-    Narrowed from the same configuration the worker would, rather than stated:
-    what is under test here is the run, not the arithmetic.
-    """
-    settings = get_settings()
-
-    return AnomalyThresholds(
-        deviations_from_baseline=settings.anomaly_deviations_from_baseline,
-        persistence_minutes=settings.anomaly_persistence_minutes,
-        recovery_fraction_of_the_rise=settings.recovery_fraction_of_the_rise
-    )

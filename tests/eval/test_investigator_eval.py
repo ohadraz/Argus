@@ -9,7 +9,6 @@ import pytest
 from agent_investigator import Findings, investigate
 from agent_investigator.budget import Bound, Budget, InvestigationSettings
 from argus_core import get_settings, new_id, parse_iso
-from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import build_llm_client
 from argus_core.models import (
     Alert,
@@ -27,6 +26,7 @@ from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 
 from tests.framework.assertions import no_cause_was_determined, the_cause_was_identified_as
+from tests.framework.investigating import the_configured_thresholds
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
 # real API and spends tokens every run. Each run is now a whole investigation -
@@ -518,7 +518,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_logs=_the_logs_of(incident),
             fetch_change_events=_the_changes_of(incident),
             settings=InvestigationSettings.of(get_settings()),
-            thresholds=_the_configured_thresholds(),
+            thresholds=the_configured_thresholds(),
             converse=speak,
             budget=spend
         )
@@ -646,17 +646,3 @@ def _the_budget_was_not_exhausted() -> Assertion[Run]:
         return True
 
     return assertion
-
-def _the_configured_thresholds() -> AnomalyThresholds:
-    """Where the algorithm draws its lines, read from this deployment.
-
-    Narrowed from the same configuration the worker would, rather than stated:
-    what is under test here is the run, not the arithmetic.
-    """
-    settings = get_settings()
-
-    return AnomalyThresholds(
-        deviations_from_baseline=settings.anomaly_deviations_from_baseline,
-        persistence_minutes=settings.anomaly_persistence_minutes,
-        recovery_fraction_of_the_rise=settings.recovery_fraction_of_the_rise
-    )

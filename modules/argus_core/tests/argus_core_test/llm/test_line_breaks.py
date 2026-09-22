@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core.llm.line_breaks import on_one_line
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Scenario, the_answer_was
 
 
 @pytest.mark.unit
@@ -39,7 +39,7 @@ def test_a_claim_broken_across_lines_is_accepted_as_the_sentence_it_is() -> None
     Scenario() \
         .given(claim_broken_mid_sentence) \
         .when(lambda: on_one_line(claim_broken_mid_sentence)) \
-        .then(_it_reads(
+        .then(the_answer_was(
             f"The error rate rose{the_space_it_stands_for}to 33% within a minute."
         ))
 
@@ -56,7 +56,7 @@ def test_a_claim_broken_in_several_places_is_still_one_sentence() -> None:
     Scenario() \
         .given(claim_broken_twice) \
         .when(lambda: on_one_line(claim_broken_twice)) \
-        .then(_it_reads(
+        .then(the_answer_was(
             "monthly-spend-feature was switched on at 13:00 and the error rate "
             "rose one minute later."
         ))
@@ -73,7 +73,7 @@ def test_a_claim_padded_at_either_end_loses_the_padding() -> None:
     Scenario() \
         .given(padded_claim := f"{some_padding}{claim}{some_padding}") \
         .when(lambda: on_one_line(padded_claim)) \
-        .then(_it_reads(claim))
+        .then(the_answer_was(claim))
 
 
 @pytest.mark.unit
@@ -86,14 +86,4 @@ def test_a_claim_the_model_wrote_on_one_line_is_left_as_it_wrote_it() -> None:
     Scenario() \
         .given(claim_already_on_one_line) \
         .when(lambda: on_one_line(claim_already_on_one_line)) \
-        .then(_it_reads(claim_already_on_one_line))
-
-
-def _it_reads(expected: str) -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        if said != expected:
-            raise AssertionError(f"expected [{expected}], got [{said}]")
-
-        return True
-
-    return assertion
+        .then(the_answer_was(claim_already_on_one_line))

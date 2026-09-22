@@ -23,15 +23,15 @@ from agent_communicator.policy import Register
 from agent_communicator.relaying import Outcome, relay_once
 from argus_core import connect_from_env
 from argus_core.events import (
-    ActionTaken,
     IncidentEvent,
-    OnsetDetected,
-    StatusChanged,
 )
-from argus_core.models import Alert, IncidentStatus
+from argus_core.models import Alert
 from argus_incidents.repository import events, incidents
 from argus_narration import NarrationLine
 from argus_testkit import Assertion, Scenario, all_of, calling
+
+from agent_communicator_test.framework.assertions import it_delivered, the_place_is
+from agent_communicator_test.framework.builders import three_steps_of
 
 A_READER = "slack"
 ANOTHER_READER = "email"
@@ -64,7 +64,7 @@ def test_the_log_hands_back_what_was_published_after_a_place(
 
         Scenario() \
             .given(
-                calling(lambda: _publish(conn, *_three_steps_of(incident_id)))
+                calling(lambda: _publish(conn, *three_steps_of(incident_id)))
             ) \
             .when(lambda: the_log(THE_BEGINNING, A_GENEROUS_BATCH)) \
             .then(_the_kinds_read_back_were(["onset-detected",
@@ -85,7 +85,7 @@ def test_a_place_moved_on_is_where_the_next_process_starts(
             calling(lambda: a_place.move_to(SOME_PLACE))
         ) \
         .when(lambda: place_for(connect_from_env, A_READER).where()) \
-        .then(_the_place_is(SOME_PLACE))
+        .then(the_place_is(SOME_PLACE))
 
 
 @pytest.mark.component
@@ -99,7 +99,7 @@ def test_two_readers_of_one_log_keep_their_own_places(
             calling(lambda: place_for(connect_from_env, A_READER).move_to(SOME_PLACE))
         ) \
         .when(lambda: place_for(connect_from_env, ANOTHER_READER).where()) \
-        .then(_the_place_is(THE_BEGINNING))
+        .then(the_place_is(THE_BEGINNING))
 
 
 @pytest.mark.component
@@ -116,7 +116,7 @@ def test_a_relay_over_the_real_log_says_what_was_published_and_then_stops(
 
         Scenario() \
             .given(
-                calling(lambda: _publish(conn, *_three_steps_of(incident_id))),
+                calling(lambda: _publish(conn, *three_steps_of(incident_id))),
                 calling(lambda: relay_once(events_since(connect_from_env),
                                            place_for(connect_from_env, A_READER),
                                            a_relay))
@@ -125,7 +125,7 @@ def test_a_relay_over_the_real_log_says_what_was_published_and_then_stops(
                                      place_for(connect_from_env, A_READER),
                                      a_relay)) \
             .then(all_of(
-                _it_delivered(0),
+                it_delivered(0),
                 _the_lines_delivered_were(a_relay, ["onset-detected",
                                                     "action-taken",
                                                     "status-changed"])
@@ -151,20 +151,6 @@ def _a_recording_relay() -> _ARelay:
     return _ARelay()
 
 
-def _three_steps_of(incident_id: str) -> list[IncidentEvent]:
-    return [
-        OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:03:00Z"),
-        ActionTaken(
-            incident_id=incident_id,
-            hypothesis_id=None,
-            action_type="revert-feature-flag",
-            subject="monthly-spend-feature",
-            enabled=False
-        ),
-        StatusChanged(incident_id=incident_id, to_status=IncidentStatus.RESOLVED)
-    ]
-
-
 def _publish(conn: psycopg.Connection, *published: IncidentEvent) -> None:
     """Publishes events and lets them land, as every real publisher does."""
     for event in published:
@@ -173,33 +159,11 @@ def _publish(conn: psycopg.Connection, *published: IncidentEvent) -> None:
     conn.commit()
 
 
-def _the_place_is(expected: int) -> Assertion[int]:
-    def assertion(place: int) -> bool:
-        if place != expected:
-            raise AssertionError(f"Expected the place {expected}, got {place}.")
-
-        return True
-
-    return assertion
-
-
 def _the_kinds_read_back_were(expected: list[str]) -> Assertion[list[events.RecordedEvent]]:
     def assertion(read_back: list[events.RecordedEvent]) -> bool:
         kinds = [entry.event.kind for entry in read_back]
         if kinds != expected:
             raise AssertionError(f"Expected the kinds {expected}, got {kinds}.")
-
-        return True
-
-    return assertion
-
-
-def _it_delivered(expected: int) -> Assertion[int]:
-    def assertion(delivered: int) -> bool:
-        if delivered != expected:
-            raise AssertionError(
-                f"Expected {expected} lines to be delivered, it reported {delivered}."
-            )
 
         return True
 

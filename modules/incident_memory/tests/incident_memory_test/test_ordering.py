@@ -291,7 +291,7 @@ def _the_order_is(expected: list[ActionIdentity | None]) -> Assertion[Reordering
         identities = [entry.identity for entry in reordered.candidates]
 
         if identities != expected:
-            raise AssertionError(f"expected {expected}, got {identities}")
+            raise AssertionError(f"Expected {expected}, got {identities}")
 
         return True
 
@@ -302,7 +302,7 @@ def _nothing_was_reordered() -> Assertion[Reordering]:
     def assertion(reordered: Reordering) -> bool:
         if reordered.on_the_strength_of is not None:
             raise AssertionError(
-                f"expected nothing reordered, got [{reordered.on_the_strength_of}]"
+                f"Expected nothing reordered, got [{reordered.on_the_strength_of}]."
             )
 
         return True
@@ -314,7 +314,7 @@ def _it_was_reordered_on(incident_id: str) -> Assertion[Reordering]:
     def assertion(reordered: Reordering) -> bool:
         if reordered.on_the_strength_of != incident_id:
             raise AssertionError(
-                f"expected [{incident_id}], got [{reordered.on_the_strength_of}]"
+                f"Expected [{incident_id}], got [{reordered.on_the_strength_of}]."
             )
 
         return True
@@ -325,7 +325,7 @@ def _it_was_reordered_on(incident_id: str) -> Assertion[Reordering]:
 def _what_moved_was(expected: ActionIdentity) -> Assertion[Reordering]:
     def assertion(reordered: Reordering) -> bool:
         if reordered.moved != expected:
-            raise AssertionError(f"expected [{expected}] moved, got [{reordered.moved}]")
+            raise AssertionError(f"Expected [{expected}] moved, got [{reordered.moved}].")
 
         return True
 

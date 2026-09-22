@@ -16,10 +16,11 @@ from argus_core.models import (
     UnreadVerdict,
     Verdict,
 )
-from argus_incidents.repository import hypotheses, incidents, taken_actions
+from argus_incidents.repository import hypotheses, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 
 from argus_incidents_test.framework import no_column_is_empty
+from argus_incidents_test.framework.builders import an_incident_created_for
 
 
 @pytest.mark.integration
@@ -36,14 +37,13 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
     )
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_says = partial(_the_action_row_says, conn)
         the_action_row_carries = partial(_the_action_row_carries, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .given(
                 dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
@@ -76,13 +76,12 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
     some_alert = Alert(service=some_service, alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_carries = partial(_the_action_row_carries, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .given(
                 dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
@@ -119,14 +118,13 @@ def test_an_action_names_the_subject_it_changed() -> None:
     the_flag_that_was_changed = "monthly-spend-feature"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_changed = partial(_the_action_row_changed, conn)
         the_action_read_back_changed = partial(_the_action_read_back_changed, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .given(
                 dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
@@ -162,13 +160,12 @@ def test_an_action_claimed_and_not_yet_finished_already_names_its_subject() -> N
     the_flag_that_was_changed = "checkout-v2"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_changed = partial(_the_action_row_changed, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .given(
                 dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
@@ -198,13 +195,12 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
     some_alert = Alert(service="kukibuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_action_row_names = partial(_the_action_row_names, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .given(
                 hypothesis_id := a_hypothesis_recorded_for(incident_id)
@@ -236,13 +232,12 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
     the_contested_flag = "monthly-spend-feature"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         each_action_names_its_own_candidate = partial(
             _each_action_names_its_own_candidate, conn
         )
 
-        incident_id = an_incident_created_for(some_alert)
+        incident_id = an_incident_created_for(conn, some_alert)
         first = a_hypothesis_recorded_for(incident_id, subject=the_contested_flag, rank=1)
         second = a_hypothesis_recorded_for(incident_id, subject=the_contested_flag, rank=2)
 
@@ -274,11 +269,10 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         the_actions_read_back_are = partial(_the_actions_read_back_are, conn)
 
-        incident_id = an_incident_created_for(some_alert)
+        incident_id = an_incident_created_for(conn, some_alert)
         first = a_hypothesis_recorded_for(incident_id, subject="first", rank=1)
         second = a_hypothesis_recorded_for(incident_id, subject="second", rank=2)
 
@@ -315,11 +309,10 @@ def test_an_outcome_no_verdict_spells_comes_back_unread_rather_than_absent() -> 
     a_verdict_this_version_cannot_spell = "dissolved"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
         an_older_versions_verdict_on = partial(_an_older_versions_verdict_on, conn)
 
-        incident_id = an_incident_created_for(some_alert)
+        incident_id = an_incident_created_for(conn, some_alert)
         hypothesis_id = a_hypothesis_recorded_for(incident_id)
 
         Scenario() \
@@ -364,12 +357,11 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
     the_flag_that_was_changed = "monthly-spend-feature"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .given(
                 hypothesis_id := a_hypothesis_recorded_for(incident_id)
@@ -390,10 +382,6 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
             .then(
                 no_column_is_empty(conn, "action", "incident_id", incident_id)
             )
-
-
-def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
-    return incidents.create(conn, alert)
 
 
 def _a_hypothesis_recorded_for(conn: psycopg.Connection,

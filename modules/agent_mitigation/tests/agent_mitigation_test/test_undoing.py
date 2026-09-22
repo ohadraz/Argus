@@ -29,6 +29,7 @@ from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
+    a_restorer_nobody_calls,
     an_undo_descriptor_for,
     nobody_can_say,
     nobody_changed_it,
@@ -56,7 +57,7 @@ def test_a_flag_nobody_touched_is_put_back() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=_a_restorer_nobody_calls()
+                restore_configuration=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -82,7 +83,7 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=somebody_changed_it(),
-                restore_configuration=_a_restorer_nobody_calls()
+                restore_configuration=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -112,7 +113,7 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
                 a_descriptor_from_before,
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=_a_restorer_nobody_calls()
+                restore_configuration=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -136,7 +137,7 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=nobody_can_say(),
-                restore_configuration=_a_restorer_nobody_calls()
+                restore_configuration=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -163,7 +164,7 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
                 descriptor,
                 set_state=_a_flag_setter(),
                 changed_from_outside=asked.record,
-                restore_configuration=_a_restorer_nobody_calls()
+                restore_configuration=a_restorer_nobody_calls()
             )
         ) \
         .then(
@@ -254,19 +255,6 @@ def a_rollback_descriptor_for(application: str,
         was_on_revision=THE_REVISION_IT_WAS_ON,
         was_syncing_itself=was_syncing_itself
     )
-
-
-def _a_restorer_nobody_calls() -> MagicMock:
-    """The way back from a rollback, wired but not exercised.
-
-    Most cases here are about a flag. The collaborator is required rather than
-    defaulted because an undo that could be built without a way to put back
-    one of the two kinds of change it accepts is an undo that finds out at the
-    worst moment.
-    """
-    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
-
-    return restore
 
 
 def _a_restorer_that_puts_back(revision: bool = True,

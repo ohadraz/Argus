@@ -19,9 +19,7 @@ published.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
-from http import HTTPStatus as HttpStatus
 
 import httpx
 import psycopg
@@ -36,7 +34,6 @@ from argus_testkit.assertions import eventually
 from tests.e2e.framework.argus import (
     DATABASE_URL,
     RECORDED_FLAG_TOGGLE,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
@@ -45,6 +42,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 # The bands the Target Service's HR endpoint publishes for the two titles it
 # pages.
@@ -67,7 +65,7 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -214,22 +212,3 @@ def _the_postmortem_for(response: httpx.Response) -> Postmortem:
         raise AssertionError(f"No postmortem exists for incident [{incident_id}].")
 
     return postmortem
-
-
-def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
-    """The scenario that breaks the shop and gets somebody paged for it.
-
-    Its own copy rather than another test module's: a test reaching into a
-    neighbour's `_name` is the same violation here as anywhere else in this
-    repo.
-    """
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "feature-flag-toggle"},
-            timeout=10.0
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

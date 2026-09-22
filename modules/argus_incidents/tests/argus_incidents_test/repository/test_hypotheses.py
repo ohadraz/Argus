@@ -8,10 +8,11 @@ import psycopg
 import pytest
 from argus_core import connect_from_env
 from argus_core.models import Alert, Evidence, FailureMode, Hypothesis
-from argus_incidents.repository import hypotheses, incidents
+from argus_incidents.repository import hypotheses
 from argus_testkit import Assertion, Scenario, all_of, calling
 
 from argus_incidents_test.framework import no_column_is_empty
+from argus_incidents_test.framework.builders import an_incident_created_for
 
 
 @pytest.mark.integration
@@ -25,8 +26,7 @@ def test_a_recorded_hypothesis_comes_back_with_the_evidence_it_was_formed_from()
     ]
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         some_hypothesis = _a_determined_hypothesis(incident_id, some_evidence)
         the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
 
@@ -45,8 +45,7 @@ def test_an_undetermined_hypothesis_comes_back_naming_no_cause() -> None:
     # default - 0.0, an empty string - the model's own validator would reject
     # the row on the way out, which is the failure this guards.
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         an_unexplained_hypothesis = _an_undetermined_hypothesis(incident_id)
         the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
         the_stored_hypothesis_names_no_cause = partial(
@@ -72,8 +71,7 @@ def test_a_hypothesis_comes_back_naming_the_subject_it_blamed() -> None:
     some_flag = "monthly-spend-feature"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         some_hypothesis = _a_determined_hypothesis(
             incident_id, ["some log line"], subject=some_flag
         )
@@ -94,8 +92,7 @@ def test_a_hypothesis_comes_back_carrying_the_transition_it_blamed() -> None:
     # records a position, and the page draws a change. Both have to survive the
     # table, or the model's own validator refuses the row on the way back out.
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         some_hypothesis = _a_determined_hypothesis(
             incident_id,
             ["some log line"],
@@ -124,8 +121,7 @@ def test_a_hypothesis_comes_back_at_the_rank_it_was_recorded_at() -> None:
     a_third_choice = 3
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         some_hypothesis = _a_determined_hypothesis(
             incident_id, ["some log line"], rank=a_third_choice
         )
@@ -149,8 +145,7 @@ def test_a_candidate_the_walk_reached_comes_back_carrying_what_happened_to_it() 
     some_result = "refuted"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         a_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
         a_hypothesis_was_recorded = partial(_a_hypothesis_was_recorded, conn)
         the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
@@ -180,8 +175,7 @@ def test_a_candidate_that_was_never_tried_comes_back_saying_why() -> None:
     some_reason = "no reversible action was proposed for this cause"
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         an_untried_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
         a_hypothesis_was_recorded = partial(_a_hypothesis_was_recorded, conn)
         the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
@@ -209,8 +203,7 @@ def test_the_latest_hypothesis_for_an_incident_is_the_one_returned() -> None:
     # An incident can be investigated more than once; "latest" is what the
     # orchestrator reads back, so the order has to be the write order.
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         the_first_hypothesis = _a_determined_hypothesis(incident_id, ["an early guess"])
         the_second_hypothesis = _a_determined_hypothesis(incident_id, ["a later guess"])
         a_hypothesis_was_recorded = partial(_a_hypothesis_was_recorded, conn)
@@ -240,8 +233,7 @@ def test_the_best_candidate_of_a_verdict_is_the_one_returned() -> None:
     dont_care_evidence = ["2026-08-20T11:06:00Z ERROR target-service: request failed"]
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         the_best_candidate = _a_determined_hypothesis(incident_id, dont_care_evidence)
         the_alternative_it_carried = _an_alternative_within(incident_id, rank=2)
         a_hypothesis_was_recorded = partial(_a_hypothesis_was_recorded, conn)
@@ -262,9 +254,18 @@ def test_the_best_candidate_of_a_verdict_is_the_one_returned() -> None:
 @pytest.mark.integration
 def test_an_incident_with_no_hypothesis_has_none_to_return() -> None:
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_for(conn, _an_alert())
-
-        assert hypotheses.get_latest_by_incident(conn, incident_id) is None
+        Scenario() \
+            .given(
+                an_incident_nothing_concluded_about := an_incident_created_for(conn, _an_alert())
+            ) \
+            .when(
+                lambda: hypotheses.get_latest_by_incident(
+                    conn, an_incident_nothing_concluded_about
+                )
+            ) \
+            .then(
+                _no_hypothesis_came_back()
+            )
 
 
 @pytest.mark.integration
@@ -276,7 +277,7 @@ def test_every_candidate_of_an_incident_comes_back_in_rank_order() -> None:
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_candidates_read_back_are = partial(_the_candidates_read_back_are, conn)
 
-        incident_id = _an_incident_created_for(conn, _an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
 
         def three_candidates_are_recorded_out_of_order() -> None:
             a_candidate_recorded_for(incident_id, subject="third", rank=3)
@@ -301,7 +302,7 @@ def test_an_untried_candidate_comes_back_as_untried() -> None:
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_candidate_ranked = partial(_the_candidate_ranked, conn)
 
-        incident_id = _an_incident_created_for(conn, _an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         tried = a_candidate_recorded_for(incident_id, subject="tried", rank=1)
         a_candidate_recorded_for(incident_id, subject="never reached", rank=2)
 
@@ -322,7 +323,7 @@ def test_an_incident_with_no_candidates_reads_as_empty_rather_than_missing() -> 
     # An incident that escalated before forming a hypothesis is a real incident
     # with nothing to show, which is not the same as an unknown incident.
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_for(conn, _an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
 
         Scenario() \
             .given(
@@ -340,6 +341,23 @@ def _an_alert() -> Alert:
     return Alert(service="kuki-service", alert_name="HighErrorRate")
 
 
+def _no_hypothesis_came_back() -> Assertion[Hypothesis | None]:
+    """That an incident nothing has concluded about says so with `None`.
+
+    An absence rather than an undetermined hypothesis: those are two different
+    facts, and only one of them means a model was asked. Every caller reads
+    this with `is None`, so anything falsy-but-present would sail past the
+    check and be rendered as a conclusion nobody reached.
+    """
+    def assertion(found: Hypothesis | None) -> bool:
+        if found is not None:
+            raise AssertionError(f"Expected no hypothesis to come back, got [{found}].")
+
+        return True
+
+    return assertion
+
+
 @pytest.mark.integration
 def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> None:
     # A determined candidate the walk went on to test: a cause, a subject, the
@@ -349,8 +367,7 @@ def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> Non
     some_evidence = ["2026-08-20T11:05:00Z WARN target-service: flag toggled on"]
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
-        incident_id = an_incident_created_for(_an_alert())
+        incident_id = an_incident_created_for(conn, _an_alert())
         the_candidate = _a_determined_hypothesis(
             incident_id,
             evidence=some_evidence,
@@ -372,10 +389,6 @@ def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> Non
             .then(
                 no_column_is_empty(conn, "hypothesis", "incident_id", incident_id)
             )
-
-
-def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
-    return incidents.create(conn, alert)
 
 
 def _a_determined_hypothesis(incident_id: str,

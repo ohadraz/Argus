@@ -23,11 +23,13 @@ import httpx
 import pytest
 from argus_testkit.assertions import Assertion, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
-from repository_source import RepositorySourceSettings, RepositoryUnreadable
+from repository_source import RepositoryUnreadable
 from repository_source.comparing import (
     MOST_FILES_A_COMPARISON_LISTS,
     paths_changed_between,
 )
+
+from repository_source_test.framework.settings import some_settings
 
 AN_EARLIER_COMMIT = "3f1b9d2c8a7e6f5d4c3b2a1908f7e6d5c4b3a291"
 THE_COMMIT_PUSHED = "77296acf1d2b4e5a6c7d8e9f0a1b2c3d4e5f6a7b"
@@ -245,15 +247,3 @@ def a_comparison_of(*files: dict[str, str]) -> Any:
     )
 
     return compared
-
-
-def some_settings(api_url: str = "https://api.github.invalid",
-                  repository: str = "dont-care/dont-care",
-                  read_token: str = "ghp_dont-care-read-token"
-                  ) -> RepositorySourceSettings:
-    """What is needed to read a repository, and nothing that could change one."""
-    return RepositorySourceSettings(
-        github_api_url=api_url,
-        github_repository=repository,
-        github_read_token=read_token
-    )

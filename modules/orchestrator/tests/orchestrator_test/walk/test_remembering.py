@@ -255,8 +255,8 @@ def _filed_one_record_for(filed: Kept[RememberedIncident],
 
         if recorded.incident_id != incident_id:
             raise AssertionError(
-                f"expected a record filed for [{incident_id}], "
-                f"got [{recorded.incident_id}]")
+                f"Expected a record filed for [{incident_id}], "
+                f"got [{recorded.incident_id}].")
 
         return True
 
@@ -269,7 +269,7 @@ def _filed_a_record_naming(filed: Kept[RememberedIncident],
         subjects = [attempt.identity.subject for attempt in filed.only().tried]
 
         if subject not in subjects:
-            raise AssertionError(f"expected [{subject}] among {subjects}")
+            raise AssertionError(f"Expected [{subject}] among {subjects}")
 
         return True
 
@@ -279,7 +279,7 @@ def _filed_a_record_naming(filed: Kept[RememberedIncident],
 def _nothing_was_filed(filed: Kept[RememberedIncident]) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
         if filed.taken:
-            raise AssertionError(f"expected nothing filed, got {filed.taken}")
+            raise AssertionError(f"Expected nothing filed, got {filed.taken}")
 
         return True
 
@@ -289,7 +289,7 @@ def _nothing_was_filed(filed: Kept[RememberedIncident]) -> Assertion[object]:
 def _it_returned_without_raising() -> Assertion[object]:
     def assertion(returned: object) -> bool:
         if returned is None:
-            raise AssertionError("expected the node to return a delta, got nothing")
+            raise AssertionError("Expected the node to return a delta, got nothing.")
 
         return True
 
@@ -302,7 +302,7 @@ def _an_event_of_kind_was_published(published: Kept[IncidentEvent],
         kinds = [event.kind for event in published.taken]
 
         if kind not in kinds:
-            raise AssertionError(f"expected an event of kind [{kind}] among {kinds}")
+            raise AssertionError(f"Expected an event of kind [{kind}] among {kinds}")
 
         return True
 
@@ -315,7 +315,7 @@ def _an_event_mentioning(published: Kept[IncidentEvent],
         said = [event.model_dump_json() for event in published.taken]
 
         if not any(expected in one for one in said):
-            raise AssertionError(f"expected [{expected}] among {said}")
+            raise AssertionError(f"Expected [{expected}] among {said}")
 
         return True
 
@@ -325,7 +325,7 @@ def _an_event_mentioning(published: Kept[IncidentEvent],
 def _nothing_was_published(published: Kept[IncidentEvent]) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
         if published.taken:
-            raise AssertionError(f"expected nothing published, got {published.taken}")
+            raise AssertionError(f"Expected nothing published, got {published.taken}")
 
         return True
 

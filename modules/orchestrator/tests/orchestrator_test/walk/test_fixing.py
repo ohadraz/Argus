@@ -27,6 +27,7 @@ from orchestrator.walk.ports import ProposeFix
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
+from orchestrator_test.framework.assertions import the_route_is, the_updates_carry
 from orchestrator_test.framework.builders import a_determined_hypothesis
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
@@ -46,7 +47,7 @@ def test_an_agent_with_no_fix_to_offer_is_reported_as_finding_none() -> None:
             lambda: codefix_node(an_incident_being_fixed, an_agent_with_nothing)
         ) \
         .then(all_of(
-            _the_updates_carry("fix_found", False),
+            the_updates_carry("fix_found", False),
             _the_work_was_narrated()
         ))
 
@@ -62,7 +63,7 @@ def test_a_fix_the_agent_proposed_is_reported_as_found() -> None:
             lambda: codefix_node(an_incident_being_fixed, an_agent_with_a_fix)
         ) \
         .then(all_of(
-            _the_updates_carry("fix_found", True),
+            the_updates_carry("fix_found", True),
             _the_work_was_narrated()
         ))
 
@@ -104,7 +105,7 @@ def test_a_proposal_that_could_not_be_made_does_not_fail_the_walk() -> None:
             lambda: codefix_node(an_incident_being_fixed, an_agent_that_could_not)
         ) \
         .then(all_of(
-            _the_updates_carry("fix_found", False),
+            the_updates_carry("fix_found", False),
             _the_work_was_narrated()
         ))
 
@@ -229,7 +230,7 @@ def test_an_agent_that_never_answered_is_not_reported_as_having_found_nothing() 
             _exactly_one_attempt_was_announced(
                 FixOutcome.NOT_ANSWERED, None, published
             ),
-            _the_updates_carry("fix_found", False)
+            the_updates_carry("fix_found", False)
         ))
 
 
@@ -259,7 +260,7 @@ def test_a_model_that_declined_is_not_reported_as_a_repository_that_refused() ->
             _exactly_one_attempt_was_announced(
                 FixOutcome.DECLINED, None, published
             ),
-            _the_updates_carry("fix_found", False)
+            the_updates_carry("fix_found", False)
         ))
 
 
@@ -276,7 +277,7 @@ def test_a_node_nobody_is_listening_to_still_does_its_work() -> None:
         .when(
             lambda: codefix_node(an_incident_being_fixed, an_agent_with_a_fix)
         ) \
-        .then(_the_updates_carry("fix_found", True))
+        .then(the_updates_carry("fix_found", True))
 
 
 @pytest.mark.unit
@@ -348,7 +349,7 @@ def test_every_incident_that_reaches_code_fix_goes_on_to_the_postmortem() -> Non
     Scenario() \
         .given(a_mitigated_incident := _an_incident_in(IncidentStatus.MITIGATED)) \
         .when(lambda: route_after_codefix(a_mitigated_incident)) \
-        .then(_the_route_is(POSTMORTEM_ROUTE))
+        .then(the_route_is(POSTMORTEM_ROUTE))
 
 
 @pytest.mark.unit
@@ -359,7 +360,7 @@ def test_an_incident_nothing_could_be_done_for_also_goes_to_the_postmortem() -> 
     Scenario() \
         .given(an_unfixed_incident := _an_incident_in(IncidentStatus.FIXING)) \
         .when(lambda: route_after_codefix(an_unfixed_incident)) \
-        .then(_the_route_is(POSTMORTEM_ROUTE))
+        .then(the_route_is(POSTMORTEM_ROUTE))
 
 
 class _AnAgentRememberingWhatItWasAsked:
@@ -450,25 +451,6 @@ def _the_agent_was_asked_for_incident(
     return assertion
 
 
-def _the_updates_carry(field: str, expected: Any) -> Assertion[StateDelta]:
-    def assertion(updates: StateDelta) -> bool:
-        if field not in updates.model_fields_set:
-            raise AssertionError(
-                f"Expected the updates to carry [{field}], they carry "
-                f"{sorted(updates.model_fields_set)}."
-            )
-
-        if getattr(updates, field) != expected:
-            raise AssertionError(
-                f"Expected [{field}] to be [{expected}], it was "
-                f"[{getattr(updates, field)}]."
-            )
-
-        return True
-
-    return assertion
-
-
 def _the_work_was_narrated() -> Assertion[StateDelta]:
     """Something was said, not what. A node that moves the incident and says
     nothing raises in `with_status`, and the words themselves are not a promise
@@ -504,16 +486,6 @@ def _the_narration_mentions(said: str) -> Assertion[StateDelta]:
                 f"Expected the narration to mention [{said!r}], it said "
                 f"[{narration.action!r} / {narration.detail!r}]."
             )
-
-        return True
-
-    return assertion
-
-
-def _the_route_is(expected: str) -> Assertion[str]:
-    def assertion(route: str) -> bool:
-        if route != expected:
-            raise AssertionError(f"Expected the route [{expected}], got [{route}].")
 
         return True
 

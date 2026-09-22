@@ -6,7 +6,14 @@ from unittest.mock import create_autospec
 import httpx
 import pytest
 from argus_core.models import RestartedService
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    dont_care_sleep,
+)
 from write_mcp_server.restarting import (
     RESTART_ACTION,
     RESTART_GROUP,
@@ -538,11 +545,6 @@ def a_service_reporting(minutes: list[dict[str, Any]]) -> Any:
     )
 
     return get
-
-
-def dont_care_sleep(seconds: float) -> None:
-    """The wait between looks, which no test here spends."""
-    return None
 
 
 def some_settings(namespace: str = "dont-care-namespace",

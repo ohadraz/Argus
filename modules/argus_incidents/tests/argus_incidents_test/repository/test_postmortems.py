@@ -119,11 +119,11 @@ def _the_stored_postmortem_proposes(conn: psycopg.Connection,
 
         if stored is None or stored.pull_request is None:
             raise AssertionError(
-                f"expected a postmortem proposing [{at}], got [{stored}]")
+                f"Expected a postmortem proposing [{at}], got [{stored}].")
 
         if stored.pull_request.url != at:
             raise AssertionError(
-                f"expected the fix at [{at}], got [{stored.pull_request.url}]")
+                f"Expected the fix at [{at}], got [{stored.pull_request.url}].")
 
         return True
 
@@ -145,7 +145,7 @@ def _the_stored_postmortem_numbers_the_proposal(conn: psycopg.Connection,
 
         if numbered != expected:
             raise AssertionError(
-                f"expected the proposal numbered [{expected}], got [{numbered}]")
+                f"Expected the proposal numbered [{expected}], got [{numbered}].")
 
         return True
 
@@ -158,11 +158,11 @@ def _the_stored_postmortem_proposes_nothing(conn: psycopg.Connection,
         stored = postmortems.get_by_incident(conn, incident_id)
 
         if stored is None:
-            raise AssertionError("expected a postmortem to have been written, none was")
+            raise AssertionError("Expected a postmortem to have been written, none was.")
 
         if stored.pull_request is not None:
             raise AssertionError(
-                f"expected no fix proposed, got [{stored.pull_request}]")
+                f"Expected no fix proposed, got [{stored.pull_request}].")
 
         return True
 

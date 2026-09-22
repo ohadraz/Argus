@@ -7,6 +7,7 @@ from agent_mitigation import Action, RevertFeatureFlag, propose_action
 from argus_core.models import FailureMode, FlagChange
 from argus_testkit import Assertion, Scenario
 
+from agent_mitigation_test.framework.assertions import nothing_was_proposed
 from agent_mitigation_test.framework.builders import (
     DONT_CARE_FLAG,
     EARLIER_IN_THE_WINDOW,
@@ -150,7 +151,7 @@ def test_a_cause_with_no_reversible_action_proposes_nothing() -> None:
             )
         ) \
         .then(
-            _nothing_was_proposed()
+            nothing_was_proposed()
         )
 
 
@@ -168,7 +169,7 @@ def test_a_hypothesis_that_identified_no_cause_proposes_nothing() -> None:
             )
         ) \
         .then(
-            _nothing_was_proposed()
+            nothing_was_proposed()
         )
 
 
@@ -195,7 +196,7 @@ def test_more_than_one_changed_flag_proposes_nothing_rather_than_guessing() -> N
             )
         ) \
         .then(
-            _nothing_was_proposed()
+            nothing_was_proposed()
         )
 
 
@@ -276,7 +277,7 @@ def test_a_named_flag_the_provider_never_recorded_proposes_nothing() -> None:
             )
         ) \
         .then(
-            _nothing_was_proposed()
+            nothing_was_proposed()
         )
 
 
@@ -294,7 +295,7 @@ def test_no_flag_change_proposes_nothing() -> None:
             )
         ) \
         .then(
-            _nothing_was_proposed()
+            nothing_was_proposed()
         )
 
 
@@ -330,18 +331,6 @@ def _the_undo_records(flag: str, was_enabled: bool) -> Assertion[Action | None]:
             raise AssertionError(
                 f"Expected the undo to record flag [{flag}] as [{was_enabled}], "
                 f"got {recorded}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _nothing_was_proposed() -> Assertion[Action | None]:
-    def assertion(action: Action | None) -> bool:
-        if action is not None:
-            raise AssertionError(
-                f"Expected no action to be proposed, got [{action}]."
             )
 
         return True

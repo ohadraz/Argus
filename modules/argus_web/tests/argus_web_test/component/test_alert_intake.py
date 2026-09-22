@@ -10,6 +10,8 @@ from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
 
+from argus_web_test.framework.builders import a_grafana_payload
+
 # The state a run is in when nothing has picked it up yet. Named from the
 # repository's own vocabulary rather than spelled out here, so a rename moves
 # this with it.
@@ -23,7 +25,7 @@ def test_an_accepted_alert_is_acknowledged_before_anyone_is_on_it() -> None:
     # takes the run. Saying `investigating` here would be claiming attention
     # that a queued incident does not have - and that a worker outage would
     # never correct.
-    some_payload = _a_grafana_payload(service="kuki-service")
+    some_payload = a_grafana_payload(service="kuki-service")
 
     with TestClient(app) as client:
         Scenario() \
@@ -44,7 +46,7 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
     # the moment of the answer - one line of account, a queued run - because a
     # graph that had run would have left more of both.
     some_service = "kuki-service"
-    some_payload = _a_grafana_payload(service=some_service)
+    some_payload = a_grafana_payload(service=some_service)
 
     with TestClient(app) as client:
         Scenario() \
@@ -182,24 +184,3 @@ def _the_graph_has_not_walked_it() -> Assertion[Any]:
         return True
 
     return assertion
-
-
-def _a_grafana_payload(service: str = "kukibuki",
-                       alert_name: str = "HighErrorRate") -> dict[str, Any]:
-    return {
-        "receiver": "argus-webhook",
-        "status": "firing",
-        "alerts": [
-            {
-                "status": "firing",
-                "labels": {
-                    "alertname": alert_name,
-                    "service": service,
-                    "severity": "critical",
-                },
-                "annotations": {"summary": f"Error rate above threshold on {service}"},
-                "startsAt": "2026-08-14T10:15:00Z",
-                "endsAt": "0001-01-01T00:00:00Z",
-            }
-        ],
-    }

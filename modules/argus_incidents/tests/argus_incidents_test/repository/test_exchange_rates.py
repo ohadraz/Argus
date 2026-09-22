@@ -162,17 +162,17 @@ def _rates(base: str, on: date, per_unit: dict[str, Decimal]) -> PublishedRates:
 def _the_rates_held_are(expected: PublishedRates) -> Assertion[PublishedRates | None]:
     def assertion(held: PublishedRates | None) -> bool:
         if held is None:
-            raise AssertionError(f"expected {expected}, nothing was held at all")
+            raise AssertionError(f"Expected {expected}, nothing was held at all.")
 
         if (held.base, held.on) != (expected.base, expected.on):
             raise AssertionError(
-                f"expected [{expected.base}] published on {expected.on}, got "
+                f"Expected [{expected.base}] published on {expected.on}, got "
                 f"[{held.base}] published on {held.on}"
             )
 
         if held.per_unit != expected.per_unit:
             raise AssertionError(
-                f"expected {expected.per_unit}, got {held.per_unit}"
+                f"Expected {expected.per_unit}, got {held.per_unit}"
             )
 
         return True
@@ -183,7 +183,7 @@ def _the_rates_held_are(expected: PublishedRates) -> Assertion[PublishedRates | 
 def _no_rates_are_held() -> Assertion[PublishedRates | None]:
     def assertion(held: PublishedRates | None) -> bool:
         if held is not None:
-            raise AssertionError(f"expected nothing to be held, got {held}")
+            raise AssertionError(f"Expected nothing to be held, got {held}")
 
         return True
 
@@ -197,7 +197,7 @@ def _no_rate_is_held_for(currency: str) -> Assertion[PublishedRates | None]:
     def assertion(held: PublishedRates | None) -> bool:
         if held is not None and currency in held.per_unit:
             raise AssertionError(
-                f"expected no rate for [{currency}] from an earlier day, got "
+                f"Expected no rate for [{currency}] from an earlier day, got "
                 f"{held.per_unit[currency]}"
             )
 

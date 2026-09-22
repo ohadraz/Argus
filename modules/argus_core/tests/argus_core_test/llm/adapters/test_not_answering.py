@@ -19,7 +19,6 @@ from unittest.mock import Mock
 import anthropic
 import pytest
 from anthropic.types import Message, StopReason, TextBlock, Usage
-from argus_core.config import LLMSettings
 from argus_core.llm import AnswerTruncated, ModelDidNotAnswer, ModelRefused
 from argus_core.llm.adapters.anthropic_adapter import (
     ASSISTANT_ROLE,
@@ -32,6 +31,8 @@ from argus_core.llm.adapters.anthropic_adapter import (
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Ask
 from argus_testkit import Assertion, Scenario, all_of
+
+from argus_core_test.framework.llm import settings_that_reach_no_api
 
 
 @pytest.mark.unit
@@ -55,7 +56,7 @@ def test_a_turn_stopped_at_its_cap_carries_what_it_was_billed() -> None:
 
     Scenario() \
         .given(
-            client := AnthropicLLMClient(_settings_that_reach_no_api(), client=an_api)
+            client := AnthropicLLMClient(settings_that_reach_no_api(), client=an_api)
         ) \
         .when(
             lambda: _what_was_raised_by(client)
@@ -89,7 +90,7 @@ def test_a_refusal_carries_what_it_was_billed_too() -> None:
 
     Scenario() \
         .given(
-            client := AnthropicLLMClient(_settings_that_reach_no_api(), client=an_api)
+            client := AnthropicLLMClient(settings_that_reach_no_api(), client=an_api)
         ) \
         .when(
             lambda: _what_was_raised_by(client)
@@ -177,11 +178,6 @@ def _a_tool() -> ToolDefinition:
         properties={"window_start": {"type": "string"}},
         required=["window_start"]
     )
-
-
-def _settings_that_reach_no_api() -> LLMSettings:
-    """Configuration for a client that has been handed its own API stand-in."""
-    return LLMSettings(anthropic_api_key="", anthropic_base_url="")
 
 
 def _an_api_that_stops_at(stop_reason: StopReason,

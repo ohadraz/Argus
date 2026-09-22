@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
+from argus_testkit.collecting import Kept
+
 POLL_INTERVAL_SECONDS = 0.5
 POLL_TIMEOUT_SECONDS = 30
 
@@ -82,6 +84,94 @@ def an_error_was_raised(expected_type: type[Exception]) -> Assertion[Exception |
             raise AssertionError(
                 f"Expected [{expected_type.__name__}], got [{type(error).__name__}]: [{error}]."
             )
+
+        return True
+
+    return assertion
+
+
+def the_error_mentioned(wanted: str) -> Assertion[Exception | None]:
+    """Asserts that the error raised named `wanted` somewhere in its message.
+
+    Paired with `an_error_was_raised` rather than replacing it. A type on its
+    own cannot tell one rule from another wherever a family of rules raises
+    the same exception - a validation library raises one class for every field
+    it refuses - so a test naming only the type goes on passing through the
+    change that made it meaningless.
+
+    A substring rather than an equality, because the wording around the name
+    belongs to whoever raised it and may be reworded tomorrow. What a test is
+    entitled to rely on is that the subject was named at all.
+    """
+    def assertion(error: Exception | None) -> bool:
+        if error is None:
+            raise AssertionError(
+                f"Expected an error mentioning [{wanted}], but nothing was raised."
+            )
+
+        if wanted not in str(error):
+            raise AssertionError(f"Expected the error to mention [{wanted}], got [{error}].")
+
+        return True
+
+    return assertion
+
+
+def the_answer_was[T](expected: T) -> Assertion[T]:
+    """Asserts that what came back equals `expected`.
+
+    The plainest assertion there is, and worth naming once rather than
+    rewriting per file: a suite that spells equality afresh each time ends up
+    with a dozen near-identical helpers whose failure messages all differ, so
+    the same failure reads differently depending on which file found it.
+
+    Equality rather than identity, because most results are values. Where a
+    test means "the very object I passed in", it means `is`, and that is a
+    different claim with a different message - see
+    `the_same_error_reached_the_caller` for the case that comes up most.
+    """
+    def assertion(answered: T) -> bool:
+        if answered != expected:
+            raise AssertionError(f"Expected [{expected!r}], got [{answered!r}].")
+
+        return True
+
+    return assertion
+
+
+def the_same_error_reached_the_caller(failure: Exception) -> Assertion[Exception | None]:
+    """Asserts that the very exception raised below arrived above untouched.
+
+    Identity, not equality, and not merely type: two exceptions of one class
+    carrying different messages compare equal on neither, but a decorator that
+    caught one and raised a fresh one of the same class would pass a check
+    written with `an_error_was_raised`. What is being claimed here is that
+    nothing in between reshaped it - which is what lets the caller above
+    distinguish the failures it has to act on differently.
+    """
+    def assertion(raised: Exception | None) -> bool:
+        if raised is not failure:
+            raise AssertionError(
+                f"Expected [{failure!r}] to reach the caller, got [{raised!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def nothing_was_collected[T](kept: Kept[T]) -> Assertion[object]:
+    """Asserts that a collaborator standing by was never called.
+
+    The negative half of what `Kept` is for. It takes the collector rather than
+    the result, because the claim is about what did *not* happen on the way to
+    the result - a credential-less deployment that built no client, a publisher
+    nobody told. Those read off the collector, and the returned value is beside
+    the point.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        if kept.taken:
+            raise AssertionError(f"Expected nothing to be collected, got {kept.taken}.")
 
         return True
 

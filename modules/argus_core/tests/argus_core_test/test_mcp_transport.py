@@ -357,7 +357,7 @@ def _closing_while_a_call_is_in_flight(
             return answered.get(timeout=LONG_ENOUGH_TO_HAVE_COME_BACK)
         except Empty:
             raise AssertionError(
-                "the call in flight never came back: closing stranded it"
+                "The call in flight never came back: closing stranded it."
             ) from None
 
     return step

@@ -23,8 +23,6 @@ decides, publishes, and knows nothing about who is listening.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
@@ -44,7 +42,9 @@ from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.routes import FIXING_ROUTE, INVESTIGATING_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState, status_after
 
+from orchestrator_test.framework.assertions import the_updates_carry
 from orchestrator_test.framework.builders import (
+    a_candidate_blaming,
     a_determined_hypothesis,
     a_random_id,
     an_undetermined_hypothesis,
@@ -76,8 +76,8 @@ def test_a_refuted_candidate_hands_over_to_the_next_one() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(
-            _the_updates_carry("candidate_index", 1),
-            _the_updates_carry("hypothesis", the_next_candidate),
+            the_updates_carry("candidate_index", 1),
+            the_updates_carry("hypothesis", the_next_candidate),
             _the_walk_goes_to(MITIGATING_ROUTE, a_walk)))
 
 
@@ -206,7 +206,7 @@ def test_a_doubtful_candidate_is_tried_like_any_other() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(_the_walk_goes_to(MITIGATING_ROUTE, a_walk),
-                     _the_updates_carry("hypothesis", a_doubtful_candidate)))
+                     the_updates_carry("hypothesis", a_doubtful_candidate)))
 
 
 @pytest.mark.unit
@@ -216,14 +216,14 @@ def test_a_candidate_blaming_a_flag_already_tried_is_skipped() -> None:
     # answered once - so the walk passes over it and reaches the first
     # explanation that is actually new.
     incident_id = a_random_id()
-    a_candidate_blaming_something_else = _a_candidate_blaming(incident_id, ANOTHER_FLAG)
+    a_candidate_blaming_something_else = a_candidate_blaming(incident_id, ANOTHER_FLAG)
 
     Scenario() \
         .given(
             a_walk := _a_walk_at(
                 incident_id,
-                [_a_candidate_blaming(incident_id, SOME_FLAG),
-                 _a_candidate_blaming(incident_id, SOME_FLAG),
+                [a_candidate_blaming(incident_id, SOME_FLAG),
+                 a_candidate_blaming(incident_id, SOME_FLAG),
                  a_candidate_blaming_something_else],
                 index=0,
                 acted_on=SOME_FLAG
@@ -231,8 +231,8 @@ def test_a_candidate_blaming_a_flag_already_tried_is_skipped() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(
-            _the_updates_carry("hypothesis", a_candidate_blaming_something_else),
-            _the_updates_carry("candidate_index", 2)))
+            the_updates_carry("hypothesis", a_candidate_blaming_something_else),
+            the_updates_carry("candidate_index", 2)))
 
 
 @pytest.mark.unit
@@ -270,7 +270,7 @@ def test_a_candidate_answered_by_a_restart_already_taken_is_skipped() -> None:
     # other service and the identities stop matching, the second leak is taken
     # up, and one service is restarted twice on one incident.
     incident_id = a_random_id()
-    a_candidate_blaming_a_flag = _a_candidate_blaming(incident_id, ANOTHER_FLAG)
+    a_candidate_blaming_a_flag = a_candidate_blaming(incident_id, ANOTHER_FLAG)
 
     Scenario() \
         .given(
@@ -284,8 +284,8 @@ def test_a_candidate_answered_by_a_restart_already_taken_is_skipped() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(
-            _the_updates_carry("hypothesis", a_candidate_blaming_a_flag),
-            _the_updates_carry("candidate_index", 2)))
+            the_updates_carry("hypothesis", a_candidate_blaming_a_flag),
+            the_updates_carry("candidate_index", 2)))
 
 
 def _every_round() -> int:
@@ -364,25 +364,6 @@ def _a_leak_worded_as(incident_id: str, prose: str) -> Hypothesis:
                       subject=prose)
 
 
-def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
-    """An explanation that names the flag it blames.
-
-    Built here rather than through the shared builder because the subject is
-    the whole point of these cases: what the walk refuses to try twice is an
-    *action*, not a hypothesis object, and for a flag the action is addressed
-    to the name the candidate gives - so two candidates blaming the same flag
-    are different findings answered by one experiment.
-    """
-    some_confidence = 0.75
-
-    return Hypothesis(incident_id=incident_id,
-                      summary="kukibuki hypothesis",
-                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
-                      confidence=some_confidence,
-                      supporting_evidence=[Evidence(claim="some log line", at=None)],
-                      subject=flag)
-
-
 def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[StateDelta]:
     """Where the graph takes the state this node produced.
 
@@ -402,25 +383,6 @@ def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[StateDel
         if routed != expected:
             raise AssertionError(
                 f"Expected the walk to go to [{expected}], it went to [{routed}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_updates_carry(field: str, expected: Any) -> Assertion[StateDelta]:
-    def assertion(updates: StateDelta) -> bool:
-        if field not in updates.model_fields_set:
-            raise AssertionError(
-                f"Expected the updates to carry [{field}], they carry "
-                f"{sorted(updates.model_fields_set)}."
-            )
-
-        if getattr(updates, field) != expected:
-            raise AssertionError(
-                f"Expected [{field}] to be [{expected}], it was "
-                f"[{getattr(updates, field)}]."
             )
 
         return True

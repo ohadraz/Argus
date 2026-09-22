@@ -40,7 +40,7 @@ def test_an_alert_naming_no_service_is_refused() -> None:
         ) \
         .when(
             attempting(
-                lambda: Alert(alert_name=some_alert_name)  # type: ignore[call-arg]
+                lambda: Alert.model_validate({"alert_name": some_alert_name})
             )
         ) \
         .then(

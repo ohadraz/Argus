@@ -397,7 +397,7 @@ def _the_error_from(client: anthropic.Anthropic, model: str) -> Exception:
     except Exception as error:
         return error
 
-    raise AssertionError(f"expected {model} to be rejected, but the call succeeded")
+    raise AssertionError(f"Expected {model} to be rejected, but the call succeeded.")
 
 
 def _the_tool_calls_in(answer: anthropic.types.Message) -> list[anthropic.types.ToolUseBlock]:

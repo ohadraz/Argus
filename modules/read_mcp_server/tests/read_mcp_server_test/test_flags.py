@@ -209,7 +209,7 @@ def _the_flags_reported_are(expected: list[str]) -> Assertion[list[str]]:
     def the_flags_reported_are(reported: list[str]) -> bool:
         if reported != expected:
             raise AssertionError(
-                f"expected the flags reported to be {expected}, "
+                f"Expected the flags reported to be {expected}, "
                 f"and they were {reported}"
             )
 
@@ -230,8 +230,8 @@ def _the_credential_sent_was(expected: str, by: Any) -> Assertion[Any]:
 
         if sent != expected:
             raise AssertionError(
-                f"expected the evaluation credential [{expected}] to be sent, "
-                f"and what went was [{sent}]"
+                f"Expected the evaluation credential [{expected}] to be sent, "
+                f"and what went was [{sent}]."
             )
 
         return True

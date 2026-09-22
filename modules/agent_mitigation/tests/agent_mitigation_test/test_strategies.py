@@ -31,6 +31,7 @@ from argus_core.models import (
 )
 from argus_testkit import Assertion, Scenario
 
+from agent_mitigation_test.framework.assertions import nothing_was_proposed
 from agent_mitigation_test.framework.builders import (
     DONT_CARE_FLAG,
     a_hypothesis_blaming,
@@ -98,7 +99,7 @@ def test_a_cause_no_strategy_answers_for_proposes_nothing() -> None:
             )
         ) \
         .then(
-            _nothing_was_proposed()
+            nothing_was_proposed()
         )
 
 
@@ -258,18 +259,6 @@ def _the_service_to_restart_is(service: str) -> Assertion[Action | None]:
     return assertion
 
 
-def _nothing_was_proposed() -> Assertion[Action | None]:
-    def assertion(action: Action | None) -> bool:
-        if action is not None:
-            raise AssertionError(
-                f"Expected no action to be proposed, got [{action}]."
-            )
-
-        return True
-
-    return assertion
-
-
 @pytest.mark.unit
 def test_nothing_answers_an_upstream_dependency_failure() -> None:
     # The absence is the decision, not an omission. Argus's mitigations reach
@@ -287,7 +276,7 @@ def test_nothing_answers_an_upstream_dependency_failure() -> None:
             lambda: propose_action(an_upstream_failure, [], DONT_CARE_SERVICE)
         ) \
         .then(
-            _nothing_was_proposed()
+            nothing_was_proposed()
         )
 
 

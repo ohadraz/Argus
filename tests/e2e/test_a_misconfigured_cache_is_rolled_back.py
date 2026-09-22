@@ -43,20 +43,16 @@ and decides for itself what it is looking at.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
-from typing import Any
 
 import httpx
-import psycopg
 import pytest
 from argus_core.events import ActionTaken
 from argus_core.models import ROLL_BACK_CONFIGURATION, FailureMode, IncidentStatus
-from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
-    DATABASE_URL,
     RECORDED_CACHE_MISCONFIGURED,
     REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
@@ -70,6 +66,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.world import the_incidents_events, the_middle_of, the_shops_window
 from tests.framework.assertions import (
     some_confidence_was_given,
     the_cause_was_identified_as,
@@ -144,7 +141,7 @@ def _the_action_taken_was_a_rollback_of(application: str) -> Assertion[httpx.Res
     def assertion(response: httpx.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
-            event for event in _the_incidents_events(incident_id)
+            event for event in the_incidents_events(incident_id)
             if isinstance(event, ActionTaken)
         ]
 
@@ -200,7 +197,7 @@ def _only_the_median_ever_moved() -> Assertion[httpx.Response]:
     fast run.
     """
     def assertion(dont_care_response: httpx.Response) -> bool:
-        window = _the_shops_window()
+        window = the_shops_window()
         served = [
             minute for minute in window
             if (minute["cache_hit_ratio"] or 0.0) > THE_CACHE_CARRIED_MOST_OF_THEM
@@ -217,10 +214,10 @@ def _only_the_median_ever_moved() -> Assertion[httpx.Response]:
                 f"second - so there are not two states here to compare."
             )
 
-        median_before = _the_middle_of(minute["p50_ms"] for minute in served)
-        median_after = _the_middle_of(minute["p50_ms"] for minute in starved)
-        tail_before = _the_middle_of(minute["p95_ms"] for minute in served)
-        tail_after = _the_middle_of(minute["p95_ms"] for minute in starved)
+        median_before = the_middle_of(minute["p50_ms"] for minute in served)
+        median_after = the_middle_of(minute["p50_ms"] for minute in starved)
+        tail_before = the_middle_of(minute["p95_ms"] for minute in served)
+        tail_after = the_middle_of(minute["p95_ms"] for minute in starved)
 
         if median_after < median_before * THE_MEDIAN_AT_LEAST_TRIPLES:
             raise AssertionError(
@@ -253,7 +250,7 @@ def _the_shop_is_reaching_its_cache_again() -> Assertion[httpx.Response]:
     against a shop whose cache had never been unreachable at all.
     """
     def assertion(dont_care_response: httpx.Response) -> bool:
-        window = _the_shops_window()
+        window = the_shops_window()
         ratios = [
             minute["cache_hit_ratio"] for minute in window
             if minute["cache_hit_ratio"] is not None
@@ -314,46 +311,6 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
         return True
 
     return assertion
-
-
-def _the_middle_of(figures: Iterable[float]) -> float:
-    """The median of a minute's worth of readings, without the import.
-
-    A plain sort rather than `statistics.median`, because the window is small
-    and what an assertion needs from the middle of it is the reading itself
-    rather than an average of two - a figure the shop actually reported is a
-    figure a failure message can be checked against.
-    """
-    ordered = sorted(figures)
-
-    if not ordered:
-        raise AssertionError("Asked for the middle of no readings at all.")
-
-    return float(ordered[len(ordered) // 2])
-
-
-def _the_incidents_events(incident_id: str) -> list[Any]:
-    with psycopg.connect(DATABASE_URL) as conn:
-        return events.get_by_incident(conn, incident_id)
-
-
-def _the_shops_window() -> list[dict[str, Any]]:
-    """The Target Service's own metrics, read straight from it.
-
-    Not through Argus's read tier: what this checks is what the world did, and a
-    reading taken through the code under test would agree with that code about
-    anything it got wrong.
-    """
-    response = httpx.get(
-        f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
-    )
-    response.raise_for_status()
-    window: list[dict[str, Any]] = response.json()
-
-    if not window:
-        raise AssertionError("The Target Service reported no metrics at all.")
-
-    return window
 
 
 def _the_cache_was_moved_out_of_reach() -> Callable[[], bool]:

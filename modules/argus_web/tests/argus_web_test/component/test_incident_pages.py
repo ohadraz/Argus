@@ -9,11 +9,8 @@ free to change without any of these tests having an opinion.
 
 from __future__ import annotations
 
-import re
 from http import HTTPStatus as HttpStatus
-from typing import Final
 
-import httpx
 import psycopg
 import pytest
 from argus_core import connect_from_env
@@ -32,11 +29,20 @@ from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
 
+from argus_web_test.framework.assertions import (
+    POLLS_FOR_MORE,
+    the_page_keeps_asking,
+    the_page_links_to,
+    the_page_says,
+    the_page_shows,
+    the_response_was,
+)
+from argus_web_test.framework.reading import attribute, page_at
+
 # What htmx's "ask again in a moment" looks like in the rendered page. Named
 # because two assertions read it and they must read the same thing: one saying
 # the page polls and one saying it has stopped, disagreeing about the spelling,
 # would both pass on a page that does neither.
-_POLLS_FOR_MORE: Final = "hx-trigger"
 
 
 @pytest.mark.component
@@ -56,7 +62,7 @@ def test_the_history_lists_incidents_newest_first() -> None:
             older, newer
         ) \
         .when(
-            lambda: _get("/history")
+            lambda: page_at("/history")
         ) \
         .then(
             _the_page_lists(newer, above=older)
@@ -76,10 +82,10 @@ def test_the_history_links_to_each_incident() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get("/history")
+            lambda: page_at("/history")
         ) \
         .then(
-            _the_page_links_to(f"/incidents/{incident_id}")
+            the_page_links_to(f"/incidents/{incident_id}")
         )
 
 
@@ -90,10 +96,10 @@ def test_the_history_keeps_asking_for_more() -> None:
     # incident they are waiting for never arrives.
     Scenario() \
         .when(
-            lambda: _get("/history")
+            lambda: page_at("/history")
         ) \
         .then(
-            _the_page_keeps_asking()
+            the_page_keeps_asking()
         )
 
 
@@ -111,7 +117,7 @@ def test_the_polled_history_fragment_carries_the_incidents() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get("/history/list")
+            lambda: page_at("/history/list")
         ) \
         .then(
             _the_page_lists_the_incident(incident_id)
@@ -133,7 +139,7 @@ def test_a_time_is_shown_in_the_zone_it_is_written_in() -> None:
             incident_id
         ) \
         .when(
-            lambda: [_get("/history"), _get(f"/incidents/{incident_id}")]
+            lambda: [page_at("/history"), page_at(f"/incidents/{incident_id}")]
         ) \
         .then(
             _every_page_says("UTC")
@@ -156,10 +162,10 @@ def test_an_incident_page_shows_every_candidate_in_rank_order() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            _the_page_shows("subject", "first", "second")
+            the_page_shows("subject", "first", "second")
         )
 
 
@@ -180,10 +186,10 @@ def test_an_incident_page_distinguishes_a_candidate_the_walk_never_reached() -> 
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            _the_page_shows("tested", "true", "false")
+            the_page_shows("tested", "true", "false")
         )
 
 
@@ -209,10 +215,10 @@ def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> No
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            _the_page_says(a_cited_line)
+            the_page_says(a_cited_line)
         )
 
 
@@ -235,11 +241,11 @@ def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(all_of(
-            _the_page_shows("outcome", "refuted", "confirmed"),
-            _the_page_shows("undone", "true", "false")
+            the_page_shows("outcome", "refuted", "confirmed"),
+            the_page_shows("undone", "true", "false")
         ))
 
 
@@ -257,10 +263,10 @@ def test_a_running_incident_keeps_asking_for_more() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            _the_page_keeps_asking()
+            the_page_keeps_asking()
         )
 
 
@@ -283,7 +289,7 @@ def test_a_finished_incident_stops_asking() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
             _the_page_has_stopped_asking()
@@ -305,10 +311,10 @@ def test_the_polled_fragment_carries_the_walk_on_its_own() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}/walk")
+            lambda: page_at(f"/incidents/{incident_id}/walk")
         ) \
         .then(
-            _the_page_shows("subject", "a-flag")
+            the_page_shows("subject", "a-flag")
         )
 
 
@@ -326,7 +332,7 @@ def test_an_unknown_incident_is_reported_as_unknown() -> None:
                 lambda: client.get(f"/incidents/{a_nonexistent_id}")
             ) \
             .then(
-                _the_answer_was(HttpStatus.NOT_FOUND)
+                the_response_was(HttpStatus.NOT_FOUND)
             )
 
 
@@ -360,10 +366,10 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}/postmortem")
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
         ) \
         .then(
-            _the_page_says(a_root_cause)
+            the_page_says(a_root_cause)
         )
 
 
@@ -385,7 +391,7 @@ def test_an_incident_with_no_postmortem_says_so_rather_than_failing() -> None:
                 lambda: client.get(f"/incidents/{incident_id}/postmortem")
             ) \
             .then(
-                _the_answer_was(HttpStatus.OK)
+                the_response_was(HttpStatus.OK)
             )
 
 
@@ -403,11 +409,11 @@ def test_a_running_incident_can_be_withdrawn_from_its_page() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(all_of(
-            _the_page_says(f"/incidents/{incident_id}/withdraw"),
-            _the_page_shows("withdraw", incident_id)
+            the_page_says(f"/incidents/{incident_id}/withdraw"),
+            the_page_shows("withdraw", incident_id)
         ))
 
 
@@ -431,7 +437,7 @@ def test_a_finished_incident_offers_no_way_to_withdraw_it() -> None:
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}")
+            lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
             _the_page_shows_no("withdraw")
@@ -474,60 +480,28 @@ def test_the_postmortem_page_says_how_many_responded_and_what_they_were() -> Non
             incident_id
         ) \
         .when(
-            lambda: _get(f"/incidents/{incident_id}/postmortem")
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
         ) \
         .then(all_of(
-            _the_page_says(str(some_minutes)),
-            _the_page_says(str(some_responders)),
-            _the_page_says(some_title),
-            _the_page_says(some_other_title)
+            the_page_says(str(some_minutes)),
+            the_page_says(str(some_responders)),
+            the_page_says(some_title),
+            the_page_says(some_other_title)
         ))
 
 
-def _get(path: str) -> str:
-    with TestClient(app) as client:
-        response = client.get(path)
-
-    assert response.status_code == 200, (
-        f"Expected 200 from {path}, got {response.status_code}."
-    )
-
-    return response.text
-
-
-def _attribute(name: str, html: str) -> list[str]:
-    """Every value of one `data-` attribute, in the order the document carries
-    them - which is the order a reader sees."""
-    return re.findall(rf'data-{name}="([^"]*)"', html)
-
-
-def _the_page_shows(attribute: str, *values: str) -> Assertion[str]:
-    """Exactly these values of one `data-` attribute, in this order."""
-    def assertion(page: str) -> bool:
-        shown = _attribute(attribute, page)
-
-        if shown != list(values):
-            raise AssertionError(
-                f"Expected [{attribute}] to be {list(values)}, got {shown}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_page_shows_no(attribute: str) -> Assertion[str]:
+def _the_page_shows_no(name: str) -> Assertion[str]:
     """That one `data-` attribute is absent altogether.
 
-    Its own assertion rather than an empty `_the_page_shows`, because "shows
+    Its own assertion rather than an empty `the_page_shows`, because "shows
     nothing" is the claim being made, and a call with no values to show reads
     as one somebody forgot to finish.
     """
     def assertion(page: str) -> bool:
-        shown = _attribute(attribute, page)
+        shown = attribute(name, page)
 
         if shown:
-            raise AssertionError(f"Expected no [{attribute}] at all, got {shown}.")
+            raise AssertionError(f"Expected no [{name}] at all, got {shown}.")
 
         return True
 
@@ -543,7 +517,7 @@ def _the_page_lists(this: str, above: str) -> Assertion[str]:
     whatever the tests before it left behind.
     """
     def assertion(page: str) -> bool:
-        listed = _attribute("incident", page)
+        listed = attribute("incident", page)
 
         for incident_id in (this, above):
             if incident_id not in listed:
@@ -563,20 +537,10 @@ def _the_page_lists(this: str, above: str) -> Assertion[str]:
 
 def _the_page_lists_the_incident(incident_id: str) -> Assertion[str]:
     def assertion(page: str) -> bool:
-        listed = _attribute("incident", page)
+        listed = attribute("incident", page)
 
         if incident_id not in listed:
             raise AssertionError(f"Expected [{incident_id}] to be listed, got {listed}.")
-
-        return True
-
-    return assertion
-
-
-def _the_page_says(text: str) -> Assertion[str]:
-    def assertion(page: str) -> bool:
-        if text not in page:
-            raise AssertionError(f"Expected the page to say [{text}], it did not.")
 
         return True
 
@@ -601,42 +565,10 @@ def _every_page_says(text: str) -> Assertion[list[str]]:
     return assertion
 
 
-def _the_page_links_to(href: str) -> Assertion[str]:
-    def assertion(page: str) -> bool:
-        if f'href="{href}"' not in page:
-            raise AssertionError(f"Expected the page to link to [{href}], it did not.")
-
-        return True
-
-    return assertion
-
-
-def _the_page_keeps_asking() -> Assertion[str]:
-    def assertion(page: str) -> bool:
-        if _POLLS_FOR_MORE not in page:
-            raise AssertionError("Expected the page to keep asking for more, it did not.")
-
-        return True
-
-    return assertion
-
-
 def _the_page_has_stopped_asking() -> Assertion[str]:
     def assertion(page: str) -> bool:
-        if _POLLS_FOR_MORE in page:
+        if POLLS_FOR_MORE in page:
             raise AssertionError("Expected the page to have stopped asking, it had not.")
-
-        return True
-
-    return assertion
-
-
-def _the_answer_was(expected: HttpStatus) -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
-        if response.status_code != expected:
-            raise AssertionError(
-                f"Expected [{expected}], got [{response.status_code}]: {response.text}."
-            )
 
         return True
 

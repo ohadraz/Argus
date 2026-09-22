@@ -112,7 +112,7 @@ def _it_proposes_the_fix_at(expected: str) -> Assertion[PostmortemView]:
 
         if proposed != expected:
             raise AssertionError(
-                f"expected the fix proposed at [{expected}], got [{proposed}]")
+                f"Expected the fix proposed at [{expected}], got [{proposed}].")
 
         return True
 
@@ -123,7 +123,7 @@ def _it_proposes_no_fix() -> Assertion[PostmortemView]:
     def assertion(view: PostmortemView) -> bool:
         if view.pull_request is not None:
             raise AssertionError(
-                f"expected no fix proposed, got [{view.pull_request}]")
+                f"Expected no fix proposed, got [{view.pull_request}].")
 
         return True
 

@@ -277,10 +277,10 @@ def test_a_state_with_no_alert_is_refused() -> None:
         ) \
         .when(
             attempting(
-                lambda: IncidentState(  # type: ignore[call-arg]
-                    incident_id=some_incident_id,
-                    status=IncidentStatus.INVESTIGATING
-                )
+                lambda: IncidentState.model_validate({
+                    "incident_id": some_incident_id,
+                    "status": IncidentStatus.INVESTIGATING
+                })
             )
         ) \
         .then(

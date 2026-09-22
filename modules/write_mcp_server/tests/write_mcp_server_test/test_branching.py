@@ -29,7 +29,8 @@ from write_mcp_server.branching import (
     BranchNotWritten,
     commit_to_new_branch,
 )
-from write_mcp_server.pull_requests import RepositoryWriteSettings
+
+from write_mcp_server_test.framework.settings import some_repository_settings
 
 DONT_CARE_BRANCH = "argus/dont-care"
 DONT_CARE_BASE = "main"
@@ -72,7 +73,7 @@ def test_the_whole_fix_arrives_as_one_commit() -> None:
                 base_branch=DONT_CARE_BASE,
                 files=some_files,
                 message=DONT_CARE_MESSAGE,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 get=repository.get,
                 post=repository.post
             )
@@ -96,7 +97,7 @@ def test_a_fix_gets_a_branch_of_its_own_pointing_at_the_commit_it_became() -> No
                 base_branch=DONT_CARE_BASE,
                 files=DONT_CARE_FILES,
                 message=DONT_CARE_MESSAGE,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 get=repository.get,
                 post=repository.post
             )
@@ -120,7 +121,7 @@ def test_the_head_it_branches_from_is_read_from_the_base_branch() -> None:
                 base_branch=some_base,
                 files=DONT_CARE_FILES,
                 message=DONT_CARE_MESSAGE,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 get=repository.get,
                 post=repository.post
             )
@@ -150,7 +151,7 @@ def test_the_commit_sits_on_top_of_the_code_it_fixes() -> None:
                 base_branch=DONT_CARE_BASE,
                 files=DONT_CARE_FILES,
                 message=DONT_CARE_MESSAGE,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 get=repository.get,
                 post=repository.post
             )
@@ -179,7 +180,7 @@ def test_every_file_in_the_fix_is_in_the_tree_the_commit_points_at() -> None:
                 base_branch=DONT_CARE_BASE,
                 files=some_files,
                 message=DONT_CARE_MESSAGE,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 get=repository.get,
                 post=repository.post
             )
@@ -212,7 +213,7 @@ def test_the_fix_is_committed_under_the_message_it_was_given() -> None:
                 base_branch=DONT_CARE_BASE,
                 files=DONT_CARE_FILES,
                 message=some_message,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 get=repository.get,
                 post=repository.post
             )
@@ -239,7 +240,7 @@ def test_the_branch_appears_only_once_the_commit_is_whole() -> None:
                 base_branch=DONT_CARE_BASE,
                 files=DONT_CARE_FILES,
                 message=DONT_CARE_MESSAGE,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 get=repository.get,
                 post=repository.post
             )
@@ -534,7 +535,7 @@ def _writing_to(repository: _Repository) -> Any:
         base_branch=DONT_CARE_BASE,
         files=DONT_CARE_FILES,
         message=DONT_CARE_MESSAGE,
-        settings=some_settings(),
+        settings=some_repository_settings(),
         get=repository.get,
         post=repository.post
     )
@@ -624,15 +625,3 @@ def a_repository_whose_head_is(head: str) -> _Repository:
     repository.post.side_effect = _writing()
 
     return repository
-
-
-def some_settings(api_url: str = "https://api.github.invalid",
-                  repository: str = "dont-care/dont-care",
-                  token: str = "ghp_dont-care-token") -> RepositoryWriteSettings:
-    """The same slice the pull request tool writes under - one repository, one
-    credential, and both halves of Code-Fix's act reaching it."""
-    return RepositoryWriteSettings(
-        github_api_url=api_url,
-        github_repository=repository,
-        github_token=token
-    )

@@ -435,7 +435,7 @@ def _lists_exactly(expected: list[str]) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.assumptions != expected:
             raise AssertionError(
-                f"expected the document to list {expected}, got {document.assumptions}")
+                f"Expected the document to list {expected}, got {document.assumptions}")
 
         return True
 
@@ -451,13 +451,13 @@ def _was_asked_about(asking: MagicMock,
 
         if evidence.incident_id != incident_id:
             raise AssertionError(
-                f"expected the model to be asked about incident [{incident_id}], "
-                f"got [{evidence.incident_id}]")
+                f"Expected the model to be asked about incident [{incident_id}], "
+                f"got [{evidence.incident_id}].")
 
         if put_to_it is not measured:
             raise AssertionError(
-                f"expected the model to be given the incident as measured, got "
-                f"[{put_to_it}]")
+                f"Expected the model to be given the incident as measured, got "
+                f"[{put_to_it}].")
 
         return True
 
@@ -472,13 +472,13 @@ def _disclosed_from(disclosing: MagicMock,
 
         if disclosed_from is not measured:
             raise AssertionError(
-                f"expected the disclosures to be written from the incident as "
-                f"measured, got [{disclosed_from}]")
+                f"Expected the disclosures to be written from the incident as "
+                f"measured, got [{disclosed_from}].")
 
         if under != working_hours_a_year:
             raise AssertionError(
-                f"expected the disclosures to be written under a working year of "
-                f"[{working_hours_a_year}], got [{under}]")
+                f"Expected the disclosures to be written under a working year of "
+                f"[{working_hours_a_year}], got [{under}].")
 
         return True
 

@@ -18,9 +18,10 @@ from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from write_mcp_server.pull_requests import (
     PullRequestNotOpened,
-    RepositoryWriteSettings,
     open_pull_request,
 )
+
+from write_mcp_server_test.framework.settings import some_repository_settings
 
 DONT_CARE_BRANCH = "dont-care-branch"
 DONT_CARE_BASE = "main"
@@ -41,7 +42,7 @@ def test_a_fix_is_proposed_from_its_own_branch_against_the_one_it_fixes() -> Non
                 base_branch=some_base,
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 post=repository.post
             )
         ) \
@@ -67,7 +68,7 @@ def test_a_proposed_fix_is_opened_as_a_draft() -> None:
                 base_branch=DONT_CARE_BASE,
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 post=repository.post
             )
         ) \
@@ -94,7 +95,7 @@ def test_a_proposed_fix_carries_the_words_it_was_given() -> None:
                 base_branch=DONT_CARE_BASE,
                 title=some_title,
                 body=some_body,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 post=repository.post
             )
         ) \
@@ -119,7 +120,7 @@ def test_a_proposed_fix_addresses_the_repository_it_is_proposed_to() -> None:
                 base_branch=DONT_CARE_BASE,
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
-                settings=some_settings(
+                settings=some_repository_settings(
                     api_url=some_api_url, repository=some_repository
                 ),
                 post=repository.post
@@ -149,7 +150,7 @@ def test_a_proposed_fix_is_written_under_the_credential_that_can_write() -> None
                 base_branch=DONT_CARE_BASE,
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
-                settings=some_settings(token=some_token),
+                settings=some_repository_settings(token=some_token),
                 post=repository.post
             )
         ) \
@@ -179,7 +180,7 @@ def test_an_opened_pull_request_carries_where_a_human_can_read_it() -> None:
                 base_branch=DONT_CARE_BASE,
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
-                settings=some_settings(),
+                settings=some_repository_settings(),
                 post=repository.post
             )
         ) \
@@ -357,7 +358,7 @@ def _opening_against(repository: _Repository) -> Any:
         base_branch=DONT_CARE_BASE,
         title=DONT_CARE_TITLE,
         body=DONT_CARE_BODY,
-        settings=some_settings(),
+        settings=some_repository_settings(),
         post=repository.post
     )
 
@@ -379,19 +380,3 @@ def a_repository_that_opens_pull_requests(
     )
 
     return repository
-
-
-def some_settings(api_url: str = "https://api.github.invalid",
-                  repository: str = "dont-care/dont-care",
-                  token: str = "ghp_dont-care-token") -> RepositoryWriteSettings:
-    """The slice this tier writes code under.
-
-    Separate from the flag slice although both live on this server: they name
-    different credentials to different systems, and a settings object that
-    carried both would hand every flag call a token that can push code.
-    """
-    return RepositoryWriteSettings(
-        github_api_url=api_url,
-        github_repository=repository,
-        github_token=token
-    )

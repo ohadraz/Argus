@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 from argus_narration.prose import said_plainly
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Scenario, the_answer_was
 
 
 @pytest.mark.unit
@@ -43,7 +43,7 @@ def test_a_wire_format_instant_inside_a_sentence_is_said_as_a_clock_says_it() ->
     Scenario() \
         .given(some_claim_naming_a_wire_format_instant) \
         .when(lambda: said_plainly(some_claim_naming_a_wire_format_instant)) \
-        .then(_it_reads(f"The error rate rose at {the_minute_it_reads_as}."))
+        .then(the_answer_was(f"The error rate rose at {the_minute_it_reads_as}."))
 
 
 @pytest.mark.unit
@@ -60,7 +60,7 @@ def test_a_clock_time_carrying_a_zone_loses_only_the_zone() -> None:
     Scenario() \
         .given(some_claim_naming_a_zoned_clock_time) \
         .when(lambda: said_plainly(some_claim_naming_a_zoned_clock_time)) \
-        .then(_it_reads(f"The last good minute was {some_clock_time}."))
+        .then(the_answer_was(f"The last good minute was {some_clock_time}."))
 
 
 @pytest.mark.unit
@@ -74,14 +74,4 @@ def test_a_clock_time_the_model_already_wrote_is_left_exactly_as_it_is() -> None
     Scenario() \
         .given(some_claim_naming_a_clock_time) \
         .when(lambda: said_plainly(some_claim_naming_a_clock_time)) \
-        .then(_it_reads(some_claim_naming_a_clock_time))
-
-
-def _it_reads(expected: str) -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        if said != expected:
-            raise AssertionError(f"expected [{expected}], got [{said}]")
-
-        return True
-
-    return assertion
+        .then(the_answer_was(some_claim_naming_a_clock_time))

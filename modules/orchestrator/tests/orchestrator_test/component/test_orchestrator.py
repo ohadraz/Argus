@@ -18,8 +18,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
-from typing import Any, cast
-from unittest.mock import MagicMock, create_autospec
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from agent_investigator import Findings
@@ -40,7 +40,6 @@ from argus_core.models import (
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
-from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of
 from langgraph.checkpoint.memory import MemorySaver
 from orchestrator.walk import ports
@@ -59,7 +58,11 @@ from orchestrator.walk.graph import (
 )
 from orchestrator.walk.state import IncidentState
 
-from orchestrator_test.framework.builders import a_random_id
+from orchestrator_test.framework.builders import (
+    a_random_id,
+    the_incident_is_still_wanted,
+    the_incident_was_withdrawn,
+)
 
 type Walked = tuple[IncidentState, list[str]]
 
@@ -76,11 +79,6 @@ EVERY_ATTEMPT_A_WALK_MAKES = 99
 
 
 @pytest.fixture
-def transition_incident() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.TransitionIncident, instance=True))
-
-
-@pytest.fixture
 def collaborators(transition_incident: MagicMock) -> Collaborators:
     """Every port answered by the least eventful thing that can answer it.
 
@@ -88,7 +86,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
     not name cannot be what made it pass.
     """
     return Collaborators(
-        investigate=_an_investigation_offering(_a_candidate_blaming(SOME_FLAG)),
+        investigate=_an_investigation_offering(a_candidate_blaming(SOME_FLAG)),
         max_rounds=SOME_ROUND_BUDGET,
         record_hypothesis=lambda dont_care_hypothesis: None,
         fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG)),
@@ -109,7 +107,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         transition_incident=transition_incident,
         publisher=nobody,
         recorder=records_nothing,
-        still_wanted=_the_incident_is_still_wanted()
+        still_wanted=the_incident_is_still_wanted()
     )
 
 
@@ -169,7 +167,7 @@ def test_a_refuted_action_is_followed_by_the_next_explanation(
             a_first_answer_that_does_not_hold := replace(
                 collaborators,
                 investigate=_an_investigation_offering(
-                    _a_candidate_blaming(SOME_FLAG), _a_candidate_blaming(ANOTHER_FLAG)
+                    a_candidate_blaming(SOME_FLAG), a_candidate_blaming(ANOTHER_FLAG)
                 ),
                 fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG),
                                                          _an_enabling_of(ANOTHER_FLAG)),
@@ -233,7 +231,7 @@ def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
     Scenario() \
         .given(
             an_incident_withdrawn := replace(
-                collaborators, still_wanted=_the_incident_was_withdrawn()
+                collaborators, still_wanted=the_incident_was_withdrawn()
             )
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), an_incident_withdrawn)) \
@@ -274,7 +272,7 @@ def _an_incident_on_its_last_round() -> IncidentState:
     return _an_incident_just_alerted().model_copy(update={"rounds": EVERY_ROUND - 1})
 
 
-def _a_candidate_blaming(flag: str) -> Hypothesis:
+def a_candidate_blaming(flag: str) -> Hypothesis:
     some_confidence = 0.75
 
     return Hypothesis(incident_id="dont-care",
@@ -369,26 +367,12 @@ def _a_document() -> PostmortemDocument:
                               checklist_complete=False)
 
 
-def _the_incident_is_still_wanted() -> IsStillWanted:
-    def still_wanted(dont_care_incident_id: str) -> bool:
-        return True
-
-    return still_wanted
-
-
-def _the_incident_was_withdrawn() -> IsStillWanted:
-    def still_wanted(dont_care_incident_id: str) -> bool:
-        return False
-
-    return still_wanted
-
-
 def _the_walk_went(*expected: str) -> Assertion[Walked]:
     def assertion(walked: Walked) -> bool:
         dont_care_final, visited = walked
         if visited != list(expected):
             raise AssertionError(
-                f"expected the walk to go {list(expected)}, it went {visited}"
+                f"Expected the walk to go {list(expected)}, it went {visited}"
             )
 
         return True
@@ -401,7 +385,7 @@ def _the_incident_ended(expected: IncidentStatus) -> Assertion[Walked]:
         final, dont_care_visited = walked
         if final.status != expected:
             raise AssertionError(
-                f"expected the incident to end [{expected}], it ended [{final.status}]"
+                f"Expected the incident to end [{expected}], it ended [{final.status}]."
             )
 
         return True
@@ -413,7 +397,7 @@ def _nothing_was_written(transition_incident: MagicMock) -> Assertion[Walked]:
     def assertion(dont_care_walked: Walked) -> bool:
         if transition_incident.called:
             raise AssertionError(
-                f"expected nothing to be written, got "
+                f"Expected nothing to be written, got "
                 f"{transition_incident.call_args_list}"
             )
 

@@ -20,6 +20,7 @@ from argus_core import new_id
 from argus_core.events import Publisher, nobody
 from argus_core.llm import Conversations, a_conversation_recorded_for
 from argus_core.models import Alert, Attempt, ChangeEvent, MetricBucket
+from argus_testkit import raising, returning
 
 from agent_investigator_test.framework.builders.budget import a_budget
 from agent_investigator_test.framework.builders.configuration import (
@@ -73,19 +74,19 @@ class Investigation(NamedTuple):
         )
 
     def metrics_showed(self, buckets: list[MetricBucket]) -> Callable[[], None]:
-        return _returning(self.metrics_fetcher, buckets)
+        return returning(self.metrics_fetcher, buckets)
 
     def logs_showed(self, lines: list[str]) -> Callable[[], None]:
-        return _returning(self.log_fetcher, lines)
+        return returning(self.log_fetcher, lines)
 
     def changes_were(self, changes: list[ChangeEvent]) -> Callable[[], None]:
-        return _returning(self.change_fetcher, changes)
+        return returning(self.change_fetcher, changes)
 
     def no_changes_were_recorded(self) -> Callable[[], None]:
-        return _returning(self.change_fetcher, [])
+        return returning(self.change_fetcher, [])
 
     def the_change_source_failed(self, error: Exception) -> Callable[[], None]:
-        return _raising(self.change_fetcher, error)
+        return raising(self.change_fetcher, error)
 
 
 def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation:
@@ -103,19 +104,3 @@ def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation
         model=model,
         budget=budget or a_budget()
     )
-
-
-def _returning(double: Mock, value: object) -> Callable[[], None]:
-    """A `given` step that fixes what a stand-in answers with."""
-    def step() -> None:
-        double.return_value = value
-
-    return step
-
-
-def _raising(double: Mock, error: Exception) -> Callable[[], None]:
-    """A `given` step for a channel that cannot be reached at all."""
-    def step() -> None:
-        double.side_effect = error
-
-    return step

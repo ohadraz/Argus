@@ -193,7 +193,7 @@ def _it_is_dressed_as(expected: str) -> Assertion[DecoratedLine]:
     def assertion(line: DecoratedLine) -> bool:
         if line.emphasis_class != expected:
             raise AssertionError(
-                f"expected it dressed as [{expected}], got [{line.emphasis_class}]"
+                f"Expected it dressed as [{expected}], got [{line.emphasis_class}]."
             )
 
         return True
@@ -205,8 +205,8 @@ def _it_points_at(target: str, label: str) -> Assertion[DecoratedLine]:
     def assertion(line: DecoratedLine) -> bool:
         if (line.link_target, line.link_label) != (target, label):
             raise AssertionError(
-                f"expected a link to [{target}] reading [{label}], got "
-                f"[{line.link_target}] reading [{line.link_label}]"
+                f"Expected a link to [{target}] reading [{label}], got "
+                f"[{line.link_target}] reading [{line.link_label}]."
             )
 
         return True
@@ -218,8 +218,8 @@ def _the_marked_word_is_a_link_to(expected: str) -> Assertion[DecoratedLine]:
     def assertion(line: DecoratedLine) -> bool:
         if line.emphasis_href != expected:
             raise AssertionError(
-                f"expected the marked word linking to [{expected}], "
-                f"got [{line.emphasis_href}]"
+                f"Expected the marked word linking to [{expected}], "
+                f"got [{line.emphasis_href}]."
             )
 
         return True
@@ -231,8 +231,8 @@ def _it_still_reads_as(undressed: NarrationLine) -> Assertion[DecoratedLine]:
     def assertion(line: DecoratedLine) -> bool:
         if (line.who, line.text, line.kind) != (undressed.who, undressed.text, undressed.kind):
             raise AssertionError(
-                f"expected [{undressed.who}: {undressed.text}], "
-                f"got [{line.who}: {line.text}]"
+                f"Expected [{undressed.who}: {undressed.text}], "
+                f"got [{line.who}: {line.text}]."
             )
 
         return True
@@ -246,7 +246,7 @@ def _it_still_marks(undressed: NarrationLine) -> Assertion[DecoratedLine]:
         was = (undressed.before_emphasis, undressed.emphasis, undressed.after_emphasis)
 
         if split != was:
-            raise AssertionError(f"expected the split {was}, got {split}")
+            raise AssertionError(f"Expected the split {was}, got {split}")
 
         return True
 

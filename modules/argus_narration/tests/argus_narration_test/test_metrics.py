@@ -176,8 +176,8 @@ def _it_is_marked(expected: bool) -> Assertion[BucketRow]:
     def assertion(row: BucketRow) -> bool:
         if row.elevated is not expected:
             raise AssertionError(
-                f"expected a minute at {row.error_rate} to be "
-                f"{'marked' if expected else 'left unmarked'}, it was not"
+                f"Expected a minute at {row.error_rate} to be "
+                f"{'marked' if expected else 'left unmarked'}, it was not."
             )
 
         return True
@@ -189,7 +189,7 @@ def _it_is_keyed_by(expected: str) -> Assertion[BucketRow]:
     def assertion(row: BucketRow) -> bool:
         if row.bucket_id != expected:
             raise AssertionError(
-                f"expected the row keyed by [{expected}], got [{row.bucket_id}]"
+                f"Expected the row keyed by [{expected}], got [{row.bucket_id}]."
             )
 
         return True
@@ -200,7 +200,7 @@ def _it_is_keyed_by(expected: str) -> Assertion[BucketRow]:
 def _it_reads_as(expected: str) -> Assertion[BucketRow]:
     def assertion(row: BucketRow) -> bool:
         if row.when != expected:
-            raise AssertionError(f"expected [{expected}], got [{row.when}]")
+            raise AssertionError(f"Expected [{expected}], got [{row.when}].")
 
         return True
 
@@ -211,7 +211,7 @@ def _it_says_the_memory_is(expected: str) -> Assertion[BucketRow]:
     def assertion(row: BucketRow) -> bool:
         if row.memory != expected:
             raise AssertionError(
-                f"expected the memory said as [{expected}], got [{row.memory}]"
+                f"Expected the memory said as [{expected}], got [{row.memory}]."
             )
 
         return True
@@ -238,7 +238,7 @@ def _it_reports_what_was_measured(measured: MetricBucket) -> Assertion[BucketRow
 
         if reported != expected:
             raise AssertionError(
-                f"expected the figures {expected} as measured, got {reported}"
+                f"Expected the figures {expected} as measured, got {reported}"
             )
 
         return True

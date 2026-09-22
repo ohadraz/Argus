@@ -22,6 +22,8 @@ from incident_memory.store import SERVICE_FIELD, recalled, remember
 from qdrant_client import QdrantClient
 from qdrant_client.models import CollectionInfo, PayloadSchemaType
 
+from incident_memory_test.framework.assertions import these_incidents_come_back
+
 SOME_COLLECTION = "incidents"
 
 # Four dimensions is enough to arrange three records at known distances from a
@@ -68,7 +70,7 @@ def test_an_incident_written_is_found_again(store: QdrantClient) -> None:
             floor=NO_FLOOR_WORTH_MENTIONING
         )) \
         .then(all_of(
-            _these_incidents_come_back([the_incident_that_happened_before]),
+            these_incidents_come_back([the_incident_that_happened_before]),
             _it_remembers_trying(the_flag_that_did_not_help, Verdict.REFUTED)
         ))
 
@@ -88,7 +90,7 @@ def test_a_store_that_has_never_been_written_to_finds_nothing(store: QdrantClien
             limit=ENOUGH_ROOM_FOR_THEM_ALL,
             floor=NO_FLOOR_WORTH_MENTIONING
         )) \
-        .then(_these_incidents_come_back([]))
+        .then(these_incidents_come_back([]))
 
 
 @pytest.mark.component
@@ -115,7 +117,7 @@ def test_an_incident_further_off_than_the_floor_is_not_offered(store: QdrantClie
             limit=ENOUGH_ROOM_FOR_THEM_ALL,
             floor=a_floor_only_the_near_one_clears
         )) \
-        .then(_these_incidents_come_back([the_one_that_is_like_it]))
+        .then(these_incidents_come_back([the_one_that_is_like_it]))
 
 
 @pytest.mark.component
@@ -140,7 +142,7 @@ def test_the_most_like_it_comes_back_first(store: QdrantClient) -> None:
             limit=ENOUGH_ROOM_FOR_THEM_ALL,
             floor=NO_FLOOR_WORTH_MENTIONING
         )) \
-        .then(_these_incidents_come_back([the_one_most_like_it, the_one_less_like_it]))
+        .then(these_incidents_come_back([the_one_most_like_it, the_one_less_like_it]))
 
 
 @pytest.mark.component
@@ -168,7 +170,7 @@ def test_only_this_services_incidents_are_recalled(store: QdrantClient) -> None:
             limit=ENOUGH_ROOM_FOR_THEM_ALL,
             floor=NO_FLOOR_WORTH_MENTIONING
         )) \
-        .then(_these_incidents_come_back([the_one_here]))
+        .then(these_incidents_come_back([the_one_here]))
 
 
 @pytest.mark.component
@@ -193,7 +195,7 @@ def test_no_more_than_what_was_asked_for_comes_back(store: QdrantClient) -> None
             limit=room_for_one,
             floor=NO_FLOOR_WORTH_MENTIONING
         )) \
-        .then(_these_incidents_come_back([the_one_most_like_it]))
+        .then(these_incidents_come_back([the_one_most_like_it]))
 
 
 @pytest.mark.component
@@ -217,7 +219,7 @@ def test_one_incident_written_twice_is_one_record(store: QdrantClient) -> None:
             limit=ENOUGH_ROOM_FOR_THEM_ALL,
             floor=NO_FLOOR_WORTH_MENTIONING
         )) \
-        .then(_these_incidents_come_back([the_same_incident]))
+        .then(these_incidents_come_back([the_same_incident]))
 
 
 @pytest.mark.component
@@ -279,25 +281,13 @@ def _an_incident(incident_id: str,
     )
 
 
-def _these_incidents_come_back(expected: list[str]) -> Assertion[list[RememberedIncident]]:
-    def assertion(remembered: list[RememberedIncident]) -> bool:
-        came_back = [incident.incident_id for incident in remembered]
-
-        if came_back != expected:
-            raise AssertionError(f"expected {expected}, got {came_back}")
-
-        return True
-
-    return assertion
-
-
 def _it_remembers_trying(subject: str,
                          verdict: Verdict) -> Assertion[list[RememberedIncident]]:
     def assertion(remembered: list[RememberedIncident]) -> bool:
         tried = [attempt for incident in remembered for attempt in incident.tried]
 
         if _what_was_tried(subject, verdict) not in tried:
-            raise AssertionError(f"expected [{subject}] [{verdict}] among {tried}")
+            raise AssertionError(f"Expected [{subject}] [{verdict}] among {tried}")
 
         return True
 

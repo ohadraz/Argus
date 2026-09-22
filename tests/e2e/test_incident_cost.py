@@ -20,9 +20,7 @@ range would be asserting how fast Argus happened to run.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
-from http import HTTPStatus as HttpStatus
 
 import httpx
 import psycopg
@@ -35,7 +33,6 @@ from argus_testkit.assertions import eventually
 from tests.e2e.framework.argus import (
     DATABASE_URL,
     RECORDED_FLAG_TOGGLE,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
@@ -44,6 +41,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 SOME_SECOND_CURRENCY = "eur"
 
@@ -58,7 +56,7 @@ def test_an_incident_over_a_trading_window_costs_a_measured_amount() -> None:
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -111,25 +109,6 @@ def _the_postmortem_estimates_a_loss() -> Assertion[httpx.Response]:
         return True
 
     return assertion
-
-
-def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
-    """The scenario that both breaks the shop and gives it something to lose.
-
-    Its own copy rather than the one in `test_scenario_investigation.py`: that
-    one is private to its file, and a test reaching into another test module's
-    `_name` is the same violation anywhere else in this repo.
-    """
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "feature-flag-toggle"},
-            timeout=10.0,
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario
 
 
 def _the_conversion_was_disclosed() -> Assertion[httpx.Response]:

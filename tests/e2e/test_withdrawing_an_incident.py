@@ -33,7 +33,6 @@ from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_FLAG_TOGGLE,
     REQUEST_TIMEOUT_SECONDS,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
@@ -42,6 +41,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, flags_evaluating_true, switch_flag
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 _A_POLL = 0.5
 
@@ -56,7 +56,7 @@ def test_an_incident_withdrawn_mid_walk_stops_and_puts_its_flag_back() -> None:
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -84,7 +84,7 @@ def test_a_flag_changed_from_outside_is_left_alone_when_the_incident_is_withdraw
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -277,21 +277,3 @@ def _the_incident_left_the_flag_as_found() -> Assertion[httpx.Response]:
         return True
 
     return assertion
-
-
-def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
-    """The scenario that breaks the shop, and the change Argus undoes.
-
-    Its own copy, like every other case's: a test reaching into another test
-    module's `_name` is the same violation here as anywhere else in the repo.
-    """
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "feature-flag-toggle"},
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

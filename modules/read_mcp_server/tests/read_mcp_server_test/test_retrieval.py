@@ -16,7 +16,6 @@ the subject; where the answer came from is not.
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any, NamedTuple
@@ -25,7 +24,16 @@ from unittest.mock import create_autospec
 import pytest
 from argus_core import parse_iso, to_iso
 from argus_core.models import ChangeEvent, ChangeKind, MetricBucket
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting, calling
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    raising,
+    returning,
+)
 from read_mcp_server.change_source import ChangeSource, ChangeSourceUnavailable
 from read_mcp_server.retrieval import (
     get_change_events,
@@ -34,7 +42,8 @@ from read_mcp_server.retrieval import (
 )
 from read_mcp_server.window import RetrievalSettings
 
-TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+from read_mcp_server_test.framework.timestamps import an_iso_minute
+
 MINUTES_IN_A_DAY = 24 * 60
 
 SOME_SERVICE = "kukibuki-service"
@@ -87,7 +96,7 @@ def test_get_log_lines_windows_around_the_alert_time() -> None:
         ) \
         .when(
             lambda: get_log_lines(
-                alert_time=_an_iso_minute(some_alert_time),
+                alert_time=an_iso_minute(some_alert_time),
                 fetch=lambda: some_lines,
                 settings=CONFIGURED_WINDOWS
             )
@@ -116,9 +125,9 @@ def test_get_log_lines_explicit_window_overrides_the_alert_time() -> None:
         ) \
         .when(
             lambda: get_log_lines(
-                alert_time=_an_iso_minute(some_alert_time),
-                window_start=_an_iso_minute(a_window_start_around_the_too_late_minute),
-                window_end=_an_iso_minute(a_window_end_around_the_too_late_minute),
+                alert_time=an_iso_minute(some_alert_time),
+                window_start=an_iso_minute(a_window_start_around_the_too_late_minute),
+                window_end=an_iso_minute(a_window_end_around_the_too_late_minute),
                 fetch=lambda: some_lines,
                 settings=CONFIGURED_WINDOWS
             )
@@ -143,8 +152,8 @@ def test_get_log_lines_clamps_an_over_span_window_and_reports_it() -> None:
         ) \
         .when(
             lambda: get_log_lines(
-                window_start=_an_iso_minute(some_timeline.too_early),
-                window_end=_an_iso_minute(an_over_span_window_end),
+                window_start=an_iso_minute(some_timeline.too_early),
+                window_end=an_iso_minute(an_over_span_window_end),
                 fetch=lambda: some_lines,
                 settings=CONFIGURED_WINDOWS
             )
@@ -171,7 +180,7 @@ def test_get_log_lines_drops_lines_with_no_timestamp_when_windowed() -> None:
         ) \
         .when(
             lambda: get_log_lines(
-                alert_time=_an_iso_minute(some_alert_time),
+                alert_time=an_iso_minute(some_alert_time),
                 fetch=lambda: some_lines,
                 settings=CONFIGURED_WINDOWS
             )
@@ -224,7 +233,7 @@ def test_get_metrics_summary_excludes_buckets_outside_the_window() -> None:
         ) \
         .when(
             lambda: get_metrics_summary(
-                alert_time=_an_iso_minute(some_alert_time),
+                alert_time=an_iso_minute(some_alert_time),
                 fetch=lambda: some_buckets,
                 settings=CONFIGURED_WINDOWS
             )
@@ -242,7 +251,7 @@ def test_get_metrics_summary_with_no_active_scenario_returns_no_buckets() -> Non
         ) \
         .when(
             lambda: get_metrics_summary(
-                alert_time=_an_iso_minute(some_alert_time),
+                alert_time=an_iso_minute(some_alert_time),
                 fetch=list,
                 settings=CONFIGURED_WINDOWS
             )
@@ -256,7 +265,7 @@ def test_get_metrics_summary_with_no_active_scenario_returns_no_buckets() -> Non
 def test_the_changes_the_source_reports_are_returned() -> None:
     some_revision = "kuki"
     change_source = _a_mock_change_source()
-    the_change_source_reported = partial(_returning, change_source)
+    the_change_source_reported = partial(returning, change_source)
 
     Scenario() \
         .given(
@@ -283,7 +292,7 @@ def test_a_window_containing_no_change_is_not_an_error() -> None:
     # Nothing changed is a real answer, and the one the Investigator most needs
     # to be able to trust - it is what makes "no change explains this" sayable.
     change_source = _a_mock_change_source()
-    the_change_source_reported = partial(_returning, change_source)
+    the_change_source_reported = partial(returning, change_source)
 
     Scenario() \
         .given(
@@ -307,7 +316,7 @@ def test_the_service_and_window_asked_about_are_the_ones_passed_on() -> None:
     some_window_start = _a_while_before(A_CHANGE_MINUTE)
     some_window_end = _a_while_after(A_CHANGE_MINUTE)
     change_source = _a_mock_change_source()
-    the_change_source_reported = partial(_returning, change_source)
+    the_change_source_reported = partial(returning, change_source)
     the_source_was_asked_about = partial(_the_source_was_asked_about, change_source)
 
     Scenario() \
@@ -335,7 +344,7 @@ def test_an_unreachable_source_surfaces_as_a_failure() -> None:
     # back up - that is the whole reason the source raises rather than
     # returning an empty list.
     change_source = _a_mock_change_source()
-    the_change_source_was_unreachable = partial(_raising, change_source)
+    the_change_source_was_unreachable = partial(raising, change_source)
 
     Scenario() \
         .given(
@@ -467,12 +476,8 @@ def _a_log_timeline_around(alert_time: datetime) -> _Timeline:
     )
 
 
-def _an_iso_minute(minute: datetime) -> str:
-    return minute.strftime(TIMESTAMP_FORMAT)
-
-
 def _a_log_line_at(minute: datetime) -> str:
-    return f"{_an_iso_minute(minute)} INFO target-service: some log line"
+    return f"{an_iso_minute(minute)} INFO target-service: some log line"
 
 
 def _some_log_lines_at(timeline: _Timeline) -> list[str]:
@@ -481,7 +486,7 @@ def _some_log_lines_at(timeline: _Timeline) -> list[str]:
 
 def _a_bucket(minute: datetime, error_rate: float = 0.01) -> MetricBucket:
     return MetricBucket(
-        bucket_id=_an_iso_minute(minute),
+        bucket_id=an_iso_minute(minute),
         error_rate=error_rate,
         p50_ms=40,
         p95_ms=200,
@@ -537,20 +542,6 @@ def _a_deploy_of(revision: str, at: str) -> ChangeEvent:
         actor=some_actor,
         source=some_source
     )
-
-
-def _returning(double: Any, value: Any) -> Callable[[], None]:
-    def step() -> None:
-        double.return_value = value
-
-    return step
-
-
-def _raising(double: Any, error: Exception) -> Callable[[], None]:
-    def step() -> None:
-        double.side_effect = error
-
-    return step
 
 
 def _the_changes_are(*expected_references: str) -> Assertion[list[ChangeEvent]]:

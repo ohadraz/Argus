@@ -330,8 +330,8 @@ def _it_complained_about(field: str) -> Assertion[Exception | None]:
     def complained_about(error: Exception | None) -> bool:
         if error is None or field not in str(error):
             raise AssertionError(
-                f"expected the refusal to name [{field}], "
-                f"and it said [{error}]"
+                f"Expected the refusal to name [{field}], "
+                f"and it said [{error}]."
             )
 
         return True
@@ -350,8 +350,8 @@ def _it_kept(field: str, expected: object) -> Assertion[Settings]:
         actual = getattr(settings, field)
         if actual != expected:
             raise AssertionError(
-                f"expected [{field}] to have been kept as [{expected}], "
-                f"and it came back [{actual}]"
+                f"Expected [{field}] to have been kept as [{expected}], "
+                f"and it came back [{actual}]."
             )
 
         return True
@@ -370,7 +370,7 @@ def _it_carries_exactly(field_names: set[str]) -> Assertion[SettingsSlice]:
         carried = set(type(narrowed).model_fields)
         if carried != field_names:
             raise AssertionError(
-                f"expected the slice to carry exactly {sorted(field_names)}, "
+                f"Expected the slice to carry exactly {sorted(field_names)}, "
                 f"and it carries {sorted(carried)}"
             )
 
@@ -384,8 +384,8 @@ def _the_database_url_is(expected: str) -> Assertion[DatabaseSettings]:
     def the_database_url_is(narrowed: DatabaseSettings) -> bool:
         if narrowed.database_url != expected:
             raise AssertionError(
-                f"expected the database url [{expected}], "
-                f"and it is [{narrowed.database_url}]"
+                f"Expected the database url [{expected}], "
+                f"and it is [{narrowed.database_url}]."
             )
 
         return True

@@ -21,8 +21,10 @@ import httpx
 import pytest
 from argus_testkit.assertions import Assertion, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
-from repository_source import RepositorySourceSettings, RepositoryUnreadable
+from repository_source import RepositoryUnreadable
 from repository_source.heads import the_head_of
+
+from repository_source_test.framework.settings import some_settings
 
 THE_DEPLOYED_BRANCH = "main"
 THE_COMMIT_IT_POINTS_AT = "77296acf1d2b4e5a6c7d8e9f0a1b2c3d4e5f6a7b"
@@ -116,15 +118,3 @@ def a_branch_at(sha: str) -> Any:
     )
 
     return repository
-
-
-def some_settings(api_url: str = "https://api.github.invalid",
-                  repository: str = "dont-care/dont-care",
-                  read_token: str = "ghp_dont-care-read-token"
-                  ) -> RepositorySourceSettings:
-    """What is needed to read a repository, and nothing that could change one."""
-    return RepositorySourceSettings(
-        github_api_url=api_url,
-        github_repository=repository,
-        github_read_token=read_token
-    )

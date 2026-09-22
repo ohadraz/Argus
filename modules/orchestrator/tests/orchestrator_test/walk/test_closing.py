@@ -136,7 +136,7 @@ def _stored_one_document_for(stored: Kept[tuple[str, PostmortemDocument]],
 
         if recorded_for != incident_id:
             raise AssertionError(
-                f"expected a document stored for [{incident_id}], got [{recorded_for}]")
+                f"Expected a document stored for [{incident_id}], got [{recorded_for}].")
 
         return True
 
@@ -150,8 +150,8 @@ def _stored_a_document_naming(stored: Kept[tuple[str, PostmortemDocument]],
 
         if document.root_cause != expected:
             raise AssertionError(
-                f"expected the stored document to name [{expected}], "
-                f"got [{document.root_cause}]")
+                f"Expected the stored document to name [{expected}], "
+                f"got [{document.root_cause}].")
 
         return True
 

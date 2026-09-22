@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, call
 
 from anthropic import BaseModel
 from argus_testkit import Assertion
+from orchestrator.walk.deltas import StateDelta
 
 
 def assert_that[A](actual: A) -> _AssertThat[A]:
@@ -52,6 +53,49 @@ def the_result_at(field: str, is_: object) -> Assertion[BaseModel]:
     """
     def assertion(result: BaseModel) -> bool:
         assert getattr(result, field) == is_
+        return True
+
+    return assertion
+
+
+def the_route_is(expected: str) -> Assertion[str]:
+    """Where the walk goes next, named rather than compared.
+
+    A plain string equality, so `the_answer_was` would do the checking - but
+    what a reader of `.then(the_route_is("mitigate"))` needs to know is that
+    the subject is the route, and that is the half a generic equality drops.
+    """
+    def assertion(route: str) -> bool:
+        if route != expected:
+            raise AssertionError(f"Expected the route [{expected}], got [{route}].")
+
+        return True
+
+    return assertion
+
+
+def the_updates_carry(field: str, expected: object) -> Assertion[StateDelta]:
+    """One field of what a node asked the graph to change.
+
+    Whether the field was *set* is asked before what it holds, because a delta
+    is partial by design: a node that never mentioned a field and a node that
+    set it to its default are different instructions, and only the first leaves
+    the graph's existing value alone. Comparing values alone would read them as
+    the same.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if field not in updates.model_fields_set:
+            raise AssertionError(
+                f"Expected the updates to carry [{field}], they carry "
+                f"{sorted(updates.model_fields_set)}."
+            )
+
+        if getattr(updates, field) != expected:
+            raise AssertionError(
+                f"Expected [{field}] to be [{expected}], it was "
+                f"[{getattr(updates, field)}]."
+            )
+
         return True
 
     return assertion

@@ -27,7 +27,7 @@ from unittest.mock import create_autospec
 
 import pytest
 from argus_core.models import CodeSearch
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.scenario import Scenario, attempting
 from argus_web.pushes import (
     PushSettings,
@@ -64,7 +64,7 @@ def test_a_signed_push_records_the_commit_it_names_as_the_one_to_catch_up_to() -
         .then(
             all_of(
                 _what_was_recorded_is(watermark, THE_REPOSITORY, THE_COMMIT_PUSHED),
-                _what_came_back_is(THE_COMMIT_PUSHED)
+                the_answer_was(THE_COMMIT_PUSHED)
             )
         )
 
@@ -193,7 +193,7 @@ def test_a_push_to_a_branch_nobody_deploys_records_nothing() -> None:
         .then(
             all_of(
                 _nothing_was_recorded(watermark),
-                _what_came_back_is(None)
+                the_answer_was(None)
             )
         )
 
@@ -266,7 +266,7 @@ def test_a_deployment_that_keeps_no_index_records_nothing() -> None:
         .then(
             all_of(
                 _nothing_was_recorded(watermark),
-                _what_came_back_is(None)
+                the_answer_was(None)
             )
         )
 
@@ -294,16 +294,6 @@ def _nothing_was_recorded(watermark: Any) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected nothing recorded, got {watermark.call_args_list}."
             )
-
-        return True
-
-    return assertion
-
-
-def _what_came_back_is(sha: str | None) -> Assertion[str | None]:
-    def assertion(answered: str | None) -> bool:
-        if answered != sha:
-            raise AssertionError(f"Expected [{sha}] to come back, got [{answered}].")
 
         return True
 

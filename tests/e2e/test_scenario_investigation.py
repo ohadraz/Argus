@@ -36,9 +36,7 @@ which harness ran it rather than what Argus does.
 from __future__ import annotations
 
 from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 
-import httpx
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
@@ -49,7 +47,6 @@ from tests.e2e.framework.argus import (
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     about_the_hypothesis,
     argus_ended_with_status,
@@ -64,6 +61,7 @@ from tests.e2e.framework.flags import (
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
+from tests.e2e.framework.world import a_scenario_was_seeded
 from tests.framework.assertions import some_confidence_was_given, the_cause_was_identified_as
 
 SOME_UNRELATED_FLAG = "an-unrelated-feature"
@@ -86,7 +84,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -180,7 +178,7 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_flag_provider_forgot_every_change),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_UNCORROBORATED))
         ) \
@@ -219,7 +217,7 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(another_flag_was_toggled_on(SOME_UNRELATED_FLAG)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
@@ -242,22 +240,5 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
         )
 
 
-def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
-    return _a_scenario_was_seeded("feature-flag-toggle")
-
-
 def _a_bad_version_was_deployed() -> Callable[[], bool]:
-    return _a_scenario_was_seeded("bad-deployment")
-
-
-def _a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": scenario_id},
-            timeout=10.0
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario
+    return a_scenario_was_seeded("bad-deployment")

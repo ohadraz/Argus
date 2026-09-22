@@ -19,6 +19,8 @@ from agent_communicator.repository import cursors
 from argus_core import connect_from_env
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from agent_communicator_test.framework.assertions import the_place_is
+
 A_SLACK_RELAY = "slack"
 ANOTHER_RELAY = "email"
 
@@ -42,7 +44,7 @@ def test_a_reader_that_has_never_looked_starts_at_the_beginning_of_the_log(
                 a_reader_that_never_looked := A_SLACK_RELAY
             ) \
             .when(lambda: cursors.get(conn, a_reader_that_never_looked)) \
-            .then(_the_place_is(0))
+            .then(the_place_is(0))
 
 
 @pytest.mark.integration
@@ -58,7 +60,7 @@ def test_where_a_reader_got_to_outlives_the_connection_that_wrote_it(
                 calling(conn.commit)
             ) \
             .when(lambda: cursors.get(another_connection, A_SLACK_RELAY)) \
-            .then(_the_place_is(SOME_PLACE))
+            .then(the_place_is(SOME_PLACE))
 
 
 @pytest.mark.integration
@@ -74,7 +76,7 @@ def test_a_reader_moved_on_twice_is_at_the_place_it_moved_to_last(
                 calling(lambda: cursors.advance(conn, A_SLACK_RELAY, A_LATER_PLACE))
             ) \
             .when(lambda: cursors.get(conn, A_SLACK_RELAY)) \
-            .then(_the_place_is(A_LATER_PLACE))
+            .then(the_place_is(A_LATER_PLACE))
 
 
 @pytest.mark.integration
@@ -104,19 +106,9 @@ def test_two_readers_keep_their_own_places(a_clean_database: None) -> None:
             ) \
             .when(lambda: cursors.get(conn, A_SLACK_RELAY)) \
             .then(all_of(
-                _the_place_is(SOME_PLACE),
+                the_place_is(SOME_PLACE),
                 _the_reader_is_still_at(conn, ANOTHER_RELAY, A_LATER_PLACE)
             ))
-
-
-def _the_place_is(expected: int) -> Assertion[int]:
-    def assertion(place: int) -> bool:
-        if place != expected:
-            raise AssertionError(f"Expected the place {expected}, got {place}.")
-
-        return True
-
-    return assertion
 
 
 def _the_reader_is_still_at(conn: psycopg.Connection,

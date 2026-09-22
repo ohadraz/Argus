@@ -22,13 +22,8 @@ from __future__ import annotations
 
 import pytest
 from argus_core.models import (
-    RESTART_SERVICE,
-    REVERT_FEATURE_FLAG,
     ActionIdentity,
-    ActionType,
     Attempt,
-    Evidence,
-    FailureMode,
     FlagChange,
     Hypothesis,
     WhatWouldBeTried,
@@ -37,9 +32,13 @@ from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_do
 
 from orchestrator_test.framework.builders import (
+    a_candidate_blaming,
     a_determined_hypothesis,
+    a_leak_blamed_on,
     a_random_id,
     an_undetermined_hypothesis,
+    putting_back,
+    restarting,
 )
 
 SOME_FLAG = "monthly-spend-feature"
@@ -100,23 +99,23 @@ def test_an_action_already_taken_disqualifies_the_candidate_that_would_repeat_it
     # not recover. Doing it again would be running the experiment that has
     # already been run, against a world that answered once.
     some_incident_id = a_random_id()
-    some_candidate_blaming_something_else = _a_candidate_blaming(some_incident_id,
+    some_candidate_blaming_something_else = a_candidate_blaming(some_incident_id,
                                                                  ANOTHER_FLAG)
 
     Scenario() \
         .given(
             some_candidates := [
                 _a_candidate_answered_by(
-                    _a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    _putting_back(SOME_FLAG)
+                    a_candidate_blaming(some_incident_id, SOME_FLAG),
+                    putting_back(SOME_FLAG)
                 ),
                 _a_candidate_answered_by(some_candidate_blaming_something_else,
-                                         _putting_back(ANOTHER_FLAG))
+                                         putting_back(ANOTHER_FLAG))
             ]
         ) \
         .when(
             lambda: the_next_worth_trying(some_candidates,
-                                          [_an_attempt_to(_putting_back(SOME_FLAG))],
+                                          [_an_attempt_to(putting_back(SOME_FLAG))],
                                           start=0)
         ) \
         .then(all_of(
@@ -133,13 +132,13 @@ def test_a_restart_already_taken_disqualifies_a_candidate_worded_nothing_like_it
     # Compared by the candidate's own subject nothing matched, and the gate's
     # cap was all that stopped the walk restarting one service per candidate.
     some_incident_id = a_random_id()
-    restarting_the_shop = _restarting(SOME_SERVICE)
+    restarting_the_shop = restarting(SOME_SERVICE)
 
     Scenario() \
         .given(
             some_candidates := [
                 _a_candidate_answered_by(
-                    _a_candidate_blaming(some_incident_id, "unbounded cache growth"),
+                    a_candidate_blaming(some_incident_id, "unbounded cache growth"),
                     restarting_the_shop
                 )
             ]
@@ -158,18 +157,18 @@ def test_the_same_subject_done_a_different_way_is_still_worth_trying() -> None:
     # Restarting io-shop says nothing about whether a flag of the same name may
     # be put back: they are different experiments about the same cause.
     some_incident_id = a_random_id()
-    some_only_candidate = _a_candidate_blaming(some_incident_id, SOME_SERVICE)
+    some_only_candidate = a_candidate_blaming(some_incident_id, SOME_SERVICE)
 
     Scenario() \
         .given(
             some_candidates := [
                 _a_candidate_answered_by(some_only_candidate,
-                                         _putting_back(SOME_SERVICE))
+                                         putting_back(SOME_SERVICE))
             ]
         ) \
         .when(
             lambda: the_next_worth_trying(
-                some_candidates, [_an_attempt_to(_restarting(SOME_SERVICE))], start=0
+                some_candidates, [_an_attempt_to(restarting(SOME_SERVICE))], start=0
             )
         ) \
         .then(_the_candidate_taken_up_is(some_only_candidate))
@@ -180,16 +179,16 @@ def test_an_attempt_on_something_nobody_proposed_disqualifies_nothing() -> None:
     # A later round is told everything this incident tried, and most of it will
     # have nothing to do with the explanations now on the list.
     some_incident_id = a_random_id()
-    some_only_candidate = _a_candidate_blaming(some_incident_id, SOME_FLAG)
+    some_only_candidate = a_candidate_blaming(some_incident_id, SOME_FLAG)
 
     Scenario() \
         .given(
             some_candidates := [
-                _a_candidate_answered_by(some_only_candidate, _putting_back(SOME_FLAG))
+                _a_candidate_answered_by(some_only_candidate, putting_back(SOME_FLAG))
             ]
         ) \
         .when(lambda: the_next_worth_trying(
-            some_candidates, [_an_attempt_to(_putting_back(ANOTHER_FLAG))], start=0
+            some_candidates, [_an_attempt_to(putting_back(ANOTHER_FLAG))], start=0
         )) \
         .then(_the_candidate_taken_up_is(some_only_candidate))
 
@@ -201,12 +200,12 @@ def test_a_candidate_nothing_would_be_done_about_is_still_offered() -> None:
     # gate is where an unanswerable proposal has always been refused, and
     # skipping it here would refuse it somewhere nobody records a reason.
     some_incident_id = a_random_id()
-    some_only_candidate = _a_candidate_blaming(some_incident_id, SOME_FLAG)
+    some_only_candidate = a_candidate_blaming(some_incident_id, SOME_FLAG)
 
     Scenario() \
         .given(some_candidates := [_a_candidate_answered_by(some_only_candidate, None)]) \
         .when(lambda: the_next_worth_trying(
-            some_candidates, [_an_attempt_to(_putting_back(SOME_FLAG))], start=0
+            some_candidates, [_an_attempt_to(putting_back(SOME_FLAG))], start=0
         )) \
         .then(_the_candidate_taken_up_is(some_only_candidate))
 
@@ -262,8 +261,8 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
         .given(
             every_candidate_tried := [
                 _a_candidate_answered_by(
-                    _a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    _putting_back(SOME_FLAG)
+                    a_candidate_blaming(some_incident_id, SOME_FLAG),
+                    putting_back(SOME_FLAG)
                 ),
                 _a_candidate_answered_by(
                     an_undetermined_hypothesis(some_incident_id), None
@@ -271,7 +270,7 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
             ]
         ) \
         .when(lambda: the_next_worth_trying(
-            every_candidate_tried, [_an_attempt_to(_putting_back(SOME_FLAG))], start=0
+            every_candidate_tried, [_an_attempt_to(putting_back(SOME_FLAG))], start=0
         )) \
         .then(_nothing_is_worth_trying())
 
@@ -301,11 +300,11 @@ def test_a_flag_candidate_is_answered_by_putting_that_flag_back() -> None:
     Scenario() \
         .given(the_flag_that_moved := [_a_change_to(SOME_FLAG)]) \
         .when(lambda: what_each_would_do(
-            [_a_candidate_blaming(some_incident_id, SOME_FLAG)],
+            [a_candidate_blaming(some_incident_id, SOME_FLAG)],
             the_flag_that_moved,
             SOME_SERVICE
         )) \
-        .then(_each_would_do([_putting_back(SOME_FLAG)]))
+        .then(_each_would_do([putting_back(SOME_FLAG)]))
 
 
 @pytest.mark.unit
@@ -319,12 +318,12 @@ def test_a_leak_candidate_is_answered_by_restarting_the_alerts_service() -> None
     Scenario() \
         .given(dont_care_changes := [_a_change_to(SOME_FLAG)]) \
         .when(lambda: what_each_would_do(
-            [_a_leak_blamed_on(some_incident_id,
+            [a_leak_blamed_on(some_incident_id,
                                "io-shop process heap (memory_used_bytes)")],
             dont_care_changes,
             SOME_SERVICE
         )) \
-        .then(_each_would_do([_restarting(SOME_SERVICE)]))
+        .then(_each_would_do([restarting(SOME_SERVICE)]))
 
 
 @pytest.mark.unit
@@ -337,7 +336,7 @@ def test_a_candidate_no_strategy_answers_would_have_nothing_done_about_it() -> N
     Scenario() \
         .given(nothing_the_candidate_blames_moved := [_a_change_to(ANOTHER_FLAG)]) \
         .when(lambda: what_each_would_do(
-            [_a_candidate_blaming(some_incident_id, SOME_FLAG),
+            [a_candidate_blaming(some_incident_id, SOME_FLAG),
              an_undetermined_hypothesis(some_incident_id)],
             nothing_the_candidate_blames_moved,
             SOME_SERVICE
@@ -357,62 +356,16 @@ def test_a_history_nobody_could_read_answers_nothing_at_all() -> None:
     Scenario() \
         .given(nobody_could_say := None) \
         .when(lambda: what_each_would_do(
-            [_a_leak_blamed_on(some_incident_id, "io-shop process heap")],
+            [a_leak_blamed_on(some_incident_id, "io-shop process heap")],
             nobody_could_say,
             SOME_SERVICE
         )) \
         .then(_each_would_do([None]))
 
 
-def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
-    """An explanation that names the flag it blames.
-
-    Built here rather than through the shared builder because the subject is
-    what half of these cases turn on: what is refused twice is an *action*, not
-    a hypothesis object, and two candidates blaming the same flag are different
-    findings about the same thing.
-    """
-    some_confidence = 0.75
-
-    return Hypothesis(incident_id=incident_id,
-                      summary="kukibuki hypothesis",
-                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
-                      confidence=some_confidence,
-                      supporting_evidence=[Evidence(claim="some log line", at=None)],
-                      subject=flag)
-
-
-def _a_leak_blamed_on(incident_id: str, prose: str) -> Hypothesis:
-    """An explanation that a resource is leaking, in the model's own words.
-
-    The subject is prose on purpose. It is what the real ones look like, and
-    it is the reason a restart cannot be addressed to the candidate.
-    """
-    some_confidence = 0.75
-
-    return Hypothesis(incident_id=incident_id,
-                      summary="something is accumulating and never released",
-                      failure_mode=FailureMode.RESOURCE_LEAK,
-                      confidence=some_confidence,
-                      supporting_evidence=[Evidence(claim="some log line", at=None)],
-                      subject=prose)
-
-
 def _a_change_to(flag: str) -> FlagChange:
     """One change the provider recorded, switching a flag on."""
     return FlagChange(flag=flag, enabled=True, occurred_at=DONT_CARE_MOMENT)
-
-
-def _an_identity(action_type: ActionType, subject: str) -> ActionIdentity:
-    return ActionIdentity(action_type=action_type, subject=subject)
-
-
-def _putting_back(flag: str) -> ActionIdentity:
-    return _an_identity(REVERT_FEATURE_FLAG, flag)
-
-
-def _restarting(service: str) -> ActionIdentity:
-    return _an_identity(RESTART_SERVICE, service)
 
 
 def _a_candidate_answered_by(candidate: Hypothesis,
@@ -429,7 +382,7 @@ def _answered_by_a_flag_each(candidates: list[Hypothesis]) -> list[WhatWouldBeTr
     about.
     """
     return [
-        _a_candidate_answered_by(candidate, _putting_back(f"some-flag-{index}"))
+        _a_candidate_answered_by(candidate, putting_back(f"some-flag-{index}"))
         for index, candidate in enumerate(candidates)
     ]
 
@@ -449,7 +402,7 @@ def _each_would_do(expected: list[ActionIdentity | None]
         identities = [entry.identity for entry in answered]
 
         if identities != expected:
-            raise AssertionError(f"expected {expected}, got {identities}")
+            raise AssertionError(f"Expected {expected}, got {identities}")
 
         return True
 
@@ -460,15 +413,15 @@ def _the_candidate_taken_up_is(expected: Hypothesis) -> Assertion[Chosen]:
     def assertion(chosen: Chosen) -> bool:
         if chosen is None:
             raise AssertionError(
-                f"expected the candidate {expected.summary!r} blaming "
-                f"{expected.subject!r}, nothing was worth trying"
+                f"Expected the candidate {expected.summary!r} blaming "
+                f"{expected.subject!r}, nothing was worth trying."
             )
 
         _, candidate = chosen
 
         if candidate != expected:
             raise AssertionError(
-                f"expected the candidate blaming {expected.subject!r}, "
+                f"Expected the candidate blaming {expected.subject!r}, "
                 f"got the one blaming {candidate.subject!r}"
             )
 
@@ -486,12 +439,12 @@ def _it_sits_at(expected: int) -> Assertion[Chosen]:
     """
     def assertion(chosen: Chosen) -> bool:
         if chosen is None:
-            raise AssertionError(f"expected a candidate at {expected}, got none at all")
+            raise AssertionError(f"Expected a candidate at {expected}, got none at all.")
 
         index, _ = chosen
 
         if index != expected:
-            raise AssertionError(f"expected the candidate at {expected}, got {index}")
+            raise AssertionError(f"Expected the candidate at {expected}, got {index}")
 
         return True
 
@@ -503,7 +456,7 @@ def _nothing_is_worth_trying() -> Assertion[Chosen]:
         if chosen is not None:
             _, candidate = chosen
             raise AssertionError(
-                "expected a spent list, got the candidate blaming "
+                "Expected a spent list, got the candidate blaming "
                 f"{candidate.subject!r}"
             )
 

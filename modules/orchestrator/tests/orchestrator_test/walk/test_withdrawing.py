@@ -23,6 +23,8 @@ from orchestrator.walk.routes import FIXING_ROUTE, WITHDRAWN_ROUTE
 from orchestrator.walk.state import IncidentState
 from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
+from orchestrator_test.framework.assertions import the_route_is
+
 type Route = Callable[[IncidentState], str]
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
@@ -42,7 +44,7 @@ def test_a_withdrawn_incident_is_routed_out_of_the_walk() -> None:
     Scenario() \
         .given(a_withdrawn_incident := _an_incident_in(IncidentStatus.WITHDRAWN)) \
         .when(lambda: stopping_when_withdrawn(route_after_mitigation)(a_withdrawn_incident)) \
-        .then(_the_route_is(WITHDRAWN_ROUTE))
+        .then(the_route_is(WITHDRAWN_ROUTE))
 
 
 @pytest.mark.unit
@@ -50,7 +52,7 @@ def test_a_live_incident_is_routed_by_the_router_it_wraps() -> None:
     Scenario() \
         .given(a_mitigated_incident := _an_incident_in(IncidentStatus.MITIGATED)) \
         .when(lambda: stopping_when_withdrawn(route_after_mitigation)(a_mitigated_incident)) \
-        .then(_the_route_is(FIXING_ROUTE))
+        .then(the_route_is(FIXING_ROUTE))
 
 
 @pytest.mark.unit
@@ -69,24 +71,14 @@ def _an_incident_in(status: IncidentStatus) -> IncidentState:
                          status=status)
 
 
-def _the_route_is(expected: str) -> Assertion[str]:
-    def assertion(route: str) -> bool:
-        if route != expected:
-            raise AssertionError(f"expected the route [{expected}], got [{route}]")
-
-        return True
-
-    return assertion
-
-
 def _the_route_at(position: int, router: Route, expected: str) -> Assertion[list[str]]:
     """One assertion per router, so a router that forgot is named rather than
     reported as "one of five"."""
     def assertion(routes: list[str]) -> bool:
         if routes[position] != expected:
             raise AssertionError(
-                f"expected [{router.__name__}] to route a withdrawn incident to "
-                f"[{expected}], it routed to [{routes[position]}]"
+                f"Expected [{router.__name__}] to route a withdrawn incident to "
+                f"[{expected}], it routed to [{routes[position]}]."
             )
 
         return True

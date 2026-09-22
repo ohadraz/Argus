@@ -265,8 +265,8 @@ def _is_a_rise_of(expected: float) -> Assertion[ErrorRates | None]:
     def assertion(measured: ErrorRates | None) -> bool:
         if measured is None or not isclose(measured.rise, expected):
             raise AssertionError(
-                f"expected a rise of [{expected}], got "
-                f"[{measured.rise if measured else None}]"
+                f"Expected a rise of [{expected}], got "
+                f"[{measured.rise if measured else None}]."
             )
         return True
 
@@ -285,13 +285,13 @@ def _the_levels_are(baseline: float,
     """
     def assertion(measured: ErrorRates | None) -> bool:
         if measured is None:
-            raise AssertionError("expected three levels, nothing was measured")
+            raise AssertionError("Expected three levels, nothing was measured.")
 
         got = (measured.baseline, measured.while_broken, measured.at_its_worst)
         expected = (baseline, while_broken, at_its_worst)
 
         if not all(isclose(one, other) for one, other in zip(got, expected, strict=True)):
-            raise AssertionError(f"expected levels {expected}, got {got}")
+            raise AssertionError(f"Expected levels {expected}, got {got}")
 
         return True
 
@@ -302,8 +302,8 @@ def _nothing_could_be_measured() -> Assertion[ErrorRates | None]:
     def assertion(measured: ErrorRates | None) -> bool:
         if measured is not None:
             raise AssertionError(
-                f"expected no measurement where one side of it is missing, "
-                f"got [{measured}]")
+                f"Expected no measurement where one side of it is missing, "
+                f"got [{measured}].")
         return True
 
     return assertion

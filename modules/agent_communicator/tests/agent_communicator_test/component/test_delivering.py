@@ -39,6 +39,8 @@ from argus_incidents.repository import events, incidents
 from argus_narration import a_narration_line
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from agent_communicator_test.framework.slack import messages_posted_to
+
 A_WAR_ROOM = "C-war-room"
 
 # Where write-ups are kept, which a team may well configure to be the war room
@@ -351,14 +353,6 @@ def _slack_will_refuse(base_url: str) -> None:
                json={"error": "channel_not_found"}).raise_for_status()
 
 
-def _posted(base_url: str) -> list[dict[str, Any]]:
-    """Every message the double accepted, read back through its control seam."""
-    answered: dict[str, Any] = httpx.get(f"{base_url}/double-control/posted").json()
-    held: list[dict[str, Any]] = answered["posted"]
-
-    return held
-
-
 def _it_landed() -> Assertion[Outcome]:
     def assertion(outcome: Outcome) -> bool:
         if outcome is not Outcome.SAID:
@@ -390,7 +384,7 @@ def _it_will_never_land() -> Assertion[Outcome]:
 
 def _slack_holds_one_message(base_url: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        held = _posted(base_url)
+        held = messages_posted_to(base_url)
         if len(held) != 1:
             raise AssertionError(f"Expected one message in Slack, got {len(held)}: {held}")
 
@@ -401,7 +395,7 @@ def _slack_holds_one_message(base_url: str) -> Assertion[Any]:
 
 def _slack_holds_nothing(base_url: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        held = _posted(base_url)
+        held = messages_posted_to(base_url)
         if held:
             raise AssertionError(f"Expected nothing delivered, Slack holds {held}")
 
@@ -412,7 +406,7 @@ def _slack_holds_nothing(base_url: str) -> Assertion[Any]:
 
 def _that_message_went_to(base_url: str, channel: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        addressed = [message["channel"] for message in _posted(base_url)]
+        addressed = [message["channel"] for message in messages_posted_to(base_url)]
         if addressed != [channel]:
             raise AssertionError(f"Expected it addressed to [{channel}], got {addressed}")
 
@@ -423,7 +417,7 @@ def _that_message_went_to(base_url: str, channel: str) -> Assertion[Any]:
 
 def _that_message_was_not_a_reply(base_url: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        held = _posted(base_url)
+        held = messages_posted_to(base_url)
         replied_to = [message["thread_ts"] for message in held]
         if any(replied_to):
             raise AssertionError(
@@ -437,20 +431,20 @@ def _that_message_was_not_a_reply(base_url: str) -> Assertion[Any]:
 
 def _the_last_message_replied_to_the_first(base_url: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        held = _posted(base_url)
+        held = messages_posted_to(base_url)
         if len(held) != 2:
             raise AssertionError(f"Expected two messages in Slack, got {len(held)}: {held}")
 
         if held[-1]["thread_ts"] != held[0]["ts"]:
             raise AssertionError(
                 f"Expected a reply in thread [{held[0]['ts']}], it replied to "
-                f"[{held[-1]['thread_ts']}]"
+                f"[{held[-1]['thread_ts']}]."
             )
 
         if held[-1]["channel"] != held[0]["channel"]:
             raise AssertionError(
                 f"Expected the reply in [{held[0]['channel']}], it went to "
-                f"[{held[-1]['channel']}]"
+                f"[{held[-1]['channel']}]."
             )
 
         return True
@@ -460,9 +454,9 @@ def _the_last_message_replied_to_the_first(base_url: str) -> Assertion[Any]:
 
 def _that_message_names(base_url: str, who: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        said = _posted(base_url)[-1]["text"]
+        said = messages_posted_to(base_url)[-1]["text"]
         if who not in said:
-            raise AssertionError(f"Expected [{who}] named in [{said}]")
+            raise AssertionError(f"Expected [{who}] named in [{said}].")
 
         return True
 
@@ -471,9 +465,9 @@ def _that_message_names(base_url: str, who: str) -> Assertion[Any]:
 
 def _that_message_marks(base_url: str, word: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        said = _posted(base_url)[-1]["text"]
+        said = messages_posted_to(base_url)[-1]["text"]
         if f"*{word}*" not in said:
-            raise AssertionError(f"Expected [*{word}*] marked in [{said}]")
+            raise AssertionError(f"Expected [*{word}*] marked in [{said}].")
 
         return True
 
@@ -482,14 +476,14 @@ def _that_message_marks(base_url: str, word: str) -> Assertion[Any]:
 
 def _it_is_the_thread_slack_opened(base_url: str) -> Assertion[str | None]:
     def assertion(remembered: str | None) -> bool:
-        held = _posted(base_url)
+        held = messages_posted_to(base_url)
         if not held:
-            raise AssertionError("Expected a message in Slack to compare the thread against")
+            raise AssertionError("Expected a message in Slack to compare the thread against.")
 
         if remembered != held[0]["ts"]:
             raise AssertionError(
                 f"Expected the incident to be in thread [{held[0]['ts']}], "
-                f"it is in [{remembered}]"
+                f"it is in [{remembered}]."
             )
 
         return True
@@ -503,7 +497,7 @@ def _the_incident_now_has_a_thread(conn: psycopg.Connection,
         if threads.get(conn, incident_id, A_WAR_ROOM) is None:
             raise AssertionError(
                 "Expected the message that went to the channel to become the "
-                "incident's thread, it was not remembered"
+                "incident's thread, it was not remembered."
             )
 
         return True
@@ -517,7 +511,7 @@ def _the_incident_has_no_thread(conn: psycopg.Connection,
         remembered = threads.get(conn, incident_id, A_WAR_ROOM)
         if remembered is not None:
             raise AssertionError(
-                f"Expected no thread for a message nobody received, got [{remembered}]"
+                f"Expected no thread for a message nobody received, got [{remembered}]."
             )
 
         return True
@@ -569,7 +563,10 @@ def _the_messages_in(base_url: str, channel: str, count: int) -> Assertion[Any]:
     up to the same total as four correct ones.
     """
     def assertion(_: Any) -> bool:
-        held = [message for message in _posted(base_url) if message["channel"] == channel]
+        held = [
+            message for message in messages_posted_to(base_url)
+            if message["channel"] == channel
+        ]
         if len(held) != count:
             raise AssertionError(
                 f"Expected {count} message(s) in [{channel}], got {len(held)}: {held}"
@@ -582,7 +579,10 @@ def _the_messages_in(base_url: str, channel: str, count: int) -> Assertion[Any]:
 
 def _the_only_message_in(base_url: str, channel: str, mentions: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        held = [message for message in _posted(base_url) if message["channel"] == channel]
+        held = [
+            message for message in messages_posted_to(base_url)
+            if message["channel"] == channel
+        ]
         if len(held) != 1:
             raise AssertionError(
                 f"Expected one message in [{channel}] to read, got {len(held)}."

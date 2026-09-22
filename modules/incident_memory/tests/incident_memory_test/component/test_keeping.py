@@ -22,6 +22,8 @@ from incident_memory.keeping import Recaller, kept_in, recalling_from
 from incident_memory.records import RememberedIncident, WhatWasTried
 from qdrant_client import QdrantClient
 
+from incident_memory_test.framework.assertions import these_incidents_come_back
+
 SOME_COLLECTION = "incidents"
 SOME_SERVICE = "io-shop"
 
@@ -57,7 +59,7 @@ def test_a_record_is_found_by_a_description_that_means_the_same_thing(
     Scenario() \
         .given(store) \
         .when(lambda: _recalling(store)(WHAT_HAPPENED_HERE, SOME_SERVICE)) \
-        .then(_these_incidents_come_back([the_incident_that_happened_before]))
+        .then(these_incidents_come_back([the_incident_that_happened_before]))
 
 
 @pytest.mark.component
@@ -77,7 +79,7 @@ def test_a_record_about_something_else_is_not_reached(store: QdrantClient) -> No
         .when(lambda: _recalling(store, floor=a_floor_it_does_not_clear)(
             WHAT_HAPPENED_HERE, SOME_SERVICE
         )) \
-        .then(_these_incidents_come_back([]))
+        .then(these_incidents_come_back([]))
 
 
 @pytest.mark.component
@@ -146,18 +148,6 @@ def _an_incident(incident_id: str,
     )
 
 
-def _these_incidents_come_back(expected: list[str]) -> Assertion[list[RememberedIncident]]:
-    def assertion(remembered: list[RememberedIncident]) -> bool:
-        came_back = [incident.incident_id for incident in remembered]
-
-        if came_back != expected:
-            raise AssertionError(f"expected {expected}, got {came_back}")
-
-        return True
-
-    return assertion
-
-
 def _it_remembers_trying(subject: str) -> Assertion[list[RememberedIncident]]:
     def assertion(remembered: list[RememberedIncident]) -> bool:
         subjects = [
@@ -166,7 +156,7 @@ def _it_remembers_trying(subject: str) -> Assertion[list[RememberedIncident]]:
         ]
 
         if subject not in subjects:
-            raise AssertionError(f"expected [{subject}] among {subjects}")
+            raise AssertionError(f"Expected [{subject}] among {subjects}")
 
         return True
 
@@ -178,7 +168,7 @@ def _it_remembers_the_verdict(verdict: Verdict) -> Assertion[list[RememberedInci
         verdicts = [attempt.verdict for incident in remembered for attempt in incident.tried]
 
         if verdict not in verdicts:
-            raise AssertionError(f"expected [{verdict}] among {verdicts}")
+            raise AssertionError(f"Expected [{verdict}] among {verdicts}")
 
         return True
 

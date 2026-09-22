@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from argus_core import to_iso
 from argus_narration.clock import a_minute, a_moment, a_window, is_a_moment
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, the_answer_was
 
 
 @pytest.mark.unit
@@ -31,7 +31,7 @@ def test_an_instant_is_said_the_way_a_clock_says_it() -> None:
     Scenario() \
         .given(some_instant) \
         .when(lambda: a_minute(some_instant)) \
-        .then(_it_reads(the_clock_time_it_reads_as))
+        .then(the_answer_was(the_clock_time_it_reads_as))
 
 
 @pytest.mark.unit
@@ -45,7 +45,7 @@ def test_a_minute_beside_another_on_the_same_day_needs_no_date() -> None:
     Scenario() \
         .given(some_instant) \
         .when(lambda: a_minute(some_instant, beside=another_instant_that_day)) \
-        .then(_it_reads(the_clock_time_it_reads_as))
+        .then(the_answer_was(the_clock_time_it_reads_as))
 
 
 @pytest.mark.unit
@@ -61,7 +61,7 @@ def test_a_minute_beside_one_on_another_day_carries_its_date() -> None:
     Scenario() \
         .given(some_instant) \
         .when(lambda: a_minute(some_instant, beside=an_instant_the_day_before)) \
-        .then(_it_reads(f"{the_date_it_falls_on} {the_clock_time_it_reads_as}"))
+        .then(the_answer_was(f"{the_date_it_falls_on} {the_clock_time_it_reads_as}"))
 
 
 @pytest.mark.unit
@@ -74,7 +74,7 @@ def test_something_that_is_not_a_time_is_shown_exactly_as_it_arrived() -> None:
     Scenario() \
         .given(some_value_that_is_not_a_time) \
         .when(lambda: a_minute(some_value_that_is_not_a_time)) \
-        .then(_it_reads(some_value_that_is_not_a_time))
+        .then(the_answer_was(some_value_that_is_not_a_time))
 
 
 @pytest.mark.unit
@@ -88,7 +88,7 @@ def test_a_log_lines_own_stamp_is_kept_to_the_second() -> None:
     Scenario() \
         .given(some_instant) \
         .when(lambda: a_moment(some_instant)) \
-        .then(_it_reads(the_second_it_reads_as))
+        .then(the_answer_was(the_second_it_reads_as))
 
 
 @pytest.mark.unit
@@ -126,7 +126,7 @@ def test_a_window_with_both_ends_says_how_long_it_was_and_where_it_ended() -> No
     Scenario() \
         .given(some_start) \
         .when(lambda: a_window(to_iso(some_start), to_iso(some_end))) \
-        .then(_it_reads(f"the {some_window_minutes} minutes before {some_end:%H:%M}"))
+        .then(the_answer_was(f"the {some_window_minutes} minutes before {some_end:%H:%M}"))
 
 
 @pytest.mark.unit
@@ -140,7 +140,7 @@ def test_a_window_of_whole_hours_is_said_in_hours() -> None:
     Scenario() \
         .given(some_start) \
         .when(lambda: a_window(to_iso(some_start), to_iso(some_end))) \
-        .then(_it_reads(f"the {some_window_hours} hours before {some_end:%d %b %H:%M}"))
+        .then(the_answer_was(f"the {some_window_hours} hours before {some_end:%d %b %H:%M}"))
 
 
 @pytest.mark.unit
@@ -154,7 +154,7 @@ def test_a_window_anchored_on_one_end_says_only_that_end() -> None:
     Scenario() \
         .given(some_instant) \
         .when(lambda: a_window(some_instant, None)) \
-        .then(_it_reads(f"anchored on {the_clock_time_it_reads_as}"))
+        .then(the_answer_was(f"anchored on {the_clock_time_it_reads_as}"))
 
 
 @pytest.mark.unit
@@ -167,7 +167,7 @@ def test_a_window_with_only_an_end_says_what_it_reached_up_to() -> None:
     Scenario() \
         .given(some_instant) \
         .when(lambda: a_window(None, some_instant)) \
-        .then(_it_reads(f"up to {the_clock_time_it_reads_as}"))
+        .then(the_answer_was(f"up to {the_clock_time_it_reads_as}"))
 
 
 @pytest.mark.unit
@@ -177,23 +177,13 @@ def test_a_window_with_no_ends_at_all_says_so() -> None:
     Scenario() \
         .given(no_window_at_all := (None, None)) \
         .when(lambda: a_window(*no_window_at_all)) \
-        .then(_it_reads("over no particular window"))
-
-
-def _it_reads(expected: str) -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        if said != expected:
-            raise AssertionError(f"expected [{expected}], got [{said}]")
-
-        return True
-
-    return assertion
+        .then(the_answer_was("over no particular window"))
 
 
 def _it_is(expected: bool) -> Assertion[bool]:
     def assertion(answered: bool) -> bool:
         if answered is not expected:
-            raise AssertionError(f"expected [{expected}], got [{answered}]")
+            raise AssertionError(f"Expected [{expected}], got [{answered}].")
 
         return True
 

@@ -395,7 +395,7 @@ def _names(expected: str) -> Assertion[list[str]]:
     def assertion(assumptions: list[str]) -> bool:
         if not any(expected in stated for stated in assumptions):
             raise AssertionError(
-                f"expected an assumption mentioning [{expected}], got {assumptions}")
+                f"Expected an assumption mentioning [{expected}], got {assumptions}")
 
         return True
 
@@ -411,7 +411,7 @@ def _names_a_line_mentioning(label: str, detail: str) -> Assertion[list[str]]:
     def assertion(assumptions: list[str]) -> bool:
         if not any(label in stated and detail in stated for stated in assumptions):
             raise AssertionError(
-                f"expected an assumption mentioning [{label}] and [{detail}], "
+                f"Expected an assumption mentioning [{label}] and [{detail}], "
                 f"got {assumptions}")
 
         return True
@@ -427,7 +427,7 @@ def _names_a_line_mentioning_exactly_once(label: str,
 
         if len(said) != 1:
             raise AssertionError(
-                f"expected [{label}] to mention [{detail}] exactly once, got {said}")
+                f"Expected [{label}] to mention [{detail}] exactly once, got {said}")
 
         return True
 
@@ -438,7 +438,7 @@ def _says_nothing_about(unexpected: str) -> Assertion[list[str]]:
     def assertion(assumptions: list[str]) -> bool:
         if any(unexpected in stated for stated in assumptions):
             raise AssertionError(
-                f"expected no assumption about [{unexpected}], got {assumptions}")
+                f"Expected no assumption about [{unexpected}], got {assumptions}")
 
         return True
 

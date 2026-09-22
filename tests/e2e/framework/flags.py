@@ -18,11 +18,12 @@ from typing import Any
 import httpx
 import psycopg
 from argus_core import get_settings
-from argus_core.anomaly import AnomalyThresholds, has_recovered_since
+from argus_core.anomaly import has_recovered_since
 from argus_core.models import MetricBucket
 from argus_testkit import Assertion
 
 from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS, TARGET_SERVICE_BASE_URL
+from tests.framework.investigating import the_configured_thresholds
 
 # The provider's own database, published by the Target Environment's compose
 # file. Reached directly because the provider offers no other way back to a
@@ -97,7 +98,7 @@ def the_service_returned_to_baseline() -> Assertion[Any]:
         the_latest_minute = buckets[-1].bucket_id
 
         if not has_recovered_since(
-            buckets, the_latest_minute, _the_configured_thresholds()
+            buckets, the_latest_minute, the_configured_thresholds()
         ):
             raise AssertionError(
                 f"The Target Service's minute [{the_latest_minute}] still departs "
@@ -290,18 +291,3 @@ def _target_service_metrics() -> list[MetricBucket]:
     response.raise_for_status()
 
     return [MetricBucket.model_validate(bucket) for bucket in response.json()]
-
-
-def _the_configured_thresholds() -> AnomalyThresholds:
-    """Where the stack draws its lines, read from the environment it runs in.
-
-    The e2e suite asks about the same deployment the worker is walking, so it
-    narrows the same configuration rather than stating numbers of its own.
-    """
-    settings = get_settings()
-
-    return AnomalyThresholds(
-        deviations_from_baseline=settings.anomaly_deviations_from_baseline,
-        persistence_minutes=settings.anomaly_persistence_minutes,
-        recovery_fraction_of_the_rise=settings.recovery_fraction_of_the_rise
-    )

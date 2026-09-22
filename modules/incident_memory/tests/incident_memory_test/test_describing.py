@@ -126,7 +126,7 @@ def test_an_alert_that_said_nothing_leaves_no_gap_behind_it() -> None:
 def _it_says(expected: str) -> Assertion[str]:
     def assertion(described_as: str) -> bool:
         if expected not in described_as:
-            raise AssertionError(f"expected [{expected}] within [{described_as}]")
+            raise AssertionError(f"Expected [{expected}] within [{described_as}].")
 
         return True
 
@@ -138,10 +138,10 @@ def _it_reads_as_whole_lines() -> Assertion[str]:
         empty = [line for line in described_as.splitlines() if not line.strip()]
 
         if empty:
-            raise AssertionError(f"expected no empty line within [{described_as}]")
+            raise AssertionError(f"Expected no empty line within [{described_as}].")
 
         if described_as != described_as.strip():
-            raise AssertionError(f"expected nothing dangling around [{described_as}]")
+            raise AssertionError(f"Expected nothing dangling around [{described_as}].")
 
         return True
 

@@ -16,18 +16,22 @@ return value.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, cast
-from unittest.mock import MagicMock, create_autospec
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from argus_core.events import StatusChanged
 from argus_core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.walk import ports
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.state import IncidentState
+
+from orchestrator_test.framework.builders import (
+    the_incident_is_still_wanted,
+    the_incident_was_withdrawn,
+)
 
 type Node = Callable[[IncidentState], StateDelta]
 type NodeResult = dict[str, Any]
@@ -37,11 +41,6 @@ DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "buki-123"
 DONT_CARE_NARRATION = Narration(action="dont care")
 DONT_CARE_ACTOR = Actor.ORCHESTRATOR
-
-
-@pytest.fixture
-def transition_incident() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.TransitionIncident, instance=True))
 
 
 @pytest.mark.unit
@@ -59,7 +58,7 @@ def test_a_node_that_moved_the_incident_transitions_it_once(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_the_incident_is_still_wanted())(an_incident_being_investigated)
+            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
         ) \
         .then(all_of(
             _the_incident_was_moved_once_to(IncidentStatus.MITIGATING,
@@ -87,7 +86,7 @@ def test_a_node_that_moved_nothing_writes_no_transition(
             a_gate_refusing_an_action,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_the_incident_is_still_wanted())(an_incident_mitigating)
+            still_wanted=the_incident_is_still_wanted())(an_incident_mitigating)
         ) \
         .then(_the_incident_was_not_moved(transition_incident))
 
@@ -113,7 +112,7 @@ def test_a_node_that_moved_nothing_writes_nothing_at_all(
             a_gate_refusing_an_action,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_the_incident_is_still_wanted())(an_incident_mitigating)
+            still_wanted=the_incident_is_still_wanted())(an_incident_mitigating)
         ) \
         .then(_the_incident_was_not_moved(transition_incident))
 
@@ -136,7 +135,7 @@ def test_the_narration_never_reaches_the_graphs_state(
             a_narrating_node,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_the_incident_is_still_wanted())(an_incident_mitigating)
+            still_wanted=the_incident_is_still_wanted())(an_incident_mitigating)
         ) \
         .then(_the_updates_are({"proposed_action": None}))
 
@@ -158,11 +157,11 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_the_incident_is_still_wanted())(an_incident_being_investigated)
+            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
         ) \
         .then(all_of(
-            _the_updates_carry("status", IncidentStatus.MITIGATING),
-            _the_updates_carry("candidate_index", 0))
+            the_updates_carry("status", IncidentStatus.MITIGATING),
+            the_updates_carry("candidate_index", 0))
         )
 
 
@@ -184,7 +183,7 @@ def test_a_withdrawn_incident_stops_the_node_before_it_runs(
             a_node_that_would_have_acted,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_the_incident_was_withdrawn())(an_incident_mitigating)
+            still_wanted=the_incident_was_withdrawn())(an_incident_mitigating)
         ) \
         .then(all_of(
             _the_node_never_ran(ran),
@@ -218,25 +217,6 @@ def test_an_incident_nobody_has_is_not_walked_either(
             _the_node_never_ran(ran),
             _the_incident_was_not_moved(transition_incident))
         )
-
-
-def _the_incident_is_still_wanted() -> IsStillWanted:
-    """Nobody has withdrawn it - which is every case but the two that say so.
-
-    Injected rather than left to default, because the real one reads the
-    incident back out of the database and a unit test has none.
-    """
-    def still_wanted(dont_care_incident_id: str) -> bool:
-        return True
-
-    return still_wanted
-
-
-def _the_incident_was_withdrawn() -> IsStillWanted:
-    def still_wanted(dont_care_incident_id: str) -> bool:
-        return False
-
-    return still_wanted
 
 
 def _there_is_no_such_incident() -> IsStillWanted:
@@ -367,7 +347,7 @@ def _the_updates_are(expected: NodeResult) -> Assertion[NodeResult]:
     return assertion
 
 
-def _the_updates_carry(field: str, expected: Any) -> Assertion[NodeResult]:
+def the_updates_carry(field: str, expected: Any) -> Assertion[NodeResult]:
     def assertion(updates: NodeResult) -> bool:
         if field not in updates:
             raise AssertionError(

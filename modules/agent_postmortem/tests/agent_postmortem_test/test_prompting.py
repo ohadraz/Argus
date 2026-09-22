@@ -465,7 +465,7 @@ def _says(*expected: str) -> Assertion[Transcript]:
         missing = [wanted for wanted in expected if wanted not in said]
         if missing:
             raise AssertionError(
-                f"expected the model to be told {missing}, and it was not: {said}")
+                f"Expected the model to be told {missing}, and it was not: {said}")
 
         return True
 
@@ -476,8 +476,8 @@ def _carries_the_submission(submitted: Turn) -> Assertion[Transcript]:
     def assertion(transcript: Transcript) -> bool:
         if submitted not in transcript:
             raise AssertionError(
-                "expected the model's own submission to be carried back to it, "
-                "and it was not")
+                "Expected the model's own submission to be carried back to it, "
+                "and it was not.")
 
         return True
 
@@ -491,7 +491,7 @@ def _carries_no_submission() -> Assertion[Transcript]:
 
         if carried:
             raise AssertionError(
-                f"expected a fresh ask with nothing to answer, and it carried "
+                f"Expected a fresh ask with nothing to answer, and it carried "
                 f"{carried}")
 
         return True
@@ -507,7 +507,7 @@ def _answers_the_call(expected: str) -> Assertion[Transcript]:
 
         if answering != [expected]:
             raise AssertionError(
-                f"expected the result to answer call [{expected}], got {answering}")
+                f"Expected the result to answer call [{expected}], got {answering}")
 
         return True
 
@@ -522,7 +522,7 @@ def _refuses_it() -> Assertion[Transcript]:
 
         if refused != [True]:
             raise AssertionError(
-                "expected the rejected submission to be marked failed, so the model "
+                "Expected the rejected submission to be marked failed, so the model "
                 f"reads it as something to fix rather than as evidence, got {refused}")
 
         return True
@@ -534,7 +534,7 @@ def _asks_only_for(*expected: str) -> Assertion[ToolDefinition]:
     def assertion(tool: ToolDefinition) -> bool:
         if sorted(tool.properties) != sorted(expected):
             raise AssertionError(
-                f"expected the tool to ask for {sorted(expected)}, got "
+                f"Expected the tool to ask for {sorted(expected)}, got "
                 f"{sorted(tool.properties)}")
 
         return True
@@ -546,7 +546,7 @@ def _requires(*expected: str) -> Assertion[ToolDefinition]:
     def assertion(tool: ToolDefinition) -> bool:
         if sorted(tool.required) != sorted(expected):
             raise AssertionError(
-                f"expected the tool to require {sorted(expected)}, got "
+                f"Expected the tool to require {sorted(expected)}, got "
                 f"{sorted(tool.required)}")
 
         return True
@@ -566,7 +566,7 @@ def _accepts_no_number() -> Assertion[ToolDefinition]:
 
         if numeric:
             raise AssertionError(
-                f"expected the model to be asked for no figure of its own, and it "
+                f"Expected the model to be asked for no figure of its own, and it "
                 f"was asked for {numeric}")
 
         return True

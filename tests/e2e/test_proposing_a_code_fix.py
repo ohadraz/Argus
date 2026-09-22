@@ -34,8 +34,6 @@ the change channel.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx
@@ -52,7 +50,6 @@ from tests.e2e.framework.argus import (
     DATABASE_URL,
     RECORDED_FLAG_TOGGLE,
     REQUEST_TIMEOUT_SECONDS,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
@@ -61,6 +58,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 
 @pytest.mark.e2e
@@ -78,7 +76,7 @@ def test_a_mitigated_incident_leaves_a_draft_pull_request_for_a_person() -> None
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -256,16 +254,3 @@ def _the_branches_written() -> list[str]:
     written: dict[str, Any] = response.json()["branches"]
 
     return list(written)
-
-
-def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "feature-flag-toggle"},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

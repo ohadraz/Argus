@@ -22,7 +22,15 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from argus_testkit import Assertion, Kept, Scenario, all_of, attempting
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    a_factory_that_must_not_be_called,
+    all_of,
+    attempting,
+    nothing_was_collected,
+)
 from revenue_source import Charge, RevenueUnavailable
 from revenue_source.stripe_adapter import charges_between
 from revenue_source.takings import RevenueSettings
@@ -59,13 +67,13 @@ def test_without_a_credential_the_provider_is_never_asked() -> None:
                 lambda: charges_between(
                     some_window_start, some_window_end,
                     settings=settings_without_a_key,
-                    client_of=_a_factory_recording_into(a_client_was_asked_for))
+                    client_of=a_factory_that_must_not_be_called(a_client_was_asked_for))
             )
         ) \
         .then(
             all_of(
                 _the_source_said_it_could_not_be_read(),
-                _no_client_was_built(a_client_was_asked_for)
+                nothing_was_collected(a_client_was_asked_for)
             )
         )
 
@@ -173,36 +181,12 @@ def _settings_with(api_key: str) -> RevenueSettings:
                            stripe_base_url=dont_care_base_url)
 
 
-def _a_factory_recording_into(kept: Kept[bool]) -> Any:
-    def factory(*dont_care_args: Any, **dont_care_kwargs: Any) -> Any:
-        kept.take(True)
-
-        raise AssertionError(
-            "A client was built for a deployment holding no credential."
-        )
-
-    return factory
-
-
 def _the_source_said_it_could_not_be_read() -> Assertion[Any]:
     def assertion(error: Any) -> bool:
         if not isinstance(error, RevenueUnavailable):
             raise AssertionError(
                 f"Expected the source to report that it could not be read, but "
                 f"what came back was {error!r}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _no_client_was_built(kept: Kept[bool]) -> Assertion[Any]:
-    def assertion(dont_care_error: Any) -> bool:
-        if kept.taken:
-            raise AssertionError(
-                "Expected no request to be prepared without a credential, but a "
-                "client was built."
             )
 
         return True

@@ -297,7 +297,7 @@ def _it_has_been_running_for(expected: int) -> Assertion[LiveIncident]:
     def assertion(live: LiveIncident) -> bool:
         if live.elapsed_seconds != expected:
             raise AssertionError(
-                f"expected {expected}s elapsed, got {live.elapsed_seconds}s"
+                f"Expected {expected}s elapsed, got {live.elapsed_seconds}s."
             )
 
         return True
@@ -308,7 +308,7 @@ def _it_has_been_running_for(expected: int) -> Assertion[LiveIncident]:
 def _it_opened_on(expected: Alert) -> Assertion[LiveIncident]:
     def assertion(live: LiveIncident) -> bool:
         if live.alert != expected:
-            raise AssertionError(f"expected the alert [{expected}], got [{live.alert}]")
+            raise AssertionError(f"Expected the alert [{expected}], got [{live.alert}].")
 
         return True
 
@@ -326,7 +326,7 @@ def _the_minutes_shown_are(expected: list[tuple[str, float]]) -> Assertion[Story
         shown = [(bucket.bucket_id, bucket.error_rate) for bucket in story.metrics]
 
         if shown != expected:
-            raise AssertionError(f"expected the minutes {expected}, got {shown}")
+            raise AssertionError(f"Expected the minutes {expected}, got {shown}")
 
         return True
 
@@ -338,7 +338,7 @@ def _the_lines_shown_are(expected: list[str]) -> Assertion[Story]:
         shown = [log.text for log in story.logs]
 
         if shown != expected:
-            raise AssertionError(f"expected the lines {expected}, got {shown}")
+            raise AssertionError(f"Expected the lines {expected}, got {shown}")
 
         return True
 
@@ -350,7 +350,7 @@ def _the_flag_moves_shown_are(expected: list[tuple[str, str]]) -> Assertion[Stor
         shown = [(row.was, row.now) for row in story.flag_changes]
 
         if shown != expected:
-            raise AssertionError(f"expected the moves {expected}, got {shown}")
+            raise AssertionError(f"Expected the moves {expected}, got {shown}")
 
         return True
 
@@ -361,8 +361,8 @@ def _the_changes_were_read(expected: bool) -> Assertion[Story]:
     def assertion(story: Story) -> bool:
         if story.read_changes is not expected:
             raise AssertionError(
-                f"expected the change channel to be reported as "
-                f"{'read' if expected else 'unread'}, it was not"
+                f"Expected the change channel to be reported as "
+                f"{'read' if expected else 'unread'}, it was not."
             )
 
         return True
@@ -374,8 +374,8 @@ def _it_is_the_same_version_as(earlier: LiveIncident) -> Assertion[LiveIncident]
     def assertion(live: LiveIncident) -> bool:
         if live.version != earlier.version:
             raise AssertionError(
-                f"expected the page to be unchanged at version [{earlier.version}], "
-                f"got [{live.version}]"
+                f"Expected the page to be unchanged at version [{earlier.version}], "
+                f"got [{live.version}]."
             )
 
         return True
@@ -387,7 +387,7 @@ def _it_is_a_different_version_from(earlier: LiveIncident) -> Assertion[LiveInci
     def assertion(live: LiveIncident) -> bool:
         if live.version == earlier.version:
             raise AssertionError(
-                f"expected a new version, the page still reads [{live.version}]"
+                f"Expected a new version, the page still reads [{live.version}]."
             )
 
         return True

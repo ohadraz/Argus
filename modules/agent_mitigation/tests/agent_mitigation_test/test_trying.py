@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
-    ConfigurationRestorer,
     ConfigurationRoller,
     FlagSetter,
     MetricsFetcher,
@@ -26,7 +25,7 @@ from argus_core.models import (
     RollBackConfiguration,
     UndoDescriptor,
 )
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, dont_care_sleep
 
 from agent_mitigation_test.framework.assertions import the_verdict_is
 from agent_mitigation_test.framework.builders import (
@@ -35,6 +34,7 @@ from agent_mitigation_test.framework.builders import (
     a_clock_frozen_at,
     a_clock_that_runs_out_after_one_look,
     a_recovered_window,
+    a_restorer_nobody_calls,
     a_still_failing_window,
     a_window_ending_at_the_action,
     a_window_where_memory_never_fell,
@@ -43,7 +43,6 @@ from agent_mitigation_test.framework.builders import (
     an_action_setting,
     an_undo_descriptor_for,
     dont_care_restart,
-    dont_care_sleep,
     metrics_reading,
     nobody_can_say,
     nobody_changed_it,
@@ -76,7 +75,7 @@ def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -104,7 +103,7 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -135,7 +134,7 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -167,7 +166,7 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
                 still_wanted=nobody_still_wants_it,
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -199,7 +198,7 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -233,7 +232,7 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -265,7 +264,7 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -300,7 +299,7 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -328,7 +327,7 @@ def test_a_confirmed_action_is_left_in_place() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -361,7 +360,7 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -395,7 +394,7 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=somebody_changed_it()
             )
@@ -427,7 +426,7 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=somebody_changed_it()
             )
@@ -460,7 +459,7 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_can_say()
             )
@@ -489,7 +488,7 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=dont_care_restart(),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -525,7 +524,7 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
             sleep=dont_care_sleep,
             restart=dont_care_restart(),
             undo=undo,
-            restore_configuration=_a_restorer_nobody_calls(),
+            restore_configuration=a_restorer_nobody_calls(),
             roll_back=_a_roller_nobody_calls(),
             changed_from_outside=dont_care_outside
         )) \
@@ -668,7 +667,7 @@ def test_taking_a_restart_asks_for_the_service_the_action_names() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=restart,
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -699,7 +698,7 @@ def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -732,7 +731,7 @@ def test_a_restart_whose_memory_never_fell_is_refuted_though_the_symptoms_eased(
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -764,7 +763,7 @@ def test_a_restart_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=restart_could_not_be_taken,
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -798,7 +797,7 @@ def test_a_refuted_restart_puts_nothing_back_and_says_so() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -832,7 +831,7 @@ def test_a_confirmed_restart_carries_no_way_back_either() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_nobody_calls(),
                 changed_from_outside=nobody_changed_it()
             )
@@ -864,7 +863,7 @@ def _an_action_is_taken(metrics: list[MetricBucket],
         now=clock or a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
         restart=dont_care_restart(),
-        restore_configuration=_a_restorer_nobody_calls(),
+        restore_configuration=a_restorer_nobody_calls(),
         roll_back=_a_roller_nobody_calls(),
         changed_from_outside=nobody_changed_it(),
         **keywords
@@ -1228,7 +1227,7 @@ def test_taking_a_rollback_asks_for_the_application_and_the_entry() -> None:
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up("dont-care-service"),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=roll_back,
                 changed_from_outside=nobody_changed_it()
             )
@@ -1252,7 +1251,7 @@ def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up("dont-care-service"),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_returning(SOME_APPLICATION),
                 changed_from_outside=nobody_changed_it()
             )
@@ -1279,7 +1278,7 @@ def test_a_rollback_carries_a_way_back_where_a_restart_carries_none() -> None:
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
                 restart=_a_restarter_bringing_up("dont-care-service"),
-                restore_configuration=_a_restorer_nobody_calls(),
+                restore_configuration=a_restorer_nobody_calls(),
                 roll_back=_a_roller_returning(SOME_APPLICATION),
                 changed_from_outside=nobody_changed_it(),
                 undo=_an_undo_that_restores(SOME_APPLICATION)
@@ -1323,15 +1322,3 @@ def _it_carries_a_way_back() -> Assertion[Outcome]:
         return True
 
     return assertion
-
-
-def _a_restorer_nobody_calls() -> MagicMock:
-    """The way back from a rollback, wired but not exercised.
-
-    Required for the same reason the roller is: an agent that could be built
-    without a way to undo an action it may take is an agent that finds out at
-    the worst moment - when a refuted change is waiting to be put back.
-    """
-    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
-
-    return restore

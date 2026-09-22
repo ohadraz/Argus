@@ -219,7 +219,7 @@ def test_the_record_carries_what_the_search_narrows_by() -> None:
 
 def _a_record(remembered: RememberedIncident | None) -> RememberedIncident:
     if remembered is None:
-        raise AssertionError("expected an incident to be remembered, got nothing")
+        raise AssertionError("Expected an incident to be remembered, got nothing.")
 
     return remembered
 
@@ -229,7 +229,7 @@ def _it_remembers_doing(expected: ActionIdentity) -> Assertion[RememberedInciden
         done = [attempt.identity for attempt in _a_record(remembered).tried]
 
         if expected not in done:
-            raise AssertionError(f"expected [{expected}] among {done}")
+            raise AssertionError(f"Expected [{expected}] among {done}")
 
         return True
 
@@ -241,7 +241,7 @@ def _it_remembers_trying(subject: str) -> Assertion[RememberedIncident | None]:
         subjects = [attempt.identity.subject for attempt in _a_record(remembered).tried]
 
         if subject not in subjects:
-            raise AssertionError(f"expected [{subject}] among {subjects}")
+            raise AssertionError(f"Expected [{subject}] among {subjects}")
 
         return True
 
@@ -253,7 +253,7 @@ def _it_remembers_the_verdict(verdict: Verdict) -> Assertion[RememberedIncident 
         verdicts = [attempt.verdict for attempt in _a_record(remembered).tried]
 
         if verdict not in verdicts:
-            raise AssertionError(f"expected [{verdict}] among {verdicts}")
+            raise AssertionError(f"Expected [{verdict}] among {verdicts}")
 
         return True
 
@@ -265,7 +265,7 @@ def _it_remembers_this_many_attempts(expected: int) -> Assertion[RememberedIncid
         tried = _a_record(remembered).tried
 
         if len(tried) != expected:
-            raise AssertionError(f"expected [{expected}] attempts, got {tried}")
+            raise AssertionError(f"Expected [{expected}] attempts, got {tried}")
 
         return True
 
@@ -275,7 +275,7 @@ def _it_remembers_this_many_attempts(expected: int) -> Assertion[RememberedIncid
 def _nothing_is_remembered() -> Assertion[RememberedIncident | None]:
     def assertion(remembered: RememberedIncident | None) -> bool:
         if remembered is not None:
-            raise AssertionError(f"expected nothing to be remembered, got [{remembered}]")
+            raise AssertionError(f"Expected nothing to be remembered, got [{remembered}].")
 
         return True
 
@@ -287,7 +287,7 @@ def _it_is_the_incident(incident_id: str) -> Assertion[RememberedIncident | None
         recorded = _a_record(remembered).incident_id
 
         if recorded != incident_id:
-            raise AssertionError(f"expected [{incident_id}], got [{recorded}]")
+            raise AssertionError(f"Expected [{incident_id}], got [{recorded}].")
 
         return True
 
@@ -299,7 +299,7 @@ def _it_is_described_as(description: str) -> Assertion[RememberedIncident | None
         described_as = _a_record(remembered).described_as
 
         if described_as != description:
-            raise AssertionError(f"expected [{description}], got [{described_as}]")
+            raise AssertionError(f"Expected [{description}], got [{described_as}].")
 
         return True
 
@@ -311,7 +311,7 @@ def _it_happened_to(service: str) -> Assertion[RememberedIncident | None]:
         recorded = _a_record(remembered).service
 
         if recorded != service:
-            raise AssertionError(f"expected [{service}], got [{recorded}]")
+            raise AssertionError(f"Expected [{service}], got [{recorded}].")
 
         return True
 
@@ -323,7 +323,7 @@ def _it_was_opened_by(alert_name: str) -> Assertion[RememberedIncident | None]:
         recorded = _a_record(remembered).alert_name
 
         if recorded != alert_name:
-            raise AssertionError(f"expected [{alert_name}], got [{recorded}]")
+            raise AssertionError(f"Expected [{alert_name}], got [{recorded}].")
 
         return True
 

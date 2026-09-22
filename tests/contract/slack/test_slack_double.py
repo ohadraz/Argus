@@ -123,7 +123,7 @@ def _it_landed() -> Assertion[Posted]:
     def assertion(posted: Posted) -> bool:
         if not posted.ts:
             raise AssertionError(
-                f"expected the workspace to answer with an id, it refused: [{posted.refusal}]"
+                f"Expected the workspace to answer with an id, it refused: [{posted.refusal}]."
             )
 
         return True
@@ -134,11 +134,11 @@ def _it_landed() -> Assertion[Posted]:
 def _it_was_refused_for(reason: str) -> Assertion[Posted]:
     def assertion(posted: Posted) -> bool:
         if posted.ts is not None:
-            raise AssertionError(f"expected a refusal, the message landed as [{posted.ts}]")
+            raise AssertionError(f"Expected a refusal, the message landed as [{posted.ts}].")
 
         if reason not in posted.refusal:
             raise AssertionError(
-                f"expected the refusal to name [{reason}], it said [{posted.refusal}]"
+                f"Expected the refusal to name [{reason}], it said [{posted.refusal}]."
             )
 
         return True
@@ -156,7 +156,7 @@ def _it_is_not_worth_another_go() -> Assertion[Posted]:
     def assertion(posted: Posted) -> bool:
         if posted.worth_another_go:
             raise AssertionError(
-                f"expected [{posted.refusal}] read as final, it was read as worth retrying"
+                f"Expected [{posted.refusal}] read as final, it was read as worth retrying."
             )
 
         return True
@@ -182,7 +182,7 @@ def _it_reads_as(at_the_double: Posted) -> Assertion[Posted]:
 
         if real != stood_in:
             raise AssertionError(
-                f"expected the double to answer as the workspace did {real}, it answered {stood_in}"
+                f"Expected the double to answer as the workspace did {real}, it answered {stood_in}"
             )
 
         return True

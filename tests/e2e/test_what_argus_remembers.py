@@ -39,8 +39,6 @@ from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
-    REQUEST_TIMEOUT_SECONDS,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
@@ -50,6 +48,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 # An incident that is over, from long enough ago that nothing else here is
 # about it. Its id is arbitrary and never looked up: what a later walk reads is
@@ -112,7 +111,7 @@ def test_a_subject_an_earlier_incident_refuted_is_moved_down_the_list() -> None:
     Scenario() \
         .given(
             calling(_that_flag_was_tried_before_and_did_not_help()),
-            calling(_a_flag_was_toggled_but_is_not_the_cause()),
+            calling(a_scenario_was_seeded("flag-toggle-red-herring")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
         ) \
         .when(
@@ -167,24 +166,7 @@ def _that_flag_was_tried_before_and_did_not_help() -> Callable[[], bool]:
 
 
 def _a_flag_was_toggled() -> Callable[[], bool]:
-    return _a_scenario_was_seeded("feature-flag-toggle")
-
-
-def _a_flag_was_toggled_but_is_not_the_cause() -> Callable[[], bool]:
-    return _a_scenario_was_seeded("flag-toggle-red-herring")
-
-
-def _a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": scenario_id},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == httpx.codes.OK
-
-    return seed_scenario
+    return a_scenario_was_seeded("feature-flag-toggle")
 
 
 def _it_was_remembered_as_having_tried(
@@ -219,7 +201,7 @@ def _it_was_remembered_as_having_tried(
 
         if not remembered:
             raise AssertionError(
-                f"expected incident [{incident_id}] to have been remembered, "
+                f"Expected incident [{incident_id}] to have been remembered, "
                 f"found {[one.incident_id for one in found]}"
             )
 
@@ -227,7 +209,7 @@ def _it_was_remembered_as_having_tried(
 
         if (subject, verdict) not in tried:
             raise AssertionError(
-                f"expected [{subject}] [{verdict}] among {tried}"
+                f"Expected [{subject}] [{verdict}] among {tried}"
             )
 
         return True
@@ -252,14 +234,14 @@ def _the_order_was_changed_on(incident_id: str) -> Assertion[httpx.Response]:
 
         if not said:
             raise AssertionError(
-                "expected the walk to say it changed its candidate order, "
+                "Expected the walk to say it changed its candidate order, "
                 f"it said {sorted({event.kind for event in recorded})}"
             )
 
         if said[0].on_the_strength_of != incident_id:
             raise AssertionError(
-                f"expected the order changed on [{incident_id}], "
-                f"got [{said[0].on_the_strength_of}]"
+                f"Expected the order changed on [{incident_id}], "
+                f"got [{said[0].on_the_strength_of}]."
             )
 
         return True

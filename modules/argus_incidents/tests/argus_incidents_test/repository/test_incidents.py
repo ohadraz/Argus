@@ -7,11 +7,12 @@ from typing import Any
 import psycopg
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, IncidentStatus
+from argus_core.models import Alert, Incident, IncidentStatus
 from argus_incidents.repository import incidents
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 from argus_incidents_test.framework import no_column_is_empty
+from argus_incidents_test.framework.builders import an_incident_created_for
 
 
 @pytest.mark.integration
@@ -47,12 +48,11 @@ def test_transition_updates_the_status() -> None:
     some_alert = Alert(service=some_service, alert_name=some_alert_name)
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
                 lambda: incidents.transition(
@@ -69,19 +69,26 @@ def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
     # Not simply the newest. An incident that resolved after this one opened has
     # nothing left to watch; the one still running is what a reader came for.
     with connect_from_env() as conn:
-        still_running = incidents.create(conn, Alert(service="running", alert_name="HighErrorRate"))
+        # Created first, so it is also the *older* of the two - which is what
+        # makes this a claim about "has not finished" rather than about "newest".
+        still_running = incidents.create(
+            conn, Alert(service="running", alert_name="HighErrorRate")
+        )
         already_finished = incidents.create(
             conn, Alert(service="finished", alert_name="HighErrorRate")
         )
-        incidents.transition(
-            conn,
-            already_finished,
-            IncidentStatus.RESOLVED,
-        )
+        incidents.transition(conn, already_finished, IncidentStatus.RESOLVED)
 
-        current = incidents.get_current(conn)
-
-    assert current is not None and current.id == still_running
+        Scenario() \
+            .given(
+                still_running
+            ) \
+            .when(
+                lambda: incidents.get_current(conn)
+            ) \
+            .then(
+                _the_current_incident_was(still_running)
+            )
 
 
 @pytest.mark.integration
@@ -90,16 +97,22 @@ def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
     # screen exactly when everyone is looking at it.
     with connect_from_env() as conn:
         _no_incidents_at_all(conn)
-        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
-        incidents.transition(
-            conn,
-            incident_id,
-            IncidentStatus.RESOLVED,
+
+        the_only_one_there_has_been = incidents.create(
+            conn, Alert(service="io-shop", alert_name="HighErrorRate")
         )
+        incidents.transition(conn, the_only_one_there_has_been, IncidentStatus.RESOLVED)
 
-        current = incidents.get_current(conn)
-
-    assert current is not None and current.id == incident_id
+        Scenario() \
+            .given(
+                the_only_one_there_has_been
+            ) \
+            .when(
+                lambda: incidents.get_current(conn)
+            ) \
+            .then(
+                _the_current_incident_was(the_only_one_there_has_been)
+            )
 
 
 @pytest.mark.integration
@@ -107,9 +120,16 @@ def test_get_current_is_none_when_there_has_never_been_an_incident() -> None:
     # The state Argus is in most of the time, and the one the front page has to
     # say out loud rather than render as an empty frame.
     with connect_from_env() as conn:
-        _no_incidents_at_all(conn)
-
-        assert incidents.get_current(conn) is None
+        Scenario() \
+            .given(
+                calling(lambda: _no_incidents_at_all(conn))
+            ) \
+            .when(
+                lambda: incidents.get_current(conn)
+            ) \
+            .then(
+                _nothing_came_back()
+            )
 
 
 @pytest.mark.integration
@@ -121,12 +141,11 @@ def test_an_incident_that_resolved_records_when_it_ended() -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
                 lambda: incidents.transition(
@@ -148,12 +167,11 @@ def test_an_incident_that_escalated_records_when_it_ended() -> None:
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
                 lambda: incidents.transition(
@@ -175,12 +193,11 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_records_no_end = partial(_the_incident_records_no_end, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
                 lambda: incidents.transition(
@@ -202,15 +219,14 @@ def test_incidents_come_back_newest_first() -> None:
     a_newer_alert = Alert(service="newer-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incidents_come_back = partial(_the_incidents_come_back, conn)
 
-        older = an_incident_created_for(an_older_alert)
+        older = an_incident_created_for(conn, an_older_alert)
         # `now()` is transaction time, so two incidents created in one
         # transaction share a timestamp and the ordering has nothing left to
         # break the tie - which is not how an incident is ever created.
         conn.commit()
-        newer = an_incident_created_for(a_newer_alert)
+        newer = an_incident_created_for(conn, a_newer_alert)
 
         Scenario() \
             .given(
@@ -232,13 +248,12 @@ def test_a_running_incident_can_be_withdrawn() -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
         the_incident_is = partial(_the_incident_is, conn)
         the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
                 lambda: incidents.withdraw(conn, incident_id)
@@ -257,11 +272,10 @@ def test_withdrawing_says_that_it_took_effect() -> None:
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        an_incident_created_for = partial(_an_incident_created_for, conn)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(some_alert)
+                incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
                 lambda: incidents.withdraw(conn, incident_id)
@@ -330,14 +344,19 @@ def _no_incidents_at_all(conn: psycopg.Connection) -> None:
     conn.commit()
 
 
-def _an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
-    return incidents.create(conn, alert)
-
-
 @pytest.mark.integration
 def test_get_returns_none_for_unknown_incident() -> None:
     with connect_from_env() as conn:
-        assert incidents.get(conn, "00000000-0000-0000-0000-000000000000") is None
+        Scenario() \
+            .given(
+                an_id_no_incident_was_ever_given := "00000000-0000-0000-0000-000000000000"
+            ) \
+            .when(
+                lambda: incidents.get(conn, an_id_no_incident_was_ever_given)
+            ) \
+            .then(
+                _nothing_came_back()
+            )
 
 
 @pytest.mark.integration
@@ -378,6 +397,44 @@ def _the_incident_is(conn: psycopg.Connection,
             raise AssertionError(
                 f"Expected status [{status!r}], got [{incident.status!r}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_current_incident_was(expected: str) -> Assertion[Incident | None]:
+    """Which incident a live view would open on.
+
+    The absence is reported separately from the wrong choice, because the two
+    are different failures: nothing current at all is a front page with no
+    incident on it, where the wrong one is a front page confidently showing
+    somebody the incident they did not come for.
+    """
+    def assertion(current: Incident | None) -> bool:
+        if current is None:
+            raise AssertionError(f"Expected incident [{expected}] to be current, got none.")
+
+        if current.id != expected:
+            raise AssertionError(
+                f"Expected incident [{expected}] to be current, got [{current.id}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_came_back() -> Assertion[Incident | None]:
+    """That the repository answered with an absence rather than a row.
+
+    `None` rather than a falsy stand-in: every caller of these two reads asks
+    `is None`, and an empty object would sail past that and be rendered as an
+    incident with no fields.
+    """
+    def assertion(found: Incident | None) -> bool:
+        if found is not None:
+            raise AssertionError(f"Expected nothing to come back, got [{found}].")
 
         return True
 

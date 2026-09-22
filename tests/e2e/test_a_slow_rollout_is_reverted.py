@@ -39,9 +39,8 @@ means.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
-from typing import Any
 
 import httpx
 import pytest
@@ -65,6 +64,7 @@ from tests.e2e.framework.flags import (
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
+from tests.e2e.framework.world import the_middle_of, the_shops_window
 from tests.framework.assertions import (
     some_confidence_was_given,
     the_cause_was_identified_as,
@@ -150,7 +150,7 @@ def _only_the_tail_ever_moved() -> Assertion[httpx.Response]:
     anything.
     """
     def assertion(dont_care_response: httpx.Response) -> bool:
-        window = _the_shops_window()
+        window = the_shops_window()
         the_quietest_tail = min(minute["p99_ms"] for minute in window)
         a_moved_tail = the_quietest_tail * THE_TAIL_AT_LEAST_DOUBLES
 
@@ -166,12 +166,12 @@ def _only_the_tail_ever_moved() -> Assertion[httpx.Response]:
                 f"tail in it is [{the_quietest_tail}]ms."
             )
 
-        tail_before = _the_middle_of(minute["p99_ms"] for minute in ordinary)
-        tail_after = _the_middle_of(minute["p99_ms"] for minute in slow)
-        median_before = _the_middle_of(minute["p50_ms"] for minute in ordinary)
-        median_after = _the_middle_of(minute["p50_ms"] for minute in slow)
-        p95_before = _the_middle_of(minute["p95_ms"] for minute in ordinary)
-        p95_after = _the_middle_of(minute["p95_ms"] for minute in slow)
+        tail_before = the_middle_of(minute["p99_ms"] for minute in ordinary)
+        tail_after = the_middle_of(minute["p99_ms"] for minute in slow)
+        median_before = the_middle_of(minute["p50_ms"] for minute in ordinary)
+        median_after = the_middle_of(minute["p50_ms"] for minute in slow)
+        p95_before = the_middle_of(minute["p95_ms"] for minute in ordinary)
+        p95_after = the_middle_of(minute["p95_ms"] for minute in slow)
 
         if median_after > median_before * THE_AGGREGATES_GROW_BY_NO_MORE_THAN:
             raise AssertionError(
@@ -214,7 +214,7 @@ def _no_request_ever_failed() -> Assertion[httpx.Response]:
     failure it is not supposed to have.
     """
     def assertion(dont_care_response: httpx.Response) -> bool:
-        worst = max(minute["error_rate"] for minute in _the_shops_window())
+        worst = max(minute["error_rate"] for minute in the_shops_window())
 
         if worst > A_CALM_ERROR_RATE:
             raise AssertionError(
@@ -227,41 +227,6 @@ def _no_request_ever_failed() -> Assertion[httpx.Response]:
         return True
 
     return assertion
-
-
-def _the_middle_of(figures: Iterable[float]) -> float:
-    """The median of a minute's worth of readings, without the import.
-
-    A plain sort rather than `statistics.median`, because the window is small
-    and what an assertion needs from the middle of it is the reading itself
-    rather than an average of two - a figure the shop actually reported is a
-    figure a failure message can be checked against.
-    """
-    ordered = sorted(figures)
-
-    if not ordered:
-        raise AssertionError("Asked for the middle of no readings at all.")
-
-    return float(ordered[len(ordered) // 2])
-
-
-def _the_shops_window() -> list[dict[str, Any]]:
-    """The Target Service's own metrics, read straight from it.
-
-    Not through Argus's read tier: what this checks is what the world did, and a
-    reading taken through the code under test would agree with that code about
-    anything it got wrong.
-    """
-    response = httpx.get(
-        f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
-    )
-    response.raise_for_status()
-    window: list[dict[str, Any]] = response.json()
-
-    if not window:
-        raise AssertionError("The Target Service reported no metrics at all.")
-
-    return window
 
 
 def _a_slow_feature_went_out_to_a_few_percent() -> Callable[[], bool]:

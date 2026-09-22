@@ -41,6 +41,7 @@ from agent_investigator_test.framework.builders.dispatcher import (
     a_call_to,
     a_dispatcher,
 )
+from agent_investigator_test.framework.recording import a_recorder_that_keeps_what_it_is_given
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 
@@ -128,7 +129,7 @@ def test_a_retrieval_that_was_served_is_written_down() -> None:
 
     Scenario() \
         .given(
-            recorded := _a_recorder_that_keeps_what_it_is_given()
+            recorded := a_recorder_that_keeps_what_it_is_given()
         ) \
         .when(
             lambda: _a_dispatcher_recording_to(
@@ -162,7 +163,7 @@ def test_a_call_nothing_could_serve_is_not_written_down() -> None:
 
     Scenario() \
         .given(
-            recorded := _a_recorder_that_keeps_what_it_is_given()
+            recorded := a_recorder_that_keeps_what_it_is_given()
         ) \
         .when(
             lambda: _a_dispatcher_recording_to(recorded).dispatch(
@@ -183,7 +184,7 @@ def test_a_window_asked_for_twice_is_written_down_once() -> None:
     dont_care_window_start = "2026-08-29T21:50:00Z"
     dont_care_window_end = "2026-08-29T22:05:00Z"
     some_dispatcher = _a_dispatcher_recording_to(
-        recorded := _a_recorder_that_keeps_what_it_is_given()
+        recorded := a_recorder_that_keeps_what_it_is_given()
     )
 
     def the_same_window_again() -> ToolResult:
@@ -231,17 +232,6 @@ def _the_result_says_it_was_already_read() -> Assertion[ToolResult]:
         return True
 
     return assertion
-
-
-def _a_recorder_that_keeps_what_it_is_given() -> Kept[ReplayEntry]:
-    """A recorder that collects entries instead of storing them.
-
-    Handed over as `recorded.take` rather than as the object itself: a
-    `Scenario` calls anything callable it is given, and a recorder that ran
-    while the test was being arranged would record nothing and report it
-    faithfully.
-    """
-    return Kept()
 
 
 def _a_dispatcher_recording_to(recorded: Kept[ReplayEntry],

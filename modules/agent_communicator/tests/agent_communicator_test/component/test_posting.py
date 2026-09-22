@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
 import pytest
 from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
 from argus_testkit import Assertion, Scenario, all_of
+
+from agent_communicator_test.framework.slack import messages_posted_to
 
 
 @pytest.mark.component
@@ -69,17 +70,9 @@ def test_a_delivered_message_answers_with_the_id_slack_gave_it(slack: str) -> No
         )
 
 
-def _posted(base_url: str) -> list[dict[str, Any]]:
-    """Every message the double accepted, read back through its control seam."""
-    answered: dict[str, Any] = httpx.get(f"{base_url}/double-control/posted").json()
-    held: list[dict[str, Any]] = answered["posted"]
-
-    return held
-
-
 def _slack_holds_one_message(base_url: str) -> Assertion[Any]:
     def assertion(_result: Any) -> bool:
-        held = _posted(base_url)
+        held = messages_posted_to(base_url)
         if len(held) != 1:
             raise AssertionError(f"Expected one message in Slack, got {len(held)}: {held}.")
 
@@ -90,7 +83,7 @@ def _slack_holds_one_message(base_url: str) -> Assertion[Any]:
 
 def _that_message_went_to(base_url: str, channel: str) -> Assertion[Any]:
     def assertion(_result: Any) -> bool:
-        addressed = [message["channel"] for message in _posted(base_url)]
+        addressed = [message["channel"] for message in messages_posted_to(base_url)]
         if addressed != [channel]:
             raise AssertionError(f"Expected it addressed to [{channel}], got {addressed}.")
 
@@ -101,7 +94,7 @@ def _that_message_went_to(base_url: str, channel: str) -> Assertion[Any]:
 
 def _that_message_said(base_url: str, text: str) -> Assertion[Any]:
     def assertion(_result: Any) -> bool:
-        said = [message["text"] for message in _posted(base_url)]
+        said = [message["text"] for message in messages_posted_to(base_url)]
         if said != [text]:
             raise AssertionError(f"Expected it to say [{text}], got {said}.")
 
@@ -112,7 +105,7 @@ def _that_message_said(base_url: str, text: str) -> Assertion[Any]:
 
 def _it_is_the_id_of_the_message_slack_holds(base_url: str) -> Assertion[Posted]:
     def assertion(answered: Posted) -> bool:
-        held = _posted(base_url)
+        held = messages_posted_to(base_url)
         if not held:
             raise AssertionError("Expected a message in Slack to compare the id against.")
 

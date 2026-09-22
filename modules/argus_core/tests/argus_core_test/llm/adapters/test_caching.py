@@ -21,7 +21,6 @@ from unittest.mock import Mock
 import anthropic
 import pytest
 from anthropic.types import Message, TextBlock, Usage
-from argus_core.config import LLMSettings
 from argus_core.llm.adapters.anthropic_adapter import (
     ASSISTANT_ROLE,
     END_TURN_STOP_REASON,
@@ -35,6 +34,8 @@ from argus_core.models.transcript import Ask
 from argus_core.models.turn import Turn
 from argus_testkit import Assertion, Scenario
 
+from argus_core_test.framework.llm import settings_that_reach_no_api
+
 
 @pytest.mark.unit
 def test_a_turn_asks_for_what_it_sent_to_be_cached() -> None:
@@ -43,7 +44,7 @@ def test_a_turn_asks_for_what_it_sent_to_be_cached() -> None:
     # as the transcript grows, which is exactly the shape of an investigation -
     # each turn's prefix is the previous turn's whole request.
     some_api = _an_api_that_answers()
-    investigator = AnthropicLLMClient(_settings_that_reach_no_api(), client=some_api)
+    investigator = AnthropicLLMClient(settings_that_reach_no_api(), client=some_api)
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
     Scenario() \
@@ -86,16 +87,6 @@ def _a_tool() -> ToolDefinition:
         properties={"window_start": {"type": "string"}},
         required=["window_start"]
     )
-
-
-def _settings_that_reach_no_api() -> LLMSettings:
-    """Configuration for a client that has been handed its own API stand-in.
-
-    The key is empty because nothing here authenticates: the SDK client is
-    injected, so the one thing `Settings` is still read for is how many
-    candidates a verdict may carry.
-    """
-    return LLMSettings(anthropic_api_key="", anthropic_base_url="")
 
 
 def _an_api_that_answers(said: str = "dont care what it said") -> Mock:

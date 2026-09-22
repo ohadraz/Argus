@@ -166,7 +166,7 @@ def _a_line_saying(level: str) -> str:
 def _the_levels_are(expected: list[str]) -> Assertion[list[str]]:
     def assertion(read: list[str]) -> bool:
         if read != expected:
-            raise AssertionError(f"expected the levels {expected}, got {read}")
+            raise AssertionError(f"Expected the levels {expected}, got {read}")
 
         return True
 
@@ -177,7 +177,7 @@ def _it_is_at_no_level() -> Assertion[LogLine]:
     def assertion(line: LogLine) -> bool:
         if line.level != "plain":
             raise AssertionError(
-                f"expected a line at no level, got one at [{line.level}]"
+                f"Expected a line at no level, got one at [{line.level}]."
             )
 
         return True
@@ -188,7 +188,7 @@ def _it_is_at_no_level() -> Assertion[LogLine]:
 def _its_message_reads(expected: str) -> Assertion[LogLine]:
     def assertion(line: LogLine) -> bool:
         if line.message != expected:
-            raise AssertionError(f"expected [{expected}], got [{line.message}]")
+            raise AssertionError(f"Expected [{expected}], got [{line.message}].")
 
         return True
 
@@ -199,7 +199,7 @@ def _its_text_is(expected: str) -> Assertion[LogLine]:
     def assertion(line: LogLine) -> bool:
         if line.text != expected:
             raise AssertionError(
-                f"expected the line to be carried as [{expected}], got [{line.text}]"
+                f"Expected the line to be carried as [{expected}], got [{line.text}]."
             )
 
         return True
@@ -210,7 +210,7 @@ def _its_text_is(expected: str) -> Assertion[LogLine]:
 def _its_stamp_is(expected: str | None) -> Assertion[LogLine]:
     def assertion(line: LogLine) -> bool:
         if line.stamp != expected:
-            raise AssertionError(f"expected the stamp [{expected}], got [{line.stamp}]")
+            raise AssertionError(f"Expected the stamp [{expected}], got [{line.stamp}].")
 
         return True
 
@@ -220,7 +220,7 @@ def _its_stamp_is(expected: str | None) -> Assertion[LogLine]:
 def _it_happened_at(expected: str) -> Assertion[LogLine]:
     def assertion(line: LogLine) -> bool:
         if line.when != expected:
-            raise AssertionError(f"expected [{expected}], got [{line.when}]")
+            raise AssertionError(f"Expected [{expected}], got [{line.when}].")
 
         return True
 
@@ -230,7 +230,7 @@ def _it_happened_at(expected: str) -> Assertion[LogLine]:
 def _the_minutes_are(expected: list[str]) -> Assertion[list[str]]:
     def assertion(minutes: list[str]) -> bool:
         if minutes != expected:
-            raise AssertionError(f"expected the minutes {expected}, got {minutes}")
+            raise AssertionError(f"Expected the minutes {expected}, got {minutes}")
 
         return True
 

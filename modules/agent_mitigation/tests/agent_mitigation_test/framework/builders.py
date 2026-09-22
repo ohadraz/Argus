@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, create_autospec
 
 from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
-from agent_mitigation.tools import ChangedFromOutside, ServiceRestarter, StillWanted
+from agent_mitigation.tools import (
+    ChangedFromOutside,
+    ConfigurationRestorer,
+    ServiceRestarter,
+    StillWanted,
+)
 from argus_core import to_iso_minute
 from argus_core.models import (
     FailureMode,
@@ -121,10 +127,6 @@ def metrics_reading(window: list[MetricBucket]) -> Callable[[], list[MetricBucke
     return lambda: window
 
 
-def dont_care_sleep(seconds: float) -> None:
-    return None
-
-
 def dont_care_restart() -> ServiceRestarter:
     """The restart seam for a test about flags, which must never reach it.
 
@@ -133,7 +135,7 @@ def dont_care_restart() -> ServiceRestarter:
     a test that reaches this is not the test it says it is.
     """
     def restart(service: str, /) -> RestartedService:
-        raise AssertionError(f"no restart expected here, and {service} was asked for")
+        raise AssertionError(f"No restart expected here, and {service} was asked for.")
 
     return restart
 
@@ -255,3 +257,15 @@ def nobody_can_say() -> ChangedFromOutside:
         return None
 
     return changed_from_outside
+
+
+def a_restorer_nobody_calls() -> MagicMock:
+    """The way back from a rollback, wired but not exercised.
+
+    Required for the same reason the roller is: an agent that could be built
+    without a way to undo an action it may take is an agent that finds out at
+    the worst moment - when a refuted change is waiting to be put back.
+    """
+    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
+
+    return restore

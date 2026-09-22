@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 from argus_core.models import FlagChange
 from argus_narration.flags import FlagToggleRow, a_flag_history, on_or_off, said_as_a_state
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 SOME_MOMENT = "2026-08-30T10:05:00Z"
 A_LATER_MOMENT = "2026-08-30T10:25:00Z"
@@ -132,7 +132,7 @@ def test_a_flag_position_the_model_wrote_is_said_the_way_the_table_says_it() -> 
     Scenario() \
         .given(some_state_as_the_model_wrote_it := "off") \
         .when(lambda: said_as_a_state(some_state_as_the_model_wrote_it)) \
-        .then(_it_reads("OFF"))
+        .then(the_answer_was("OFF"))
 
 
 @pytest.mark.unit
@@ -143,7 +143,7 @@ def test_a_state_that_is_not_a_flag_position_is_left_exactly_as_it_came() -> Non
     Scenario() \
         .given(some_version_a_deployment_moved_from := "v2.3.1") \
         .when(lambda: said_as_a_state(some_version_a_deployment_moved_from)) \
-        .then(_it_reads("v2.3.1"))
+        .then(the_answer_was("v2.3.1"))
 
 
 @pytest.mark.unit
@@ -153,7 +153,7 @@ def test_a_cause_that_moved_between_no_states_says_nothing() -> None:
     Scenario() \
         .given(nothing_was_stated := None) \
         .when(lambda: said_as_a_state(nothing_was_stated)) \
-        .then(_it_reads(""))
+        .then(the_answer_was(""))
 
 
 def _a_change(enabled: bool,
@@ -175,8 +175,8 @@ def _the_only_row_moved(was: str, now: str) -> Assertion[list[FlagToggleRow]]:
 
         if (row.was, row.now) != (was, now):
             raise AssertionError(
-                f"expected a move from [{was}] to [{now}], "
-                f"got [{row.was}] to [{row.now}]"
+                f"Expected a move from [{was}] to [{now}], "
+                f"got [{row.was}] to [{row.now}]."
             )
 
         return True
@@ -189,7 +189,7 @@ def _the_only_row_is_about(expected: str) -> Assertion[list[FlagToggleRow]]:
         row = _the_only(history)
 
         if row.flag != expected:
-            raise AssertionError(f"expected a row about [{expected}], got [{row.flag}]")
+            raise AssertionError(f"Expected a row about [{expected}], got [{row.flag}].")
 
         return True
 
@@ -201,7 +201,7 @@ def _the_only_row_credits(expected: str | None) -> Assertion[list[FlagToggleRow]
         row = _the_only(history)
 
         if row.actor != expected:
-            raise AssertionError(f"expected [{expected}] credited, got [{row.actor}]")
+            raise AssertionError(f"Expected [{expected}] credited, got [{row.actor}].")
 
         return True
 
@@ -219,7 +219,7 @@ def _the_rows_marked_latest_are(expected: list[bool]) -> Assertion[list[FlagTogg
         marked = [row.latest_for_flag for row in history]
 
         if marked != expected:
-            raise AssertionError(f"expected {expected} marked latest, got {marked}")
+            raise AssertionError(f"Expected {expected} marked latest, got {marked}")
 
         return True
 
@@ -229,7 +229,7 @@ def _the_rows_marked_latest_are(expected: list[bool]) -> Assertion[list[FlagTogg
 def _there_are_no_rows() -> Assertion[list[FlagToggleRow]]:
     def assertion(history: list[FlagToggleRow]) -> bool:
         if history:
-            raise AssertionError(f"expected no rows, got {len(history)}")
+            raise AssertionError(f"Expected no rows, got {len(history)}")
 
         return True
 
@@ -243,16 +243,6 @@ def _the_only(history: list[FlagToggleRow]) -> FlagToggleRow:
     two rows fails saying so instead of quietly passing on its first.
     """
     if len(history) != 1:
-        raise AssertionError(f"expected one row, got {len(history)}")
+        raise AssertionError(f"Expected one row, got {len(history)}")
 
     return history[0]
-
-
-def _it_reads(expected: str) -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        if said != expected:
-            raise AssertionError(f"expected [{expected}], got [{said}]")
-
-        return True
-
-    return assertion

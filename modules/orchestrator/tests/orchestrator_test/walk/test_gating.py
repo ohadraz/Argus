@@ -22,8 +22,7 @@ follows is decided one node further on, in one place.
 
 from __future__ import annotations
 
-from typing import cast
-from unittest.mock import MagicMock, create_autospec
+from unittest.mock import MagicMock
 
 import pytest
 from argus_core.events import ActionRefused, IncidentEvent
@@ -50,6 +49,7 @@ from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
 from orchestrator.walk.state import IncidentState
 
+from orchestrator_test.framework.assertions import the_route_is
 from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     a_random_id,
@@ -61,11 +61,6 @@ DONT_CARE_SERVICE = "dont-care-service"
 # How many attempts a subject is allowed. Irrelevant to the tests that name it:
 # none of those incidents has tried anything yet, so no cap above zero can bind.
 DONT_CARE_ATTEMPT_CAP = 1
-
-
-@pytest.fixture
-def record_outcome() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.RecordOutcome, instance=True))
 
 
 @pytest.mark.unit
@@ -174,7 +169,7 @@ def test_an_admitted_action_is_routed_to_the_node_that_performs_it() -> None:
             )
         ) \
         .when(lambda: route_after_gate(an_admitted_incident)) \
-        .then(_the_route_is(MITIGATING_ROUTE))
+        .then(the_route_is(MITIGATING_ROUTE))
 
 
 @pytest.mark.unit
@@ -187,7 +182,7 @@ def test_a_rejected_action_is_handed_to_the_walk() -> None:
     Scenario() \
         .given(a_rejected_incident := _a_mitigating_incident()) \
         .when(lambda: route_after_gate(a_rejected_incident)) \
-        .then(_the_route_is(NEXT_CANDIDATE_ROUTE))
+        .then(the_route_is(NEXT_CANDIDATE_ROUTE))
 
 
 @pytest.mark.unit
@@ -531,16 +526,6 @@ def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,
                 f"Expected the reason to say [{reason}], it said "
                 f"[{recorded['result']}]."
             )
-
-        return True
-
-    return assertion
-
-
-def _the_route_is(expected: str) -> Assertion[str]:
-    def assertion(route: str) -> bool:
-        if route != expected:
-            raise AssertionError(f"Expected the route [{expected}], got [{route}].")\
 
         return True
 

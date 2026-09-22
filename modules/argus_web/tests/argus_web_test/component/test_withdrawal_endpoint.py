@@ -19,6 +19,8 @@ from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
 
+from argus_web_test.framework.assertions import the_response_was
+
 
 @pytest.mark.component
 def test_withdrawing_a_running_incident_stops_it() -> None:
@@ -36,7 +38,7 @@ def test_withdrawing_a_running_incident_stops_it() -> None:
                 lambda: client.post(f"/incidents/{incident_id}/withdraw")
             ) \
             .then(all_of(
-                _the_answer_was(HttpStatus.OK),
+                the_response_was(HttpStatus.OK),
                 _the_incident_is(incident_id, IncidentStatus.WITHDRAWN),
             ))
 
@@ -65,7 +67,7 @@ def test_withdrawing_an_incident_that_already_ended_is_refused() -> None:
                 lambda: client.post(f"/incidents/{incident_id}/withdraw")
             ) \
             .then(all_of(
-                _the_answer_was(HttpStatus.CONFLICT),
+                the_response_was(HttpStatus.CONFLICT),
                 _the_incident_is(incident_id, IncidentStatus.RESOLVED),
             ))
 
@@ -80,21 +82,8 @@ def test_withdrawing_an_incident_nobody_has_is_not_found() -> None:
                 lambda: client.post(f"/incidents/{some_id_that_never_existed}/withdraw")
             ) \
             .then(
-                _the_answer_was(HttpStatus.NOT_FOUND)
+                the_response_was(HttpStatus.NOT_FOUND)
             )
-
-
-def _the_answer_was(expected: HttpStatus) -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
-        if response.status_code != expected:
-            raise AssertionError(
-                f"Expected [{expected}], got [{response.status_code}]: "
-                f"{response.text}."
-            )
-
-        return True
-
-    return assertion
 
 
 def _the_incident_is(incident_id: str,

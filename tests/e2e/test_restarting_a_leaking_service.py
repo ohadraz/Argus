@@ -46,15 +46,12 @@ from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx
-import psycopg
 import pytest
 from argus_core.events import ActionTaken, FixAttempted, OnsetDetected
 from argus_core.models import RESTART_SERVICE, IncidentStatus
-from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
-    DATABASE_URL,
     RECORDED_RESOURCE_LEAK,
     REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
@@ -66,6 +63,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.world import the_incidents_events
 
 # What the shop's own monitoring pages on for a leak, and not what it pages on
 # for anything else. Memory is the signal that moves first: by the time a
@@ -127,7 +125,7 @@ def _the_onset_was_dated_inside_the_climb() -> Assertion[httpx.Response]:
         incident_id = incident_id_from(response)
         window = _the_shops_window()
         onsets = [
-            event for event in _the_incidents_events(incident_id)
+            event for event in the_incidents_events(incident_id)
             if isinstance(event, OnsetDetected)
         ]
 
@@ -168,7 +166,7 @@ def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx.Response
     def assertion(response: httpx.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
-            event for event in _the_incidents_events(incident_id)
+            event for event in the_incidents_events(incident_id)
             if isinstance(event, ActionTaken)
         ]
 
@@ -265,7 +263,7 @@ def _a_fix_was_proposed() -> Assertion[httpx.Response]:
     def assertion(response: httpx.Response) -> bool:
         incident_id = incident_id_from(response)
         attempts = [
-            event for event in _the_incidents_events(incident_id)
+            event for event in the_incidents_events(incident_id)
             if isinstance(event, FixAttempted)
         ]
 
@@ -281,17 +279,13 @@ def _a_fix_was_proposed() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_incidents_events(incident_id: str) -> list[Any]:
-    with psycopg.connect(DATABASE_URL) as conn:
-        return events.get_by_incident(conn, incident_id)
-
-
 def _the_shops_window() -> list[dict[str, Any]]:
-    """The Target Service's own metrics, read straight from it.
+    """The Target Service's own metrics, insisting on enough of them.
 
-    Not through Argus's read tier: what this checks is what the world did, and
-    a reading taken through the code under test would agree with that code
-    about anything it got wrong.
+    Its own rather than the framework's: what this case needs is not merely
+    a non-empty window but one long enough to contain the climb it asserts
+    about, and a shorter one has to fail here rather than in the arithmetic.
+
     """
     response = httpx.get(
         f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS

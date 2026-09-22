@@ -31,15 +31,10 @@ from argus_core.events import (
     IncidentEvent,
 )
 from argus_core.models import (
-    RESTART_SERVICE,
-    REVERT_FEATURE_FLAG,
     ActionIdentity,
-    ActionType,
     Actor,
     Alert,
     Attempt,
-    Evidence,
-    FailureMode,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -55,11 +50,21 @@ from orchestrator.walk.investigating import investigator_node, route_after_inves
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
-from orchestrator_test.framework.assertions import assert_that, the_result_at, the_result_is
+from orchestrator_test.framework.assertions import (
+    assert_that,
+    the_result_at,
+    the_result_is,
+    the_route_is,
+)
 from orchestrator_test.framework.builders import (
+    a_candidate_blaming,
     a_determined_hypothesis,
+    a_leak_blamed_on,
+    an_identity,
     an_incident_state,
     an_undetermined_hypothesis,
+    putting_back,
+    restarting,
 )
 
 SOME_FLAG = "monthly-spend-feature"
@@ -215,7 +220,7 @@ def test_an_investigation_that_named_a_cause_is_routed_to_the_proposal() -> None
     Scenario() \
         .given(a_mitigating_incident := _an_incident_in(IncidentStatus.MITIGATING)) \
         .when(lambda: route_after_investigation(a_mitigating_incident)) \
-        .then(_the_route_is(MITIGATING_ROUTE))
+        .then(the_route_is(MITIGATING_ROUTE))
 
 
 @pytest.mark.unit
@@ -263,7 +268,7 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
     a_window_already_read = Reading(channel=RetrievalChannel.LOGS,
                                     window_start="2026-08-20T10:30:00Z",
                                     window_end="2026-08-20T11:08:00Z")
-    a_refuted_attempt = _an_attempt_to(_putting_back(SOME_FLAG))
+    a_refuted_attempt = _an_attempt_to(putting_back(SOME_FLAG))
     a_second_round = _an_investigating_incident().model_copy(
         update={"already_read": [a_window_already_read],
                 "attempts": [a_refuted_attempt]}
@@ -302,9 +307,9 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
     # leaves an identical candidate list behind when it runs out, and those two
     # do not end the same way.
     a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(_putting_back(SOME_FLAG))]}
+        update={"attempts": [_an_attempt_to(putting_back(SOME_FLAG))]}
     )
-    the_same_explanation_again = _a_candidate_blaming(
+    the_same_explanation_again = a_candidate_blaming(
         a_round_after_that_flag_was_tried.incident_id, SOME_FLAG
     )
 
@@ -332,9 +337,9 @@ def test_a_later_round_does_not_restart_a_service_it_already_restarted(
     # nothing alike and the walk would restart one service once per candidate -
     # with the gate's cap as the only thing stopping it.
     a_round_after_the_restart = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(_restarting(SOME_SERVICE))]}
+        update={"attempts": [_an_attempt_to(restarting(SOME_SERVICE))]}
     )
-    the_same_leak_in_other_words = _a_leak_blamed_on(
+    the_same_leak_in_other_words = a_leak_blamed_on(
         a_round_after_the_restart.incident_id, "unbounded cache growth"
     )
 
@@ -358,7 +363,7 @@ def test_an_investigation_that_named_none_reaches_a_human() -> None:
     Scenario() \
         .given(an_escalated_incident := _an_incident_in(IncidentStatus.ESCALATED)) \
         .when(lambda: route_after_investigation(an_escalated_incident)) \
-        .then(_the_route_is(ESCALATED_ROUTE))
+        .then(the_route_is(ESCALATED_ROUTE))
 
 
 @pytest.mark.unit
@@ -375,8 +380,8 @@ def test_an_action_an_earlier_incident_refuted_is_tried_last(
         .given(
             calling(lambda: _the_investigation_returned(
                 investigate,
-                _a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG),
-                _a_candidate_blaming(an_investigating_incident.incident_id,
+                a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG),
+                a_candidate_blaming(an_investigating_incident.incident_id,
                                      ANOTHER_FLAG)
             ))
         ) \
@@ -385,7 +390,7 @@ def test_an_action_an_earlier_incident_refuted_is_tried_last(
                 an_investigating_incident,
                 investigate=investigate,
                 recall_similar=_an_earlier_incident_that_refuted(
-                    _putting_back(SOME_FLAG)
+                    putting_back(SOME_FLAG)
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes)
@@ -408,9 +413,9 @@ def test_a_restart_an_earlier_incident_refuted_demotes_a_leak_worded_otherwise(
         .given(
             calling(lambda: _the_investigation_returned(
                 investigate,
-                _a_leak_blamed_on(an_investigating_incident.incident_id,
+                a_leak_blamed_on(an_investigating_incident.incident_id,
                                   the_leak_nobody_worded_the_same_way),
-                _a_candidate_blaming(an_investigating_incident.incident_id,
+                a_candidate_blaming(an_investigating_incident.incident_id,
                                      ANOTHER_FLAG)
             ))
         ) \
@@ -419,7 +424,7 @@ def test_a_restart_an_earlier_incident_refuted_demotes_a_leak_worded_otherwise(
                 an_investigating_incident,
                 investigate=investigate,
                 recall_similar=_an_earlier_incident_that_refuted(
-                    _restarting(SOME_SERVICE)
+                    restarting(SOME_SERVICE)
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes)
@@ -444,8 +449,8 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
         .given(
             calling(lambda: _the_investigation_returned(
                 investigate,
-                _a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG),
-                _a_candidate_blaming(an_investigating_incident.incident_id,
+                a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG),
+                a_candidate_blaming(an_investigating_incident.incident_id,
                                      ANOTHER_FLAG)
             ))
         ) \
@@ -454,14 +459,14 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
                 an_investigating_incident,
                 investigate=investigate,
                 recall_similar=_an_earlier_incident_that_refuted(
-                    _putting_back(SOME_FLAG), incident_id=the_incident_that_moved_it
+                    putting_back(SOME_FLAG), incident_id=the_incident_that_moved_it
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes,
                 publisher=published.take)
         ) \
         .then(_it_was_said_that(published,
-                                _putting_back(SOME_FLAG),
+                                putting_back(SOME_FLAG),
                                 the_incident_that_moved_it))
 
 
@@ -478,7 +483,7 @@ def test_an_order_memory_left_alone_is_not_said(
         .given(
             calling(lambda: _the_investigation_returned(
                 investigate,
-                _a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG)
+                a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG)
             ))
         ) \
         .when(
@@ -603,18 +608,6 @@ def test_the_investigation_publishes_to_the_same_place_the_graph_does(
         .then(_the_investigation_was_told("publisher", published.append, investigate))
 
 
-def _an_identity(action_type: ActionType, subject: str) -> ActionIdentity:
-    return ActionIdentity(action_type=action_type, subject=subject)
-
-
-def _putting_back(flag: str) -> ActionIdentity:
-    return _an_identity(REVERT_FEATURE_FLAG, flag)
-
-
-def _restarting(service: str) -> ActionIdentity:
-    return _an_identity(RESTART_SERVICE, service)
-
-
 def _the_provider_cannot_be_reached(fetch_flag_changes: MagicMock) -> None:
     fetch_flag_changes.side_effect = RuntimeError(
         "The Feature Flag provider could not be reached."
@@ -650,13 +643,13 @@ def _the_candidates_are_about(expected: list[str]) -> Assertion[StateDelta]:
     def assertion(delta: StateDelta) -> bool:
         if delta.candidates is None:
             raise AssertionError(
-                f"expected {expected}, the delta carried no candidates"
+                f"Expected {expected}, the delta carried no candidates."
             )
 
         subjects = [candidate.subject for candidate in delta.candidates]
 
         if subjects != expected:
-            raise AssertionError(f"expected {expected}, got {subjects}")
+            raise AssertionError(f"Expected {expected}, got {subjects}")
 
         return True
 
@@ -674,21 +667,21 @@ def _it_was_said_that(published: Kept[IncidentEvent],
 
         if not said:
             raise AssertionError(
-                f"expected a reordering to be said, got "
+                f"Expected a reordering to be said, got "
                 f"{[event.kind for event in published.taken]}"
             )
 
-        what_it_said = _an_identity(said[0].action_type, said[0].subject)
+        what_it_said = an_identity(said[0].action_type, said[0].subject)
 
         if what_it_said != moved:
             raise AssertionError(
-                f"expected [{moved}] to have moved, got [{what_it_said}]"
+                f"Expected [{moved}] to have moved, got [{what_it_said}]."
             )
 
         if said[0].on_the_strength_of != on_the_strength_of:
             raise AssertionError(
-                f"expected it said on [{on_the_strength_of}], "
-                f"got [{said[0].on_the_strength_of}]"
+                f"Expected it said on [{on_the_strength_of}], "
+                f"got [{said[0].on_the_strength_of}]."
             )
 
         return True
@@ -704,7 +697,7 @@ def _no_reordering_was_said(published: Kept[IncidentEvent]) -> Assertion[StateDe
         ]
 
         if said:
-            raise AssertionError(f"expected no reordering to be said, got {said}")
+            raise AssertionError(f"Expected no reordering to be said, got {said}")
 
         return True
 
@@ -719,11 +712,11 @@ def _the_history_published_is(expected: list[FlagChange],
                 if isinstance(event, FlagChangesRetrieved)]
 
         if len(read) != 1:
-            raise AssertionError(f"expected one FlagChangesRetrieved, got {len(read)}")
+            raise AssertionError(f"Expected one FlagChangesRetrieved, got {len(read)}")
 
         if read[0].changes != expected:
             raise AssertionError(
-                f"expected the history {expected} to be published, got "
+                f"Expected the history {expected} to be published, got "
                 f"{read[0].changes}"
             )
 
@@ -740,7 +733,7 @@ def _no_history_was_published(published: Kept[IncidentEvent]
 
         if read:
             raise AssertionError(
-                f"expected an unreadable provider to publish no history, it "
+                f"Expected an unreadable provider to publish no history, it "
                 f"published {read}"
             )
 
@@ -766,51 +759,6 @@ def _the_investigation_returned(investigate: MagicMock,
     )
 
 
-def _the_route_is(expected: str) -> Assertion[str]:
-    def assertion(route: str) -> bool:
-        if route != expected:
-            raise AssertionError(f"expected the route [{expected}], got [{route}]")
-
-        return True
-
-    return assertion
-
-
-def _a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
-    """An explanation that names the flag it blames.
-
-    Built here rather than through the shared builder because the subject is
-    the whole point of this case: what the walk refuses to try twice is an
-    *action*, and for a flag the action is addressed to the name the candidate
-    gives.
-    """
-    some_confidence = 0.75
-
-    return Hypothesis(incident_id=incident_id,
-                      summary="kukibuki hypothesis",
-                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
-                      confidence=some_confidence,
-                      supporting_evidence=[Evidence(claim="some log line", at=None)],
-                      subject=flag)
-
-
-def _a_leak_blamed_on(incident_id: str, prose: str) -> Hypothesis:
-    """An explanation that a resource is leaking, in the model's own words.
-
-    The subject is prose on purpose, and different prose in every case that
-    uses it. That is what the real ones look like, and it is why a restart is
-    addressed to the alert's service rather than to the candidate.
-    """
-    some_confidence = 0.75
-
-    return Hypothesis(incident_id=incident_id,
-                      summary="something is accumulating and never released",
-                      failure_mode=FailureMode.RESOURCE_LEAK,
-                      confidence=some_confidence,
-                      supporting_evidence=[Evidence(claim="some log line", at=None)],
-                      subject=prose)
-
-
 def _an_attempt_to(identity: ActionIdentity) -> Attempt:
     return Attempt(identity=identity, enabled=False, occurred_at="2026-08-29T16:00:00Z")
 
@@ -821,7 +769,7 @@ def _every_candidate_was_recorded(expected: list[Hypothesis],
         recorded = [call.args[0] for call in record_hypothesis.call_args_list]
         if recorded != expected:
             raise AssertionError(
-                f"expected {len(expected)} candidate(s) recorded, got {len(recorded)}"
+                f"Expected {len(expected)} candidate(s) recorded, got {len(recorded)}"
             )
 
         return True
@@ -836,7 +784,7 @@ def _the_investigation_was_told(field: str,
         told = investigate.call_args.kwargs[field]
         if told != expected:
             raise AssertionError(
-                f"expected the investigation to be told [{field}] = {expected}, "
+                f"Expected the investigation to be told [{field}] = {expected}, "
                 f"it was told {told}"
             )
 
@@ -852,7 +800,7 @@ def _the_agents_invoked_were(expected: list[Actor],
                    if isinstance(event, AgentInvoked)]
         if invoked != expected:
             raise AssertionError(
-                f"expected {expected} to have been announced, got {invoked}"
+                f"Expected {expected} to have been announced, got {invoked}"
             )
 
         return True

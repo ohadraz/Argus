@@ -23,11 +23,32 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Iterator
+from typing import cast
+from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from argus_core import connect_from_env
 from argus_core.schema import reset_schema
+from orchestrator.walk import ports
 from psycopg import sql
+
+
+@pytest.fixture
+def record_outcome() -> MagicMock:
+    """A stand-in for the port that writes down what an action did.
+
+    A fixture rather than a builder, and here rather than in the two files that
+    ask for it, because pytest is what hands a fresh one to each test - which
+    is the whole reason it is not simply called: a double shared between two
+    tests carries the first one's calls into the second.
+    """
+    return cast(MagicMock, create_autospec(ports.RecordOutcome, instance=True))
+
+
+@pytest.fixture
+def transition_incident() -> MagicMock:
+    """A stand-in for the port that moves an incident between statuses."""
+    return cast(MagicMock, create_autospec(ports.TransitionIncident, instance=True))
 
 
 @pytest.fixture(scope="session")

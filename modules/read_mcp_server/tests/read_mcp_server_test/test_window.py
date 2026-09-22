@@ -24,7 +24,8 @@ from read_mcp_server.window import (
     resolve_metrics_window,
 )
 
-TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+from read_mcp_server_test.framework.timestamps import an_iso_minute
+
 MINUTES_IN_A_DAY = 24 * 60
 
 # The windows these resolve against, stated here rather than read from the
@@ -58,7 +59,7 @@ def test_a_log_window_spans_the_configured_lookback_and_lookahead() -> None:
         ) \
         .when(
             lambda: resolve_log_window(
-                alert_time=_an_iso_minute(some_alert_time),
+                alert_time=an_iso_minute(some_alert_time),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -92,7 +93,7 @@ def test_a_log_window_whose_lookahead_runs_past_now_ends_at_now() -> None:
         ) \
         .when(
             lambda: resolve_log_window(
-                alert_time=_an_iso_minute(too_recent_alert),
+                alert_time=an_iso_minute(too_recent_alert),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -116,8 +117,8 @@ def test_an_explicit_log_window_exactly_on_the_ceiling_is_used_as_given() -> Non
         ) \
         .when(
             lambda: resolve_log_window(
-                window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_exactly_on_the_ceiling),
+                window_start=an_iso_minute(some_window_start),
+                window_end=an_iso_minute(window_end_exactly_on_the_ceiling),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -142,9 +143,9 @@ def test_an_explicit_window_overrides_the_alert_time() -> None:
         ) \
         .when(
             lambda: resolve_log_window(
-                alert_time=_an_iso_minute(some_alert_time),
-                window_start=_an_iso_minute(some_unrelated_window_start),
-                window_end=_an_iso_minute(some_unrelated_window_end),
+                alert_time=an_iso_minute(some_alert_time),
+                window_start=an_iso_minute(some_unrelated_window_start),
+                window_end=an_iso_minute(some_unrelated_window_end),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -172,8 +173,8 @@ def test_an_over_span_log_window_is_clamped_forward_from_its_start() -> None:
         ) \
         .when(
             lambda: resolve_log_window(
-                window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_past_the_ceiling),
+                window_start=an_iso_minute(some_window_start),
+                window_end=an_iso_minute(window_end_past_the_ceiling),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -196,7 +197,7 @@ def test_a_log_window_with_only_a_start_is_clamped_forward_from_it() -> None:
         ) \
         .when(
             lambda: resolve_log_window(
-                window_start=_an_iso_minute(some_window_start),
+                window_start=an_iso_minute(some_window_start),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -219,7 +220,7 @@ def test_a_log_window_with_only_an_end_is_clamped_back_from_it() -> None:
         ) \
         .when(
             lambda: resolve_log_window(
-                window_end=_an_iso_minute(some_window_end),
+                window_end=an_iso_minute(some_window_end),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -245,7 +246,7 @@ def test_a_metrics_window_spans_the_metrics_window_on_both_sides_of_the_alert() 
         ) \
         .when(
             lambda: resolve_metrics_window(
-                alert_time=_an_iso_minute(some_alert_time),
+                alert_time=an_iso_minute(some_alert_time),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -273,8 +274,8 @@ def test_a_metrics_window_wider_than_the_log_ceiling_is_not_clamped() -> None:
         ) \
         .when(
             lambda: resolve_metrics_window(
-                window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_past_only_the_log_ceiling),
+                window_start=an_iso_minute(some_window_start),
+                window_end=an_iso_minute(window_end_past_only_the_log_ceiling),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -300,8 +301,8 @@ def test_an_over_span_metrics_window_is_clamped_to_the_metrics_span() -> None:
         ) \
         .when(
             lambda: resolve_metrics_window(
-                window_start=_an_iso_minute(some_window_start),
-                window_end=_an_iso_minute(window_end_past_the_metrics_span),
+                window_start=an_iso_minute(some_window_start),
+                window_end=an_iso_minute(window_end_past_the_metrics_span),
                 settings=CONFIGURED_WINDOWS
             )
         ) \
@@ -388,7 +389,3 @@ def _an_alert_time() -> datetime:
     stumbles into it.
     """
     return _a_minute_ago(random.randint(MINUTES_IN_A_DAY, 30 * MINUTES_IN_A_DAY))
-
-
-def _an_iso_minute(minute: datetime) -> str:
-    return minute.strftime(TIMESTAMP_FORMAT)

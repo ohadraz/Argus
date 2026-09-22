@@ -16,7 +16,6 @@ than trusted.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import timedelta
 from http import HTTPStatus as HttpStatus
 from typing import Any
@@ -42,6 +41,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 # What the Target Service authors on every incident it reports: two people
 # paged, neither of them instantly - and both counted from the page rather than
@@ -68,7 +68,7 @@ def test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent() -> 
 
     Scenario() \
         .given(
-            calling(_a_feature_flag_was_toggled_on()),
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -216,22 +216,3 @@ def _the_incident_as_the_provider_holds_it(incident_id: str) -> dict[str, Any]:
     incident: dict[str, Any] = response.json()["incident"]
 
     return incident
-
-
-def _a_feature_flag_was_toggled_on() -> Callable[[], bool]:
-    """The scenario that breaks the shop and gets somebody paged for it.
-
-    Its own copy rather than the one in `test_incident_cost.py`: that one is
-    private to its file, and a test reaching into another test module's
-    `_name` is the same violation anywhere else in this repo.
-    """
-    def seed_scenario() -> bool:
-        response = httpx.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "feature-flag-toggle"},
-            timeout=10.0,
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario
