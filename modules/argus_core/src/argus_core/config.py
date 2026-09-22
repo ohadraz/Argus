@@ -285,13 +285,16 @@ class Settings(BaseSettings):
     # knowable from here - it is a thing to measure against the eval, which is
     # why these are configuration rather than constants.
     #
-    # The defaults are what every agent used when there was one setting for all
-    # of them, so a deployment that names none of these behaves exactly as it
-    # did. `high` is also the API's own default, stated rather than relied on.
+    # `high` is what every agent used when there was one setting for all of
+    # them, and is also the API's own default, stated rather than relied on.
+    # It is still right for two of the three.
     investigation_model: str = Field(default=DEFAULT_MODEL)
     investigation_effort: Effort = Field(default=DEFAULT_EFFORT)
     codefix_model: str = Field(default=DEFAULT_MODEL)
-    codefix_effort: Effort = Field(default=DEFAULT_EFFORT)
+    # Code-Fix is the exception: its answers are whole files, which is the
+    # workload where a higher effort earns its cost rather than merely costing
+    # more. A deployment that wants it cheaper still says so.
+    codefix_effort: Effort = Field(default="xhigh")
     # How much room one fix gets to be written in. Alone among the agents
     # Code-Fix answers with whole files, and the largest in the Target
     # Service is 21,484 tokens - so the 16,000 every other agent is happy
