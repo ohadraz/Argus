@@ -21,52 +21,36 @@ from typing import Final
 
 from pydantic import BaseModel
 
-# The branch a repository starts on, and the fixture it starts holding. Small
-# and plausible rather than a copy of the demo app: what a replayed walk does
-# with a file is decided by its recording, so the content only has to be
-# readable source that the scoping setting admits.
+# The branch a repository starts on, and the fixture it starts holding: the
+# Target Service's own source, copied in by `scripts/snapshot_the_shop.py`.
 #
-# Two files are an exception, and the first is an exception to that exact
-# reasoning. The large-fix scenario is about the *size* of what Code-Fix emits,
-# and size is settled here rather than by any recording - a model asked to
-# rewrite three lines writes three lines, whatever it was recorded doing. So
-# that file is a real copy of the module the demo app's
-# `monthly-statement-panel` scenario breaks in, and a byte-for-byte one: the
-# shop's own log names the line the fault was raised on, and a lookalike would
-# send the model to a line that says something else.
+# Taken from the shop rather than written about it, because a list chosen by
+# hand is a list that is right until the next scenario. It held four files
+# once, and the two incidents whose faults live in modules that were not among
+# them - the memory leak in `visits.py`, the canary share in `rollout.py` -
+# sent Code-Fix searching for code that was not there until its bounds ran out.
+# What that costs is not a red suite: the corpus before it had the model
+# proposing a change to the one module it could reach, described as a memory
+# fix, and everything went green on a fix to nothing.
 #
-# The second is copied because the first one reads it. `monthly_statement.py`
-# takes five fields off the `Purchase` that `accounts.py` defines, and a
-# three-line stub declaring none of them is not a simplification - it is a
-# contradiction, two files that cannot both be right, only one of which the
-# model was asked about. Fixing the other one would be a reasonable thing to
-# do and the wrong thing to have paid for.
+# Read at import rather than kept as a literal, so a scenario added to the shop
+# arrives here by re-running the snapshot and nothing in this file is edited
+# for it. A file is stored under the path it has in the shop, with a suffix
+# that keeps this repository's tools from reading it as code, and is served at
+# that same path - which is the path a fix names.
 #
-# Snapshots, therefore, and ones that go stale if either module is edited
-# without this being recopied. What they have to keep is the large one's size,
-# the position of its fault, and the agreement between the two; they do not
-# have to be the demo app's current commit.
+# The tree is mirrored rather than flattened, because the shop's tests come
+# with its source: a fix to code whose test still asserts the old behaviour
+# fails the moment anybody runs it, so Code-Fix is shown both. Flattened,
+# `visits.py` and `test_visits.py` would be fine and two files sharing a name
+# across the two trees would silently become one.
 _FIXTURE_DIR: Final = Path(__file__).parent / "fixture"
-_THE_LARGE_MODULE: Final = "src/io_shop/monthly_statement.py"
-_WHAT_THE_LARGE_MODULE_READS: Final = "src/io_shop/accounts.py"
 
 DEFAULT_BASE_BRANCH: Final = "main"
 DEFAULT_FILES: Final = {
-    _THE_LARGE_MODULE: (_FIXTURE_DIR / "monthly_statement.py.txt").read_text(
-        encoding="utf-8"
-    ),
-    _WHAT_THE_LARGE_MODULE_READS: (_FIXTURE_DIR / "accounts.py.txt").read_text(
-        encoding="utf-8"
-    ),
-    "src/io_shop/spend_summary.py": (
-        "def average_spend_per_item_this_month(account):\n"
-        "    bought = [p for p in account.purchases if p.in_current_month]\n"
-        "    return account.total_this_month_cents // len(bought)\n"
-    ),
-    "tests/io_shop/test_spend_summary.py": (
-        "def test_the_monthly_average_is_correct_for_a_shopper_who_did_buy():\n"
-        "    pass\n"
-    ),
+    stored.relative_to(_FIXTURE_DIR).with_suffix("").as_posix():
+        stored.read_text(encoding="utf-8")
+    for stored in sorted(_FIXTURE_DIR.rglob("*.py.txt"))
 }
 
 # How the archive names its own root. GitHub wraps a tarball in a directory
