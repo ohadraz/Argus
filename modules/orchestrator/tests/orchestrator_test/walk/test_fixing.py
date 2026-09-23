@@ -206,6 +206,34 @@ def test_a_proposal_that_could_not_be_made_is_published_as_a_failure() -> None:
 
 
 @pytest.mark.unit
+def test_a_failure_with_nothing_to_say_is_still_named_by_its_type() -> None:
+    # An exception carrying no message reached the timeline as "the fix could
+    # not be proposed: " - a sentence that stops at its own colon. A recording
+    # run of eleven real incidents came back with no fix in any of them and
+    # this as the whole account of why, so the failure had to be re-derived
+    # from the shape of what was missing. A type is never empty, and naming it
+    # costs nothing on the failures that do carry words.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_failed_without_a_word := _an_agent_raising(TimeoutError())
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_failed_without_a_word,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            _exactly_one_attempt_was_announced(
+                FixOutcome.NOT_POSSIBLE, None, published
+            ),
+            _the_attempt_says_why("TimeoutError", published)
+        ))
+
+
+@pytest.mark.unit
 def test_an_agent_that_never_answered_is_not_reported_as_having_found_nothing() -> None:
     # The distinction a live incident cost us. Code-Fix spent every turn it had
     # reading, never submitted, and the incident recorded "no code-level fix

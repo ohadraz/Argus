@@ -20,7 +20,7 @@ import psycopg
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import get_settings
-from argus_core.events import StatusChanged
+from argus_core.events import ChangesRetrieved, StatusChanged
 from argus_core.models import IncidentStatus
 from argus_core.replay import CallType
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
@@ -211,6 +211,39 @@ def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx.Re
             raise AssertionError(
                 f"Expected status transitions {[str(status) for status in expected]}, "
                 f"got {actual}."
+            )
+
+        return True
+
+    return assertion
+
+
+def argus_read_a_change_event() -> Assertion[httpx.Response]:
+    """That the change channel answered, and answered with something.
+
+    The one assertion that makes the Argo CD path load-bearing in a case that
+    does not pin the diagnosis. A `ChangesRetrieved` carrying an empty list is
+    a channel that was asked and found nothing, which is a different fact
+    about the world and cannot stand in for the deploy being visible - so what
+    is checked is that at least one change reached the incident, never how
+    many or which.
+
+    Read from the incident's own events rather than from the hypothesis,
+    because a model can name a deploy it inferred from prose. This is the
+    record of the adapter having actually fetched one.
+    """
+    def assertion(response: httpx.Response) -> bool:
+        incident_id = incident_id_from(response)
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            recorded = events.get_by_incident(conn, incident_id)
+
+        retrieved = [event for event in recorded if isinstance(event, ChangesRetrieved)]
+        if not any(event.changes for event in retrieved):
+            raise AssertionError(
+                f"Expected the change channel to have answered with at least one "
+                f"change, and it published {len(retrieved)} retrieval(s) carrying "
+                f"{[len(event.changes) for event in retrieved]}."
             )
 
         return True

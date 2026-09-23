@@ -88,7 +88,7 @@ def codefix_node(state: IncidentState,
             outcome=FixOutcome.NOT_POSSIBLE,
             proposal=None,
             action="no code-level fix could be proposed",
-            detail=f"the fix could not be proposed: {error}",
+            detail=f"the fix could not be proposed: {_what_went_wrong(error)}",
         )
 
     if proposed is None:
@@ -109,6 +109,20 @@ def codefix_node(state: IncidentState,
         action="a code-level fix was proposed",
         detail=f"a draft pull request is open at {proposed.url}",
     )
+
+
+def _what_went_wrong(error: Exception) -> str:
+    """One failure, said in a way that is never empty.
+
+    Most exceptions carry words and those words are the better account, so
+    they are what a reader gets. Some carry none - a bare `TimeoutError` is
+    the one that cost a recording run - and `str` on those is the empty
+    string, which reaches the timeline as a sentence stopping at its own
+    colon. The type is always there, so it is what stands in.
+    """
+    said = str(error).strip()
+
+    return said or type(error).__name__
 
 
 def _said(narrator: Narrator,

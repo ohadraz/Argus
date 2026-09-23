@@ -27,6 +27,9 @@
 # ... but ignore the local settings file, and the handover file
 .claude/settings.local.json
 .claude/HANDOVER.md
+# ... and the hooks only the local settings wire up, which would otherwise be
+# committed machinery nothing in this repository runs
+.claude/hooks/check_handoff_edit_format.py
 
 
 #==============================================================================

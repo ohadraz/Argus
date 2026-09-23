@@ -38,6 +38,24 @@ from importlinter.cli import lint_imports_command
 
 REPOSITORY = Path(__file__).resolve().parent.parent
 MODULES = REPOSITORY / "modules"
+
+
+def _say_it_in_utf8() -> None:
+    """Makes the output encodable wherever it is being sent.
+
+    import-linter draws its progress through `rich`, whose spinner carries an
+    emoji. On Windows `rich` takes a legacy-console path that encodes with the
+    machine's codepage rather than UTF-8, and a codepage that cannot represent
+    the emoji - cp1255 here - raises `UnicodeEncodeError` mid-render. The
+    process then exits 1 having checked every contract and found nothing wrong.
+
+    Which is the worst shape a guard can fail in: it depends on where the
+    output is going, so it passes when a person runs it and fails when a script
+    redirects it, and the failure names an encoding rather than a contract. A
+    reader who believed it would go looking for an import that was never there.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
 CONFIGURATION = REPOSITORY / "pyproject.toml"
 
 KERNEL = "argus_core"
@@ -343,6 +361,7 @@ def main() -> None:
     broken contract is the chain of imports it prints, and a wrapper that
     summarised that would be a wrapper hiding the answer.
     """
+    _say_it_in_utf8()
     _every_module_is_analyzed()
     _the_suites_use_the_front_doors(_the_front_doors())
     _the_suites_keep_the_agents_apart(_the_independent_modules())
