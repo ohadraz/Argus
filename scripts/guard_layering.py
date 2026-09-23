@@ -32,6 +32,7 @@ Control has blocked before. See the `smart-app-control-blocks` skill.
 import ast
 import sys
 import tomllib
+from io import TextIOWrapper
 from pathlib import Path
 
 from importlinter.cli import lint_imports_command
@@ -53,9 +54,16 @@ def _say_it_in_utf8() -> None:
     output is going, so it passes when a person runs it and fails when a script
     redirects it, and the failure names an encoding rather than a contract. A
     reader who believed it would go looking for an import that was never there.
+
+    Asked whether each stream is a real one rather than cast to one. `stdout`
+    is a `TextIOWrapper` when it is attached to a console or a file and
+    something else entirely when it is captured - and a cast would trade a
+    check that mypy can make for an `AttributeError` raised by the very line
+    that exists to stop this guard failing on its output.
     """
     for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8", errors="replace")
+        if isinstance(stream, TextIOWrapper):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 CONFIGURATION = REPOSITORY / "pyproject.toml"
 
 KERNEL = "argus_core"

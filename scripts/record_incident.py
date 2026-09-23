@@ -40,14 +40,23 @@ import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from io import TextIOWrapper
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
 
 import httpx
 import psycopg
 from anthropic_double.recordings import RECORDINGS_DIR
 from argus_core import get_settings, to_iso
-from argus_core.models import IncidentStatus
+from argus_core.events import (
+    ActionRefused,
+    ActionTaken,
+    FixAttempted,
+    HypothesisFormed,
+    VerdictReached,
+)
+from argus_core.models import FixOutcome, IncidentStatus
+from pydantic import BaseModel
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
@@ -69,6 +78,7 @@ from tests.e2e.framework.flags import (
     the_boot_flags_were_put_back,
     the_flag_provider_forgot_every_change,
 )
+from tests.e2e.framework.world import the_incidents_events
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"
@@ -82,12 +92,89 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 A_POLL_SECONDS = 5.0
 
 
+class _Published(NamedTuple):
+    """One thing a walk has to have put on the record, and what it has to say.
+
+    `saying` exists because the event alone is not always the claim. Code-Fix
+    publishes `fix-attempted` whether it opened a pull request, found nothing
+    worth changing, or ran out of turns halfway through reading - five
+    outcomes, one event. A check that asked only whether the event was there
+    would accept a walk that searched the repository twenty-three times,
+    proposed nothing, and stopped; which is not a recording of this incident,
+    it is a recording of a budget running out.
+    """
+    event: type[BaseModel]
+    saying: dict[str, object] | None = None
+
+    @property
+    def kind(self) -> str:
+        """The wire name this event publishes itself under.
+
+        Asked of the type rather than spelled here. These strings are this
+        repo's own vocabulary and they are already written down once, on the
+        event that carries them - a second copy in this file would be a check
+        that passes because both halves were renamed and a check that fails
+        because only one half was, and neither is worth the characters saved.
+        """
+        return str(self.event.model_fields["kind"].default)
+
+    def was_in(self, published: list[Any]) -> bool:
+        """Whether the walk published this, saying what it had to say."""
+        return any(
+            event.kind == self.kind
+            and all(getattr(event, field, None) == said
+                    for field, said in (self.saying or {}).items())
+            for event in published
+        )
+
+    def __str__(self) -> str:
+        said = ", ".join(f"{field}={said}" for field, said in (self.saying or {}).items())
+
+        return f"{self.kind} ({said})" if said else self.kind
+
+
+# The stages a walk can be held to having reached. Named for the event rather
+# than for what any one scenario uses it to mean: `action-taken` is a flag put
+# back in one recording and a service restarted in another, and a constant
+# called after either would read as a lie in the other.
+_A_HYPOTHESIS_WAS_FORMED: Final = _Published(HypothesisFormed)
+_AN_ACTION_WAS_TAKEN: Final = _Published(ActionTaken)
+_AN_ACTION_WAS_REFUSED: Final = _Published(ActionRefused)
+_A_VERDICT_WAS_REACHED: Final = _Published(VerdictReached)
+# The proposal, not the attempt. See `_Published.saying`.
+_A_FIX_WAS_PROPOSED: Final = _Published(
+    FixAttempted, {"outcome": FixOutcome.PROPOSED}
+)
+
+# What no recording may contain, whichever incident it is of. `not-answered` is
+# Code-Fix stopping mid-read with its turns spent - a statement about the bound
+# rather than about the code - and the answers it leaves behind are a queue that
+# ends in the middle of reading a repository. Replayed, that walk spends the
+# whole corpus searching and reaches the postmortem with nothing left, which is
+# how two of these came to be committed. Refused for every scenario rather than
+# listed per recording: no case asserts a walk that ran out, and the two whose
+# cases happened not to check are exactly the two it was found in.
+_THE_FIX_RAN_OUT_OF_TURNS: Final = _Published(
+    FixAttempted, {"outcome": FixOutcome.NOT_ANSWERED}
+)
+
+
 class _Recording(NamedTuple):
     """One recording, and the incident that has to happen for it to exist.
 
     `scenario` is `None` for the one recording captured against a shop with
     nothing wrong in its logs - absence of evidence is itself the case under
     test, and it is staged by staging nothing.
+
+    `ends_as` and `must_have` are what the walk has to have *done* for this
+    recording to be worth keeping, taken from the case that replays it rather
+    than invented here. They exist because a walk can stop cleanly having
+    skipped a whole stage: a terminal status and a written postmortem are
+    satisfied by an investigation that reached no fix at all, and a corpus
+    captured from one looks complete, replays for a while and fails somewhere
+    nobody was thinking about. Positive expectations only - "it never took an
+    action" reads well and would refuse a real recording of a walk that tried
+    something and put it back.
 
     `and_then` is whatever the replaying case arranges *after* seeding the
     scenario and before the alert. A recording is a queue of answers served in
@@ -98,6 +185,8 @@ class _Recording(NamedTuple):
     name: str
     scenario: str | None
     alert_name: str
+    ends_as: IncidentStatus
+    must_have: tuple[_Published, ...]
     and_then: Callable[[], None] | None = None
 
 
@@ -106,11 +195,39 @@ class _Recording(NamedTuple):
 # a recording this script stores under a name nothing replays is a recording
 # that cost money and answers no question.
 EVERY_RECORDING: tuple[_Recording, ...] = (
-    _Recording(RECORDED_FLAG_TOGGLE, "feature-flag-toggle", "HighErrorRate"),
-    _Recording(RECORDED_BAD_DEPLOYMENT, "bad-deployment", "HighLatency"),
-    _Recording(RECORDED_FALLBACK_DISABLED, "fallback-disabled", "HighErrorRate"),
     _Recording(
-        RECORDED_FLAG_TOGGLE_RED_HERRING, "flag-toggle-red-herring", "HighErrorRate"
+        RECORDED_FLAG_TOGGLE,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED)
+    ),
+    _Recording(
+        RECORDED_BAD_DEPLOYMENT,
+        "bad-deployment",
+        "HighLatency",
+        IncidentStatus.ESCALATED,
+        (_A_HYPOTHESIS_WAS_FORMED,)
+    ),
+    _Recording(
+        RECORDED_FALLBACK_DISABLED,
+        "fallback-disabled",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN,)
+    ),
+    _Recording(
+        RECORDED_FLAG_TOGGLE_RED_HERRING,
+        "flag-toggle-red-herring",
+        "HighErrorRate",
+        IncidentStatus.ESCALATED,
+        # Both halves, because this recording is of the pair: the action is
+        # what makes it a red herring, and the verdict against it is what makes
+        # it correct. The verdict rather than a `ChangeUndone` - the flag does
+        # go back, but a refuted action is put back inside the mitigation loop
+        # and recorded as the measurement that refuted it. `ChangeUndone` is
+        # what a *withdrawal* publishes, which is a different case entirely.
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
     ),
     # The same scenario as the first, in a world where the provider has no
     # record of the flag having changed - so Mitigation refuses to write to a
@@ -121,32 +238,62 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         RECORDED_FLAG_TOGGLE_UNCORROBORATED,
         "feature-flag-toggle",
         "HighErrorRate",
+        IncidentStatus.ESCALATED,
+        # The refusal is the whole recording. A walk that escalated without one
+        # reached the same status by a different road - out of evidence rather
+        # than out of authority - and replaying it would prove nothing about
+        # the thing this case exists to hold.
+        (_AN_ACTION_WAS_REFUSED,),
         the_flag_provider_forgot_every_change
     ),
     # The one incident a mitigation relieves without ending. Its alert is
     # memory rather than errors, because memory is the signal that moves first
     # on a leak - and a walk recorded against an error-rate alert would be
     # answering a question this scenario never asks.
-    _Recording(RECORDED_RESOURCE_LEAK, "resource-leak", "HighMemoryUsage"),
+    _Recording(
+        RECORDED_RESOURCE_LEAK,
+        "resource-leak",
+        "HighMemoryUsage",
+        IncidentStatus.MITIGATED,
+        # A restart and a fix, because relieving a leak is not ending one - the
+        # case that replays this asserts both, and a corpus carrying only the
+        # restart is a recording of an incident left to climb again.
+        (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED)
+    ),
     # The one incident nothing Argus may do can touch. Its alert is the error
     # rate, because that is what a dependency's outage does to the shop that
     # depends on it - every account page waits on the provider and then fails.
     _Recording(
         RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
         "upstream-dependency-failure",
-        "HighErrorRate"
+        "HighErrorRate",
+        IncidentStatus.ESCALATED,
+        # A named cause and nothing done about it. Escalating here is the
+        # answer rather than the leftover, so what has to be on the record is
+        # that the walk got as far as saying what was wrong.
+        (_A_HYPOTHESIS_WAS_FORMED,)
     ),
     # The one incident a monitor watching the tail never sees. Its alert is
     # latency, as a bad deployment's is: nothing here fails, so an error-rate
     # alert would be answering a question this scenario never asks, and what the
     # two latency cases are told apart by is the evidence rather than the page.
-    _Recording(RECORDED_CACHE_MISCONFIGURED, "cache-misconfigured", "HighLatency"),
+    _Recording(
+        RECORDED_CACHE_MISCONFIGURED,
+        "cache-misconfigured",
+        "HighLatency",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN,)
+    ),
     # The mirror of the one above: that incident hides in the tail, this one
     # behind it. Its alert is latency too, and for the same reason - nothing
     # fails here either - but the summary names the percentile, because a rule
     # written against p95 would never fire on this at all.
     _Recording(
-        RECORDED_SLOW_CANARY_ROLLOUT, "slow-canary-rollout", "HighLatency"
+        RECORDED_SLOW_CANARY_ROLLOUT,
+        "slow-canary-rollout",
+        "HighLatency",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN,)
     ),
     # The flag scenario again, with the fault moved into the largest module the
     # shop has. Everything a reader of the telemetry sees is the first
@@ -159,8 +306,27 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
     # in that mode only - see `noxfile._the_cases_for`, which argues it - so a
     # `grep` or `meaning` run of this name costs a real investigation and
     # stores it where nothing looks.
-    _Recording(RECORDED_LARGE_CODE_FIX, "monthly-statement-panel", "HighErrorRate"),
-    _Recording(RECORDED_ABSENCE_OF_EVIDENCE, None, "HighErrorRate")
+    _Recording(
+        RECORDED_LARGE_CODE_FIX,
+        "monthly-statement-panel",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        # The fix alone, though this walk mitigates too. What the case replaying
+        # it asserts is the size of the written file, and that claim rests on
+        # Code-Fix having answered at all.
+        (_A_FIX_WAS_PROPOSED,)
+    ),
+    # Nothing beyond the ending. The shop's logs say nothing is wrong, so there
+    # is no cause to name and nothing to act on - escalation and a postmortem
+    # are the entire claim, and a `must_have` invented to fill the column would
+    # refuse the one walk this recording is of.
+    _Recording(
+        RECORDED_ABSENCE_OF_EVIDENCE,
+        None,
+        "HighErrorRate",
+        IncidentStatus.ESCALATED,
+        ()
+    )
 )
 
 EVERY_RECORDING_KEYWORD = "all"
@@ -228,29 +394,17 @@ def _replay_from(name: str) -> None:
             ).raise_for_status()
 
 
-def _the_timeline_of(incident_id: str) -> list[str]:
+def _the_timeline_of(published: list[Any]) -> list[str]:
     """What the incident recorded about itself, in order.
 
-    Read here rather than left for someone to query afterwards, because the
-    stack is torn down the moment this script returns - and the account is the
-    only record of which branch the walk actually took.
-
-    The published events, in the order they were published. `seq` rather than
-    the clock: two events can share a moment to the microsecond, and the order
-    they were written in is the only thing that makes the walk readable back.
+    Read while the stack is still up rather than left for someone to query
+    afterwards, because it comes down the moment this script returns - and the
+    account is the only record of which branch the walk actually took.
     """
-    with psycopg.connect(DATABASE_URL) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT kind, payload "
-            "  FROM incident_event "
-            " WHERE incident_id = %s "
-            "ORDER BY seq",
-            (incident_id,),
-        )
-        return [
-            f"  {kind:<22} {_what_it_said(payload)}"
-            for kind, payload in cursor.fetchall()
-        ]
+    return [
+        f"  {event.kind:<22} {_what_it_said(event.model_dump())}"
+        for event in published
+    ]
 
 
 def _what_it_said(payload: dict[str, object]) -> str:
@@ -308,15 +462,19 @@ def _stage(scenario_id: str) -> None:
     ).raise_for_status()
 
 
-def _drive_one_incident(service: str, alert_name: str) -> str:
-    """Fires the alert and waits out the whole investigation.
+def _an_incident_was_opened_by(service: str, alert_name: str) -> str:
+    """Fires the alert and returns the incident the webhook wrote down.
 
-    Two steps, because they are two things now: the webhook writes the incident
-    down and answers at once, and a worker walks it afterwards. Waiting on the
-    webhook alone returns two seconds later with an incident nobody has
-    investigated yet - and this script would then store the answers of a walk
-    that had not happened, which is to say none, and discard the answers of the
-    one that had.
+    Separate from waiting for the walk, because they are two things: the
+    webhook writes the incident down and answers at once, and a worker walks it
+    afterwards. Waiting on the webhook alone returns two seconds later with an
+    incident nobody has investigated yet - and this script would then store the
+    answers of a walk that had not happened, which is to say none, and discard
+    the answers of the one that had.
+
+    Split from the wait so the caller holds the id *before* the walk can fail.
+    A walk that does not finish is the one whose account is worth reading, and
+    a wait that owned the id took it down with it.
     """
     response = httpx.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
@@ -324,10 +482,8 @@ def _drive_one_incident(service: str, alert_name: str) -> str:
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    incident_id = str(response.json().get("incident_id", "unknown"))
-    _the_walk_came_to_a_stop(incident_id)
 
-    return incident_id
+    return str(response.json().get("incident_id", "unknown"))
 
 
 def _the_walk_came_to_a_stop(incident_id: str) -> None:
@@ -359,6 +515,53 @@ def _the_walk_came_to_a_stop(incident_id: str) -> None:
             )
 
         time.sleep(A_POLL_SECONDS)
+
+
+def _the_walk_did_what_this_recording_is_of(
+    recording: _Recording, incident_id: str, published: list[Any]
+) -> None:
+    """Refuses a walk that stopped cleanly without doing what it was driven for.
+
+    The gap this closes is the one that cost two paid runs: a walk can reach a
+    terminal status and write its postmortem having skipped a whole stage, and
+    the corpus it leaves behind is a plausible file set, a green run and a
+    suite that fails weeks later on an agent nobody had touched. A status says
+    the walk stopped; only the events say what it did on the way.
+
+    Raised rather than returned, so one bad recording lands in the run's own
+    `failed` list beside a scenario that threw - it is the same news, and a
+    reader scanning for what to re-run should not have to find it twice.
+
+    Nothing is deleted. A recording that failed this is still the only copy of
+    answers that cost real money, and the walk it describes is worth reading
+    before anybody decides it was worthless.
+    """
+    ended_as = _the_status_of(incident_id)
+    missing = [
+        str(expected) for expected in recording.must_have
+        if not expected.was_in(published)
+    ]
+
+    if ended_as is not recording.ends_as:
+        raise AssertionError(
+            f"[{recording.name}] ended as [{ended_as}], and the case that "
+            f"replays it expects [{recording.ends_as}] - so this is a "
+            f"recording of a different walk"
+        )
+
+    if missing:
+        raise AssertionError(
+            f"[{recording.name}] never published [{', '.join(missing)}], which "
+            f"the case that replays it asserts - so a stage did not finish and "
+            f"the corpus is short of it"
+        )
+
+    if _THE_FIX_RAN_OUT_OF_TURNS.was_in(published):
+        raise AssertionError(
+            f"[{recording.name}] stopped with [{_THE_FIX_RAN_OUT_OF_TURNS}] - "
+            f"Code-Fix spent its turns reading and never answered, so these "
+            f"answers end mid-read and replay as a walk that runs dry"
+        )
 
 
 def _was_written_up(incident_id: str) -> bool:
@@ -465,23 +668,37 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     if recording.and_then:
         recording.and_then()
 
-    incident_id = _drive_one_incident(service, recording.alert_name)
+    incident_id = _an_incident_was_opened_by(service, recording.alert_name)
 
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")
 
-    if not replaying:
-        discarded = _discard_what_was_not_answered_again(stored, started_at)
-        written = [path.stem for path in _the_set_named(stored)]
-        print(f"recorded: {', '.join(written) or 'nothing'}")
-        if discarded:
-            print(
-                f"discarded: {', '.join(path.stem for path in discarded)} "
-                f"- answers of a longer walk this run did not need"
-            )
+    # The account is printed whatever happened to the walk. A walk that never
+    # finished is the one whose timeline is worth reading - it is the only
+    # record of how far it got and what it was doing when it stopped - and
+    # printing it only on the way out meant the one failure nobody could
+    # diagnose was the only one anybody needed to.
+    try:
+        _the_walk_came_to_a_stop(incident_id)
+    finally:
+        if not replaying:
+            discarded = _discard_what_was_not_answered_again(stored, started_at)
+            written = [path.stem for path in _the_set_named(stored)]
+            print(f"recorded: {', '.join(written) or 'nothing'}")
+            if discarded:
+                print(
+                    f"discarded: {', '.join(path.stem for path in discarded)} "
+                    f"- answers of a longer walk this run did not need"
+                )
 
-    print("timeline:")
-    for entry in _the_timeline_of(incident_id):
-        print(entry)
+        print("timeline:")
+        for entry in _the_timeline_of(the_incidents_events(incident_id)):
+            print(entry)
+
+    # Judged only once the walk has actually stopped, and after the timeline is
+    # out - so a refusal is read beside the account of what earned it.
+    _the_walk_did_what_this_recording_is_of(
+        recording, incident_id, the_incidents_events(incident_id)
+    )
 
 
 def _what_was_asked_for(names: list[str]) -> list[_Recording]:
@@ -512,7 +729,23 @@ def main() -> int:
     # to a legacy codepage, and printing one character outside it raises. That
     # ended a *paid* run in a traceback after the recordings were safely on
     # disk, which reads as a failed recording and invites running it again.
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    #
+    # Asked whether it is a real stream rather than cast to one. `sys.stdout`
+    # is only a `TextIOWrapper` when it is attached to a console or a file -
+    # something that captures it hands over an object with no encoding to set,
+    # and a cast would turn a check mypy can do into an `AttributeError` at the
+    # top of a run that has already been paid for.
+    # `line_buffering` for a second reason, and it is the one that shows. A run
+    # this long is always started in the background with its output redirected,
+    # and Python block-buffers a redirected stream - so the file stays empty of
+    # everything this script says while the httpx logs, which go through
+    # `logging`, fill it. Every line of progress then arrives at once, at the
+    # end, which is exactly when nobody needs it: the question a person asks of
+    # a run like this is how far it has got, and the answer was in the buffer.
+    if isinstance(sys.stdout, TextIOWrapper):
+        sys.stdout.reconfigure(
+            encoding="utf-8", errors="replace", line_buffering=True
+        )
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
