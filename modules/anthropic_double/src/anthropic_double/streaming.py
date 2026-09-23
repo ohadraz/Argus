@@ -1,15 +1,16 @@
-"""One stored response, said again as the stream the SDK asked for.
+"""One message, said as a stream - and one stream, read back as a message.
 
 Code-Fix answers with whole files, which needs more output room than a
 non-streaming request is allowed to carry - past 21,333 tokens the SDK
 refuses to send one at all. So that agent streams, and a stand-in that only
 knows how to hand back a whole JSON body cannot answer it.
 
-Recordings are untouched by this. What is stored is the assembled message, as
-it always was, and this says it again in the shape a streamed reader expects:
-the transport differs, the content does not. That is what keeps every
-recording in the repository valid, keeps `record` forwarding plain JSON
-upstream, and keeps the one difference between a streamed run and an
+Both directions live here because they are one fact about the wire read
+twice. Serving a recording turns a stored message into the events a reader
+assembles it from; recording a real call turns those events back into the
+message. What is stored is the assembled message either way, so the transport
+differs and the content does not - which is what keeps every recording in the
+repository valid, and keeps the one difference between a streamed run and an
 unstreamed one out of the evidence.
 
 Verified against the SDK's own parser rather than written from the
@@ -41,7 +42,34 @@ CONTENT_BLOCK_STOP: Final = "content_block_stop"
 MESSAGE_DELTA: Final = "message_delta"
 MESSAGE_STOP: Final = "message_stop"
 
+# Two more the server never sends and a real stream does: a keep-alive that
+# carries nothing, and a failure raised partway through an answer that already
+# returned 200.
+PING: Final = "ping"
+ERROR: Final = "error"
+
+TEXT_DELTA: Final = "text_delta"
+THINKING_DELTA: Final = "thinking_delta"
+SIGNATURE_DELTA: Final = "signature_delta"
+INPUT_JSON_DELTA: Final = "input_json_delta"
+
+TOOL_USE_TYPE: Final = "tool_use"
+
 SSE_MEDIA_TYPE: Final = "text/event-stream"
+
+# The only line of an event that carries anything. The name is on the line
+# above it and is repeated inside the payload, so reading the payload alone is
+# both sufficient and the one place a type is read from.
+_DATA_PREFIX: Final = "data:"
+
+
+class UpstreamRefused(RuntimeError):
+    """An error the API raised partway through an answer it had begun.
+
+    Its own exception because it arrives on a 200: the status said the call
+    was accepted and the failure came later, so a caller checking the status
+    alone would store an empty message as though the model had sent one.
+    """
 
 
 def _event(name: str, payload: dict[str, Any]) -> bytes:
@@ -49,8 +77,8 @@ def _event(name: str, payload: dict[str, Any]) -> bytes:
 
 
 def _shell_for(block: dict[str, Any]) -> dict[str, Any]:
-    if block["type"] == "tool_use":
-        return {"type": "tool_use", "id": block["id"], "name": block["name"], "input": {}}
+    if block["type"] == TOOL_USE_TYPE:
+        return {"type": TOOL_USE_TYPE, "id": block["id"], "name": block["name"], "input": {}}
 
     return _EMPTY_BLOCK[block["type"]]
 
@@ -70,16 +98,16 @@ def _deltas_for(block: dict[str, Any]) -> list[dict[str, Any]]:
     kind = block["type"]
 
     if kind == "text":
-        return [{"type": "text_delta", "text": block["text"]}]
+        return [{"type": TEXT_DELTA, "text": block["text"]}]
 
     if kind == "thinking":
         return [
-            {"type": "thinking_delta", "thinking": block["thinking"]},
-            {"type": "signature_delta", "signature": block["signature"]},
+            {"type": THINKING_DELTA, "thinking": block["thinking"]},
+            {"type": SIGNATURE_DELTA, "signature": block["signature"]},
         ]
 
-    if kind == "tool_use":
-        return [{"type": "input_json_delta", "partial_json": json.dumps(block["input"])}]
+    if kind == TOOL_USE_TYPE:
+        return [{"type": INPUT_JSON_DELTA, "partial_json": json.dumps(block["input"])}]
 
     return []
 
@@ -122,3 +150,78 @@ def as_stream(message: dict[str, Any]) -> Iterator[bytes]:
     })
 
     yield _event(MESSAGE_STOP, {"type": MESSAGE_STOP})
+
+
+def _apply(block: dict[str, Any], delta: dict[str, Any],
+           index: int, partial_json: dict[int, str]) -> None:
+    """One update, onto the block it belongs to.
+
+    Concatenated rather than assigned, because a real stream splits a field
+    across as many deltas as it likes and a reader that assigns keeps only
+    the last fragment. A tool call's input is the exception: it arrives as
+    JSON text that is not valid until the last piece has landed, so it is
+    accumulated here and parsed when the block closes.
+    """
+    kind = delta["type"]
+
+    if kind == TEXT_DELTA:
+        block["text"] = block.get("text", "") + delta["text"]
+    elif kind == THINKING_DELTA:
+        block["thinking"] = block.get("thinking", "") + delta["thinking"]
+    elif kind == SIGNATURE_DELTA:
+        block["signature"] = block.get("signature", "") + delta["signature"]
+    elif kind == INPUT_JSON_DELTA:
+        partial_json[index] = partial_json.get(index, "") + delta["partial_json"]
+
+
+def from_stream(payload: str) -> dict[str, Any]:
+    """One streamed answer, read back as the message it was.
+
+    The inverse of `as_stream`, and what `record` stores when the call it is
+    forwarding asked to be streamed - which Code-Fix's always does. A stored
+    stream would be a stored transport: it would have to be reassembled
+    before anything could read it, by code that would then be the only reader
+    of a shape nothing else uses. So the reassembly happens once, here, and
+    every recording in the repository stays the one thing a recording is.
+
+    Only the `data:` line of each event is read. The name on the line above
+    it is repeated inside the payload, so reading the payload alone is both
+    sufficient and the one place a type is read from - and a keep-alive,
+    which carries nothing either way, falls through without a branch of its
+    own.
+    """
+    message: dict[str, Any] = {}
+    partial_json: dict[int, str] = {}
+
+    for line in payload.splitlines():
+        if not line.startswith(_DATA_PREFIX):
+            continue
+
+        event = json.loads(line[len(_DATA_PREFIX):])
+        kind = event.get("type")
+
+        if kind == ERROR:
+            raise UpstreamRefused(event[ERROR])
+
+        if kind == MESSAGE_START:
+            message = event["message"]
+        elif kind == CONTENT_BLOCK_START:
+            # Appended rather than placed at its index: the API sends blocks
+            # in order and so does `as_stream`, and a reader that honoured an
+            # out-of-order index would be inventing a guarantee to test.
+            message["content"].append(event["content_block"])
+        elif kind == CONTENT_BLOCK_DELTA:
+            _apply(message["content"][event["index"]], event["delta"],
+                   event["index"], partial_json)
+        elif kind == CONTENT_BLOCK_STOP:
+            accumulated = partial_json.pop(event["index"], None)
+            if accumulated is not None:
+                message["content"][event["index"]]["input"] = json.loads(accumulated or "{}")
+        elif kind == MESSAGE_DELTA:
+            message.update(event["delta"])
+            message["usage"].update(event.get("usage") or {})
+
+    if not message:
+        raise UpstreamRefused({"message": "the stream carried no message_start"})
+
+    return message

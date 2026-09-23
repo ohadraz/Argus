@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, model_validator
 
 from anthropic_double import recordings
-from anthropic_double.streaming import SSE_MEDIA_TYPE, as_stream
+from anthropic_double.streaming import SSE_MEDIA_TYPE, as_stream, from_stream
 
 UPSTREAM_BASE_URL = os.environ.get("ANTHROPIC_DOUBLE_UPSTREAM", "https://api.anthropic.com")
 
@@ -236,22 +236,61 @@ def _serve(seed: Seed, streaming: bool = False) -> Response:
     return JSONResponse(status_code=seed.status, content=body)
 
 
-async def _record_upstream(request: Request) -> JSONResponse:
-    """Passes one call through to the real API and stores the response."""
+async def _record_upstream(request: Request, streaming: bool) -> Response:
+    """Passes one call through to the real API and stores the response.
+
+    Forwarded exactly as it arrived, streamed or not, because the request that
+    gets recorded has to be the request the adapter sends - and Code-Fix's is
+    streamed, since the SDK will not carry a whole-file answer any other way.
+    What comes back on that transport is a run of events rather than a
+    message, so it is assembled back into one here: a recording is the
+    message the model ended up sending, whichever way it arrived, which is
+    what lets a stored answer serve a streamed reader and an unstreamed one
+    alike.
+
+    Read as a stream rather than as a body, which is also what keeps the
+    timeout honest. Ten minutes bounding a whole generation is a bound a
+    large answer can reach by being large; ten minutes bounding the gap
+    between two events is a bound only a stall reaches.
+    """
     headers = {
         name: value
         for name, value in request.headers.items()
         if name.lower() in _FORWARDED_HEADERS
     }
-    async with httpx.AsyncClient(base_url=UPSTREAM_BASE_URL, timeout=600.0) as client:
-        upstream = await client.post(
-            "/v1/messages", content=await request.body(), headers=headers
-        )
+    sent = await request.body()
 
-    body: dict[str, Any] = upstream.json()
-    if upstream.status_code == 200:
-        recordings.save(_state.next_recording_name(), body)
-    return JSONResponse(status_code=upstream.status_code, content=body)
+    async with httpx.AsyncClient(base_url=UPSTREAM_BASE_URL, timeout=600.0) as client:
+        if not streaming:
+            upstream = await client.post("/v1/messages", content=sent, headers=headers)
+            answered: dict[str, Any] = upstream.json()
+            status = upstream.status_code
+        else:
+            async with client.stream(
+                "POST", "/v1/messages", content=sent, headers=headers
+            ) as response:
+                events = await response.aread()
+            status = response.status_code
+            # A refusal comes back as a body on both transports: the API says
+            # no before it says anything else, so there is no stream to read.
+            answered = (
+                from_stream(events.decode()) if status == 200 else json.loads(events)
+            )
+
+    if status != 200:
+        return JSONResponse(status_code=status, content=answered)
+
+    recordings.save(_state.next_recording_name(), answered)
+
+    # Said back the way it was asked for, exactly as a seeded answer is. What
+    # is stored is the assembled message either way - but a caller that asked
+    # to be streamed is parsing events, and handing it a body is handing it a
+    # stream with nothing in it. Code-Fix is that caller on every call it
+    # makes, which is why nothing it did survived a recording run.
+    if streaming:
+        return StreamingResponse(as_stream(answered), media_type=SSE_MEDIA_TYPE)
+
+    return JSONResponse(status_code=status, content=answered)
 
 
 @app.post("/v1/messages")
@@ -268,11 +307,11 @@ async def messages(request: Request) -> Response:
     recording is the assembled message either way, so the same stored body
     serves both and nothing about the evidence depends on the transport.
 
-    Recording deliberately ignores the question and forwards plain JSON
-    upstream. What is worth storing is what the model said, and a stored
-    stream would be a stored transport - it would have to be reassembled
-    before anything could read it, by code that would then be the only reader
-    of a shape nothing else uses.
+    Recording forwards the question as it arrived, streamed or not, because
+    the request that gets recorded has to be the request the adapter sends.
+    What comes back on a stream is reassembled into the message it was before
+    it is stored - a stored transport would have to be read back by code that
+    would then be the only reader of a shape nothing else uses.
     """
     asked: dict[str, Any] = json.loads(await request.body())
     streaming = bool(asked.get("stream"))
@@ -281,7 +320,7 @@ async def messages(request: Request) -> Response:
         return _serve(_state.take_next_seed(), streaming)
 
     if _state.record_as is not None:
-        return await _record_upstream(request)
+        return await _record_upstream(request, streaming)
 
     return JSONResponse(
         status_code=400,
