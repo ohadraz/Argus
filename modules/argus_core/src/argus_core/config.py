@@ -88,16 +88,44 @@ class Settings(BaseSettings):
     # once and a bound counting turns would let it read several times what it
     # was allowed while still looking healthy. Never expressed to the model:
     # one it could ask to extend would not be a bound (spec §9).
-    codefix_max_tool_calls: int = Field(default=12, gt=0)
+    # Forty rather than twelve, because twelve bound every walk of a recorded
+    # corpus - all eight that reached Code-Fix stopped on the call count, and
+    # the four that did submit did so only on the last-call nudge, which is a
+    # fix written under duress rather than one arrived at. A bound that every
+    # run reaches is measuring itself; this one is set wide enough that what
+    # the next corpus shows is how long the work actually takes.
+    codefix_max_tool_calls: int = Field(default=40, gt=0)
     # Larger than the investigation's, because what this agent reads is source
     # rather than windows of metrics, and it carries every file it has read
-    # for the rest of the run.
-    codefix_max_tokens: int = Field(default=400_000, ge=1)
+    # for the rest of the run - so the spend grows with the square of the call
+    # count, and widening the call bound above is what made this one bind.
+    #
+    # Measured across a recorded corpus of eleven real incidents. The largest
+    # walk that reached a fix spent 265,054; the two largest overall, 436,604
+    # and 421,818, are floors rather than figures - both stopped *because* they
+    # hit the old 400,000, so what they would have spent is unknown. Doubled
+    # off the larger floor, which makes this a ceiling against a runaway rather
+    # than a tight fit, and that is the right direction for a bound whose job
+    # is to stop one.
+    #
+    # In money, at Opus 5 rates ($5/$25 per million, cache reads a tenth of
+    # input and writes a quarter above it): the walk this was measured from
+    # cost $1.11, and a walk that ran all the way to this bound at the same mix
+    # would cost about $2.20. The number to hold in mind is $4.35, which is
+    # what it costs if the caching stops working - 870,000 tokens all billed as
+    # fresh input. That is the real exposure of widening this, and the reason
+    # the figure is written down rather than left to be rediscovered from a
+    # bill.
+    codefix_max_tokens: int = Field(default=870_000, ge=1)
     # Longer than the investigation's, and for the opposite reason to the
     # bound above: nobody is waiting on this one. The incident is already
     # mitigated by the time Code-Fix runs, so what this protects is the
     # worker's own progress rather than a human's patience.
-    codefix_max_seconds: float = Field(default=600.0, gt=0.0)
+    #
+    # The longest walk in the corpus took 538 seconds and proposed a fix, so
+    # ten minutes was within a minute of refusing work that was about to
+    # succeed. Doubled off that measurement.
+    codefix_max_seconds: float = Field(default=1_100.0, gt=0.0)
     # Which ways of finding code this deployment has: `grep`, `meaning` or
     # `both`. It decides more than what Code-Fix is offered - `grep` builds no
     # index, opens no vector store and registers no retrieval tool, so a
@@ -287,14 +315,20 @@ class Settings(BaseSettings):
     #
     # `high` is what every agent used when there was one setting for all of
     # them, and is also the API's own default, stated rather than relied on.
-    # It is still right for two of the three.
+    # Code-Fix stays at `high` too, and that is measured rather than argued.
+    # It was moved to `xhigh` on the reasoning that agentic coding is where
+    # the higher efforts earn their cost; a matched pair of recorded corpora -
+    # same scenarios, same bounds, effort the only difference - said the
+    # opposite. At `high` it proposed a fix in six of the eight walks that
+    # reached it, in 9 to 31 calls; at `xhigh` in three, in 13 to 29, and with
+    # roughly twice the tokens. The case whose answer is a whole large file is
+    # among the three it lost. More thinking per call bought more reading and
+    # fewer conclusions, which is the shape of an agent exploring rather than
+    # deciding.
     investigation_model: str = Field(default=DEFAULT_MODEL)
     investigation_effort: Effort = Field(default=DEFAULT_EFFORT)
     codefix_model: str = Field(default=DEFAULT_MODEL)
-    # Code-Fix is the exception: its answers are whole files, which is the
-    # workload where a higher effort earns its cost rather than merely costing
-    # more. A deployment that wants it cheaper still says so.
-    codefix_effort: Effort = Field(default="xhigh")
+    codefix_effort: Effort = Field(default=DEFAULT_EFFORT)
     # How much room one fix gets to be written in. Alone among the agents
     # Code-Fix answers with whole files, and the largest in the Target
     # Service is 21,484 tokens - so the 16,000 every other agent is happy
@@ -429,10 +463,17 @@ class Settings(BaseSettings):
     # The ceiling on what one investigation may cost, both directions summed.
     # Input dominates: the API is stateless, so every turn resends the whole
     # transcript, and a conversation's cost grows with the square of its
-    # length. Set from the measured spend of the loop this replaces at its
-    # maximum iterations, with room for the extra turns a tool loop takes -
-    # the worst case is meant to start no worse than what it replaces.
-    investigation_max_tokens: int = Field(default=150_000, ge=1)
+    # length.
+    #
+    # Measured rather than reasoned: across a recorded corpus of eleven real
+    # incidents the most expensive investigation round spent 98,433, on the
+    # red-herring scenario - the walk that genuinely needs its turns. Nothing
+    # in that corpus came near the old 150,000, so the figure was never tested
+    # by the runs that were supposed to justify it. Doubled, because a bound
+    # this one only has to survive a truncation retry, and a bound that binds
+    # a walk which would otherwise have finished costs a whole investigation
+    # to learn nothing.
+    investigation_max_tokens: int = Field(default=200_000, ge=1)
 
     # How long an investigation may run before it is called off, whatever it
     # has or has not spent. This is the bound that answers to the human
