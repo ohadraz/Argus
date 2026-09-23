@@ -380,6 +380,23 @@ def guard_e2e_boundary(session: nox.Session) -> None:
     session.run("uv", "run", "python", "scripts/guard_e2e_boundary.py", external=True)
 
 @nox.session
+def guard_recordings(session: nox.Session) -> None:
+    """
+    Registers `guard_recordings` as a nox session, i.e., runnable via
+    `uv run python -m nox -s guard_recordings`.
+    Fails if a committed recording is of a walk that gave up partway - one that
+    never wrote its postmortem, or that started Code-Fix and never finished it.
+
+    Free, and that is the point: what it guards costs a real investigation to
+    capture, and the failure it catches is otherwise found by a replayed suite
+    running the answers dry in whatever stage happened to be next. That reads
+    as an agent bug in a module nobody touched, days later. This reads the JSON
+    and says which corpus and which bound, in under a second, on the push that
+    committed it.
+    """
+    session.run("uv", "run", "python", "scripts/guard_recordings.py", external=True)
+
+@nox.session
 def guard_module_docstrings(session: nox.Session) -> None:
     """
     Registers `guard_module_docstrings` as a nox session, i.e., runnable via
@@ -1403,25 +1420,44 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
 ]
 
 
-def _the_services_for(slack_stands_in: bool) -> list[tuple[str, list[str], str | None]]:
+def _the_services_for(slack_stands_in: bool,
+                      github_stands_in: bool,
+                      model_stands_in: bool) -> list[tuple[str, list[str], str | None]]:
     """The local services to start, minus the ones this run has no use for.
 
-    Two doubles move together, on the one flag that says whether this is a
-    suite or a demo. A suite wants both - no workspace to clutter, no
-    repository to leave branches on. A demo wants neither: an incident reaching
-    a person and a fix a person can open are the two things being demonstrated,
-    and both are stand-ins if either double is in the way.
+    Two doubles, and they no longer move together. Slack's answers one
+    question - is there a workspace to clutter - and every run but a demo says
+    no. GitHub's answers a different one, and the answer turns on whether the
+    model is real: a replayed walk proposes whatever it was recorded proposing,
+    so the repository it proposes to may as well be a fixture, and `e2e_replay`
+    runs on every push against a pull-request counter that never goes back.
+
+    A run that reaches the real model is the opposite case. What Code-Fix does
+    there is decided by the source in front of it, and a four-file stand-in was
+    how two incidents came to be recorded as unfixable: the modules their
+    faults live in were not in it, so the agent searched for code that was not
+    there. The fixture is the shop now, copied in by
+    `scripts/snapshot_the_shop.py`, which makes that failure less likely and
+    not impossible - a snapshot is only as current as its last run. A paid run
+    reads the repository itself.
 
     Starting an unwanted double is not harmless. It leaves a process on a port
     nobody talks to, which is the kind of leftover somebody later mistakes for
     the thing under test.
     """
-    if slack_stands_in:
-        return _LOCAL_SERVICES
+    unwanted = [
+        *([] if slack_stands_in else [_SLACK_DOUBLE]),
+        *([] if github_stands_in else [_GITHUB_DOUBLE]),
+        # The model's double is wanted by whoever points the worker at it, and
+        # by nobody else. A run that reaches the real API started it, never
+        # addressed it, and left it listening - which is the leftover this
+        # function exists to avoid, and the most misleading one of the three:
+        # a process answering `/v1/messages` on a port, beside a suite whose
+        # whole claim is that it spent real tokens.
+        *([] if model_stands_in else [_ANTHROPIC_DOUBLE])
+    ]
 
-    standing_in = (_SLACK_DOUBLE, _GITHUB_DOUBLE)
-
-    return [service for service in _LOCAL_SERVICES if service not in standing_in]
+    return [service for service in _LOCAL_SERVICES if service not in unwanted]
 
 
 # The processes that stand in for somebody else's service. They come up before
@@ -1452,7 +1488,9 @@ def _run_against_the_stack(
     test_paths: list[str],
     service_env: dict[str, dict[str, str]] | None = None,
     command: list[str] | None = None,
-    slack_stands_in: bool = True
+    slack_stands_in: bool = True,
+    github_stands_in: bool = True,
+    model_stands_in: bool = False
 ) -> None:
     """Brings the whole stack up, runs `test_paths` against it, tears it down.
 
@@ -1494,7 +1532,9 @@ def _run_against_the_stack(
     # watching cannot be silently pointed away from the workspace - or the
     # repository - they are watching it in.
     if slack_stands_in:
-        os.environ.update(_SLACK_AT_THE_DOUBLE | _GITHUB_AT_THE_DOUBLE)
+        os.environ.update(_SLACK_AT_THE_DOUBLE)
+    if github_stands_in:
+        os.environ.update(_GITHUB_AT_THE_DOUBLE)
     try:
         # `--build` because the Target Service image is built from a sibling
         # working copy, not pulled: without it Compose reuses whatever was
@@ -1511,7 +1551,7 @@ def _run_against_the_stack(
         session.run(
             "uv", "run", "python", "-m", "argus_core.schema", external=True
         )
-        services = _the_services_for(slack_stands_in)
+        services = _the_services_for(slack_stands_in, github_stands_in, model_stands_in)
         # The stand-ins before the index, because the index reads a repository
         # and for a suite the repository is the GitHub double. A pass made
         # before it answers fails on a refused connection - the stack's own
@@ -1562,10 +1602,13 @@ def _run_against_the_stack(
         # over the network and not to anything in this stack - but after the
         # work, so a demo is cleaned up only once it is over.
         #
-        # Only where the repository is real. A suite proposes to the double,
-        # whose whole repository goes when its process does, and calling this
+        # Only where the repository is real, and that is now its own question
+        # rather than the Slack flag's: a paid suite and a recording run both
+        # propose to the real repository while still posting at the Slack
+        # double. A run that proposes to the GitHub double needs none of this -
+        # that whole repository goes when its process does, and calling this
         # against it would be a request to a port that is about to close.
-        if not slack_stands_in:
+        if not github_stands_in:
             _put_the_repository_back(session)
         for process in reversed(started):
             _stop_service(process)
@@ -1657,7 +1700,22 @@ def e2e(session: nox.Session) -> None:
     # `session.posargs` to pytest itself, so naming them here as well would
     # collect the same file twice - and the default's `--ignore` would then
     # quietly win over the very case somebody asked for by name.
-    _run_against_the_stack(session, [] if session.posargs else _THE_CASES_WORTH_PAYING_FOR)
+    # Against the real repository, because this is the run that reaches the
+    # real model. What Code-Fix proposes is decided by the source in front of
+    # it, so a paid run reading a fixture is paying to watch the agent work on
+    # a stand-in - and the pull request it opens, which is the deliverable a
+    # person is handed (spec §13), would be one nobody can open. Cleaned up on
+    # the way down by `_put_the_repository_back`.
+    _run_against_the_stack(
+        session,
+        [] if session.posargs else _THE_CASES_WORTH_PAYING_FOR,
+        # Both real, because both are the deliverable. This run exists to show
+        # the whole thing working against the real world, and an incident that
+        # reached a person is half of what it has to show - a message posted at
+        # a double reaches nobody, and proves only that the relay can post.
+        slack_stands_in=False,
+        github_stands_in=False
+    )
 
 
 # The one case whose answer is a whole large file, and so the one whose cost
@@ -1725,7 +1783,8 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     _run_against_the_stack(
         session,
         _the_cases_for(mode),
-        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}}
+        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+        model_stands_in=True
     )
 
 
@@ -1808,7 +1867,18 @@ def record(session: nox.Session, mode: str) -> None:
         # `-m`, not the path: the script reuses the e2e suite's own world-reset
         # rather than keeping a second copy of it, and only the module form puts
         # the repo root on the path for `tests.` to resolve.
-        command=["uv", "run", "python", "-m", "scripts.record_incident"]
+        command=["uv", "run", "python", "-m", "scripts.record_incident"],
+        # The double is the whole mechanism here: it forwards each call
+        # upstream and saves what comes back, so a recording run needs it up
+        # and pointed at even though every answer is the real model's.
+        model_stands_in=True,
+        # The real repository, for the reason `e2e` uses it and one more. A
+        # recording is a walk captured in a particular world, and the world a
+        # code fix is decided by is the source Code-Fix reads - so a recording
+        # captured against a fixture is only ever replayable against that same
+        # fixture, and the day it drifts the corpus is of a walk through a
+        # repository that no longer exists.
+        github_stands_in=False
     )
 
 
@@ -1832,8 +1902,10 @@ def stack(session: nox.Session) -> None:
         session,
         test_paths=[],
         command=["uv", "run", "python", "scripts/hold_the_stack.py"],
-        # Slack as configured, which for a demo means the real workspace: the
-        # thing being demonstrated is an incident reaching a person, and it
-        # reaches nobody at a double.
-        slack_stands_in=False
+        # Slack and GitHub as configured, which for a demo means the real
+        # workspace and the real repository: the thing being demonstrated is an
+        # incident reaching a person and a fix that person can open, and
+        # neither reaches anybody at a double.
+        slack_stands_in=False,
+        github_stands_in=False
     )
