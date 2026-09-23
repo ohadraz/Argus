@@ -303,12 +303,25 @@ LIST_FILES = ToolDefinition(
     required=[]
 )
 
+# Said here rather than in the brief, because the first sentence of this
+# description is what was holding the model to one file at a time. It reads as
+# a limit where a unit was meant, and no instruction elsewhere outranks a tool
+# telling you what it does. Measured: one file in 59 of 88 turns, never more
+# than four, though every parallel call is answered in a single reply.
+#
+# The reason travels with it. Turns are what the re-send is quadratic in, so a
+# turn spent on one file is not one round trip's worth of waste but one file's
+# worth on every turn after it - and a model told only "you may" batches
+# timidly, as this one already did.
 READ_FILE = ToolDefinition(
     name=READ_FILE_TOOL,
     description=(
-        "Read one file's entire contents. Read a file before you rewrite it - "
-        "what you submit replaces what is there, so a file you did not read is "
-        "a file you are overwriting blind."
+        "Read one file's entire contents. Call it several times in the same "
+        "turn when you want several files - every result comes back together, "
+        "and a turn spent on one file re-sends everything you have read so "
+        "far. Read a file before you rewrite it - what you submit replaces "
+        "what is there, so a file you did not read is a file you are "
+        "overwriting blind."
     ),
     properties={
         PATH_ARGUMENT: {
@@ -511,7 +524,9 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     """
     tools = tools_for(settings)
     transcript: list[Exchange] = [
-        Ask(text=_the_opening_message(hypothesis, settings, index_notice))
+        Ask(text=_the_opening_message(
+            hypothesis, settings, index_notice, list_files
+        ))
     ]
     spend = a_budget_for(settings)
 
@@ -735,39 +750,64 @@ def _and_what_it_rests_on(hypothesis: Hypothesis | None) -> list[str]:
 
 
 def _how_to_start_looking(settings: FixSettings) -> str:
-    """Which search to reach for first, said in terms of the ones it has.
+    """Which search to reach for when the conclusion names no file to open.
 
-    An instruction rather than a hope: a model given tools and no order to use
-    them in reaches for the one it is most used to. Which means the sentence
-    has to name tools this deployment actually offers - telling a model to
-    start with a search it was not given is the one way to make an opening
-    message worse than none.
+    A fallback rather than an opening move. It said "start by searching" once,
+    unconditionally, and the model did as it was told even where the sentence
+    above already carried the file and the line - then read every candidate
+    the search returned, one round trip each. Where to begin is the brief's to
+    say now; what this answers is which tool, and only for the case where
+    there is genuinely nothing named to begin from.
+
+    Named in terms of the tools this deployment actually offers, because
+    pointing a model at a search it was not given is the one way to make an
+    opening message worse than none.
     """
     if settings.code_search is CodeSearch.MEANING:
         return (
-            f"Start by searching. Describe what the broken code does - the "
-            f"behaviour named above and what is wrong with it - and "
-            f"{SEARCH_BY_MEANING_TOOL} for it: the answer is the passages "
-            f"nearest that description, which is what you would otherwise be "
-            f"guessing at."
+            f"If the conclusion names no file, describe the broken behaviour and "
+            f"{SEARCH_BY_MEANING_TOOL} for it - the answer is the passages "
+            f"nearest that description."
         )
 
     if settings.code_search is CodeSearch.GREP:
         return (
-            f"Start by searching. Take what is named above - the flag, the "
-            f"function, the message - and {SEARCH_TOOL} for it: the answer "
-            f"names the files the fault is in, which is what you would "
-            f"otherwise be guessing at."
+            f"If the conclusion names no file, take what it does name - the flag, the "
+            f"function, the message - and {SEARCH_TOOL} for it."
         )
 
     return (
-        f"Start by searching, and you have two ways to. Take what is named "
-        f"above - the flag, the function, the message - and {SEARCH_TOOL} for "
-        f"it. Where the conclusion describes a behaviour rather than naming "
-        f"anything the code would contain, {SEARCH_BY_MEANING_TOOL} with that "
-        f"description instead: it answers with the passages nearest it in "
-        f"meaning. Both beat guessing at file names."
+        f"If the conclusion names no file, {SEARCH_TOOL} for what it does name "
+        f"- the flag, "
+        f"the function, the message - or, where it describes a behaviour "
+        f"instead, {SEARCH_BY_MEANING_TOOL} with that description."
     )
+
+
+def _what_the_repository_holds(settings: FixSettings,
+                               list_files: FileLister) -> list[str]:
+    """Every path in the repository, handed over rather than left to be asked for.
+
+    Asked once before the conversation starts, as the index notice is. The
+    model called `list_repository_files` first in seven of eleven recorded
+    walks and not at all in the other four, so this replaces a round trip about
+    two thirds of the time and costs some sixty tokens against a prompt already
+    carrying fourteen thousand.
+
+    Here rather than in the standing brief, though every incident wants it: the
+    listing changes whenever the repository does, and a `system` block that
+    varied per incident would invalidate the cached prefix - for every agent,
+    not only this one - each time it varied.
+
+    Empty for an empty listing, for the reason the evidence is: a heading over
+    nothing tells the model there is something it has failed to see.
+    """
+    held = list_files(settings.github_base_branch)
+
+    if not held:
+        return []
+
+    return ["", "The repository holds:", *(f"  {path}" for path in held)]
 
 
 def _what_is_known_about_the_index(settings: FixSettings,
@@ -792,7 +832,8 @@ def _what_is_known_about_the_index(settings: FixSettings,
 
 def _the_opening_message(hypothesis: Hypothesis | None,
                          settings: FixSettings,
-                         index_notice: IndexNotice) -> str:
+                         index_notice: IndexNotice,
+                         list_files: FileLister) -> str:
     """Everything about *this incident* Code-Fix is told before it reads anything.
 
     This incident, and nothing standing. What is always true of fixing a fault
@@ -808,10 +849,11 @@ def _the_opening_message(hypothesis: Hypothesis | None,
         "",
         f"What the investigation concluded: {_what_it_concluded(hypothesis)}",
         *_and_what_it_rests_on(hypothesis),
+        *_what_the_repository_holds(settings, list_files),
         *_what_is_known_about_the_index(settings, index_notice),
         "",
-        f"{_how_to_start_looking(settings)} Read the files it names, then "
-        f"call {SUBMIT_TOOL_NAME} with every file you are changing, in full."
+        f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
+        f"every file you are changing, in full."
     ])
 
 

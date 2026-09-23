@@ -19,6 +19,7 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 from agent_codefix.proposing import (
+    READ_FILE_TOOL,
     BranchWriter,
     FileLister,
     FileReader,
@@ -100,6 +101,10 @@ NO_TOKENS = 0
 # a test pinning the whole wording breaks whenever the prose is improved,
 # and what matters is that the model was told which turn it is on.
 THE_LAST_CALL_WARNING = "last call"
+
+# The words that send the model to what it was already told, not the sentence
+# carrying them - for the reason the warning above pins words rather than prose.
+WHAT_THE_CONCLUSION_ALREADY_NAMES = "read it before you search"
 
 
 @pytest.mark.unit
@@ -258,6 +263,101 @@ def test_the_model_is_told_to_search_before_it_reads() -> None:
             )
         ) \
         .then(_the_model_was_told(model, "search"))
+
+
+@pytest.mark.unit
+def test_a_conclusion_that_names_a_file_sends_the_model_there_first() -> None:
+    # Measured across eight recorded walks rather than supposed: thirteen to
+    # seventeen of every twenty-odd calls were `read_repository_file`, on a
+    # repository of sixteen files, by a model that had been handed the file and
+    # the line in the sentence above. The opening message said to start by
+    # searching whatever the investigation had already established - so it
+    # searched, got a dozen plausible files back, and read them all. Most of a
+    # walk, one round trip per file, spent ruling out what nobody suspected.
+    named = a_hypothesis(f"the spend figure divides by an empty month, at {SOME_PATH}:35")
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+    built_with = _a_conversation_factory_returning(model.converse)
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                named,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                conversations=built_with,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_standing_brief_said(built_with, WHAT_THE_CONCLUSION_ALREADY_NAMES))
+
+
+@pytest.mark.unit
+def test_the_model_may_ask_for_several_files_in_one_turn() -> None:
+    # Measured over the recorded corpus rather than supposed: the model asked
+    # for exactly one file in 59 of 88 turns, and its widest turn was two in
+    # most walks and four in two of them. Nothing in the loop was holding it to
+    # one - every parallel call is answered in a single reply, and always has
+    # been - so what did was the read tool's own first sentence, "Read one
+    # file's entire contents", which reads as a limit where a unit was meant.
+    #
+    # Worth correcting because turns are what the resend is quadratic in:
+    # everything read so far is sent again on every call, and three walks ran
+    # out mid-read having submitted nothing. Said in the tool rather than in the
+    # brief, because the sentence that reads as the constraint is the sentence
+    # that has to stop reading that way.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_tool_offered_said(model, READ_FILE_TOOL, "several files"))
+
+
+@pytest.mark.unit
+def test_the_model_is_handed_the_repositorys_files_before_it_asks() -> None:
+    # `list_repository_files` was called in seven of eleven recorded walks,
+    # always first, and never in the other four - so a listing sent up front
+    # saves a whole round trip about two thirds of the time. Sixteen paths is
+    # some sixty tokens in a prompt already carrying fourteen thousand, which
+    # is the cheaper half of that trade by two orders of magnitude, and it lets
+    # the model pick what to read without spending a turn finding out what
+    # there is to pick from.
+    #
+    # In the opening message rather than in the standing brief, though "here is
+    # the repository" is true of every incident: the listing changes whenever
+    # the repository does, and a `system` block that changed per incident would
+    # invalidate the cached prefix - for every agent, not just this one - each
+    # time it did.
+    #
+    # The model submits at once here, asking for no listing of its own. That is
+    # the point: the paths have to be in what it was told, not in what it went
+    # and fetched.
+    repository = a_repository(holding=[SOME_PATH, "tests/io_shop/test_spend_summary.py"])
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(all_of(
+            _the_model_was_told(model, SOME_PATH),
+            _the_model_was_told(model, "tests/io_shop/test_spend_summary.py")
+        ))
 
 
 @pytest.mark.unit
@@ -1155,6 +1255,34 @@ def _the_model_was_not_told_a_repr(model: _Model) -> Assertion[Any]:
                 raise AssertionError(
                     f"Expected the model told prose, it was told [{leaked}]."
                 )
+
+        return True
+
+    return assertion
+
+
+def _the_tool_offered_said(model: _Model, named: str, said: str) -> Assertion[Any]:
+    """What one of the tools the model was handed told it about itself.
+
+    Asserted against what was offered rather than against the definition in the
+    module, because a description is an instruction only once it has reached the
+    model - and `tools_for` is what decides which definitions do.
+    """
+    def assertion(_: Any) -> bool:
+        offered = [
+            tool for turn in model.tools_offered for tool in turn if tool.name == named
+        ]
+
+        if not offered:
+            raise AssertionError(
+                f"Expected [{named}] to have been offered to the model; it was not."
+            )
+
+        if not any(said in tool.description for tool in offered):
+            raise AssertionError(
+                f"Expected [{named}] to have said [{said!r}], it said "
+                f"[{offered[0].description!r}]."
+            )
 
         return True
 

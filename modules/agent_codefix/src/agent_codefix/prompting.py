@@ -35,33 +35,53 @@ SUBMIT_TOOL_NAME: Final = "submit_fix"
 # tool list rendered before it - be read from cache on every incident after the
 # first rather than re-sent and re-billed each time.
 #
-# Three things, and each is here because the model got it wrong without being
-# told. A mitigation has usually already hidden the symptom, so the code reads
-# as fine and is not. The change that exposed a fault is not the fault, which
-# is the one every reader of an incident gets backwards. And submitting nothing
-# is a conclusion that needs evidence, not a way out of a hard read.
+# Every line is here because the model got it wrong without being told, and
+# nothing is here for completeness. Length is not free even where the bytes
+# are: a model given a long list of rules follows the list, and what is wanted
+# is a model reading code. So each point is made once, in the fewest words that
+# still carry why.
+#
+# What each one cost before it was written down: a mitigation has usually
+# hidden the symptom, so the code reads as fine and is not. The change that
+# exposed a fault is not the fault - the thing every reader of an incident gets
+# backwards. Submitting nothing is a conclusion needing evidence, not a way out
+# of a hard read. And reading has no natural end, which is the expensive one:
+# across eight recorded walks the agent spent thirteen to seventeen of every
+# twenty-odd calls reading files, on a repository of sixteen, having been
+# handed the file and the line - and three of those walks ran out mid-read and
+# submitted nothing at all.
 #
 # Nothing about a particular incident may be added here, ever. The saving is
 # that the bytes do not change between incidents, so a single interpolated
 # detail would not merely dilute it - it would end it, silently, with every
 # test still passing.
 STANDING_BRIEF: Final = "\n\n".join([
-    "A mitigation has probably already hidden the symptom - a flag turned "
-    "off, a version rolled back - so the code you are reading is the code "
-    "that was broken, whether or not anything looks broken right now.",
+    "A mitigation has probably already hidden the symptom - a flag off, a "
+    "version rolled back. The code you are reading is the code that broke, "
+    "whether or not anything looks broken now.",
 
-    "A change that exposed a fault is not the fault. If switching a flag on "
-    "broke the service, the fault is the code that could not survive that "
-    "flag being on, and your job is to make it safe to turn back on. The same "
-    "goes for a deploy, a config change or a new kind of input: something "
-    "changed, and the code did not cope. Fix the not coping. Reverting was "
-    "somebody buying time - it left the fault in place behind a switch nobody "
-    "now dares touch, which is what you are here to end.",
+    "The change that exposed a fault is not the fault. Make the code safe to "
+    "turn back on, to take that deploy again, to meet that input again. "
+    "Reverting bought time and left the fault behind a switch nobody dares "
+    "touch.",
+
+    "You have no test runner, so reading is your only evidence. Start from "
+    "what the investigation named - read it before you search - and read its "
+    "callers too: a fix that satisfies one file and breaks them is this job's "
+    "characteristic mistake. Once you can name the fault and the file it lives "
+    "in, read no further. Every call re-sends everything you have read, and a "
+    "walk that runs out mid-read submits nothing at all.",
 
     "Submit no files only if you have read the code and there is genuinely "
-    "nothing in it to change - never merely because a configuration change "
-    "triggered the incident. That is the common case and it is still a code "
-    "fault."
+    "nothing to change - never because a configuration change triggered the "
+    "incident, which is the common case and still a code fault. If you cannot "
+    "name the fault, say so and fix what you can defend.",
+
+    "Change as little as possible: you send whole files, so a tidy-up is "
+    "invisible in your answer and enormous in the diff a person has to "
+    "approve. Make the code safe in both "
+    "states - flag on and off, field present and missing. Never silence the "
+    "failure; a blanket except ends the symptom and the evidence together."
 ])
 
 SUMMARY_FIELD: Final = "summary"
