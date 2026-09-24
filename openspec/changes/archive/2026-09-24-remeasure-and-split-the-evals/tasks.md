@@ -49,4 +49,4 @@
 
 - [x] 7.1 Update `docs/spec-and-architecture.md` where it describes the evals, following `spec-doc-style`
 - [x] 7.2 Note in `CLAUDE.md` that the grader session exists and what it costs (nothing)
-- [ ] 7.3 Archive this change as a separate commit from its implementation
+- [x] 7.3 Archive this change as a separate commit from its implementation
