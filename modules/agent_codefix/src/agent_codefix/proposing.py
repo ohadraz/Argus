@@ -800,9 +800,18 @@ def _what_the_repository_holds(settings: FixSettings,
     not only this one - each time it varied.
 
     Empty for an empty listing, for the reason the evidence is: a heading over
-    nothing tells the model there is something it has failed to see.
+    nothing tells the model there is something it has failed to see - and empty
+    for a listing that could not be fetched at all, which is the same sentence
+    to the model and a very different one to the walk. This call is made while
+    the message is being built, before the conversation exists, and the walk
+    reads anything escaping `propose_fix` as "no fix could be proposed". So a
+    raise here would spend the whole attempt on one flaky call, where the same
+    failure a turn later costs a single tool result and a model that reads it.
     """
-    held = list_files(settings.github_base_branch)
+    try:
+        held = list_files(settings.github_base_branch)
+    except Exception:
+        return []
 
     if not held:
         return []

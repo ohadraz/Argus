@@ -562,6 +562,38 @@ def test_an_index_that_could_not_be_searched_does_not_end_the_work() -> None:
 
 
 @pytest.mark.unit
+def test_a_listing_that_could_not_be_fetched_does_not_end_the_work() -> None:
+    # The sibling of the case above, and the dangerous one, because it fails in
+    # a different place. A search that fails is answered inside the loop, which
+    # turns any exception into a result the model reads - so the walk carries
+    # on. The listing is fetched while the opening message is being built,
+    # before the conversation exists, and the walk maps anything escaping
+    # `propose_fix` to "no fix could be proposed". So one flaky call to the read
+    # tier would cost the whole attempt, where the same failure a turn later
+    # costs a single tool result.
+    #
+    # Nothing is said about it, exactly as when the listing is empty. The model
+    # still has search, listing and reading, and a sentence explaining that
+    # Argus could not enumerate the repository is a paragraph about Argus in a
+    # prompt that is about code.
+    repository = a_repository()
+    repository.list_files.side_effect = ConnectionError("no route to the read tier")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_a_pull_request_was_opened(repository))
+
+
+@pytest.mark.unit
 def test_a_deployment_with_an_index_offers_both_ways_of_searching() -> None:
     # They answer different questions and are worth having together: one
     # matches characters, the other meaning. A cause that has a name is found
