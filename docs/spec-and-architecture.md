@@ -800,11 +800,22 @@ configuration rather than code**. The agents are not the same shape of work:
 | Code-Fix | Agentic search, then writing whole files | The highest effort, and an output ceiling of the model's own - its answers are files, not verdicts (§7.4) |
 | Postmortem | One piece of prose, every figure already measured, no tools | The least of the three; nothing here is being reasoned out |
 
-A deployment that names none of these gets the same model and the same effort
-for all three, so the choice is one a benchmark can make rather than one a
-reader has to. Which level each agent should run at is a measurement against the
-eval (§21), not an assertion here - which is the reason it is configuration at
-all.
+The defaults are per agent as well, and they differ because what can be measured
+about each agent differs. The Investigator answers on the cheaper of the two
+model tiers, which is a finding rather than a preference: its six pinned cases
+are scored fifty samples deep per configuration (§21), and a tier that holds
+every case at a fraction of the bill is not a trade-off to weigh. Code-Fix and
+the postmortem keep the more capable model, because neither can be scored finely
+enough to say the same - a fix is graded as one pass or fail per recorded walk,
+and the postmortem is not scored at all. An agent whose quality cannot be
+measured is not an agent to economise on.
+
+Effort is the same question, and its answer is that lowering it buys nothing
+here. Every agent runs at the level the eval found, which for all three is the
+same one: a lower effort holds the Investigator's cases but spends what it saves
+in thinking on a longer answer, and output is the dearest thing an agent buys.
+Which level each agent should run at is a measurement against the eval (§21), not
+an assertion here - which is the reason all of this is configuration at all.
 
 Effort is bound when an agent's client is built, not passed per call. A loop
 holds a conversation and nothing else: it has no business choosing a model, a
@@ -1067,7 +1078,9 @@ The evaluator consumes the §11.1 Postgres tables directly, plus the Target Serv
 
 Two kinds of eval live side by side, and what separates them is whether the answer can be recomputed.
 
-**Judgement is sampled and pooled.** An eval that scores what the model concluded calls the real API, so one sample is a whole investigation. The model samples, so a single run is a draw rather than a verdict: each case is run ten times and scored as a rate. Ten is a floor - below it a batch distinguishes nothing short of total failure - so a run that costs too much is shortened by covering fewer *cases*, never by taking fewer samples of one. Batches pool: every sample is appended to a results file with the commit it was taken at, and a rate is read over the pool rather than over the latest batch. A batch detects a regression; only a pool deep enough re-derives a threshold, and how deep is declared rather than judged. Samples taken before a change to a standing brief, a tool description or a budget describe an agent that no longer exists and do not pool with what came after.
+**Judgement is sampled and pooled.** An eval that scores what the model concluded calls the real API, so one sample is a whole investigation. The model samples, so a single run is a draw rather than a verdict: each case is run ten times and scored as a rate. Ten is a floor - below it a batch distinguishes nothing short of total failure - so a run that costs too much is shortened by covering fewer *cases*, never by taking fewer samples of one. Batches pool: every sample is appended to a results file saying what it was taken with, and a rate is read over the pool rather than over the latest batch. A batch detects a regression; only a pool deep enough re-derives a threshold, and how deep is declared rather than judged. Samples taken before a change to a standing brief, a tool description or a budget describe an agent that no longer exists and do not pool with what came after.
+
+What a sample was taken with is the commit and the configuration, because neither implies the other. The commit fixes everything that is code - the brief, a tool description, a fixture - and nothing that arrives through the environment, and an agent reads its model, its effort and every retrieval bound from there: two runs at one commit can measure two different agents. So a row names the model and the effort, those being what a deployment tunes deliberately and a reader wants back, and digests the rest - a value compared rather than read, whose only job is to split a pool when something changed that nobody thought to record. A row that names none of this is refused rather than assumed into the configuration that happens to be current, since what it was taken with is exactly what can no longer be recovered.
 
 **A fix is graded, not judged.** What Code-Fix proposes is code, and the Target Service has its own tests, so the grader is mechanical: the patch's test files alone must not pass against the unfixed service, and the whole patch must leave that service's suite green. A failing assertion and an import error both count for the first half - a fix that adds a module, a class or a constant leaves its test unable to import until it is applied - and what both rule out is a test that passes either way. This is the only thing that ever finds out whether a proposed fix works: Code-Fix runs statically, with no sandbox and no test runner (§7.4). It costs nothing, because it grades patches already captured in the recorded corpus, and so it writes no results file - its verdict for any commit is recovered by checking that commit out and grading again.
 

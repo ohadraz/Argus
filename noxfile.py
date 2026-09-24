@@ -1838,15 +1838,16 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     # silently did, at a full suite's wall clock, while reporting itself as the
     # cases that were asked for.
     #
-    # Told apart by the leading dash rather than by counting: `-- -k fallback`
-    # narrows the default selection and needs the directory left in place,
-    # where `-- tests/e2e/test_x.py` replaces it. `e2e` draws the same line, and
-    # both leave the mode's `--ignore`s behind with the default - somebody who
-    # named a case has already decided it is the one to run.
-    # A named case is a path to a test file, not merely an argument with no
-    # leading dash. An option carries values of its own - `--splits 2 --group 1`
-    # from CI, `-k fallback` from a hand - and reading those as filenames drops
-    # the suite's own paths, leaving pytest to collect from the repository root:
+    # Told apart by whether the argument names a file: `-- -k fallback` narrows
+    # the default selection and needs the directory left in place, where
+    # `-- tests/e2e/test_x.py` replaces it. `e2e` draws the same line, and both
+    # leave the mode's `--ignore`s behind with the default - somebody who named
+    # a case has already decided it is the one to run.
+    #
+    # A path, rather than anything without a leading dash. An option carries
+    # values of its own - `--splits 2 --group 1` from CI, `-k fallback` from a
+    # hand - and reading those as filenames drops the suite's own paths,
+    # leaving pytest to collect from the repository root:
     # every module's tests and the contract suite, run against a stack none of
     # them asked for.
     named_cases = [given for given in session.posargs if given.endswith(".py")]

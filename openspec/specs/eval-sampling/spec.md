@@ -47,9 +47,13 @@ bound the deployment does not use is a measurement of something nobody runs.
 ### Requirement: Paid samples are recorded and pooled
 
 Every sample a paid eval takes SHALL be appended to a committed results file,
-one row per sample, carrying at least the date, the commit, the case and the
-outcome. The pass rate SHALL be computed over every recorded sample taken since
-the last change to the prompt under test.
+one row per sample, carrying at least the date, the commit, the case, the
+outcome, and the configuration it was taken under - the model, the effort, and a
+digest of the remaining settings the eval reads. The commit fixes what is code
+and nothing that arrives through the environment, so two runs at one commit can
+measure two different agents. The pass rate SHALL be computed over every recorded
+sample taken since the last change to the prompt under test, under one
+configuration.
 
 #### Scenario: A batch finishes
 
@@ -68,6 +72,19 @@ the last change to the prompt under test.
 - **WHEN** the standing brief, a tool description or a budget changes
 - **THEN** samples taken before that change SHALL NOT be pooled with samples
   taken after it
+
+#### Scenario: The configuration changes
+
+- **WHEN** the model, the effort, or any other setting the eval reads is changed
+- **THEN** samples taken under the old configuration SHALL NOT be pooled with
+  samples taken under the new one, at the same commit or any other
+
+#### Scenario: A row names no configuration
+
+- **WHEN** a recorded row predates the configuration it would be grouped by
+- **THEN** reading the pool SHALL fail rather than assume one
+- **AND** the row SHALL be dropped rather than given a configuration after the
+  fact
 
 ### Requirement: A threshold is re-derived only from a deep enough pool
 

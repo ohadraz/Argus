@@ -76,28 +76,29 @@ CASE_THE_UNRELATED_CHANGE = "unrelated-change-is-not-blamed"
 CASE_THE_LOWER_BOUND = "lower-bound-onset-is-read-past"
 CASE_THE_UPSTREAM_FAILURE = "upstream-dependency-failure-is-identified"
 
-# **Derived, 2026-09-24, from 50 pooled samples of each case** - five batches
-# of ten against the brief and fixtures as they stand, recorded in
-# `results/investigator.tsv`. They replace an 8-of-10 bar inherited from the
-# single-shot prompt this loop replaced, which measured a model that was handed
-# the evidence rather than one that chooses its own reads.
+# **Derived from 50 pooled samples of each case per configuration**, recorded in
+# `results/investigator.tsv` and read from it rather than restated: five batches
+# of ten under each arm that has been tried. They replace an 8-of-10 bar
+# inherited from the single-shot prompt this loop replaced, which measured a
+# model that was handed the evidence rather than one that chooses its own reads.
 #
 # A bar is set where a batch of ten passes when nothing has changed and fails
 # when the rate really drops - so it sits below the pooled rate, not at it. The
-# five cases below pooled 50/50, and 9 is the first figure a single lapse
-# survives while two do not. Re-measure after any change to `BRIEF`, to a tool
-# description, or to the budget, and do not re-derive from a batch: 10 samples
-# distinguish nothing short of total failure.
-MUST_IDENTIFY_THE_FLAG_TOGGLE = 9  # 50/50 pooled
-MUST_STAY_UNDETERMINED = 9  # 50/50 pooled
-MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 9  # 50/50 pooled
-MUST_READ_PAST_THE_LOWER_BOUND = 9  # 50/50 pooled
-MUST_IDENTIFY_THE_UPSTREAM_FAILURE = 9  # 50/50 pooled
-# The one case the model is not reliably right about: 38 of 50, so about three
-# runs in four. A bar of 8 would fail roughly two runs in five with nothing
-# wrong, which is a gate nobody can read; 6 is what the pooled rate actually
-# supports. Raising it means improving the model's judgement, not the number.
-MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 6  # 38/50 pooled
+# five cases below are held 50 of 50 by every model and effort tried, which is
+# what makes them regression tests rather than comparisons; 9 is the first figure
+# a single lapse survives while two do not. Re-measure after any change to
+# `BRIEF`, to a tool description, or to the budget, and do not re-derive from a
+# batch: 10 samples distinguish nothing short of total failure.
+MUST_IDENTIFY_THE_FLAG_TOGGLE = 9  # 50/50 on every arm
+MUST_STAY_UNDETERMINED = 9  # 50/50 on every arm
+MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 9  # 50/50 on every arm
+MUST_READ_PAST_THE_LOWER_BOUND = 9  # 50/50 on every arm
+MUST_IDENTIFY_THE_UPSTREAM_FAILURE = 9  # 50/50 on every arm
+# The one case no arm is reliably right about, and so the only one that tells two
+# configurations apart: 41 of 50 on the configured model, 38 of 50 on the tier
+# above it. A bar at 8 would fail one run in five with nothing wrong; 7 is what
+# 82% supports. Raising it means improving the model's judgement, not the number.
+MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 7  # 41/50 on the configured model
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
