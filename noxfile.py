@@ -1780,9 +1780,23 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     # pytest process that seeds the double all have to agree about which mode
     # this run is, and only an inherited setting cannot disagree.
     os.environ["CODE_SEARCH"] = mode
+    # A case named after `--` has to mean *only* that case. What follows `--` is
+    # appended to pytest by `_run_against_the_stack`, so passing the whole
+    # directory as well collects the named file on top of everything else and
+    # runs the entire suite regardless - which is what a narrowed replay
+    # silently did, at a full suite's wall clock, while reporting itself as the
+    # cases that were asked for.
+    #
+    # Told apart by the leading dash rather than by counting: `-- -k fallback`
+    # narrows the default selection and needs the directory left in place,
+    # where `-- tests/e2e/test_x.py` replaces it. `e2e` draws the same line, and
+    # both leave the mode's `--ignore`s behind with the default - somebody who
+    # named a case has already decided it is the one to run.
+    named_cases = [given for given in session.posargs if not given.startswith("-")]
+
     _run_against_the_stack(
         session,
-        _the_cases_for(mode),
+        [] if named_cases else _the_cases_for(mode),
         service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
         model_stands_in=True
     )
