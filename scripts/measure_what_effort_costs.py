@@ -60,7 +60,15 @@ THE_INCIDENTS: dict[str, Callable[[], Incident]] = {
     "lower-bound-onset": an_incident_underway_before_the_window_opens
 }
 
-THE_EFFORTS: tuple[Effort, ...] = ("high", "medium")
+# Each arm is one deployment's worth of choices: which model answers, and how
+# hard it is asked to think. Named as pairs rather than swept as a product,
+# because what is being compared is a handful of deliberate configurations and
+# not every combination of them - and every cell of a product is a bill.
+THE_ARMS: tuple[tuple[str, Effort], ...] = (
+    ("claude-opus-5", "high"),
+    ("claude-opus-5", "medium"),
+    ("claude-sonnet-5", "high")
+)
 
 
 def _the_metrics_of(incident: Incident) -> Callable[[str | None], list[MetricBucket]]:
@@ -97,10 +105,12 @@ def _the_changes_of(incident: Incident) -> Callable[[str, str, str], list[Change
     return fetch
 
 
-def _what_one_investigation_spent(incident: Incident, effort: Effort) -> Counter[str]:
+def _what_one_investigation_spent(incident: Incident,
+                                  model: str,
+                                  effort: Effort) -> Counter[str]:
     """Runs one investigation and returns what it billed, by kind of token."""
     settings = InvestigationSettings.of(get_settings()).model_copy(
-        update={"investigation_effort": effort}
+        update={"investigation_model": model, "investigation_effort": effort}
     )
     spend = Budget(
         max_tool_calls=settings.investigation_max_tool_calls,
@@ -138,15 +148,16 @@ def _what_one_investigation_spent(incident: Incident, effort: Effort) -> Counter
 
 
 def main() -> None:
-    """Runs every incident at every effort and prints what each effort billed."""
-    for effort in THE_EFFORTS:
+    """Runs every incident under every arm and prints what each arm billed."""
+    for model, effort in THE_ARMS:
+        arm = f"{model}/{effort}"
         totals: Counter[str] = Counter()
 
         for name, build in THE_INCIDENTS.items():
-            billed = _what_one_investigation_spent(build(), effort)
+            billed = _what_one_investigation_spent(build(), model, effort)
             totals.update(billed)
             print(
-                f"{effort:>6}  {name:<22} "
+                f"{arm:>22}  {name:<22} "
                 f"turns {billed['turns']:>3}  in {billed['input']:>7}  "
                 f"out {billed['output']:>6}  read {billed['cache_read']:>8}  "
                 f"write {billed['cache_write']:>7}"
@@ -157,7 +168,7 @@ def main() -> None:
             + totals["cache_read"] + totals["cache_write"]
         )
         print(
-            f"{effort:>6}  {'TOTAL':<22} turns {totals['turns']:>3}  "
+            f"{arm:>22}  {'TOTAL':<22} turns {totals['turns']:>3}  "
             f"in {totals['input']:>7}  out {totals['output']:>6}  "
             f"read {totals['cache_read']:>8}  write {totals['cache_write']:>7}  "
             f"four-count {charged}\n"

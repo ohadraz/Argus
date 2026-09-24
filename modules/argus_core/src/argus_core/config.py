@@ -325,7 +325,19 @@ class Settings(BaseSettings):
     # among the three it lost. More thinking per call bought more reading and
     # fewer conclusions, which is the shape of an agent exploring rather than
     # deciding.
-    investigation_model: str = Field(default=DEFAULT_MODEL)
+    # Sonnet rather than the shared default, measured over 500 investigations
+    # of the six pinned eval cases at 50 samples each per arm. Five of the six
+    # are held by every model and effort tried and so discriminate nothing; on
+    # the sixth - the deploy that explains nothing, which is the only case any
+    # arm gets wrong - Opus scored 38 of 50 and Sonnet 41, a difference well
+    # inside the interval either rate carries at that depth.
+    #
+    # What is not inside the noise is the bill: Sonnet's four rates are 40% of
+    # Opus's, and the same six investigations billed 94,035 tokens against
+    # 92,604, so the work costs 45% of what it did. A model that answers as
+    # well for less is not a trade, and this is the one agent whose answers can
+    # be scored well enough to say so.
+    investigation_model: str = Field(default="claude-sonnet-5")
     investigation_effort: Effort = Field(default=DEFAULT_EFFORT)
     codefix_model: str = Field(default=DEFAULT_MODEL)
     codefix_effort: Effort = Field(default=DEFAULT_EFFORT)
