@@ -76,32 +76,28 @@ CASE_THE_UNRELATED_CHANGE = "unrelated-change-is-not-blamed"
 CASE_THE_LOWER_BOUND = "lower-bound-onset-is-read-past"
 CASE_THE_UPSTREAM_FAILURE = "upstream-dependency-failure-is-identified"
 
-# **Provisional, and inherited rather than measured.** The 8-of-10 bar below
-# was derived from 50 samples of each case against the single-shot prompt this
-# loop replaces - one question, one answer, the whole evidence handed over
-# unasked. Nothing about that measurement carries over to a model that chooses
-# its own reads: the same fixture can now be failed by reading the wrong window
-# as well as by judging the evidence wrongly.
+# **Derived, 2026-09-24, from 50 pooled samples of each case** - five batches
+# of ten against the brief and fixtures as they stand, recorded in
+# `results/investigator.tsv`. They replace an 8-of-10 bar inherited from the
+# single-shot prompt this loop replaced, which measured a model that was handed
+# the evidence rather than one that chooses its own reads.
 #
-# So these are a starting bar, not a finding. Run the suite a few times, take
-# the rates it actually scores, and re-set each of these from them - and
-# re-measure after any change to `BRIEF`, to a tool description, or to the
-# budget, which is the whole point of them.
-# And when one of these is next re-set, say what it rested on: the pool it was
-# derived from and how many samples deep that pool was, written here beside the
-# figure. A bar with no sample count behind it is the position these five are in
-# now - a number nobody can tell from a guess, which is why re-deriving one from
-# a single batch is refused rather than merely discouraged.
-MUST_IDENTIFY_THE_FLAG_TOGGLE = 8
-MUST_STAY_UNDETERMINED = 8
-MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 8
-MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 8
-MUST_READ_PAST_THE_LOWER_BOUND = 8
-# The one bar here with samples behind it. Twenty runs of the two cases that
-# used to hand the model an upstream outage and ask for "no cause" named
-# UPSTREAM_DEPENDENCY_FAILURE twenty times out of twenty - so this is set where
-# the others are, and unlike them it is not a guess.
-MUST_IDENTIFY_THE_UPSTREAM_FAILURE = 8
+# A bar is set where a batch of ten passes when nothing has changed and fails
+# when the rate really drops - so it sits below the pooled rate, not at it. The
+# five cases below pooled 50/50, and 9 is the first figure a single lapse
+# survives while two do not. Re-measure after any change to `BRIEF`, to a tool
+# description, or to the budget, and do not re-derive from a batch: 10 samples
+# distinguish nothing short of total failure.
+MUST_IDENTIFY_THE_FLAG_TOGGLE = 9  # 50/50 pooled
+MUST_STAY_UNDETERMINED = 9  # 50/50 pooled
+MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 9  # 50/50 pooled
+MUST_READ_PAST_THE_LOWER_BOUND = 9  # 50/50 pooled
+MUST_IDENTIFY_THE_UPSTREAM_FAILURE = 9  # 50/50 pooled
+# The one case the model is not reliably right about: 38 of 50, so about three
+# runs in four. A bar of 8 would fail roughly two runs in five with nothing
+# wrong, which is a gate nobody can read; 6 is what the pooled rate actually
+# supports. Raising it means improving the model's judgement, not the number.
+MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 6  # 38/50 pooled
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
