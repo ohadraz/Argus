@@ -38,18 +38,44 @@ from qdrant_client import QdrantClient
 
 from read_mcp_server.repository import RepositoryReadSettings
 
-# How near a passage has to be to be worth a model's turn. Measured rather than
-# picked: against this embedder a description of a fault scores about 0.65 on
-# the code that has it and 0.41 to 0.50 on code that does not, so the gap sits
-# either side of a half. A store always answers its k nearest however far away
-# they are - ask an index of a shop about kernel scheduling and it offers the
-# checkout - and unfiltered that is a model reading three irrelevant files and
-# concluding the retriever found the cause.
+# How near a passage has to be to be worth a model's turn. A store always
+# answers its k nearest however far away they are - ask an index of a shop about
+# kernel scheduling and it offers the checkout - and unfiltered that is a model
+# reading three irrelevant files and concluding the retriever found the cause.
 #
-# One embedder's numbers, and the benchmark (§21) rather than this constant is
-# where a better figure should come from. Erring low is the cheaper mistake: a
-# passage too many costs a few hundred tokens, where the one dropped is the fix.
-NEAR_ENOUGH_TO_ANSWER: Final = 0.5
+# Measured rather than picked, and measured on both sides, because a floor that
+# never fires and a floor that cannot fire look identical from the admitted side
+# alone. Nine descriptions Code-Fix really searched with, against six this
+# repository has no code for at all, over the whole index: every real hit scored
+# 0.643 to 0.845, every absent one 0.477 to 0.653. Cosine on one small domain is
+# compressed high, so the gap is nowhere near a half - what each candidate would
+# do, out of 72 real hits and 48 from questions nothing here answers:
+#
+#     0.50    keeps 72    refuses  4     admits noise wholesale
+#     0.55    keeps 72    refuses 16
+#     0.60    keeps 72    refuses 27
+#     0.62    keeps 72    refuses 31     <- here
+#     0.64    keeps 72    refuses 42     the knee, and 0.003 from the lowest
+#                                        real score: no margin at all
+#     0.65    keeps 68    refuses 47     already dropping real passages
+#     0.66    keeps 66    refuses 48
+#
+# 0.64 is where the rejection curve turns and is not the figure to take: the
+# lowest real hit sits three thousandths above it, so a re-index, a model
+# revision or a differently worded description drops a passage that mattered.
+# 0.62 keeps everything with twenty times that margin and still refuses two
+# thirds of the noise.
+#
+# The two mistakes are not symmetric, which is what settles the trade. A passage
+# admitted too many costs a few hundred tokens and is cut again by the top-k
+# behind this; a passage refused is code the agent never sees and cannot recover,
+# and it may have been the fix. So the figure wanted is the highest one that
+# still keeps every real hit, not the one that refuses the most noise.
+#
+# One embedder's numbers, as the old ones were: this belongs to
+# `bge-small-en-v1.5` over one repository, and a different embedder needs the
+# pair of measurements taken again rather than this figure carried across.
+NEAR_ENOUGH_TO_ANSWER: Final = 0.62
 
 # How many passages one search may answer with. Small on purpose - these are
 # read in full rather than skimmed, and a model handed twenty spends its context
