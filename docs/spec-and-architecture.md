@@ -1065,6 +1065,14 @@ A separate runner, not part of Argus, depending on:
 
 The evaluator consumes the §11.1 Postgres tables directly, plus the Target Service's scenario ground truth - no separate export step.
 
+Two kinds of eval live side by side, and what separates them is whether the answer can be recomputed.
+
+**Judgement is sampled and pooled.** An eval that scores what the model concluded calls the real API, so one sample is a whole investigation. The model samples, so a single run is a draw rather than a verdict: each case is run ten times and scored as a rate. Ten is a floor - below it a batch distinguishes nothing short of total failure - so a run that costs too much is shortened by covering fewer *cases*, never by taking fewer samples of one. Batches pool: every sample is appended to a results file with the commit it was taken at, and a rate is read over the pool rather than over the latest batch. A batch detects a regression; only a pool deep enough re-derives a threshold, and how deep is declared rather than judged. Samples taken before a change to a standing brief, a tool description or a budget describe an agent that no longer exists and do not pool with what came after.
+
+**A fix is graded, not judged.** What Code-Fix proposes is code, and the Target Service has its own tests, so the grader is mechanical: the patch's test files alone must not pass against the unfixed service, and the whole patch must leave that service's suite green. A failing assertion and an import error both count for the first half - a fix that adds a module, a class or a constant leaves its test unable to import until it is applied - and what both rule out is a test that passes either way. This is the only thing that ever finds out whether a proposed fix works: Code-Fix runs statically, with no sandbox and no test runner (§7.4). It costs nothing, because it grades patches already captured in the recorded corpus, and so it writes no results file - its verdict for any commit is recovered by checking that commit out and grading again.
+
+The postmortem has no eval. Its output is prose, so scoring it means a model judging a model; what protects it instead is deterministic - a submission missing a required field or quoting a figure Argus never computed is refused, and a document that still fell short records that it did (§7.6).
+
 ## 22. Team Roles
 
 | Role | Responsibilities |

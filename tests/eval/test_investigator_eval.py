@@ -27,6 +27,7 @@ from argus_testkit.scenario import Scenario
 
 from tests.framework.assertions import no_cause_was_determined, the_cause_was_identified_as
 from tests.framework.investigating import the_configured_thresholds
+from tests.framework.pooling import the_samples_taken
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
 # real API and spends tokens every run. Each run is now a whole investigation -
@@ -47,7 +48,32 @@ needs_the_real_api = pytest.mark.skipif(
 
 # The model samples, so one call is a draw and not a verdict. Each case is run
 # this many times and scored as a rate.
+#
+# Ten is a floor rather than a target. At five, a 95% interval spans some forty
+# points either side and distinguishes nothing short of total failure; at ten it
+# is nearer twenty-five, which catches a regression. So this is not what to cut
+# when a run costs too much - five cases at ten samples is the fifty
+# investigations a full run bills for, and the thing to run less of is *cases*.
+# `-k` selects them, each batch pools with the last, and one case is ten walks.
 RUNS_PER_CASE = 10
+
+# What a single batch is allowed to conclude: that something broke, and nothing
+# finer. A rate from ten samples is compared against the bar below and never
+# written into it - a threshold fitted to one batch claims a precision ten
+# samples do not have. `pooling` holds the depths at which a pool may be acted
+# on and re-derived from, and every sample a run takes is appended there so that
+# reaching those depths is a matter of running again rather than paying once.
+#
+# The case names below are what a sample is filed under. They are spelled out
+# rather than taken from the test's own name, because a pool outlives a rename.
+A_BATCH_DETECTS_A_REGRESSION_AND_DERIVES_NOTHING = True
+
+THIS_EVAL = "investigator"
+CASE_THE_FLAG_TOGGLE = "flag-toggled-on-is-identified"
+CASE_NO_CHANGE_EVENT = "no-change-event-stays-undetermined"
+CASE_THE_BAD_DEPLOYMENT = "deploy-before-latency-is-identified"
+CASE_THE_UNRELATED_CHANGE = "unrelated-change-is-not-blamed"
+CASE_THE_LOWER_BOUND = "lower-bound-onset-is-read-past"
 
 # **Provisional, and inherited rather than measured.** The 8-of-10 bar below
 # was derived from 50 samples of each case against the single-shot prompt this
@@ -60,6 +86,11 @@ RUNS_PER_CASE = 10
 # the rates it actually scores, and re-set each of these from them - and
 # re-measure after any change to `BRIEF`, to a tool description, or to the
 # budget, which is the whole point of them.
+# And when one of these is next re-set, say what it rested on: the pool it was
+# derived from and how many samples deep that pool was, written here beside the
+# figure. A bar with no sample count behind it is the position these five are in
+# now - a number nobody can tell from a guess, which is why re-deriving one from
+# a single batch is refused rather than merely discouraged.
 MUST_IDENTIFY_THE_FLAG_TOGGLE = 8
 MUST_STAY_UNDETERMINED = 8
 MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 8
@@ -72,7 +103,13 @@ MUST_READ_PAST_THE_LOWER_BOUND = 8
 # that changing them is a change to this file and shows up in review beside the
 # thresholds it would invalidate.
 MAX_TOOL_CALLS = 12
-MAX_TOKENS = 150_000
+# 200,000 and not 150,000, which is what stood here while
+# `investigation_max_tokens` said 200,000 - so every score on record was taken
+# under a tighter bound than production gives the model. The restatement exists
+# to make a changed bound show up in review beside the thresholds it
+# invalidates, and it drifted anyway; re-syncing it invalidates them again, in
+# the lenient direction.
+MAX_TOKENS = 200_000
 MAX_SECONDS = 300.0
 
 ONSET = datetime(2026, 3, 2, 10, 5, tzinfo=UTC)
@@ -122,7 +159,8 @@ def test_a_flag_toggled_on_before_the_error_spike_is_identified() -> None:
             lambda: _the_real_model_investigates_repeatedly(some_incident)
         ) \
         .then(
-            at_least(
+            _scored(
+                CASE_THE_FLAG_TOGGLE,
                 MUST_IDENTIFY_THE_FLAG_TOGGLE,
                 _a_run_where(the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE)),
             )
@@ -147,7 +185,8 @@ def test_an_error_spike_with_no_change_event_is_left_undetermined() -> None:
             lambda: _the_real_model_investigates_repeatedly(some_incident)
         ) \
         .then(
-            at_least(MUST_STAY_UNDETERMINED, _a_run_where(no_cause_was_determined()))
+            _scored(CASE_NO_CHANGE_EVENT, MUST_STAY_UNDETERMINED,
+                    _a_run_where(no_cause_was_determined()))
         )
 
 
@@ -171,7 +210,8 @@ def test_a_deploy_before_a_latency_departure_is_identified() -> None:
             lambda: _the_real_model_investigates_repeatedly(some_incident)
         ) \
         .then(
-            at_least(
+            _scored(
+                CASE_THE_BAD_DEPLOYMENT,
                 MUST_IDENTIFY_THE_BAD_DEPLOYMENT,
                 _a_run_where(the_cause_was_identified_as(FailureMode.BAD_DEPLOYMENT)),
             )
@@ -196,7 +236,8 @@ def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
             lambda: _the_real_model_investigates_repeatedly(some_incident)
         ) \
         .then(
-            at_least(
+            _scored(
+                CASE_THE_UNRELATED_CHANGE,
                 MUST_NOT_BLAME_THE_UNRELATED_CHANGE,
                 _a_run_where(no_cause_was_determined()),
             )
@@ -228,7 +269,8 @@ def test_an_onset_that_is_only_a_lower_bound_is_read_past() -> None:
             lambda: _the_real_model_investigates_repeatedly(some_incident)
         ) \
         .then(
-            at_least(
+            _scored(
+                CASE_THE_LOWER_BOUND,
                 MUST_READ_PAST_THE_LOWER_BOUND,
                 _a_run_where_the_logs_were_read_before(_the_default_log_window_opens_at()),
             )
@@ -576,6 +618,37 @@ def _the_changes_of(incident: Incident) -> Callable[[str, str, str], list[Change
 def _when(log_line: str) -> datetime:
     """The instant a log line reports, read off its own prefix."""
     return parse_iso(log_line.split(" ", 1)[0])
+
+
+def _scored(case: str, passing: int, satisfy: Assertion[Run]) -> Assertion[list[Run]]:
+    """Scores a batch against the bar, and files every sample it took.
+
+    Wrapped around `at_least` rather than beside it, so a case cannot be scored
+    without being recorded: the two would drift apart the first time somebody
+    added a case, and a pool with a case missing is a pool that quietly answers
+    for four.
+
+    The per-run outcome is read by running the same assertion `at_least` will,
+    which does mean each run is judged twice. It is a predicate over a finished
+    object - no model call, no I/O - and the alternative is reaching into
+    `argus_testkit` for the counts, which is not this suite's to change.
+    """
+    def assertion(runs: list[Run]) -> bool:
+        the_samples_taken(THIS_EVAL, case, [_it_held(satisfy, run) for run in runs])
+
+        return at_least(passing, satisfy)(runs)
+
+    return assertion
+
+
+def _it_held(satisfy: Assertion[Run], run: Run) -> bool:
+    """Whether one run satisfied the claim, as a boolean rather than a raise."""
+    try:
+        satisfy(run)
+    except AssertionError:
+        return False
+
+    return True
 
 
 def _a_run_where(satisfy: Assertion[Hypothesis]) -> Assertion[Run]:
