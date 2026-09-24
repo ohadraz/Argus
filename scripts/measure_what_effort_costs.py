@@ -19,6 +19,7 @@ Spends real money on every run: six incidents at each effort named.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from collections import Counter
 from collections.abc import Callable
@@ -68,11 +69,45 @@ THE_INCIDENTS: dict[str, Callable[[], Incident]] = {
 # hard it is asked to think. Named as pairs rather than swept as a product,
 # because what is being compared is a handful of deliberate configurations and
 # not every combination of them - and every cell of a product is a bill.
-THE_ARMS: tuple[tuple[str, Effort], ...] = (
+#
+# These are the default because they are what the current choice rests on. Any
+# other comparison is an argument rather than an edit: one `model/effort` per arm.
+THE_ARMS_ALREADY_COMPARED: tuple[tuple[str, Effort], ...] = (
     ("claude-opus-5", "high"),
     ("claude-opus-5", "medium"),
     ("claude-sonnet-5", "high")
 )
+
+THE_EFFORTS: tuple[Effort, ...] = ("low", "medium", "high", "xhigh", "max")
+
+
+def _an_arm(named: str) -> tuple[str, Effort]:
+    """One `model/effort` argument, or a refusal saying what it should look like.
+
+    The effort is checked against the levels the API has, because a
+    misremembered one - `higher`, `maximum` - would otherwise reach the model as
+    an invalid request after the arm before it had already been paid for.
+    """
+    model, _, effort = named.partition("/")
+
+    if not model or effort not in THE_EFFORTS:
+        raise argparse.ArgumentTypeError(
+            f"[{named}] is not an arm. One model and one effort, as "
+            f"`claude-sonnet-5/high`, the effort being one of {', '.join(THE_EFFORTS)}."
+        )
+
+    return model, effort
+
+
+def _the_arms_asked_for() -> tuple[tuple[str, Effort], ...]:
+    """The arms named on the command line, or the three already compared."""
+    asking = argparse.ArgumentParser(description=__doc__)
+    asking.add_argument(
+        "arms", nargs="*", type=_an_arm, metavar="MODEL/EFFORT",
+        help="an arm to measure, as `claude-sonnet-5/high`; repeat for each one"
+    )
+
+    return tuple(asking.parse_args().arms) or THE_ARMS_ALREADY_COMPARED
 
 
 def _the_metrics_of(incident: Incident) -> Callable[[str | None], list[MetricBucket]]:
@@ -161,7 +196,7 @@ def main() -> None:
     """
     rows: list[dict[str, object]] = []
 
-    for model, effort in THE_ARMS:
+    for model, effort in _the_arms_asked_for():
         totals: Counter[str] = Counter()
 
         for name, build in THE_INCIDENTS.items():

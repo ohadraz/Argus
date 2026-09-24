@@ -18,6 +18,8 @@ built - `nox -s index -- --once`.
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -46,37 +48,43 @@ WHAT_THIS_MEASURES = "what_a_description_scores"
 # which candidate won is a judgement, and which one was in force is a fact.
 THE_FLOOR_IN_USE = NEAR_ENOUGH_TO_ANSWER
 
-# What Code-Fix asked the index, verbatim, with the scenario each came from. Nine
-# calls across the committed corpus - every `search_repository_by_meaning` in it.
-THE_DESCRIPTIONS: tuple[tuple[str, str], ...] = (
-    ("slow-canary-rollout",
-     "a loop that repeatedly scans the whole purchase history, making the cost grow "
-     "with the square of the number of purchases and making the page slow for shoppers "
-     "with long histories"),
-    ("bad-deployment",
-     "request handler that performs a blocking or synchronous call per request causing "
-     "latency to climb and timeouts"),
-    ("bad-deployment",
-     "iterating over purchases repeatedly, recomputing totals inside a loop, N+1 lookups "
-     "per account"),
-    ("bad-deployment",
-     "average spend per item divides total by number of purchases, crashes when list is "
-     "empty"),
-    ("fallback-disabled",
-     "computes average spend per order by dividing total spend by order count, raising "
-     "ZeroDivisionError when the customer has no orders"),
-    ("feature-flag-toggle",
-     "computes average monthly spend by dividing total spend by number of months, raising "
-     "ZeroDivisionError when there are zero months or zero orders"),
-    ("feature-flag-toggle",
-     "feature flag monthly-spend-feature checked to decide whether to render new spend "
-     "summary on account page"),
-    ("flag-toggle-uncorroborated",
-     "computes average spend per order by dividing total spend by the number of orders, "
-     "which divides by zero when a customer has no orders"),
-    ("flag-toggle-uncorroborated",
-     "spend summary for account page, aggregates transactions and computes averages")
-)
+RECORDINGS_DIR = REPO_ROOT / "modules" / "anthropic_double" / "recordings"
+
+# The tool whose calls are the sample. Named from the wire rather than the module
+# that defines it: what is being read here is a recorded request body.
+THE_MEANING_TOOL = "search_repository_by_meaning"
+
+
+def the_descriptions_code_fix_searched_with() -> tuple[tuple[str, str], ...]:
+    """Every meaning search in the committed corpus, with the scenario it came from.
+
+    Read out of the recordings rather than copied into this file, so the sample
+    is whatever the agent last actually asked - a corpus re-recorded against a
+    new prompt or a new model brings its own descriptions, and this measurement
+    follows without anybody remembering to re-paste them.
+
+    That matters more than convenience: a description written to test retrieval
+    is written by somebody who already knows which file answers it, and scores
+    accordingly. These were written by an agent that did not.
+    """
+    asked: list[tuple[str, str]] = []
+
+    for recording in sorted(RECORDINGS_DIR.glob("*.json")):
+        held = recording.read_text(encoding="utf-8")
+
+        if THE_MEANING_TOOL not in held:
+            continue
+
+        # `both-feature-flag-toggle-3.json` -> `feature-flag-toggle`: the mode in
+        # front and the answer's number behind it say which run this was, not
+        # which incident, and the incident is what a reader of a score wants.
+        scenario = re.sub(r"^(grep|meaning|both)-|-\d+$", "", recording.stem)
+
+        for block in json.loads(held).get("content", []):
+            if block.get("type") == "tool_use" and block.get("name") == THE_MEANING_TOOL:
+                asked.append((scenario, block["input"]["description"]))
+
+    return tuple(asked)
 
 # The case the floor exists for, and the only one that can tell a threshold that
 # is inert from one that has never had to fire. Every description above names
@@ -190,8 +198,13 @@ def main() -> None:
     settings = IndexReadSettings.of(get_settings())
     embed = an_embedder()
     find = the_index_at(settings)
+    answered = the_descriptions_code_fix_searched_with()
 
-    _scored("IN THE REPOSITORY", THE_DESCRIPTIONS, embed, find, every_hit=True)
+    if not answered:
+        print(f"no {THE_MEANING_TOOL} calls recorded under {RECORDINGS_DIR}")
+        return
+
+    _scored("IN THE REPOSITORY", answered, embed, find, every_hit=True)
     print("\n" + "=" * 78)
     print("Descriptions this repository has no code for at all:\n")
     _scored(
@@ -205,7 +218,7 @@ def main() -> None:
     ).count
 
     _swept(
-        _every_score(THE_DESCRIPTIONS, embed, find),
+        _every_score(answered, embed, find),
         _every_score(THE_DESCRIPTIONS_NOTHING_ANSWERS, embed, find),
         passages
     )

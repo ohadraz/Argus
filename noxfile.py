@@ -619,6 +619,53 @@ def eval_(session: nox.Session) -> None:
         f"--ignore={_THE_FREE_EVAL}", "-v", *session.posargs, external=True
     )
 
+
+@nox.session
+def measure_spend(session: nox.Session) -> None:
+    """
+    Registers `measure_spend` as a nox session, i.e., runnable via
+    `uv run python -m nox -s measure_spend`, and with arms of its own as
+    `-s measure_spend -- claude-sonnet-5/high claude-haiku-4-5/low`.
+    Runs the six pinned eval incidents under each arm named - a model and an
+    effort - and appends what each investigation billed to
+    `measurements/what_an_investigation_bills.tsv`: turns and all four token
+    counts, one row per incident per arm, stamped with the commit.
+
+    Named no arms, it measures the three the current choice rests on. Reaches
+    the **real** API and spends tokens: one whole investigation per incident per
+    arm, so six arms is thirty-six investigations.
+
+    Answers what an arm costs, never whether it is right - a rate over what the
+    model concluded is the `eval` session's, and the two are read side by side.
+    """
+    session.run(
+        "uv", "run", "python", "scripts/measure_what_effort_costs.py",
+        *session.posargs, external=True
+    )
+
+
+@nox.session
+def measure_retrieval(session: nox.Session) -> None:
+    """
+    Registers `measure_retrieval` as a nox session, i.e., runnable via
+    `uv run python -m nox -s measure_retrieval`.
+    Scores every meaning search in the committed recordings against the live
+    index, alongside descriptions this repository has no code for at all, and
+    appends what each candidate floor would keep and refuse to
+    `measurements/what_a_description_scores.tsv` - with the number of indexed
+    passages on every row, that being what changes when more is indexed.
+
+    Free: the embedder runs in this process and Qdrant is local. Needs Qdrant up
+    and the index built (`nox -s index -- --once`), and reads its questions out
+    of the corpus rather than from a list, so a re-recorded corpus re-measures
+    itself.
+    """
+    session.run(
+        "uv", "run", "python", "scripts/measure_what_a_description_scores.py",
+        *session.posargs, external=True
+    )
+
+
 def _venv_python_binary() -> str:
     """Path to the workspace venv's own Python interpreter - uvicorn is run
     via `-m uvicorn` (not the `uvicorn` console-script entry point, and not
