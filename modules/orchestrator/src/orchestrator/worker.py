@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from functools import partial
 from os import getpid
+from typing import Final
 
 import psycopg
 from agent_mitigation import (
@@ -29,6 +32,7 @@ from argus_core import (
     DatabaseSettings,
     ReadMcpEndpoint,
     WriteMcpEndpoint,
+    connect_from_env,
     get_settings,
     open_pool,
 )
@@ -54,13 +58,70 @@ type Walk = Callable[[str], None]
 # a flag provider behind it.
 type Unwind = Callable[[str], None]
 
+# How often the claim is renewed, as a fraction of the lease. A third, so two
+# renewals may be missed - a slow query, a process the operating system paused -
+# before anything else is entitled to take the run for abandoned.
+_RENEWALS_PER_LEASE: Final = 3
+
+
+@contextmanager
+def _the_claim_kept_alive(run_id: str,
+                          lease: timedelta,
+                          connections: Connections) -> Iterator[None]:
+    """Renews this run's claim for as long as the body is running.
+
+    A lease bounds how long a *stopped* worker's run waits before somebody takes
+    it back. It is not a budget for the walk, and must not be read as one: the
+    investigation is allowed 1,800 seconds and Code-Fix 1,100, either of which
+    outlasts the 720 the lease is set to.
+
+    Without this the walk simply lost the run part-way through. `claim` takes
+    back a run whose lease has expired and *resumes* it from its checkpoint, so
+    one incident was walked twice at once - two agents reading the same evidence,
+    each free to act on the world, and every model call billed twice. It was
+    found in a recording corpus, where one walk's answers had been stored under
+    another walk's name because both were live together.
+
+    On its own connection and in its own thread: the connection this worker
+    claims with belongs to the caller, and a psycopg connection is not two
+    threads' to share.
+
+    A renewal that fails stops the renewing and nothing else. The walk is what
+    matters; a database that cannot be reached will fail the run's settling in a
+    moment anyway, and this thread taking a live investigation down with it would
+    be the more expensive of the two.
+    """
+    stop = threading.Event()
+    every = lease.total_seconds() / _RENEWALS_PER_LEASE
+
+    def keep_renewing() -> None:
+        while not stop.wait(every):
+            try:
+                with connections() as renewing_conn:
+                    runs.renew(renewing_conn, run_id, lease)
+            except Exception:
+                logger.exception("the claim on run %s could not be renewed", run_id)
+                return
+
+    renewing = threading.Thread(
+        target=keep_renewing, name=f"renew-{run_id}", daemon=True
+    )
+    renewing.start()
+
+    try:
+        yield
+    finally:
+        stop.set()
+        renewing.join(timeout=every)
+
 
 def take_one_run(conn: psycopg.Connection,
                  claimed_by: str,
                  lease: timedelta,
                  walk: Walk,
                  unwind: Unwind,
-                 still_wanted: IsStillWanted) -> bool:
+                 still_wanted: IsStillWanted,
+                 connections: Connections = connect_from_env) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
 
     Answers `False` for an empty queue rather than blocking on it, so the
@@ -97,11 +158,12 @@ def take_one_run(conn: psycopg.Connection,
         return False
 
     try:
-        if still_wanted(claimed.incident_id):
-            walk(claimed.incident_id)
+        with _the_claim_kept_alive(claimed.id, lease, connections):
+            if still_wanted(claimed.incident_id):
+                walk(claimed.incident_id)
 
-        if not still_wanted(claimed.incident_id):
-            unwind(claimed.incident_id)
+            if not still_wanted(claimed.incident_id):
+                unwind(claimed.incident_id)
     except Exception as failure:
         logger.exception("run %s for incident %s failed",
                          claimed.id, claimed.incident_id)
@@ -161,7 +223,8 @@ def work_forever(connections: Connections,
 
     with connections() as conn:
         while True:
-            if not take_one_run(conn, me, lease, walk, unwind, still_wanted):
+            if not take_one_run(conn, me, lease, walk, unwind, still_wanted,
+                                connections):
                 time.sleep(idle_wait)
 
 

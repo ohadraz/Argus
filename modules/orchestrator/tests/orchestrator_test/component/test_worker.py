@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from datetime import timedelta
 
@@ -17,6 +18,11 @@ A_GENEROUS_LEASE = timedelta(minutes=5)
 # A lease already over by the time it is written: the state a worker that was
 # killed mid-walk leaves behind, arranged rather than waited for.
 A_LEASE_ALREADY_OVER = timedelta(seconds=-1)
+
+# Shorter than the walk that holds it, which is the whole point: with no
+# renewal the run is taken back part-way through, and the assertion fails for
+# the reason it exists.
+A_LEASE_SHORTER_THAN_THE_WALK = timedelta(milliseconds=500)
 
 
 @pytest.mark.component
@@ -366,6 +372,74 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_data
                 _only_one_incident_exists(conn),
                 _only_one_run_exists(conn),
             ))
+
+
+@pytest.mark.component
+def test_a_run_still_being_walked_keeps_its_claim(a_clean_database: None) -> None:
+    # The mirror of the test above, and the one that was missing. A lease says
+    # how long before a *stopped* worker's run is taken back; it is not a budget
+    # for the walk, which Code-Fix alone is allowed to outlast. So the claim has
+    # to be renewed while the walk runs - and until it was, a walk that outlived
+    # its lease had the same run taken up beneath it and resumed from its
+    # checkpoint: two walks of one incident, both calling the model, both free to
+    # act on the world.
+    #
+    # Found in a recording corpus, of all places. One walk's answers were stored
+    # under another walk's name, because both were live at once.
+    #
+    # The lease is shorter than the walk on purpose, so the renewal has to happen
+    # for this to hold rather than merely be allowed to.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    the_worker_walking_it = "worker-part-way-through-a-long-walk"
+    the_worker_that_came_after = "worker-that-should-find-nothing"
+    taken_from_under_it: list[str] = []
+
+    def walk_outlasting_its_lease(dont_care_incident_id: str) -> None:
+        time.sleep(A_LEASE_SHORTER_THAN_THE_WALK.total_seconds() * 3)
+
+        with connect_from_env() as second:
+            claimed = runs.claim(second, the_worker_that_came_after, A_GENEROUS_LEASE)
+
+            if claimed is not None:
+                taken_from_under_it.append(claimed.incident_id)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(incident_id) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    the_worker_walking_it,
+                    A_LEASE_SHORTER_THAN_THE_WALK,
+                    walk=walk_outlasting_its_lease,
+                    unwind=_an_unwind_that_must_not_be_called(),
+                    still_wanted=wanted_via(connect_from_env),
+                    connections=connect_from_env,
+                )
+            ) \
+            .then(_no_second_worker_took_the_run(taken_from_under_it))
+
+
+def _no_second_worker_took_the_run(taken: list[str]) -> Assertion[bool]:
+    """That nobody could claim the run while its own worker was still walking it.
+
+    Asserted as what a second worker *got* rather than as a lease timestamp: a
+    renewal that moved the deadline but not far enough would satisfy a test
+    reading the column and still hand the run away.
+    """
+    def assertion(dont_care_took_work: bool) -> bool:
+        if taken:
+            raise AssertionError(
+                f"Expected the run to stay claimed while it was walked; a second "
+                f"worker took {taken}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_run_is_failed(conn: psycopg.Connection,
