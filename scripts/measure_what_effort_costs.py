@@ -50,6 +50,10 @@ from tests.eval.test_investigator_eval import (  # noqa: E402
     an_incident_with_no_change_event,
 )
 from tests.framework.investigating import the_configured_thresholds  # noqa: E402
+from tests.framework.measuring import the_measurement_of  # noqa: E402
+
+# The file these rows go to, named for the question rather than the run.
+WHAT_THIS_MEASURES = "what_an_investigation_bills"
 
 THE_INCIDENTS: dict[str, Callable[[], Incident]] = {
     "flag-toggled-on": an_incident_where_a_flag_was_toggled_on,
@@ -148,16 +152,33 @@ def _what_one_investigation_spent(incident: Incident,
 
 
 def main() -> None:
-    """Runs every incident under every arm and prints what each arm billed."""
+    """Runs every incident under every arm and records what each one billed.
+
+    One row per incident per arm rather than one per arm: the totals are a sum
+    away, and an arm that is dearer on one incident and cheaper on five is a
+    thing a total hides. Recorded rather than printed, so the next comparison is
+    a diff against this run instead of somebody's memory of it.
+    """
+    rows: list[dict[str, object]] = []
+
     for model, effort in THE_ARMS:
-        arm = f"{model}/{effort}"
         totals: Counter[str] = Counter()
 
         for name, build in THE_INCIDENTS.items():
             billed = _what_one_investigation_spent(build(), model, effort)
             totals.update(billed)
+            rows.append({
+                "model": model,
+                "effort": effort,
+                "incident": name,
+                "turns": billed["turns"],
+                "input": billed["input"],
+                "output": billed["output"],
+                "cache_read": billed["cache_read"],
+                "cache_write": billed["cache_write"]
+            })
             print(
-                f"{arm:>22}  {name:<22} "
+                f"{model}/{effort}  {name:<22} "
                 f"turns {billed['turns']:>3}  in {billed['input']:>7}  "
                 f"out {billed['output']:>6}  read {billed['cache_read']:>8}  "
                 f"write {billed['cache_write']:>7}"
@@ -168,11 +189,13 @@ def main() -> None:
             + totals["cache_read"] + totals["cache_write"]
         )
         print(
-            f"{arm:>22}  {'TOTAL':<22} turns {totals['turns']:>3}  "
+            f"{model}/{effort}  {'TOTAL':<22} turns {totals['turns']:>3}  "
             f"in {totals['input']:>7}  out {totals['output']:>6}  "
             f"read {totals['cache_read']:>8}  write {totals['cache_write']:>7}  "
             f"four-count {charged}\n"
         )
+
+    print(f"recorded to {the_measurement_of(WHAT_THIS_MEASURES, rows)}")
 
 
 if __name__ == "__main__":

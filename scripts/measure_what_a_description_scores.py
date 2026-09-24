@@ -27,6 +27,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from argus_core import get_settings  # noqa: E402
 from code_index.embedding import an_embedder  # noqa: E402
 from code_index.indexing import Embedder  # noqa: E402
+from qdrant_client import QdrantClient  # noqa: E402
 from read_mcp_server.meaning import (  # noqa: E402
     MOST_PASSAGES_WORTH_ANSWERING,
     NEAR_ENOUGH_TO_ANSWER,
@@ -34,6 +35,16 @@ from read_mcp_server.meaning import (  # noqa: E402
     NearestPassages,
     the_index_at,
 )
+
+from tests.framework.measuring import the_measurement_of  # noqa: E402
+
+# The file these rows go to, named for the question rather than the run.
+WHAT_THIS_MEASURES = "what_a_description_scores"
+
+# Recorded beside each candidate so a row says whether it is the figure the code
+# was using when the row was written. The sweep is only readable against that:
+# which candidate won is a judgement, and which one was in force is a fact.
+THE_FLOOR_IN_USE = NEAR_ENOUGH_TO_ANSWER
 
 # What Code-Fix asked the index, verbatim, with the scenario each came from. Nine
 # calls across the committed corpus - every `search_repository_by_meaning` in it.
@@ -142,7 +153,7 @@ def _every_score(descriptions: tuple[tuple[str, str], ...],
     return scores
 
 
-def _swept(answered: list[float], unanswered: list[float]) -> None:
+def _swept(answered: list[float], unanswered: list[float], passages: int) -> None:
     """What each candidate threshold would keep and what it would refuse.
 
     The two columns are the two mistakes a floor can make, and they are not
@@ -152,14 +163,26 @@ def _swept(answered: list[float], unanswered: list[float]) -> None:
     the most noise.
     """
     print("\ncandidate  keeps of real  refuses of noise")
+    rows: list[dict[str, object]] = []
 
     for candidate in (0.50, 0.55, 0.60, 0.62, 0.64, 0.65, 0.66, 0.70):
         kept = sum(1 for score in answered if score >= candidate)
         refused = sum(1 for score in unanswered if score < candidate)
+        rows.append({
+            "candidate": f"{candidate:.2f}",
+            "in_use": candidate == THE_FLOOR_IN_USE,
+            "passages": passages,
+            "kept_of_real": kept,
+            "real_hits": len(answered),
+            "refused_of_absent": refused,
+            "absent_hits": len(unanswered)
+        })
         print(
             f"   {candidate:.2f}     {kept:>3} of {len(answered)}      "
             f"{refused:>3} of {len(unanswered)}"
         )
+
+    print(f"\nrecorded to {the_measurement_of(WHAT_THIS_MEASURES, rows)}")
 
 
 def main() -> None:
@@ -174,9 +197,17 @@ def main() -> None:
     _scored(
         "ABSENT FROM IT", THE_DESCRIPTIONS_NOTHING_ANSWERS, embed, find, every_hit=False
     )
+    # How much is indexed, on every row: the whole question of whether a floor
+    # separates anything is a question about this corpus, and the figure that
+    # moves when somebody indexes a second repository is this one.
+    passages = QdrantClient(url=settings.qdrant_url).count(
+        settings.code_index_collection
+    ).count
+
     _swept(
         _every_score(THE_DESCRIPTIONS, embed, find),
-        _every_score(THE_DESCRIPTIONS_NOTHING_ANSWERS, embed, find)
+        _every_score(THE_DESCRIPTIONS_NOTHING_ANSWERS, embed, find),
+        passages
     )
 
 
