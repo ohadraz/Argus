@@ -1751,9 +1751,15 @@ def e2e(session: nox.Session) -> None:
     # a stand-in - and the pull request it opens, which is the deliverable a
     # person is handed (spec §13), would be one nobody can open. Cleaned up on
     # the way down by `_put_the_repository_back`.
+    # A named case is a path, as in `e2e_replay`: an option's own value is not
+    # one, and treating it as one would leave this run collecting the whole
+    # repository against the real model - the one session where that is also
+    # billed.
+    named_cases = [given for given in session.posargs if given.endswith(".py")]
+
     _run_against_the_stack(
         session,
-        [] if session.posargs else _THE_CASES_WORTH_PAYING_FOR,
+        [] if named_cases else _THE_CASES_WORTH_PAYING_FOR,
         # Both real, because both are the deliverable. This run exists to show
         # the whole thing working against the real world, and an incident that
         # reached a person is half of what it has to show - a message posted at
@@ -1837,7 +1843,13 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     # where `-- tests/e2e/test_x.py` replaces it. `e2e` draws the same line, and
     # both leave the mode's `--ignore`s behind with the default - somebody who
     # named a case has already decided it is the one to run.
-    named_cases = [given for given in session.posargs if not given.startswith("-")]
+    # A named case is a path to a test file, not merely an argument with no
+    # leading dash. An option carries values of its own - `--splits 2 --group 1`
+    # from CI, `-k fallback` from a hand - and reading those as filenames drops
+    # the suite's own paths, leaving pytest to collect from the repository root:
+    # every module's tests and the contract suite, run against a stack none of
+    # them asked for.
+    named_cases = [given for given in session.posargs if given.endswith(".py")]
 
     _run_against_the_stack(
         session,
