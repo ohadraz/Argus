@@ -70,6 +70,7 @@ from tests.e2e.framework.argus import (
     RECORDED_RESOURCE_LEAK,
     RECORDED_SLOW_CANARY_ROLLOUT,
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
+    THE_RECORDINGS_THAT_MUST_CARRY_A_FIX,
     THE_SERVICE_NAME,
     stored_as,
 )
@@ -733,6 +734,34 @@ def _what_was_asked_for(names: list[str]) -> list[_Recording]:
     return [known[name] for name in names]
 
 
+def _the_two_declarations_of_a_fix_agree() -> None:
+    """Refuses to start if the recorder and the grader disagree about fixes.
+
+    Which walks have to come back with a patch is said twice, and has to be: the
+    table below carries more than that - actions taken, hypotheses formed - while
+    the grader wants only the names. So they are not merged; they are checked
+    against each other, here, before a single token is spent.
+
+    Drifting apart is not a loud failure otherwise. A scenario added to one and
+    not the other leaves either a paid recording nobody refuses when the fix
+    stops arriving, or a grader reporting a case as silent that was never
+    supposed to speak.
+    """
+    recorder_says = {
+        recording.name for recording in EVERY_RECORDING
+        if _A_FIX_WAS_PROPOSED in recording.must_have
+    }
+
+    if recorder_says != set(THE_RECORDINGS_THAT_MUST_CARRY_A_FIX):
+        raise SystemExit(
+            f"the two declarations of which walks must carry a fix disagree: this "
+            f"script expects {sorted(recorder_says)}, and "
+            f"THE_RECORDINGS_THAT_MUST_CARRY_A_FIX says "
+            f"{sorted(THE_RECORDINGS_THAT_MUST_CARRY_A_FIX)}. Put them back in "
+            f"step before recording anything"
+        )
+
+
 def main() -> int:
     # The timeline printed at the end quotes the model, and the model writes
     # arrows and dashes this console cannot encode - a Windows terminal defaults
@@ -771,6 +800,8 @@ def main() -> int:
         help="serve the stored recordings instead of calling the real API",
     )
     arguments = parser.parse_args()
+
+    _the_two_declarations_of_a_fix_agree()
 
     asked_for = _what_was_asked_for(arguments.names)
     failed: list[str] = []

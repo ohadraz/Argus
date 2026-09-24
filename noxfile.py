@@ -557,22 +557,60 @@ def integration(session: nox.Session) -> None:
     finally:
         _stop_service(double_process)
 
+# The one eval that costs nothing, named here because nothing else tells it
+# apart. It lives in `tests/eval` with the paid ones - it scores the model's
+# answers, which is what makes it an eval - but the answers are already
+# recorded, so it calls no API. A marker of its own would say this more neatly
+# and is not worth the drift: the marker list is fixed and every suite in the
+# repo is tagged from it.
+_THE_FREE_EVAL = "tests/eval/test_recorded_fixes_hold_up.py"
+
+
+@nox.session
+def grade_fixes(session: nox.Session) -> None:
+    """
+    Registers `grade_fixes` as a nox session, i.e., runnable via
+    `uv run python -m nox -s grade_fixes`.
+    Grades the fixes in the recorded corpus by applying each to the Target
+    Service and running that service's own tests: the patch's tests alone must
+    not pass, and the whole patch must leave `tests/io_shop` green. Code-Fix
+    proposes statically and never learns whether its patch works - this is where
+    that is found out.
+
+    Free, deterministic and modelless, which is why it is not `eval`. It reads
+    recordings that are committed and a repository that is committed, so it runs
+    against any past commit and needs no API key. It does need the Target
+    Service checked out beside this one with a clean tree: it grades by
+    overwriting files there and putting them back with git.
+    """
+    session.run(
+        "uv", "run", "python", "-m", "pytest", _THE_FREE_EVAL, "-v", external=True
+    )
+
+
 @nox.session(name="eval")
 def eval_(session: nox.Session) -> None:
     """
     Registers `eval` as a nox session, i.e., runnable via `uv run python -m nox -s eval`.
-    Runs the evals: fixed evidence against the real model, scored as a pass
-    rate over what it concludes and what it chose to read to conclude it. These
-    judge the *model*, not Argus's plumbing, so they need a real
-    `ANTHROPIC_API_KEY` and spend tokens on every run - a whole tool-use
+    Runs the evals that spend money: fixed evidence against the real model,
+    scored as a pass rate over what it concludes and what it chose to read to
+    conclude it. These judge the *model*, not Argus's plumbing, so they need a
+    real `ANTHROPIC_API_KEY` and spend tokens on every run - a whole tool-use
     investigation per sample - which is why they are their own session and
     never part of `test_all`.
+
+    The free eval in that directory is deselected: it has a session of its own
+    (`grade_fixes`), and running it here would bill nobody while making this
+    session look slower than it is.
 
     The function is `eval_` because `eval` is a Python builtin. nox does not
     strip the underscore, so the session name is set explicitly on the
     decorator - otherwise `uv run python -m nox -s eval` would not find it.
     """
-    session.run("uv", "run", "python", "-m", "pytest", "tests/eval", "-v", external=True)
+    session.run(
+        "uv", "run", "python", "-m", "pytest", "tests/eval",
+        f"--ignore={_THE_FREE_EVAL}", "-v", external=True
+    )
 
 def _venv_python_binary() -> str:
     """Path to the workspace venv's own Python interpreter - uvicorn is run

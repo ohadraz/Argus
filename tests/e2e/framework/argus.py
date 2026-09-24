@@ -79,6 +79,23 @@ RECORDED_CACHE_MISCONFIGURED = "cache-misconfigured"
 RECORDED_SLOW_CANARY_ROLLOUT = "slow-canary-rollout"
 RECORDED_LARGE_CODE_FIX = "monthly-statement-panel"
 
+# Which of those walks has to come back with a patch. Declared once, here,
+# because two things need it and would otherwise each keep a list: the recorder,
+# which refuses to store a walk that was supposed to propose a fix and did not,
+# and the grader, which would otherwise report a scenario that quietly stopped
+# proposing one as having nothing to grade.
+#
+# A scenario is absent from this either because its cause is not in the code -
+# a misconfigured cache is rolled back, not patched - or because there is no
+# cause at all to find. Absence is a statement, not an oversight, which is why
+# the set is spelled out rather than derived from what the corpus happens to
+# hold today.
+THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
+    RECORDED_FLAG_TOGGLE,
+    RECORDED_RESOURCE_LEAK,
+    RECORDED_LARGE_CODE_FIX
+})
+
 # Not arbitrary! the Target Service names itself in its own log
 THE_SERVICE_NAME = "io-shop"
 

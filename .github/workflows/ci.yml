@@ -22,6 +22,46 @@ jobs:
       - name: typecheck
         run: uv run python -m nox -s typecheck
 
+  # Whether the fixes Code-Fix proposed actually work, decided by the Target
+  # Service's own tests rather than by a model or a threshold: each recorded
+  # patch's tests alone must not pass, and the whole patch must leave
+  # `tests/io_shop` green.
+  #
+  # On every push, because it costs nothing and takes seconds. Both inputs are
+  # committed - the recordings here, the service in its own repository - so the
+  # verdict is a property of the commit rather than of the day it ran.
+  #
+  # Two repositories for the reason `paid-suites.yml` needs two: the grader
+  # writes each patch into the service and puts it back with git, and a runner
+  # checks out only this one. A fresh checkout is also the clean tree the
+  # grader refuses to run without.
+  grade-fixes:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Argus
+
+    steps:
+      - name: Check out Argus
+        uses: actions/checkout@v7
+        with:
+          path: Argus
+
+      - name: Check out the Target Service
+        uses: actions/checkout@v7
+        with:
+          repository: ohadraz/Argus-Demo-Target-App
+          path: Argus-Demo-Target-App
+
+      - uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: Grade the recorded fixes
+        run: uv run python -m nox -s grade_fixes
+
   # Free and keyless: every LLM answer is replayed from a recording committed
   # to this repo, so this exercises the real adapter - prompt, schema
   # transform, response parsing - without spending a token. That is the whole
