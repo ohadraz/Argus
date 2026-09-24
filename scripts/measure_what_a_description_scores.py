@@ -1,19 +1,21 @@
 """What the retrieval threshold actually separates, measured against the index.
 
-`NEAR_ENOUGH_TO_ANSWER` is 0.5 because a small hand sample put a fault's own
-code around 0.65 and unrelated code between 0.41 and 0.50. That was one
-embedder's numbers on a handful of descriptions, and the constant says so. This
-asks the live index the same question at scale: every hit and its score, with no
-threshold applied, so the gap the figure sits in is visible rather than assumed.
+`NEAR_ENOUGH_TO_ANSWER` decides which passages a model is shown, and the figure
+is only as good as the sample it was read off. This asks the live index at scale
+and with no threshold applied: every hit and its score, for questions the
+repository answers and for questions it does not, so what each candidate floor
+would keep and refuse is visible rather than argued.
 
-The descriptions are not invented for the occasion. They are the ones Code-Fix
-actually searched with, lifted from the committed recordings - which is the only
-sample that is representative of what this threshold filters in production,
-since a description written to test retrieval is a description written by
-somebody who already knows the answer.
+Two halves, and they are sourced differently on purpose. The questions with
+answers are the ones Code-Fix actually searched with, read out of the committed
+recordings - the only sample representative of what this threshold filters in
+production, since a description written to test retrieval is written by somebody
+who already knows which file answers it. The questions with no answers are
+authored here, because a corpus of searches against this repository cannot supply
+a question this repository has no code for.
 
-Free: the embedder runs in this process and Qdrant is local. Needs the index
-built - `nox -s index -- --once`.
+Free: the embedder runs in this process and Qdrant is local. Needs Qdrant up and
+the index built - `nox -s index -- --once`.
 """
 
 from __future__ import annotations
@@ -87,13 +89,23 @@ def the_descriptions_code_fix_searched_with() -> tuple[tuple[str, str], ...]:
     return tuple(asked)
 
 # The case the floor exists for, and the only one that can tell a threshold that
-# is inert from one that has never had to fire. Every description above names
-# something the shop really contains, so all of them *should* be admitted; a
-# store answers its k nearest whatever the question, so what decides whether 0.5
-# separates anything is where these land - questions this repository has no code
-# for at all. If they score like the real ones, the embedder cannot discriminate
-# on this domain and the constant should say so; if they fall, the number wants
-# recalibrating to the gap rather than removing.
+# is inert from one that has never had to fire. Every description read above
+# names something the shop really contains, so all of them *should* be admitted;
+# a store answers its k nearest whatever the question, so what decides whether
+# the floor separates anything is where these land - questions this repository
+# has no code for at all. If they score like the real ones, the embedder cannot
+# discriminate on this domain and the constant should say so; if they fall, the
+# number wants recalibrating to the gap rather than removing.
+#
+# Written here rather than read from the corpus, and that is the arrangement
+# rather than the half of it that nobody finished. The recordings hold what
+# Code-Fix asked *about this repository*, so every description in them has an
+# answer somewhere in the index - a corpus cannot supply a question it contains
+# no answer to, and one that could would mean the agent had searched for
+# something absent and the search had been kept. The absent half has to be
+# authored, and stays as fixed as the corpus half is live: change a question here
+# and the sweep either side of it is no longer comparable with the rows already
+# recorded.
 THE_DESCRIPTIONS_NOTHING_ANSWERS: tuple[tuple[str, str], ...] = (
     ("absent", "kernel thread scheduling and CPU affinity for real-time priority tasks"),
     ("absent", "parsing X.509 certificate chains and validating TLS handshake signatures"),
