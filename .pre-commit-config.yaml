@@ -37,6 +37,12 @@ repos:
         language: system
         pass_filenames: false  # no filenames - an export's callers can be anywhere, so it reads the whole repo.
 
+      - id: guard-recordings
+        name: recordings are of finished walks (via nox)
+        entry: uv run python -m nox -s guard_recordings  # fails if a recording is of a walk that gave up partway
+        language: system
+        pass_filenames: false  # no filenames - a corpus is many files, and the question is about the set.
+
       - id: guard-written-columns
         name: written columns (via nox)
         entry: uv run python -m nox -s guard_written_columns  # fails if a column the schema declares is set by no INSERT, UPDATE or DEFAULT

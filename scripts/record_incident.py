@@ -85,7 +85,17 @@ TARGET_SERVICE_BASE_URL = "http://localhost:8080"
 ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 DATABASE_URL = get_settings().database_url
 
-A_WHOLE_INVESTIGATION_SECONDS = 900.0
+# How long one recording's walk may take before this gives up on it.
+#
+# A floor rather than a measurement, and knowingly so. At 900 it cut three
+# walks of eleven off mid-read - `cache-misconfigured` at 21 answers,
+# `slow-canary-rollout` at 25, `monthly-statement-panel` at 21 - each of them
+# mitigated, none of them written up, all three still calling
+# `read_repository_file` when the clock ran out. What they would have taken is
+# exactly what a bound that binds cannot tell you, so this is doubled rather
+# than fitted, and the figure worth writing here is the longest walk a run
+# under it actually reports.
+A_WHOLE_INVESTIGATION_SECONDS = 1800.0
 # The webhook only writes the incident down, so this bounds a write rather than
 # a walk - the walk is waited out by polling below.
 REQUEST_TIMEOUT_SECONDS = 30.0
