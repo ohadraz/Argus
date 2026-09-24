@@ -35,9 +35,9 @@
 ## 5. Proving it before it is paid for
 
 - [x] 5.1 Run the grader on the current corpus - it is free, so its verdict is known before any paid step
-- [ ] 5.2 Follow `preflight-before-paid-runs`: everything but the model's judgement proven free first
-- [ ] 5.3 Run one batch of 10 against the real API and append it
-- [ ] 5.4 Compare that batch against the existing thresholds as a regression check, and change nothing on the strength of it
+- [x] 5.2 Follow `preflight-before-paid-runs`: everything but the model's judgement proven free first
+- [x] 5.3 Run one batch of 10 against the real API and append it
+- [x] 5.4 Compare that batch against the existing thresholds as a regression check, and change nothing on the strength of it
 
 ## 6. Tests
 

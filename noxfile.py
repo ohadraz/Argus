@@ -584,7 +584,8 @@ def grade_fixes(session: nox.Session) -> None:
     overwriting files there and putting them back with git.
     """
     session.run(
-        "uv", "run", "python", "-m", "pytest", _THE_FREE_EVAL, "-v", external=True
+        "uv", "run", "python", "-m", "pytest", _THE_FREE_EVAL, "-v",
+        *session.posargs, external=True
     )
 
 
@@ -607,9 +608,15 @@ def eval_(session: nox.Session) -> None:
     strip the underscore, so the session name is set explicitly on the
     decorator - otherwise `uv run python -m nox -s eval` would not find it.
     """
+    # Anything after `--` goes to pytest, so a batch can cover one case rather
+    # than all five - `-- -k flag_toggled_on` is ten investigations instead of
+    # fifty, and batches pool. Without this the argument was silently dropped
+    # and the session billed for the whole suite while reporting itself as the
+    # case that was asked for, which it did once, at five times the intended
+    # price.
     session.run(
         "uv", "run", "python", "-m", "pytest", "tests/eval",
-        f"--ignore={_THE_FREE_EVAL}", "-v", external=True
+        f"--ignore={_THE_FREE_EVAL}", "-v", *session.posargs, external=True
     )
 
 def _venv_python_binary() -> str:

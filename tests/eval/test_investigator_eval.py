@@ -25,7 +25,7 @@ from argus_core.models import (
 from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 
-from tests.framework.assertions import no_cause_was_determined, the_cause_was_identified_as
+from tests.framework.assertions import the_cause_was_identified_as
 from tests.framework.investigating import the_configured_thresholds
 from tests.framework.pooling import the_samples_taken
 
@@ -74,6 +74,7 @@ CASE_NO_CHANGE_EVENT = "no-change-event-stays-undetermined"
 CASE_THE_BAD_DEPLOYMENT = "deploy-before-latency-is-identified"
 CASE_THE_UNRELATED_CHANGE = "unrelated-change-is-not-blamed"
 CASE_THE_LOWER_BOUND = "lower-bound-onset-is-read-past"
+CASE_THE_UPSTREAM_FAILURE = "upstream-dependency-failure-is-identified"
 
 # **Provisional, and inherited rather than measured.** The 8-of-10 bar below
 # was derived from 50 samples of each case against the single-shot prompt this
@@ -96,6 +97,25 @@ MUST_STAY_UNDETERMINED = 8
 MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 8
 MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 8
 MUST_READ_PAST_THE_LOWER_BOUND = 8
+# The one bar here with samples behind it. Twenty runs of the two cases that
+# used to hand the model an upstream outage and ask for "no cause" named
+# UPSTREAM_DEPENDENCY_FAILURE twenty times out of twenty - so this is set where
+# the others are, and unlike them it is not a guess.
+MUST_IDENTIFY_THE_UPSTREAM_FAILURE = 8
+
+# How sure a model may sound about a cause the evidence does not carry.
+#
+# The two "nothing explains this" fixtures and the upstream one are a matched
+# pair: same alert, same buckets, same empty change list, and only the log text
+# differs. So a cause reached from the metric shape alone is reached from
+# evidence all of them share - a guess by construction, however well it reads.
+#
+# Scored as calibration rather than as silence, because silence is not what the
+# brief asks for. A model that says "possibly upstream, and I could not confirm
+# it" at 0.55 is the brief working; the same cause at 0.9 is the fabrication
+# these two cases were written to catch, and the walk will act on it - a named
+# cause is enough to start a mitigation, whatever the number beside it.
+A_CAUSE_THE_EVIDENCE_DOES_NOT_CARRY_MAY_NOT_EXCEED = 0.6
 
 # The budget every case is measured under, pinned here for the same reason the
 # evidence is: a rate that moved with a deployment's `.env` would say nothing
@@ -135,15 +155,30 @@ A_FAILURE_IN_THE_FLAGGED_PATH = (
     "ERROR checkout: request failed - unhandled exception in checkout-v2 path"
 )
 A_FAILURE_FROM_UPSTREAM = "ERROR checkout: request failed - upstream returned 503"
+# A failure that blames nobody. The two "nothing here explains this" cases need
+# evidence that genuinely explains nothing, and an upstream 503 stopped being
+# that the day `UPSTREAM_DEPENDENCY_FAILURE` became a cause Argus can name and
+# act on: a model reading those lines now identifies a real failure mode, and is
+# right to. Measured - twenty runs out of twenty named it.
+A_FAILURE_THAT_NAMES_NOTHING = "ERROR checkout: request failed"
 
 A_PRICING_REWRITE = "checkout: replace the cached pricing lookup with a per-item query"
 A_LOG_LEVEL_BUMP = "checkout: raise the structured-log level from info to debug"
+
+# The deploy that explains nothing, named once so the fixture that stages it and
+# the assertion that refuses it cannot come to mean different deploys.
+AN_UNRELATED_DEPLOY = "4d1b90c"
 
 # Where the toggle sits in the widening fixture: far enough before the onset
 # that the default log window - which reaches back `log_initial_lookback_minutes`
 # - cannot contain it, and well inside the ceiling on a widened one, so reading
 # it is affordable rather than merely permitted.
 TOGGLED_LONG_BEFORE_THE_WINDOW_OPENS = -45
+
+# Where the unrelated deploy sits: far enough before the onset that the calm
+# minutes between the two are visible in the metrics span, so the model can
+# read the gap rather than having to be told the change was harmless.
+DEPLOYED_LONG_BEFORE_THE_ONSET = -40
 
 
 @pytest.mark.eval
@@ -186,7 +221,32 @@ def test_an_error_spike_with_no_change_event_is_left_undetermined() -> None:
         ) \
         .then(
             _scored(CASE_NO_CHANGE_EVENT, MUST_STAY_UNDETERMINED,
-                    _a_run_where(no_cause_was_determined()))
+                    _a_run_where_nothing_was_claimed_confidently())
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
+def test_a_dependency_failing_outside_the_service_is_identified() -> None:
+    # A cause with no change event behind it, which is the shape that made the
+    # two "stays undetermined" cases wrong: they were built when an unexplained
+    # spike meant an unknowable one. It is knowable - the log lines name the
+    # dependency, and the service's own latency, traffic and memory never move -
+    # and a model that says so has read the evidence rather than guessed at it.
+    some_incident = an_incident_where_an_upstream_dependency_failed()
+
+    Scenario()         .given(
+            some_incident
+        )         .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        )         .then(
+            _scored(
+                CASE_THE_UPSTREAM_FAILURE,
+                MUST_IDENTIFY_THE_UPSTREAM_FAILURE,
+                _a_run_where(
+                    the_cause_was_identified_as(FailureMode.UPSTREAM_DEPENDENCY_FAILURE)
+                ),
+            )
         )
 
 
@@ -224,8 +284,10 @@ def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
     # The cost of the third channel, measured. This is the undetermined case
     # above with one deploy added and nothing else touched, so a drop here
     # says precisely one thing: handing the model something that *looks* like
-    # an actor made it name a cause it had no evidence for. A log-level bump
-    # does not return 503s from somebody else's service.
+    # an actor made it name a cause it had no evidence for. What marks this
+    # deploy as not the cause is in the evidence: forty calm minutes sit
+    # between it and the onset, so a model that reads the metrics can see the
+    # service was fine long after it landed.
     some_incident = an_incident_with_an_unrelated_change()
 
     Scenario() \
@@ -239,7 +301,10 @@ def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
             _scored(
                 CASE_THE_UNRELATED_CHANGE,
                 MUST_NOT_BLAME_THE_UNRELATED_CHANGE,
-                _a_run_where(no_cause_was_determined()),
+                all_of(
+                    _a_run_where_nothing_was_claimed_confidently(),
+                    _the_deploy_was_not_blamed()
+                ),
             )
         )
 
@@ -328,6 +393,20 @@ def an_incident_with_no_change_event() -> Incident:
     return _an_incident(
         alert=an_error_rate_alert(),
         buckets=_a_calm_stretch_then_a_spike(),
+        log_lines=_a_spike_nothing_explains(),
+        changes=[]
+    )
+
+
+def an_incident_where_an_upstream_dependency_failed() -> Incident:
+    # The evidence the two cases above used to be handed while being asked for
+    # "no cause". Nothing changed in this service and nothing needs to have:
+    # the failure arrived through a dependency, the log lines say which, and
+    # the service's own latency and traffic never move. Naming that is right,
+    # and this is where it is now asked for rather than penalised.
+    return _an_incident(
+        alert=an_error_rate_alert(),
+        buckets=_a_calm_stretch_then_a_spike(),
         log_lines=_an_upstream_outage(),
         changes=[]
     )
@@ -338,11 +417,18 @@ def an_incident_with_an_unrelated_change() -> Incident:
     # its alert, its buckets and its log lines. The single difference between
     # the two fixtures is the difference the two scores are allowed to
     # attribute anything to.
+    #
+    # The deploy sits forty minutes before the onset, with forty calm minutes
+    # recorded between the two. That is what makes it unrelated in the
+    # evidence rather than by assumption: an earlier fixture put it two
+    # minutes back, where the only thing marking it innocent was knowing a
+    # log-level bump is inert - a claim about the diff's semantics that is
+    # nowhere in what the model was handed, and not reliably true either.
     return _an_incident(
         alert=an_error_rate_alert(),
         buckets=_a_calm_stretch_then_a_spike(),
-        log_lines=_an_upstream_outage(),
-        changes=[a_deploy_at(-2, "4d1b90c", A_LOG_LEVEL_BUMP)]
+        log_lines=_a_spike_nothing_explains(),
+        changes=[a_deploy_at(DEPLOYED_LONG_BEFORE_THE_ONSET, AN_UNRELATED_DEPLOY, A_LOG_LEVEL_BUMP)]
     )
 
 
@@ -444,15 +530,19 @@ def a_deploy_at(offset_minutes: int, revision: str, summary: str) -> ChangeEvent
 
 
 def _a_calm_stretch_then_a_spike() -> list[MetricBucket]:
-    """Three calm minutes, then two spiked ones - onset at offset 1.
+    """Three quarters of an hour of calm, then two spiked minutes - onset at offset 1.
 
     Latency and volume stay flat throughout, so error rate is the only thing
     that moved and a deploy-shaped explanation has nothing to stand on.
+
+    The calm runs back far enough to cover any change the model is offered.
+    A gap between a change and the onset is only readable as a gap if the
+    minutes in between are there to be read: forty calm minutes say the
+    service was fine long after the deploy landed, where a bare timestamp
+    forty minutes earlier says only that the deploy was earlier.
     """
     return [
-        a_bucket_at(-2, CALM_ERROR_RATE),
-        a_bucket_at(-1, CALM_ERROR_RATE),
-        a_bucket_at(0, CALM_ERROR_RATE),
+        *(a_bucket_at(minute, CALM_ERROR_RATE) for minute in range(-45, 1)),
         a_bucket_at(1, SPIKED_ERROR_RATE),
         a_bucket_at(2, SPIKED_ERROR_RATE)
     ]
@@ -495,12 +585,36 @@ def _a_window_that_opens_inside_the_incident() -> list[MetricBucket]:
 
 
 def _an_upstream_outage() -> list[str]:
-    """Failures the service reports but does not own - the fault is somebody
-    else's, and nothing the service deployed would account for them."""
+    """Failures the service reports and does not own, said so in the log.
+
+    A cause rather than an absence, which is what it became the day
+    UPSTREAM_DEPENDENCY_FAILURE was added: the lines name a dependency
+    returning 503 while the service's own latency, traffic and memory stay flat,
+    and that pattern is the failure mode rather than a lack of one.
+    """
     return [
         a_log_line_at(-1, A_SUCCESS),
         a_log_line_at(1, A_FAILURE_FROM_UPSTREAM),
         a_log_line_at(2, A_FAILURE_FROM_UPSTREAM)
+    ]
+
+
+def _a_spike_nothing_explains() -> list[str]:
+    """Failures that say only that they failed.
+
+    The honest-failure path needs evidence with no cause in it, and this is
+    harder to write than it looks: the obvious spelling - an upstream 503 - is
+    evidence of `UPSTREAM_DEPENDENCY_FAILURE`, which Argus has named and
+    mitigated since September. A model handed those lines names it, correctly,
+    and the case that asked for "no cause" was measuring a stale expectation
+    rather than the model.
+
+    So the lines blame nobody: something failed, and nothing on hand says why.
+    """
+    return [
+        a_log_line_at(-1, A_SUCCESS),
+        a_log_line_at(1, A_FAILURE_THAT_NAMES_NOTHING),
+        a_log_line_at(2, A_FAILURE_THAT_NAMES_NOTHING)
     ]
 
 
@@ -649,6 +763,72 @@ def _it_held(satisfy: Assertion[Run], run: Run) -> bool:
         return False
 
     return True
+
+
+def _a_run_where_nothing_was_claimed_confidently() -> Assertion[Run]:
+    """That the model did not sound certain about a cause it could not support.
+
+    Abstention passes, and so does a named cause held loosely. What fails is a
+    cause named above the ceiling on evidence that does not carry it - which is
+    what these fixtures are built to withhold, and what the walk will act on
+    regardless, since a named cause is enough to start a mitigation.
+    """
+    def assertion(run: Run) -> bool:
+        best = run.findings.candidates[0]
+
+        if best.failure_mode is None:
+            return True
+
+        if best.confidence is None:
+            raise AssertionError(
+                f"Expected a named cause to carry a confidence; "
+                f"[{best.failure_mode}] came with none. Model said: {best.summary}"
+            )
+
+        if best.confidence > A_CAUSE_THE_EVIDENCE_DOES_NOT_CARRY_MAY_NOT_EXCEED:
+            raise AssertionError(
+                f"Expected no cause to be claimed above "
+                f"[{A_CAUSE_THE_EVIDENCE_DOES_NOT_CARRY_MAY_NOT_EXCEED}] on evidence "
+                f"that does not carry one; got [{best.failure_mode}] at "
+                f"[{best.confidence}]. Model said: {best.summary}"
+            )
+
+        return True
+
+    return all_of(assertion, _the_budget_was_not_exhausted())
+
+
+def _the_deploy_was_not_blamed() -> Assertion[Run]:
+    """That the one change on offer was not taken for the cause.
+
+    Read from the subject rather than from the failure mode, and that is the
+    whole point of it. The first version of this refused `BAD_DEPLOYMENT`, and a
+    model blaming the same deploy called it `CONFIG_INDUCED_FAILURE` instead -
+    the log-level bump is a config change, so the label fitted - and walked
+    past. Refusing that label too would have bought one run: the next mode that
+    can describe a deploy slips through the same gap.
+
+    The subject is durable where a label is not. The brief requires the specific
+    thing to be named verbatim, so a hypothesis that blamed this deploy says so
+    there whatever it called the shape of the failure.
+
+    What it cannot catch is a model that blames the deploy in its prose and
+    names something else as the subject. That is the brief being broken rather
+    than this case being failed, and it wants a check of its own.
+    """
+    def assertion(run: Run) -> bool:
+        best = run.findings.candidates[0]
+
+        if AN_UNRELATED_DEPLOY in (best.subject or ""):
+            raise AssertionError(
+                f"Expected the unrelated deploy [{AN_UNRELATED_DEPLOY}] not to be "
+                f"blamed; it was named as the subject, as [{best.failure_mode}] at "
+                f"[{best.confidence}]. Model said: {best.summary}"
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_run_where(satisfy: Assertion[Hypothesis]) -> Assertion[Run]:

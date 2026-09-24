@@ -111,7 +111,9 @@ cautious you feel: 0.9 to 1.0 when something in the evidence records the cause \
 directly, 0.7 to 0.9 when it strongly implies it and nothing else in view \
 accounts for the symptoms, 0.5 to 0.7 when it is the best of several \
 explanations the evidence permits, and below 0.5 you are guessing - prefer no \
-cause at all.
+cause at all. Being the only thing on offer is not being the best of several: \
+a lone explanation nothing in the evidence supports belongs below 0.5, not in \
+the middle of the range.
 
 `subject` names the specific thing the cause is about - for a feature flag, \
 the flag's own name; for a failure arriving from a service this one depends \
