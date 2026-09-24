@@ -18,6 +18,7 @@ throw away three correct files over a fourth - and an incident that recorded
 
 from __future__ import annotations
 
+import json
 from typing import Any, Final
 
 from argus_core.models import ToolDefinition
@@ -93,6 +94,27 @@ CONTENT_FIELD: Final = "content"
 REQUIRED_FIELDS: Final = [SUMMARY_FIELD, FILES_FIELD]
 
 
+def _the_array_inside(submitted: str) -> Any:
+    """The patch a model sent as text, where the array itself was asked for.
+
+    A real answer, on the largest fix recorded: the model wrote `files` as a
+    string holding the array's JSON - seventy-odd kilobytes of it - and dropped
+    as "not a list" that fix reached a human as "there is nothing here to
+    change", with the incident recording the verdict and nothing anywhere saying
+    it was the shape of the answer rather than the state of the code. The
+    wrapping was wrong; the answer was not.
+
+    `None` for anything that is not JSON, which the caller reads as no patch. A
+    path typed where an array belonged is a malformed submission however
+    willingly it is read, and guessing at one would invent a patch the model did
+    not send.
+    """
+    try:
+        return json.loads(submitted)
+    except ValueError:
+        return None
+
+
 class ProposedFile(BaseModel):
     """One file of a patch: where it goes, and everything it says afterwards.
 
@@ -165,7 +187,15 @@ class SubmittedFix(BaseModel):
 
         Dropped rather than refused, one entry at a time, so a model that got
         three files right and one wrong proposes the three.
+
+        A submission that arrived as text is read for the array inside it before
+        anything else, because a model asked for a large array sometimes sends
+        one - see `_the_array_inside`, which is where what that cost is written
+        down.
         """
+        if isinstance(value, str):
+            value = _the_array_inside(value)
+
         if not isinstance(value, list):
             return []
 

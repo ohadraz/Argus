@@ -13,6 +13,8 @@ is indistinguishable, downstream, from one that was never asked.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from agent_codefix.prompting import SubmittedFix
 from argus_testkit.assertions import Assertion, all_of
@@ -157,6 +159,33 @@ def test_files_that_did_not_arrive_as_a_list_are_read_as_no_patch() -> None:
         .then(
             all_of(
                 _the_patch_is({})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_files_that_arrived_as_json_text_are_read_as_the_patch_they_are() -> None:
+    # Measured on a real walk rather than imagined. Asked to rewrite one large
+    # file, the model sent `files` as a *string* holding the array's JSON - 72KB
+    # of it - where the schema asks for the array itself. Dropped as "not a
+    # list", that fix reached a human as "there is nothing here to change", and
+    # the incident recorded the verdict with nothing anywhere to say it was the
+    # shape of the answer rather than the state of the code.
+    #
+    # Read rather than dropped, for the reason a number where a sentence was
+    # asked for is written out: the answer arrived and is recoverable, and only
+    # its wrapping is wrong. A string that is not JSON at all is still no patch -
+    # the test above says so, and must keep saying it.
+    Scenario() \
+        .when(
+            lambda: SubmittedFix.model_validate({
+                "summary": "dont care",
+                "files": json.dumps([{"path": SOME_PATH, "content": SOME_CONTENT}])
+            })
+        ) \
+        .then(
+            all_of(
+                _the_patch_is({SOME_PATH: SOME_CONTENT})
             )
         )
 
