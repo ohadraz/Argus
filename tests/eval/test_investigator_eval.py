@@ -27,7 +27,7 @@ from argus_testkit.scenario import Scenario
 
 from tests.framework.assertions import the_cause_was_identified_as
 from tests.framework.investigating import the_configured_thresholds
-from tests.framework.pooling import the_samples_taken
+from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
 # real API and spends tokens every run. Each run is now a whole investigation -
@@ -744,11 +744,44 @@ def _scored(case: str, passing: int, satisfy: Assertion[Run]) -> Assertion[list[
     `argus_testkit` for the counts, which is not this suite's to change.
     """
     def assertion(runs: list[Run]) -> bool:
-        the_samples_taken(THIS_EVAL, case, [_it_held(satisfy, run) for run in runs])
+        the_samples_taken(
+            THIS_EVAL,
+            case,
+            [_it_held(satisfy, run) for run in runs],
+            the_configuration_under_test()
+        )
 
         return at_least(passing, satisfy)(runs)
 
     return assertion
+
+
+def the_configuration_under_test() -> Configuration:
+    """What this batch is measuring, as far as pooling is concerned.
+
+    Read at scoring time from the same settings the runs were made with, rather
+    than stated here: a configuration this file named for itself would keep
+    saying `high` after somebody exported an effort of their own, which is the
+    one thing these columns exist to catch.
+
+    The model and the effort are named because they are what gets tuned. The
+    rest is digested rather than listed - what belongs in a pool's identity is
+    everything the environment supplies, and a column per bound would be six
+    columns nobody reads to detect a change nobody makes often.
+    """
+    settings = InvestigationSettings.of(get_settings())
+
+    return Configuration(
+        model=settings.investigation_model,
+        effort=settings.investigation_effort,
+        settings=a_digest_of({
+            "log_initial_lookback_minutes": settings.log_initial_lookback_minutes,
+            "log_initial_lookahead_minutes": settings.log_initial_lookahead_minutes,
+            "log_max_window_minutes": settings.log_max_window_minutes,
+            "change_lookback_minutes": settings.change_lookback_minutes,
+            "thresholds": the_configured_thresholds()
+        })
+    )
 
 
 def _it_held(satisfy: Assertion[Run], run: Run) -> bool:
