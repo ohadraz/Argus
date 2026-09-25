@@ -57,7 +57,14 @@ and only the last item needs a model:
    over the new files, at their real paths.
 7. **The composition root, driven once.** See below - this is the one the gates
    cannot do for you.
-8. **Then, and only then:** what the model concludes from the evidence.
+8. **The whole walk, on fabricated answers.**
+   `uv run python scripts/seed_a_rehearsal.py` takes a recording set captured
+   for one scenario, rewrites the answer that has to differ, and stores it under
+   the new scenario's name - so `e2e_replay` drives the new case, end to end,
+   before a model has been asked anything. It proves the plumbing and nothing
+   about the answer, and what it writes must never be committed: the paid
+   `record` run overwrites it with the real thing.
+9. **Then, and only then:** what the model concludes from the evidence.
 
 ## Green gates do not prove a thing is wired
 
