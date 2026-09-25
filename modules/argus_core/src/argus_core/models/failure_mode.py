@@ -4,9 +4,17 @@ A failure mode is *how* it broke; a root cause is *why* - the technical
 trigger. "A deploy went out and the service got worse" is a mode, where "the
 divisor was zero for shoppers who bought nothing this month" is a cause. The
 distinction is the published taxonomy's, and it decides what belongs here:
-these are modes, because what dispatches on them is the choice of mitigation,
-and a mitigation answers the pattern rather than the trigger. Restarting is the
-answer to a leak whatever leaked.
+these are modes because a mitigation answers the pattern rather than the
+trigger, and restarting is the answer to a leak whatever leaked.
+
+What makes a mode is a distinction a reader of an incident makes, never the
+strategy that answers it. The mapping from modes to mitigations is many-to-one -
+a bad deployment and a broken configuration are both answered by returning the
+deployment to the revision it ran before - and a value that had to earn its
+place by bringing a new action with it would be a vocabulary serving the
+dispatch table instead of the person reading the incident. The granularity below
+follows from the same test: a heap and a pool are not distinct to that reader,
+so they are one mode.
 
 Closed rather than open. A model weighing an explanation against a fixed list
 is answering a question; one inventing a label is writing prose that something
@@ -44,12 +52,12 @@ class FailureMode(StrEnum):
     UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
     # A deployment's configuration was changed into a broken state, with
     # nothing wrong in the code and nothing wrong in whatever the
-    # configuration points at. Distinct from a bad deployment, which ships new
-    # code and is answered by rolling that code back, and from a flag toggle,
-    # which is answered by putting one value back through a provider built for
-    # it. This is answered by returning the deployment to a revision of its
-    # configuration that was already running - a third action, and so a third
-    # mode, because what dispatches on a mode is the choice of mitigation.
+    # configuration points at. Distinct from a flag toggle, which is answered by
+    # putting one value back through a provider built for it, and distinct from
+    # a bad deployment in what it tells a reader and in what is left to fix
+    # afterwards - a values file here, the service's source there - though a
+    # deployment rollback answers both, since one revision carries the code and
+    # the configuration it shipped with.
     CONFIG_INDUCED_FAILURE = "config-induced-failure"
 
     def meaning(self) -> str:
@@ -62,10 +70,12 @@ class FailureMode(StrEnum):
 
         One sentence each, and the two that are hardest to tell apart say what
         separates them. A model handed five hyphenated names infers a taxonomy
-        from the spelling, and the pair it most often confuses is exactly the
-        pair that dispatches to different mitigations: a deployment that
-        shipped bad code is rolled back as code, and a deployment that shipped
-        a bad value is returned to a configuration revision that worked.
+        from the spelling, and the pair it most often confuses is the one that
+        arrives the same way and is fixed differently: both a bad deployment and
+        a broken configuration landed as a deployment and are both mitigated by
+        returning it, so what the model is being asked is which of the two the
+        change was - because that is what somebody has left to fix, and it is
+        what the incident will say it was about.
         """
         return _WHAT_EACH_MODE_MEANS[self]
 
@@ -97,7 +107,7 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "untouched and the thing the configuration points at is healthy. "
         "Choose this over bad-deployment whenever the change that landed was "
         "to configuration rather than to code, even though it arrived as a "
-        "deployment: what puts it right is returning the deployment to an "
-        "earlier configuration revision, not rolling back code"
+        "deployment and is put right the same way: what differs is the fix "
+        "somebody is left with, a values file rather than the source"
     )
 }
