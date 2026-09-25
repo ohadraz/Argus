@@ -11,8 +11,8 @@ from write_mcp_client.client import (
     get_recent_flag_changes,
     open_pull_request,
     restart_service,
-    restore_configuration,
-    roll_back_configuration,
+    restore_deployment,
+    roll_back_deployment,
     set_feature_flag,
     write_mcp,
 )
@@ -22,8 +22,8 @@ __all__ = [
     "get_recent_flag_changes",
     "open_pull_request",
     "restart_service",
-    "restore_configuration",
-    "roll_back_configuration",
+    "restore_deployment",
+    "roll_back_deployment",
     "set_feature_flag",
     "write_mcp",
 ]

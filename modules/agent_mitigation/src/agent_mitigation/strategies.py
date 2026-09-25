@@ -30,7 +30,7 @@ from typing import Protocol
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
-    ROLL_BACK_CONFIGURATION,
+    ROLL_BACK_DEPLOYMENT,
     Action,
     ActionType,
     FailureMode,
@@ -39,14 +39,14 @@ from argus_core.models import (
     Hypothesis,
     RestartService,
     RevertFeatureFlag,
-    RollBackConfiguration,
+    RollBackDeployment,
 )
 
 __all__ = [
     "DEFAULT_STRATEGIES",
     "MitigationStrategy",
     "RestartServiceStrategy",
-    "RollBackConfigurationStrategy",
+    "RollBackDeploymentStrategy",
     "RevertFeatureFlagStrategy",
     "Strategies",
     "a_mitigation_answers"
@@ -158,15 +158,22 @@ class RestartServiceStrategy:
         return RestartService(service=service)
 
 
-class RollBackConfigurationStrategy:
-    """Answering a configuration that was changed into a broken state by
-    putting the previous configuration back.
+class RollBackDeploymentStrategy:
+    """Answering a change that was deployed into a broken state by putting the
+    deployment back on the revision before it.
 
     The third generic mitigation, and the one that is neither a value nor a
     process. What it restores was already deployed and already reviewed, which
     is what admits it unasked - Argus replays somebody's change rather than
-    authoring one, and writing to the configuration repository would be the
-    other thing entirely.
+    authoring one, and writing to the repository would be the other thing
+    entirely.
+
+    Two modes are answered here, and that is not a compromise: a revision
+    carries the code and the configuration it shipped with, so the platform's
+    rollback is one operation over both. A configuration changed into a broken
+    state and new code that broke it are different accounts of an incident and
+    different fixes afterwards - a values file, or the service's source - and
+    the same thing to do about it now.
 
     Like a restart and unlike a flag revert, the subject comes from the alert
     and from nowhere else. Not from Argus's configuration, which would
@@ -180,7 +187,7 @@ class RollBackConfigurationStrategy:
     inventing a state to ship.
     """
 
-    action_type: ActionType = ROLL_BACK_CONFIGURATION
+    action_type: ActionType = ROLL_BACK_DEPLOYMENT
 
     def propose(self,
                 hypothesis: Hypothesis,
@@ -188,18 +195,17 @@ class RollBackConfigurationStrategy:
                 service: str) -> Action | None:
         """The deployment to roll back - the one the incident is about.
 
-        Neither the hypothesis nor the recorded flag changes are read. A
-        configuration change is not something a flag did, and a flag that
-        happened to move while the wrong configuration was deployed is a
-        coincidence this must not act on. Both parameters are still spelled as
-        the protocol spells them, for the reason the restart strategy's unread
-        ones are.
+        Neither the hypothesis nor the recorded flag changes are read. What was
+        deployed is not something a flag did, and a flag that happened to move
+        while the broken revision was running is a coincidence this must not
+        act on. Both parameters are still spelled as the protocol spells them,
+        for the reason the restart strategy's unread ones are.
 
-        Always an action. A configuration fault the model found no words for
-        is still a fault in a deployment the alert names, and there is nothing
-        left for this to fail to identify.
+        Always an action. A fault in what was deployed that the model found no
+        words for is still a fault in a deployment the alert names, and there is
+        nothing left for this to fail to identify.
         """
-        return RollBackConfiguration(application=service)
+        return RollBackDeployment(application=service)
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
@@ -214,7 +220,7 @@ Strategies = Mapping[FailureMode, MitigationStrategy]
 DEFAULT_STRATEGIES: Strategies = {
     FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
     FailureMode.RESOURCE_LEAK: RestartServiceStrategy(),
-    FailureMode.CONFIG_INDUCED_FAILURE: RollBackConfigurationStrategy()
+    FailureMode.CONFIG_INDUCED_FAILURE: RollBackDeploymentStrategy()
 }
 
 

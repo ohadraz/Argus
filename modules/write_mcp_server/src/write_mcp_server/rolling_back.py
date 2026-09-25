@@ -1,8 +1,14 @@
-"""Rolling a deployment's configuration back through the platform (spec §7.3, §12.1).
+"""Rolling a deployment back through the platform (spec §7.3, §12.1).
 
 The write tier's third action, and the only place in Argus that knows how a
 rollback is actually performed. Everything above the port sees an application
 name going in and a record of what changed coming back.
+
+The deployment rather than its configuration, because a revision carries the
+code and the configuration it shipped with and the platform returns both
+together. So one tool answers a configuration changed into a broken state and
+new code that broke it alike; which of the two it was is the mode the
+Investigator named, and it decides what fix remains, not what is called here.
 
 Shaped like Argo CD's own rollback: `POST
 /api/v1/applications/{application}/rollback`, which re-syncs the application to
@@ -10,7 +16,7 @@ an entry in its own deployment history. That is what makes this admissible as
 a generic mitigation rather than an infrastructure change somebody has to
 approve - the revision it applies was reviewed and ran before, so Argus is
 replaying somebody's change rather than authoring one. Nothing is written to
-the configuration repository, and nothing here may write one.
+the repository the revision came from, and nothing here may write one.
 
 Three requests rather than one, because the platform's own rules make it
 three. The application is read, for two facts nobody above this port holds:
@@ -21,10 +27,11 @@ revision being rolled away from at the next pass. Only then is the rollback
 asked for.
 
 Which is also why this mitigates without resolving, and why the descriptor it
-returns records two things. The configuration repository still holds the
-change that caused the incident; the deployment is merely no longer running
-it, and reconciliation is off so that it stays that way. Both have to be put
-back by a withdrawal, and only this module ever knew either.
+returns records two things. The repository still holds the change that caused
+the incident - a values file or the source, according to what broke - and the
+deployment is merely no longer running it, with reconciliation off so that it
+stays that way. Both have to be put back by a withdrawal, and only this module
+ever knew either.
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ from typing import Any, Final
 
 import httpx
 from argus_core import SettingsSlice
-from argus_core.models import ConfigRollbackUndo, ConfigurationRestored
+from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
 
 # Argo CD's own wire vocabulary for the parts of an application this reads.
 # Named once here rather than spelled at each lookup: they are another
@@ -86,13 +93,13 @@ class RollbackRefused(Exception):
     """The platform would not perform the rollback."""
 
 
-def roll_back_configuration(
+def roll_back_deployment(
     application: str,
     settings: RollbackSettings,
     get: HttpGet = httpx.get,
     post: HttpPost = httpx.post,
     put: HttpPut = httpx.put
-) -> ConfigRollbackUndo:
+) -> DeploymentRollbackUndo:
     """Returns `application` to the revision it was running before the current
     one, and reports what that cost.
 
@@ -125,7 +132,7 @@ def roll_back_configuration(
 
     _ask_for_the_rollback(application, previous[_HISTORY_ID], settings, post)
 
-    return ConfigRollbackUndo(
+    return DeploymentRollbackUndo(
         application=application,
         was_on_history_id=running[_HISTORY_ID],
         was_on_revision=running[_REVISION],
@@ -133,10 +140,10 @@ def roll_back_configuration(
     )
 
 
-def restore_configuration(descriptor: ConfigRollbackUndo,
-                          settings: RollbackSettings,
-                          post: HttpPost = httpx.post,
-                          put: HttpPut = httpx.put) -> ConfigurationRestored:
+def restore_deployment(descriptor: DeploymentRollbackUndo,
+                       settings: RollbackSettings,
+                       post: HttpPost = httpx.post,
+                       put: HttpPut = httpx.put) -> DeploymentRestored:
     """Puts back both of the things a rollback changed, and says which it
     managed.
 
@@ -161,11 +168,11 @@ def restore_configuration(descriptor: ConfigRollbackUndo,
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
-        return ConfigurationRestored(
+        return DeploymentRestored(
             revision_put_back=revision, automated_sync_put_back=True
         )
 
-    return ConfigurationRestored(
+    return DeploymentRestored(
         revision_put_back=revision,
         automated_sync_put_back=_tried(
             lambda: _start_reconciling(descriptor.application, settings, put)

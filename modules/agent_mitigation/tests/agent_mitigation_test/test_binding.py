@@ -23,15 +23,15 @@ import pytest
 from agent_mitigation import an_undo_over
 from agent_mitigation.tools import MitigationSettings
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ConfigRollbackUndo
+from argus_core.models import DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of
 
-RESTORE_CONFIGURATION_TOOL = "restore_configuration"
+RESTORE_CONFIGURATION_TOOL = "restore_deployment"
 
 SOME_APPLICATION = "io-shop"
 SOME_ARGUS_USER = "Shuki Tuki"
 
-A_ROLLBACK_TO_PUT_BACK = ConfigRollbackUndo(
+A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
     application=SOME_APPLICATION,
     was_on_history_id=2,
     was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",

@@ -27,7 +27,7 @@ from argus_core.models import (
     Hypothesis,
     RestartService,
     RevertFeatureFlag,
-    RollBackConfiguration,
+    RollBackDeployment,
 )
 from argus_testkit import Assertion, Scenario
 
@@ -393,7 +393,7 @@ def test_a_rollback_names_no_revision_to_return_to() -> None:
 
 def _it_rolls_back(application: str) -> Assertion[Action | None]:
     def assertion(action: Action | None) -> bool:
-        if not isinstance(action, RollBackConfiguration):
+        if not isinstance(action, RollBackDeployment):
             raise AssertionError(f"Expected a rollback, got [{action}].")
 
         if action.application != application:
@@ -409,7 +409,7 @@ def _it_rolls_back(application: str) -> Assertion[Action | None]:
 
 def _it_carries_nothing_but_the_application() -> Assertion[Action | None]:
     def assertion(action: Action | None) -> bool:
-        if not isinstance(action, RollBackConfiguration):
+        if not isinstance(action, RollBackDeployment):
             raise AssertionError(f"Expected a rollback, got [{action}].")
 
         carried = set(action.model_dump()) - {"action_type", "application"}

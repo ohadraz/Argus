@@ -647,8 +647,8 @@ def _an_action_said(action_type: ActionType) -> str:
             return "Reverted the feature flag"
         case "restart-service":
             return "Restarted"
-        case "roll-back-configuration":
-            return "Rolled back the configuration of"
+        case "roll-back-deployment":
+            return "Rolled back the deployment of"
 
     assert_never(action_type)
 
@@ -676,7 +676,7 @@ def _what_the_action_does(action_type: ActionType, subject: str) -> str:
             return f"putting {subject} back"
         case "restart-service":
             return f"restarting {subject}"
-        case "roll-back-configuration":
+        case "roll-back-deployment":
             return f"rolling {subject} back"
 
     assert_never(action_type)

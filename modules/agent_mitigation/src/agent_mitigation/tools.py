@@ -8,8 +8,8 @@ from typing import Protocol
 from argus_core import SettingsSlice, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
-    ConfigRollbackUndo,
-    ConfigurationRestored,
+    DeploymentRestored,
+    DeploymentRollbackUndo,
     FlagChange,
     MetricBucket,
     RestartedService,
@@ -19,8 +19,8 @@ from read_mcp_client import get_metrics_summary
 from write_mcp_client import (
     get_recent_flag_changes,
     restart_service,
-    restore_configuration,
-    roll_back_configuration,
+    restore_deployment,
+    roll_back_deployment,
     set_feature_flag,
 )
 
@@ -69,7 +69,7 @@ class ServiceRestarter(Protocol):
     def __call__(self, service: str, /) -> RestartedService: ...
 
 
-class ConfigurationRoller(Protocol):
+class DeploymentRoller(Protocol):
     """The tier's third write: returning a deployment to a revision it already
     ran.
 
@@ -87,10 +87,10 @@ class ConfigurationRoller(Protocol):
     anybody ships to it.
     """
 
-    def __call__(self, application: str, /) -> ConfigRollbackUndo: ...
+    def __call__(self, application: str, /) -> DeploymentRollbackUndo: ...
 
 
-class ConfigurationRestorer(Protocol):
+class DeploymentRestorer(Protocol):
     """Putting a rolled-back deployment back the way Argus found it.
 
     Both of the things the rollback changed, and it answers with which of them
@@ -101,7 +101,7 @@ class ConfigurationRestorer(Protocol):
     """
 
     def __call__(self,
-                 descriptor: ConfigRollbackUndo, /) -> ConfigurationRestored: ...
+                 descriptor: DeploymentRollbackUndo, /) -> DeploymentRestored: ...
 
 
 Clock = Callable[[], datetime]
@@ -162,12 +162,12 @@ def service_restarter_over(client: McpClient) -> ServiceRestarter:
     return partial(restart_a_service, client=client)
 
 
-def configuration_roller_over(client: McpClient) -> ConfigurationRoller:
+def deployment_roller_over(client: McpClient) -> DeploymentRoller:
     """The third, over the same connection."""
-    return partial(roll_back_a_configuration, client=client)
+    return partial(roll_back_a_deployment, client=client)
 
 
-def configuration_restorer_over(client: McpClient) -> ConfigurationRestorer:
+def deployment_restorer_over(client: McpClient) -> DeploymentRestorer:
     """Putting the third back, which is a tool of its own rather than the same
     call reversed.
 
@@ -176,7 +176,7 @@ def configuration_restorer_over(client: McpClient) -> ConfigurationRestorer:
     state to restore and a platform that refuses one order of them, so the tier
     performs it as its own operation and answers with which halves it managed.
     """
-    return partial(restore_a_configuration, client=client)
+    return partial(restore_a_deployment, client=client)
 
 
 def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
@@ -314,26 +314,26 @@ def restart_a_service(service: str, *, client: McpClient) -> RestartedService:
     return restart_service(service, client=client)
 
 
-def roll_back_a_configuration(application: str,
-                              *,
-                              client: McpClient) -> ConfigRollbackUndo:
+def roll_back_a_deployment(application: str,
+                           *,
+                           client: McpClient) -> DeploymentRollbackUndo:
     """Returns a deployment to the revision it ran before, answering with what
     that cost.
 
-    A named function rather than `roll_back_configuration` itself, for the
+    A named function rather than `roll_back_deployment` itself, for the
     reason `restart_a_service` is one: the agent needs one of that tool's
     calling shapes, and a seam is only useful if a test can spec against the
     shape the caller actually uses.
     """
-    return roll_back_configuration(application, client=client)
+    return roll_back_deployment(application, client=client)
 
 
-def restore_a_configuration(descriptor: ConfigRollbackUndo,
-                            *,
-                            client: McpClient) -> ConfigurationRestored:
+def restore_a_deployment(descriptor: DeploymentRollbackUndo,
+                         *,
+                         client: McpClient) -> DeploymentRestored:
     """Puts back both of the things a rollback changed, reporting which it
     managed."""
-    return restore_configuration(descriptor, client=client)
+    return restore_deployment(descriptor, client=client)
 
 
 def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:

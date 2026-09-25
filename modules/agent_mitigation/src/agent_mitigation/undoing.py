@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from typing import assert_never
 
-from argus_core.models import ConfigRollbackUndo, FlagUndo, UndoDescriptor
+from argus_core.models import DeploymentRollbackUndo, FlagUndo, UndoDescriptor
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
 from agent_mitigation.tools import (
     ChangedFromOutside,
-    ConfigurationRestorer,
+    DeploymentRestorer,
     FlagSetter,
 )
 
@@ -26,7 +26,7 @@ __all__ = ["undo_change"]
 def undo_change(undo_descriptor: UndoDescriptor,
                 changed_from_outside: ChangedFromOutside,
                 set_state: FlagSetter,
-                restore_configuration: ConfigurationRestorer) -> UndoAttempt:
+                restore_deployment: DeploymentRestorer) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,
@@ -58,14 +58,14 @@ def undo_change(undo_descriptor: UndoDescriptor,
             return _put_a_flag_back(
                 undo_descriptor, changed_from_outside, set_state
             )
-        case ConfigRollbackUndo():
-            return _put_a_deployment_back(undo_descriptor, restore_configuration)
+        case DeploymentRollbackUndo():
+            return _put_a_deployment_back(undo_descriptor, restore_deployment)
         case _:
             assert_never(undo_descriptor)
 
 
-def _put_a_deployment_back(undo_descriptor: ConfigRollbackUndo,
-                           restore: ConfigurationRestorer) -> UndoAttempt:
+def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
+                           restore: DeploymentRestorer) -> UndoAttempt:
     """Puts a rolled-back deployment back on the revision it was running, and
     restores the reconciliation the rollback had to suspend.
 

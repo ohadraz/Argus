@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 # column by one process and read out of it by another, and two spellings of the
 # same tool would be two tools as far as either could tell.
 SET_FEATURE_FLAG_TOOL: Final = "set_feature_flag"
-ROLL_BACK_CONFIGURATION_TOOL: Final = "roll_back_configuration"
+ROLL_BACK_DEPLOYMENT_TOOL: Final = "roll_back_deployment"
 
 
 class FlagUndo(BaseModel):
@@ -59,7 +59,7 @@ class FlagUndo(BaseModel):
     written_at: datetime | None = None
 
 
-class ConfigRollbackUndo(BaseModel):
+class DeploymentRollbackUndo(BaseModel):
     """The record of a deployment rolled back, in the shape that puts it back.
 
     Two pieces of prior state rather than one, and that is the whole of what
@@ -83,12 +83,12 @@ class ConfigRollbackUndo(BaseModel):
     would be Argus turning on a thing it did not turn off.
     """
 
-    kind: Literal["config-revision"] = "config-revision"
+    kind: Literal["deployment-revision"] = "deployment-revision"
     application: str
     was_on_history_id: int
     was_on_revision: str
     was_syncing_itself: bool
-    tool: str = ROLL_BACK_CONFIGURATION_TOOL
+    tool: str = ROLL_BACK_DEPLOYMENT_TOOL
     written_at: datetime | None = None
 
 
@@ -96,7 +96,7 @@ class ConfigRollbackUndo(BaseModel):
 # matches on `kind` carries a branch for each, which is what this was a tagged
 # union for while it still had only one.
 type UndoDescriptor = Annotated[
-    FlagUndo | ConfigRollbackUndo, Field(discriminator="kind")
+    FlagUndo | DeploymentRollbackUndo, Field(discriminator="kind")
 ]
 
 _descriptors = TypeAdapter[UndoDescriptor](UndoDescriptor)

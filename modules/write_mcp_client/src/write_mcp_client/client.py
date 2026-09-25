@@ -6,8 +6,8 @@ from typing import Final
 from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
-    ConfigRollbackUndo,
-    ConfigurationRestored,
+    DeploymentRestored,
+    DeploymentRollbackUndo,
     FlagChange,
     OpenedPullRequest,
     RestartedService,
@@ -27,7 +27,7 @@ _OPENED_PULL_REQUEST: Final = TypeAdapter(OpenedPullRequest)
 
 _RESTARTED_SERVICE: Final = TypeAdapter(RestartedService)
 
-_CONFIGURATION_RESTORED: Final = TypeAdapter(ConfigurationRestored)
+_DEPLOYMENT_RESTORED: Final = TypeAdapter(DeploymentRestored)
 
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
@@ -106,17 +106,18 @@ def restart_service(service: str,
     )
 
 
-def roll_back_configuration(application: str,
-                            *,
-                            client: McpClient) -> ConfigRollbackUndo:
-    """Returns a deployment to the configuration revision it ran before.
+def roll_back_deployment(application: str,
+                         *,
+                         client: McpClient) -> DeploymentRollbackUndo:
+    """Returns a deployment to the revision it ran before.
 
-    A generic mitigation of spec §7.3: Mitigation's response to a
-    config-induced failure. Taken unasked because its kind is in the declared
-    set (§13), and admissible there for one specific reason - the revision it
-    applies was reviewed and ran before, so this replays somebody's change
-    rather than authoring one. Nothing is written to the configuration
-    repository.
+    A generic mitigation of spec §7.3: Mitigation's response to a bad
+    deployment and to a config-induced failure alike, since a revision carries
+    the code and the configuration it shipped with. Taken unasked because its
+    kind is in the declared set (§13), and admissible there for one specific
+    reason - the revision it applies was reviewed and ran before, so this
+    replays somebody's change rather than authoring one. Nothing is written to
+    the repository.
 
     Which revision is not a parameter, because nothing on this side of the
     port holds a deployment history to choose from. The platform resolves it
@@ -134,12 +135,12 @@ def roll_back_configuration(application: str,
     object is, and that decision has one door.
     """
     descriptor = client.call(
-        "roll_back_configuration",
+        "roll_back_deployment",
         parse_undo_descriptor,
         application=application,
     )
 
-    if not isinstance(descriptor, ConfigRollbackUndo):
+    if not isinstance(descriptor, DeploymentRollbackUndo):
         raise ValueError(
             f"rolling [{application}] back answered with a "
             f"[{descriptor.kind}] descriptor, which is not a record of a "
@@ -149,9 +150,9 @@ def roll_back_configuration(application: str,
     return descriptor
 
 
-def restore_configuration(descriptor: ConfigRollbackUndo,
-                          *,
-                          client: McpClient) -> ConfigurationRestored:
+def restore_deployment(descriptor: DeploymentRollbackUndo,
+                       *,
+                       client: McpClient) -> DeploymentRestored:
     """Puts back both of the things a rollback changed.
 
     What a withdrawal does to a rollback, and what a refuted one does to
@@ -165,8 +166,8 @@ def restore_configuration(descriptor: ConfigRollbackUndo,
     reconciliation is still suspended looks right and receives nothing.
     """
     return client.call(
-        "restore_configuration",
-        _CONFIGURATION_RESTORED.validate_python,
+        "restore_deployment",
+        _DEPLOYMENT_RESTORED.validate_python,
         descriptor=descriptor.model_dump(mode="json"),
     )
 

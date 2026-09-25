@@ -19,10 +19,10 @@ from agent_mitigation import (
     Undone,
     undo_change,
 )
-from agent_mitigation.tools import ConfigurationRestorer, FlagSetter
+from agent_mitigation.tools import DeploymentRestorer, FlagSetter
 from argus_core.models import (
-    ConfigRollbackUndo,
-    ConfigurationRestored,
+    DeploymentRestored,
+    DeploymentRollbackUndo,
     FlagUndo,
 )
 from argus_testkit import Assertion, Scenario, all_of
@@ -57,7 +57,7 @@ def test_a_flag_nobody_touched_is_put_back() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -83,7 +83,7 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=somebody_changed_it(),
-                restore_configuration=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -113,7 +113,7 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
                 a_descriptor_from_before,
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -137,7 +137,7 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=nobody_can_say(),
-                restore_configuration=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -164,7 +164,7 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
                 descriptor,
                 set_state=_a_flag_setter(),
                 changed_from_outside=asked.record,
-                restore_configuration=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls()
             )
         ) \
         .then(
@@ -248,8 +248,8 @@ def _it_was_asked_from(asked: _ARecordAskedAbout,
 
 
 def a_rollback_descriptor_for(application: str,
-                              was_syncing_itself: bool = True) -> ConfigRollbackUndo:
-    return ConfigRollbackUndo(
+                              was_syncing_itself: bool = True) -> DeploymentRollbackUndo:
+    return DeploymentRollbackUndo(
         application=application,
         was_on_history_id=2,
         was_on_revision=THE_REVISION_IT_WAS_ON,
@@ -259,8 +259,8 @@ def a_rollback_descriptor_for(application: str,
 
 def _a_restorer_that_puts_back(revision: bool = True,
                                automated_sync: bool = True) -> MagicMock:
-    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
-    restore.return_value = ConfigurationRestored(
+    restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
+    restore.return_value = DeploymentRestored(
         revision_put_back=revision, automated_sync_put_back=automated_sync
     )
 
@@ -268,7 +268,7 @@ def _a_restorer_that_puts_back(revision: bool = True,
 
 
 def _a_restorer_that_cannot(why: str) -> MagicMock:
-    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
+    restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
     restore.side_effect = RuntimeError(why)
 
     return restore
@@ -291,7 +291,7 @@ def test_a_rollback_is_put_back_by_the_restorer_rather_than_the_flag_setter() ->
                 a_rollback_descriptor_for(SOME_APPLICATION),
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=restore
+                restore_deployment=restore
             )
         ) \
             .then(all_of(
@@ -313,7 +313,7 @@ def test_a_rollback_put_back_reports_the_application_as_its_subject() -> None:
                 a_rollback_descriptor_for(SOME_APPLICATION),
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=_a_restorer_that_puts_back()
+                restore_deployment=_a_restorer_that_puts_back()
             )
         ) \
             .then(
@@ -336,7 +336,7 @@ def test_a_rollback_whose_sync_could_not_be_restored_is_not_counted_as_undone() 
                 a_rollback_descriptor_for(SOME_APPLICATION),
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=_a_restorer_that_puts_back(
+                restore_deployment=_a_restorer_that_puts_back(
                     revision=True, automated_sync=False
                 )
             )
@@ -363,7 +363,7 @@ def test_a_restorer_that_raises_leaves_the_rollback_not_established() -> None:
                 a_rollback_descriptor_for(SOME_APPLICATION),
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
-                restore_configuration=_a_restorer_that_cannot(some_failure)
+                restore_deployment=_a_restorer_that_cannot(some_failure)
             )
         ) \
             .then(all_of(

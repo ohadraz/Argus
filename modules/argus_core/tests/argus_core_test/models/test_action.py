@@ -30,12 +30,12 @@ import pytest
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
-    ROLL_BACK_CONFIGURATION,
+    ROLL_BACK_DEPLOYMENT,
     ActionIdentity,
     FlagUndo,
     RestartService,
     RevertFeatureFlag,
-    RollBackConfiguration,
+    RollBackDeployment,
     UnreadVerdict,
     Verdict,
     leaves_something_to_put_back,
@@ -193,7 +193,7 @@ def test_the_identity_of_a_rollback_is_its_kind_and_its_application() -> None:
             a_rollback := _a_rollback_of(SOME_APPLICATION)
         ) \
         .when(lambda: the_identity_of(a_rollback)) \
-        .then(_it_identifies(ROLL_BACK_CONFIGURATION, SOME_APPLICATION))
+        .then(_it_identifies(ROLL_BACK_DEPLOYMENT, SOME_APPLICATION))
 
 
 @pytest.mark.unit
@@ -232,8 +232,8 @@ def test_a_rollback_leaves_something_a_withdrawal_has_to_put_back() -> None:
     # is missing from a kind that leaves nothing behind - which is fine - from
     # one missing on a kind that does, which is a change nobody accounted for.
     Scenario() \
-        .given(ROLL_BACK_CONFIGURATION) \
-        .when(lambda: leaves_something_to_put_back(ROLL_BACK_CONFIGURATION)) \
+        .given(ROLL_BACK_DEPLOYMENT) \
+        .when(lambda: leaves_something_to_put_back(ROLL_BACK_DEPLOYMENT)) \
         .then(_it_leaves_something_to_put_back(True))
 
 
@@ -369,8 +369,8 @@ def _it_complains_about(spelling: str) -> Assertion[Exception | None]:
     return assertion
 
 
-def _a_rollback_of(application: str) -> RollBackConfiguration:
-    return RollBackConfiguration(application=application)
+def _a_rollback_of(application: str) -> RollBackDeployment:
+    return RollBackDeployment(application=application)
 
 
 def _it_has_no_direction() -> Assertion[bool | None]:

@@ -148,15 +148,22 @@ class RestartService(BaseModel):
     service: str
 
 
-class RollBackConfiguration(BaseModel):
-    """Returning a deployment's configuration to the revision it ran before.
+class RollBackDeployment(BaseModel):
+    """Returning a deployment to the revision it ran before.
+
+    Named for the deployment rather than for its configuration, because one
+    revision carries the code and the configuration it shipped with, and the
+    platform's rollback is one operation over both. So this is the answer to a
+    configuration changed into a broken state and to new code that broke it
+    alike - what differs between those is the mode Argus diagnosed and the fix
+    that remains afterwards, not the action.
 
     A generic mitigation in the same sense a restart is: applied before the
     cause is fully understood, because what it buys is the service being well
     while somebody works out what to write. It is admissible unasked for one
     specific reason - the revision it applies was reviewed and ran before, so
     Argus is replaying somebody's change rather than authoring one. Writing to
-    the configuration repository would be the opposite, and is not this.
+    the repository would be the opposite, and is not this.
 
     The application, and nothing else. Which revision to return to is not
     named here because nothing that proposes this action could name it
@@ -177,7 +184,7 @@ class RollBackConfiguration(BaseModel):
     a change nobody accounted for.
     """
 
-    action_type: Literal["roll-back-configuration"] = "roll-back-configuration"
+    action_type: Literal["roll-back-deployment"] = "roll-back-deployment"
     application: str
 
 
@@ -186,7 +193,7 @@ class RollBackConfiguration(BaseModel):
 # where the descriptor's `tool` is the write tier's wire vocabulary and does
 # not.
 type Action = Annotated[
-    RevertFeatureFlag | RestartService | RollBackConfiguration,
+    RevertFeatureFlag | RestartService | RollBackDeployment,
     Field(discriminator="action_type")
 ]
 
@@ -194,7 +201,7 @@ type Action = Annotated[
 # things that render or store an action carry the tag alone: the event says
 # what was done without carrying the proposal, and the row keeps a column.
 type ActionType = Literal[
-    "revert-feature-flag", "restart-service", "roll-back-configuration"
+    "revert-feature-flag", "restart-service", "roll-back-deployment"
 ]
 
 # The tags as values, for the row and the event that carry them without
@@ -211,7 +218,7 @@ type ActionType = Literal[
 # instead of a guarantee.
 REVERT_FEATURE_FLAG: Final = "revert-feature-flag"
 RESTART_SERVICE: Final = "restart-service"
-ROLL_BACK_CONFIGURATION: Final = "roll-back-configuration"
+ROLL_BACK_DEPLOYMENT: Final = "roll-back-deployment"
 
 
 class RestartedService(BaseModel):
@@ -229,7 +236,7 @@ class RestartedService(BaseModel):
     process_start_time_seconds: float
 
 
-class ConfigurationRestored(BaseModel):
+class DeploymentRestored(BaseModel):
     """Which of the two things a rollback changed were put back.
 
     Two flags rather than one answer, because a restore can half-succeed and
@@ -260,7 +267,7 @@ class ConfigurationRestored(BaseModel):
 # asked of the *tag* - the row records a kind, and the walk that reads it back
 # hours later has the column and not the action it came from.
 _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
-    {REVERT_FEATURE_FLAG, ROLL_BACK_CONFIGURATION}
+    {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT}
 )
 
 
@@ -346,7 +353,7 @@ def the_subject_of(action: Action) -> str:
             return action.flag
         case RestartService():
             return action.service
-        case RollBackConfiguration():
+        case RollBackDeployment():
             return action.application
         case _:
             assert_never(action)
@@ -364,7 +371,7 @@ def the_direction_of(action: Action) -> bool | None:
     match action:
         case RevertFeatureFlag():
             return action.enabled
-        case RestartService() | RollBackConfiguration():
+        case RestartService() | RollBackDeployment():
             return None
         case _:
             assert_never(action)

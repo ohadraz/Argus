@@ -17,8 +17,8 @@ from agent_mitigation.tools import (
     FlagChangesSince,
     MitigationSettings,
     argus_changed_flag_since,
-    configuration_restorer_over,
-    configuration_roller_over,
+    deployment_restorer_over,
+    deployment_roller_over,
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
@@ -26,7 +26,7 @@ from agent_mitigation.tools import (
 )
 from argus_core import to_iso
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ConfigRollbackUndo, FlagChange
+from argus_core.models import DeploymentRollbackUndo, FlagChange
 from argus_testkit import Assertion, Scenario, all_of
 
 SOME_FLAG = "kukibuki"
@@ -37,11 +37,11 @@ SOME_MOMENT = to_iso(THE_MOMENT_IT_WAS_CLAIMED)
 METRICS_TOOL = "get_metrics_summary"
 FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 SET_FLAG_TOOL = "set_feature_flag"
-ROLL_BACK_TOOL = "roll_back_configuration"
-RESTORE_CONFIGURATION_TOOL = "restore_configuration"
+ROLL_BACK_TOOL = "roll_back_deployment"
+RESTORE_CONFIGURATION_TOOL = "restore_deployment"
 
 SOME_APPLICATION = "io-shop"
-A_ROLLBACK_TO_PUT_BACK = ConfigRollbackUndo(
+A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
     application=SOME_APPLICATION,
     was_on_history_id=2,
     was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
@@ -255,7 +255,7 @@ def test_returning_a_deployment_to_an_earlier_revision_goes_over_the_write_tier(
         ) \
         .when(
             _asking(read, write,
-                    lambda: configuration_roller_over(write)(SOME_APPLICATION))
+                    lambda: deployment_roller_over(write)(SOME_APPLICATION))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),
@@ -276,7 +276,7 @@ def test_putting_a_rolled_back_deployment_back_goes_over_the_write_tier() -> Non
         ) \
         .when(
             _asking(read, write,
-                    lambda: configuration_restorer_over(write)(A_ROLLBACK_TO_PUT_BACK))
+                    lambda: deployment_restorer_over(write)(A_ROLLBACK_TO_PUT_BACK))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),

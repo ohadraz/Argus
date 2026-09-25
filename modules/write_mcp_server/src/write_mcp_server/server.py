@@ -23,8 +23,8 @@ from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.models import (
-    ConfigRollbackUndo,
-    ConfigurationRestored,
+    DeploymentRestored,
+    DeploymentRollbackUndo,
     FlagChange,
     FlagUndo,
     OpenedPullRequest,
@@ -126,15 +126,15 @@ def build_server(endpoint: WriteMcpEndpoint,
         )
 
     @mcp.tool()
-    def roll_back_configuration(application: str) -> ConfigRollbackUndo:
-        """Returns a deployment to the configuration revision it ran before,
-        and reports what that cost.
+    def roll_back_deployment(application: str) -> DeploymentRollbackUndo:
+        """Returns a deployment to the revision it ran before, and reports
+        what that cost.
 
         A generic mitigation (§13), admissible unasked for one specific
         reason: the revision it applies was reviewed and ran before, so this
         replays somebody's change rather than authoring one. It writes nothing
-        to the configuration repository, and must not - that would be an
-        infrastructure change requiring approval.
+        to the repository, and must not - that would be an infrastructure
+        change requiring approval.
 
         Which revision is not a parameter. The platform resolves it as
         `argocd app rollback APPNAME` does with its history id omitted - the
@@ -145,14 +145,14 @@ def build_server(endpoint: WriteMcpEndpoint,
         that caused the incident, and the platform's own reconciliation has
         been suspended so that it is not re-applied; both are recorded in the
         descriptor returned, and both are what a withdrawal puts back. The
-        behavior lives in `rolling_back.roll_back_configuration`; this is
+        behavior lives in `rolling_back.roll_back_deployment`; this is
         registration only."""
-        return rolling_back.roll_back_configuration(application, rollback_settings)
+        return rolling_back.roll_back_deployment(application, rollback_settings)
 
     @mcp.tool()
-    def restore_configuration(
-        descriptor: ConfigRollbackUndo
-    ) -> ConfigurationRestored:
+    def restore_deployment(
+        descriptor: DeploymentRollbackUndo
+    ) -> DeploymentRestored:
         """Puts back both of the things a rollback changed, and reports which
         of them it managed.
 
@@ -171,8 +171,8 @@ def build_server(endpoint: WriteMcpEndpoint,
         The order is the platform's to dictate: automated sync refuses a
         rollback, so the revision is put back before reconciliation is
         re-enabled. The behavior lives in
-        `rolling_back.restore_configuration`; this is registration only."""
-        return rolling_back.restore_configuration(descriptor, rollback_settings)
+        `rolling_back.restore_deployment`; this is registration only."""
+        return rolling_back.restore_deployment(descriptor, rollback_settings)
 
     @mcp.tool()
     def get_recent_flag_changes(since: str) -> list[FlagChange]:

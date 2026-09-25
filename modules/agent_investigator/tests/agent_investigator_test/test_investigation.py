@@ -30,7 +30,7 @@ from argus_core.llm import a_conversation_recorded_for
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
-    ROLL_BACK_CONFIGURATION,
+    ROLL_BACK_DEPLOYMENT,
     ActionIdentity,
     Ask,
     Attempt,
@@ -880,7 +880,7 @@ def test_a_rollback_already_tried_is_described_as_a_rollback() -> None:
                 already_refuted=[
                     Attempt(
                         identity=ActionIdentity(
-                            action_type=ROLL_BACK_CONFIGURATION,
+                            action_type=ROLL_BACK_DEPLOYMENT,
                             subject=some_rolled_back_application
                         ),
                         occurred_at=some_time_it_was_rolled_back

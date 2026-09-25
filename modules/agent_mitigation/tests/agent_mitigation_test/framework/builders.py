@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, create_autospec
 from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
 from agent_mitigation.tools import (
     ChangedFromOutside,
-    ConfigurationRestorer,
+    DeploymentRestorer,
     ServiceRestarter,
     StillWanted,
 )
@@ -266,6 +266,6 @@ def a_restorer_nobody_calls() -> MagicMock:
     without a way to undo an action it may take is an agent that finds out at
     the worst moment - when a refuted change is waiting to be put back.
     """
-    restore: MagicMock = create_autospec(ConfigurationRestorer, instance=True)
+    restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
 
     return restore

@@ -49,7 +49,7 @@ from http import HTTPStatus as HttpStatus
 import httpx
 import pytest
 from argus_core.events import ActionTaken
-from argus_core.models import ROLL_BACK_CONFIGURATION, FailureMode, IncidentStatus
+from argus_core.models import ROLL_BACK_DEPLOYMENT, FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -153,7 +153,7 @@ def _the_action_taken_was_a_rollback_of(application: str) -> Assertion[httpx.Res
 
         rollbacks = [
             event for event in taken
-            if event.action_type == ROLL_BACK_CONFIGURATION
+            if event.action_type == ROLL_BACK_DEPLOYMENT
             and event.subject == application
         ]
 

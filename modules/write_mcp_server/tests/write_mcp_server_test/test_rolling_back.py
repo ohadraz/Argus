@@ -19,14 +19,14 @@ from unittest.mock import MagicMock, create_autospec
 
 import httpx
 import pytest
-from argus_core.models import ConfigRollbackUndo, ConfigurationRestored
+from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from write_mcp_server.rolling_back import (
     NoEarlierRevision,
     RollbackRefused,
     RollbackSettings,
-    restore_configuration,
-    roll_back_configuration,
+    restore_deployment,
+    roll_back_deployment,
 )
 
 SOME_APPLICATION = "io-shop"
@@ -100,8 +100,8 @@ def a_platform(history: list[dict[str, Any]] | None = None,
     return platform
 
 
-def _rolling_back(platform: _Platform) -> ConfigRollbackUndo:
-    return roll_back_configuration(
+def _rolling_back(platform: _Platform) -> DeploymentRollbackUndo:
+    return roll_back_deployment(
         SOME_APPLICATION,
         _settings(),
         get=platform.get,
@@ -214,7 +214,7 @@ def test_restoring_puts_back_the_entry_that_was_running() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_configuration(
+        .when(lambda: restore_deployment(
             descriptor, _settings(), post=platform.post, put=platform.put
         )) \
         .then(all_of(
@@ -229,7 +229,7 @@ def test_restoring_turns_reconciliation_back_on_where_it_was_on() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_configuration(
+        .when(lambda: restore_deployment(
             descriptor, _settings(), post=platform.post, put=platform.put
         )) \
         .then(_reconciliation_was_turned(platform, off=False))
@@ -243,7 +243,7 @@ def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=False)) \
-        .when(lambda: restore_configuration(
+        .when(lambda: restore_deployment(
             descriptor, _settings(), post=platform.post, put=platform.put
         )) \
         .then(all_of(
@@ -261,7 +261,7 @@ def test_a_restore_that_only_managed_the_revision_says_so() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_configuration(
+        .when(lambda: restore_deployment(
             descriptor, _settings(), post=platform.post, put=platform.put
         )) \
         .then(_it_reports_restored(revision=True, automated_sync=False))
@@ -275,14 +275,14 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_configuration(
+        .when(lambda: restore_deployment(
             descriptor, _settings(), post=platform.post, put=platform.put
         )) \
         .then(_it_reports_restored(revision=False, automated_sync=False))
 
 
-def _a_descriptor(was_syncing_itself: bool) -> ConfigRollbackUndo:
-    return ConfigRollbackUndo(
+def _a_descriptor(was_syncing_itself: bool) -> DeploymentRollbackUndo:
+    return DeploymentRollbackUndo(
         application=SOME_APPLICATION,
         was_on_history_id=THE_ENTRY_RUNNING,
         was_on_revision=THE_REVISION_RUNNING,
@@ -356,8 +356,8 @@ def _nothing_was_changed(platform: _Platform) -> Assertion[Exception | None]:
 
 
 def _the_descriptor_records_it_was_on(entry: int,
-                                      revision: str) -> Assertion[ConfigRollbackUndo]:
-    def assertion(descriptor: ConfigRollbackUndo) -> bool:
+                                      revision: str) -> Assertion[DeploymentRollbackUndo]:
+    def assertion(descriptor: DeploymentRollbackUndo) -> bool:
         actual = (descriptor.was_on_history_id, descriptor.was_on_revision)
 
         if actual != (entry, revision):
@@ -371,8 +371,8 @@ def _the_descriptor_records_it_was_on(entry: int,
     return assertion
 
 
-def _the_descriptor_records_sync_was(syncing: bool) -> Assertion[ConfigRollbackUndo]:
-    def assertion(descriptor: ConfigRollbackUndo) -> bool:
+def _the_descriptor_records_sync_was(syncing: bool) -> Assertion[DeploymentRollbackUndo]:
+    def assertion(descriptor: DeploymentRollbackUndo) -> bool:
         if descriptor.was_syncing_itself is not syncing:
             raise AssertionError(
                 f"Expected the descriptor to record reconciliation as "
@@ -385,8 +385,8 @@ def _the_descriptor_records_sync_was(syncing: bool) -> Assertion[ConfigRollbackU
 
 
 def _it_reports_restored(revision: bool,
-                         automated_sync: bool) -> Assertion[ConfigurationRestored]:
-    def assertion(restored: ConfigurationRestored) -> bool:
+                         automated_sync: bool) -> Assertion[DeploymentRestored]:
+    def assertion(restored: DeploymentRestored) -> bool:
         if (restored.revision_put_back,
                 restored.automated_sync_put_back) != (revision, automated_sync):
             raise AssertionError(

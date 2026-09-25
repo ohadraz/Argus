@@ -25,9 +25,9 @@ from typing import Any
 
 import pytest
 from argus_core.models.undo_descriptor import (
-    ROLL_BACK_CONFIGURATION_TOOL,
+    ROLL_BACK_DEPLOYMENT_TOOL,
     SET_FEATURE_FLAG_TOOL,
-    ConfigRollbackUndo,
+    DeploymentRollbackUndo,
     FlagUndo,
     UndoDescriptor,
     parse_undo_descriptor,
@@ -40,7 +40,7 @@ SOME_FLAG = "monthly-spend-feature"
 SOME_ENVIRONMENT = "production"
 THE_MOMENT_ARGUS_WROTE = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
 A_FLAG_CHANGE = "feature-flag"
-A_CONFIG_ROLLBACK = "config-revision"
+A_CONFIG_ROLLBACK = "deployment-revision"
 SOME_APPLICATION = "io-shop"
 THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 
@@ -204,7 +204,7 @@ def test_a_rollback_descriptor_records_both_things_it_changed() -> None:
         .then(all_of(
             _it_returns_to(THE_REVISION_IT_WAS_ON, history_id=2),
             _it_restores_automated_sync_to(True),
-            _the_tool_that_undoes_it_is(ROLL_BACK_CONFIGURATION_TOOL)
+            _the_tool_that_undoes_it_is(ROLL_BACK_DEPLOYMENT_TOOL)
         ))
 
 
@@ -258,7 +258,7 @@ def test_the_kind_is_what_chooses_between_the_two_sorts_of_change() -> None:
             lambda: parse_undo_descriptor(a_rollback)
         ) \
         .then(
-            _it_is_a(ConfigRollbackUndo)
+            _it_is_a(DeploymentRollbackUndo)
         )
 
 
@@ -282,7 +282,7 @@ def _the_wire_shape_of_a_rollback(was_syncing_itself: bool) -> dict[str, Any]:
     """One rollback as the write tier reports it, before anything has read it."""
     return {
         "kind": A_CONFIG_ROLLBACK,
-        "tool": ROLL_BACK_CONFIGURATION_TOOL,
+        "tool": ROLL_BACK_DEPLOYMENT_TOOL,
         "application": SOME_APPLICATION,
         "was_on_history_id": 2,
         "was_on_revision": THE_REVISION_IT_WAS_ON,
@@ -375,7 +375,7 @@ def _it_complains_about(field: str) -> Assertion[Exception | None]:
 
 def _it_returns_to(revision: str, history_id: int) -> Assertion[UndoDescriptor]:
     def assertion(descriptor: UndoDescriptor) -> bool:
-        if not isinstance(descriptor, ConfigRollbackUndo):
+        if not isinstance(descriptor, DeploymentRollbackUndo):
             raise AssertionError(
                 f"Expected a descriptor returning a deployment, got a "
                 f"[{descriptor.kind}] one."
@@ -397,7 +397,7 @@ def _it_returns_to(revision: str, history_id: int) -> Assertion[UndoDescriptor]:
 
 def _it_restores_automated_sync_to(syncing: bool) -> Assertion[UndoDescriptor]:
     def assertion(descriptor: UndoDescriptor) -> bool:
-        if not isinstance(descriptor, ConfigRollbackUndo):
+        if not isinstance(descriptor, DeploymentRollbackUndo):
             raise AssertionError(
                 f"Expected a descriptor returning a deployment, got a "
                 f"[{descriptor.kind}] one."

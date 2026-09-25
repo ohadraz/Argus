@@ -28,9 +28,9 @@ from agent_mitigation import (
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
-    ROLL_BACK_CONFIGURATION,
+    ROLL_BACK_DEPLOYMENT,
     ActionType,
-    RollBackConfiguration,
+    RollBackDeployment,
 )
 from argus_testkit import Assertion, Scenario
 
@@ -73,7 +73,7 @@ def test_the_declared_set_is_exactly_what_it_is_written_down_as() -> None:
     # and this is where the defending gets noticed: a change to the set that
     # nobody meant fails here, naming both what it was and what it became.
     the_kinds_argus_may_take_unasked: set[ActionType] = {
-        REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_CONFIGURATION
+        REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT
     }
 
     Scenario() \
@@ -129,6 +129,6 @@ def test_rolling_a_configuration_back_may_be_taken_unasked() -> None:
     # configuration repository would be the other thing, and is refused by
     # not being an action at all.
     Scenario() \
-        .given(a_rollback := RollBackConfiguration(application="io-shop")) \
+        .given(a_rollback := RollBackDeployment(application="io-shop")) \
         .when(lambda: is_a_generic_mitigation(a_rollback)) \
         .then(_it_is_admitted())

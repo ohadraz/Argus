@@ -414,7 +414,7 @@ def _subsided_threshold(values: Sequence[float],
     then lands a few thousandths above a baseline that ordinary minutes clear
     five times over, and every calm minute reads as still being the incident.
 
-    What that cost was a real mitigation: the configuration rollback ends an
+    What that cost was a real mitigation: the deployment rollback ends an
     incident whose error rate never moved at all - the cache fallback is
     designed behaviour - so recovery was being judged on a signal that had no
     incident in it, and a shop back at its baseline on every other measure was
@@ -550,7 +550,7 @@ def _departure_threshold(values: Sequence[float],
     five times over.
 
     The cost was paid at both ends. Calm windows reported an onset in a little
-    over half of all runs, and a configuration rollback that had genuinely
+    over half of all runs, and a deployment rollback that had genuinely
     ended an incident was refused, because the error rate - which never moves
     in that scenario at all - read as still elevated on every minute after it.
 

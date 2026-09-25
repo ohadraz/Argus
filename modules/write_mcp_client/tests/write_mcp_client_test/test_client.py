@@ -7,8 +7,8 @@ import pytest
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
-    ConfigRollbackUndo,
-    ConfigurationRestored,
+    DeploymentRestored,
+    DeploymentRollbackUndo,
     FlagChange,
     FlagUndo,
     RestartedService,
@@ -19,8 +19,8 @@ from argus_testkit.scenario import Scenario, calling
 from write_mcp_client import (
     get_recent_flag_changes,
     restart_service,
-    restore_configuration,
-    roll_back_configuration,
+    restore_deployment,
+    roll_back_deployment,
     set_feature_flag,
     write_mcp,
 )
@@ -203,7 +203,7 @@ def test_rolling_a_configuration_back_reaches_the_platform_through_the_real_writ
     # rather than assume.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: roll_back_configuration(
+            _asking_the_server(lambda client: roll_back_deployment(
                 SOME_APPLICATION, client=client
             ))
         ) \
@@ -235,8 +235,8 @@ def test_restoring_a_configuration_reaches_the_platform_through_the_real_write_s
     # acts on.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: restore_configuration(
-                roll_back_configuration(SOME_APPLICATION, client=client),
+            _asking_the_server(lambda client: restore_deployment(
+                roll_back_deployment(SOME_APPLICATION, client=client),
                 client=client
             ))
         ) \
@@ -457,14 +457,14 @@ def the_platform_was_rolled_back_to(
 
 def the_descriptor_records_what_it_came_from(
     history_id: int, revision: str, was_syncing_itself: bool
-) -> Assertion[ConfigRollbackUndo]:
+) -> Assertion[DeploymentRollbackUndo]:
     """Both pieces of prior state, carried back through the round trip.
 
     The descriptor is the only record of what a rollback cost, and it has to
     survive serialisation to be worth anything: a withdrawal reads it back
     hours later, and a field lost in transit is a change nobody can put back.
     """
-    def assertion(descriptor: ConfigRollbackUndo) -> bool:
+    def assertion(descriptor: DeploymentRollbackUndo) -> bool:
         if descriptor.was_on_history_id != history_id:
             raise AssertionError(
                 f"Expected the descriptor to record coming from history entry "
@@ -491,13 +491,13 @@ def the_descriptor_records_what_it_came_from(
     return assertion
 
 
-def both_halves_were_put_back() -> Assertion[ConfigurationRestored]:
+def both_halves_were_put_back() -> Assertion[DeploymentRestored]:
     """A restore that managed one of the two is not a restore.
 
     Reported as two flags rather than one answer because the half that fails is
     the quiet one, and a caller has to be able to say which is still changed.
     """
-    def assertion(restored: ConfigurationRestored) -> bool:
+    def assertion(restored: DeploymentRestored) -> bool:
         if not (restored.revision_put_back and restored.automated_sync_put_back):
             raise AssertionError(
                 f"Expected both the revision and the sync policy to be put "

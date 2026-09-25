@@ -22,11 +22,11 @@ from argus_core.events import (
     publish,
 )
 from argus_core.models import (
-    ConfigRollbackUndo,
+    DeploymentRollbackUndo,
     FlagUndo,
     RestartService,
     RevertFeatureFlag,
-    RollBackConfiguration,
+    RollBackDeployment,
     UndoDescriptor,
 )
 
@@ -41,8 +41,8 @@ from agent_mitigation.actions import (
 from agent_mitigation.tools import (
     ChangedFromOutside,
     Clock,
-    ConfigurationRestorer,
-    ConfigurationRoller,
+    DeploymentRestorer,
+    DeploymentRoller,
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
@@ -127,8 +127,8 @@ def take_action(action: Action,
                 publisher: Publisher = nobody,
                 *,
                 restart: ServiceRestarter,
-                roll_back: ConfigurationRoller,
-                restore_configuration: ConfigurationRestorer,
+                roll_back: DeploymentRoller,
+                restore_deployment: DeploymentRestorer,
                 changed_from_outside: ChangedFromOutside,
                 undo: UndoChange | None = None) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
@@ -176,7 +176,7 @@ def take_action(action: Action,
         undo_change,
         changed_from_outside=changed_from_outside,
         set_state=set_state,
-        restore_configuration=restore_configuration
+        restore_deployment=restore_deployment
     )
 
     settled = _what_watching_the_service_settled(
@@ -211,7 +211,7 @@ def take_action(action: Action,
 def _perform(action: Action,
              set_state: FlagSetter,
              restart: ServiceRestarter,
-             roll_back: ConfigurationRoller) -> Performed:
+             roll_back: DeploymentRoller) -> Performed:
     """Does the one thing this action is, and says what it did.
 
     The only place the kinds part company. Each branch names its own write and
@@ -238,7 +238,7 @@ def _perform(action: Action,
                 # would be true.
                 undo_descriptor=None
             )
-        case RollBackConfiguration():
+        case RollBackDeployment():
             rolled_back = roll_back(action.application)
 
             return Performed(
@@ -265,7 +265,7 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
     match undo_descriptor:
         case FlagUndo():
             return state_name(undo_descriptor.was_enabled)
-        case ConfigRollbackUndo():
+        case DeploymentRollbackUndo():
             return (
                 f"to the revision at history entry "
                 f"[{undo_descriptor.was_on_history_id}]"
@@ -287,7 +287,7 @@ def _what_it_would_have_done(action: Action) -> str:
             return f"set flag [{action.flag}] {state_name(action.enabled)}"
         case RestartService():
             return f"restart [{action.service}]"
-        case RollBackConfiguration():
+        case RollBackDeployment():
             return f"roll [{action.application}] back to its previous revision"
         case _:
             assert_never(action)

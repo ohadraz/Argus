@@ -51,7 +51,7 @@ from argus_core.events import (
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
-    ROLL_BACK_CONFIGURATION,
+    ROLL_BACK_DEPLOYMENT,
     ActionIdentity,
     Actor,
     Alert,
@@ -797,14 +797,14 @@ def test_a_fix_that_could_not_be_proposed_says_what_stopped_it() -> None:
 @pytest.mark.unit
 def test_a_rollback_is_said_as_a_rollback_when_it_is_taken() -> None:
     # Words for the third kind of action. Without them the line rendered as
-    # the tag's own identifier - "roll-back-configuration" - which reads as a
+    # the tag's own identifier - "roll-back-deployment" - which reads as a
     # bug in the page and compiles perfectly.
     an_application_rolled_back = "io-shop"
 
     some_action = ActionTaken(
         incident_id=new_id(),
         hypothesis_id=new_id(),
-        action_type=ROLL_BACK_CONFIGURATION,
+        action_type=ROLL_BACK_DEPLOYMENT,
         subject=an_application_rolled_back,
         enabled=None
     )
@@ -823,7 +823,7 @@ def test_an_order_memory_changed_names_a_rollback_as_a_rollback() -> None:
 
     what_memory_did = CandidatesReordered(
         incident_id=new_id(),
-        action_type=ROLL_BACK_CONFIGURATION,
+        action_type=ROLL_BACK_DEPLOYMENT,
         subject=the_application_that_was_moved_down,
         on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
     )
