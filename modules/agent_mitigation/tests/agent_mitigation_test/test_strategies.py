@@ -50,6 +50,8 @@ SOME_SUBJECT_A_MODEL_WROTE = "kuki heap (memory_used_bytes / heap of 2048MiB lim
 # spelling of these calls that leaves it out.
 DONT_CARE_SERVICE = "dont-care-service"
 
+NO_FLAGS_CHANGED: Sequence[FlagChange] = []
+
 
 @pytest.mark.unit
 def test_the_strategy_registered_for_a_cause_is_the_one_asked() -> None:
@@ -118,7 +120,7 @@ def test_a_leak_is_answered_by_restarting_the_service_the_alert_names() -> None:
         ) \
         .when(
             lambda: RestartServiceStrategy().propose(
-                a_leak, [], service=some_alerting_service
+                a_leak, NO_FLAGS_CHANGED, service=some_alerting_service
             )
         ) \
         .then(_the_service_to_restart_is(some_alerting_service))
@@ -138,7 +140,7 @@ def test_a_leak_whose_cause_describes_nothing_is_still_answered_with_a_restart()
         ) \
         .when(
             lambda: RestartServiceStrategy().propose(
-                a_leak_describing_nothing, [], service=some_alerting_service
+                a_leak_describing_nothing, NO_FLAGS_CHANGED, service=some_alerting_service
             )
         ) \
         .then(_the_service_to_restart_is(some_alerting_service))
@@ -179,7 +181,7 @@ def test_the_registry_argus_ships_answers_a_leak_with_a_restart() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_leak, flag_changes=[], service=some_alerting_service
+                a_leak, flag_changes=NO_FLAGS_CHANGED, service=some_alerting_service
             )
         ) \
         .then(_the_service_to_restart_is(some_alerting_service))
@@ -273,7 +275,7 @@ def test_nothing_answers_an_upstream_dependency_failure() -> None:
             )
         ) \
         .when(
-            lambda: propose_action(an_upstream_failure, [], DONT_CARE_SERVICE)
+            lambda: propose_action(an_upstream_failure, NO_FLAGS_CHANGED, DONT_CARE_SERVICE)
         ) \
         .then(
             nothing_was_proposed()
@@ -351,7 +353,25 @@ def test_a_config_induced_failure_is_answered_by_rolling_the_configuration_back(
         .given(a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE),
-            [],
+            NO_FLAGS_CHANGED,
+            SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+            .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_a_bad_deployment_is_answered_by_rolling_the_deployment_back() -> None:
+    # The same action the config-induced failure is answered by, deliberately: a
+    # revision carries the code and the configuration it shipped with, so the
+    # platform's rollback is one operation over both. Two modes reaching one
+    # strategy is the ordinary shape of a lookup rather than a collision - what
+    # separates the modes is the account the incident gives and the fix left
+    # afterwards, a values file there and the service's source here.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
+            NO_FLAGS_CHANGED,
             SOME_APPLICATION_THE_ALERT_NAMES
         )) \
             .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
@@ -371,7 +391,7 @@ def test_the_deployment_rolled_back_is_the_one_the_alert_names() -> None:
     Scenario() \
         .given(describing_a_symptom) \
         .when(lambda: propose_action(
-            describing_a_symptom, [], SOME_APPLICATION_THE_ALERT_NAMES
+            describing_a_symptom, NO_FLAGS_CHANGED, SOME_APPLICATION_THE_ALERT_NAMES
         )) \
             .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -385,7 +405,7 @@ def test_a_rollback_names_no_revision_to_return_to() -> None:
         .given(a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE),
-            [],
+            NO_FLAGS_CHANGED,
             SOME_APPLICATION_THE_ALERT_NAMES
         )) \
             .then(_it_carries_nothing_but_the_application())

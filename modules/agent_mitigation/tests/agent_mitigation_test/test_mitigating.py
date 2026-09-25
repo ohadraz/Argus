@@ -58,7 +58,7 @@ def test_mitigating_a_cause_with_no_action_escalates_without_touching_anything()
         ) \
         .when(
             lambda: mitigate(
-                a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
+                a_hypothesis_blaming(FailureMode.UPSTREAM_DEPENDENCY_FAILURE),
                 fetch_flag_changes=a_flag_did_change,
                 take=take,
                 service=DONT_CARE_SERVICE

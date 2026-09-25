@@ -73,6 +73,7 @@ from tests.e2e.framework.argus import (
     THE_RECORDINGS_THAT_MUST_CARRY_A_FIX,
     THE_SERVICE_NAME,
     stored_as,
+    the_anchor_file_for,
 )
 from tests.e2e.framework.flags import (
     only_the_boot_flags_were_left_in_the_provider,
@@ -213,12 +214,17 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         IncidentStatus.MITIGATED,
         (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED)
     ),
+    # The incident whose only evidence is the deploy history. Its alert is
+    # latency because nothing here fails - the revision that went out is slower
+    # and still correct - and the walk now goes the whole way: the mode is
+    # answered by returning the deployment, so what has to be on the record is
+    # the action rather than the judgement that stopped short of one.
     _Recording(
         RECORDED_BAD_DEPLOYMENT,
         "bad-deployment",
         "HighLatency",
-        IncidentStatus.ESCALATED,
-        (_A_HYPOTHESIS_WAS_FORMED,)
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN,)
     ),
     _Recording(
         RECORDED_FALLBACK_DISABLED,
@@ -465,12 +471,49 @@ def _a_world_this_recording_can_be_captured_in() -> None:
     the_flag_provider_forgot_every_change()
 
 
-def _stage(scenario_id: str) -> None:
-    httpx.post(
+def _stage(scenario_id: str) -> str | None:
+    """Puts the shop into the state this recording is of, and says when.
+
+    The instant comes back from the service rather than being read off a clock
+    here: the shop decides what its window hangs off, and a moment taken on
+    this side would differ from it by however long the call took.
+    """
+    staged = httpx.post(
         f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
         json={"scenario_id": scenario_id},
         timeout=30.0,
-    ).raise_for_status()
+    )
+    staged.raise_for_status()
+    seeded_at: str | None = staged.json().get("seeded_at")
+
+    return seeded_at
+
+
+def _write_the_anchor(stored: str, seeded_at: str | None) -> None:
+    """Records the instant the world these answers were given about was seeded.
+
+    Without it a replay has no left-hand side. A recorded answer can name the
+    window it asked about, and those bounds are absolute instants frozen here;
+    the scenario they were captured against is not frozen, so a set replayed an
+    hour later asks about an hour that no longer holds the incident. Whoever
+    seeds the double lines the two up by the gap between the two seedings, and
+    this is the half only a recording run can know.
+
+    Beside the answers and not inside one: a recording is the raw body the API
+    returned, and a field this repo added to it would be the one thing in there
+    Anthropic never said.
+
+    A recording of no scenario at all writes nothing, and the absence is the
+    honest answer - there was no seeding for anything to be dated against, so
+    there is nothing for a later run to line up with.
+    """
+    anchor = the_anchor_file_for(stored)
+
+    if seeded_at is None:
+        anchor.unlink(missing_ok=True)
+        return
+
+    anchor.write_text(f"{seeded_at}\n", encoding="utf-8", newline="\n")
 
 
 def _an_incident_was_opened_by(service: str, alert_name: str) -> str:
@@ -672,9 +715,10 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     started_at = time.time()
 
     _a_world_this_recording_can_be_captured_in()
+    seeded_at = _stage(recording.scenario) if recording.scenario else None
 
-    if recording.scenario:
-        _stage(recording.scenario)
+    if not replaying:
+        _write_the_anchor(stored, seeded_at)
 
     if recording.and_then:
         recording.and_then()

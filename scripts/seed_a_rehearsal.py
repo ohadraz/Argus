@@ -32,21 +32,24 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
 from anthropic_double.recordings import RECORDINGS_DIR
 from github_double.repository import DEFAULT_FILES
 
-# The walk this set is built from, and the one it is stored as. Both carry the
-# mode's prefix because a recording is captured under the tool list the stack
-# offered, and a set stored without one is a set nothing replays.
+# The walk a set is built from by default, and the one it is stored as. Both
+# carry the mode's prefix because a recording is captured under the tool list
+# the stack offered, and a set stored without one is a set nothing replays -
+# which is also why a borrowed set may only be stored under its own mode's
+# prefix, and why the pair below is `both` and only `both`: the large-fix case
+# is collected in that mode alone (`noxfile._the_cases_for`), so a `grep-` or
+# `meaning-` set of it would answer a question no session asks.
 #
-# `both` and only `both`, which is a decision rather than a shortcut: the
-# large-fix case is collected in that mode alone (`noxfile._the_cases_for`),
-# because what it claims does not vary by which tool found the file. A
-# `grep-` or `meaning-` set here would be answers to a question no session
-# asks.
+# Overridable, because the rehearsal is not a property of that one case. Any
+# new scenario has the same problem and the same answer: borrow a walk through
+# a world shaped like this one, and rewrite whichever answers have to differ.
 BORROWED_FROM: Final = "both-feature-flag-toggle"
 STORED_AS: Final = "both-monthly-statement-panel"
 
@@ -96,6 +99,28 @@ def _the_answers_of(name: str) -> list[Path]:
     ]
 
     return sorted(belonging, key=lambda path: int(path.stem[len(name) + 1:] or 1))
+
+
+def _the_two_names_share_a_mode(borrowed_from: str, stored_as: str) -> None:
+    """Refuses a borrow across modes, before anything is written.
+
+    A mode is not a label on a recording - it is the world it was captured in.
+    Under `grep` the read tier registers no retrieval-by-meaning tool at all, so
+    a walk captured under `both` asks for one that was never offered; the double
+    serves the answer regardless, because it is a queue seeded by name and never
+    inspects the request, and the failure reads as an agent bug in a case nobody
+    has touched.
+    """
+    borrowed_mode, _, _ = borrowed_from.partition("-")
+    stored_mode, _, _ = stored_as.partition("-")
+
+    if borrowed_mode != stored_mode:
+        raise SystemExit(
+            f"[{borrowed_from}] was captured under [{borrowed_mode}] and would "
+            f"be stored under [{stored_mode}] - a walk replayed in a world "
+            f"unlike the one its answers were given in calls tools that stack "
+            f"never offered"
+        )
 
 
 def _the_fixed_module() -> str:
@@ -169,26 +194,41 @@ def _a_fix_of_the_large_module(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
-def _write(borrowed: list[Path]) -> list[Path]:
+# Which answer has to be rewritten, by the set being fabricated. A rehearsal
+# borrows a walk through a world shaped like the new one, so most answers are
+# already right: the investigation read evidence of the same shape, and the
+# postmortem is written from the incident rather than from what was done about
+# it. A set absent from here is one where *nothing* has to differ and the
+# borrowed answers are stored as they stand - which is the ordinary case rather
+# than a shortcut, and is what makes a scenario whose walk differs only in its
+# prose free to rehearse.
+_THE_ANSWER_THAT_HAS_TO_DIFFER: Final[dict[str, Callable[[dict[str, Any]],
+                                                         dict[str, Any]]]] = {
+    STORED_AS: _a_fix_of_the_large_module
+}
+
+
+def _write(borrowed: list[Path], stored_as: str) -> list[Path]:
     """Stores the set under the new name, answer for answer.
 
     Numbered exactly as the source was, because the double serves a queue in
     order and a gap in the numbering is a walk that stops one answer early.
     """
+    rewrite = _THE_ANSWER_THAT_HAS_TO_DIFFER.get(stored_as)
     written = []
 
     for index, path in enumerate(borrowed, start=1):
         was = json.loads(path.read_text(encoding="utf-8"))
         now = (
-            _a_fix_of_the_large_module(was)
-            if any(
+            rewrite(was)
+            if rewrite is not None and any(
                 block.get("name") == THE_TOOL_THAT_SUBMITS_A_FIX
                 for block in was["content"]
             )
             else was
         )
         destination = RECORDINGS_DIR / (
-            f"{STORED_AS}.json" if index == 1 else f"{STORED_AS}-{index}.json"
+            f"{stored_as}.json" if index == 1 else f"{stored_as}-{index}.json"
         )
         # `newline` said explicitly, because the default translates on Windows
         # and a recording is read on three platforms. A stored answer that
@@ -207,6 +247,20 @@ def _write(borrowed: list[Path]) -> list[Path]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--from",
+        dest="borrowed_from",
+        default=BORROWED_FROM,
+        help="the recorded walk to borrow answers from - one through a world "
+             "shaped like the new scenario's, under the same mode's prefix",
+    )
+    parser.add_argument(
+        "--as",
+        dest="stored_as",
+        default=STORED_AS,
+        help="the name to store the fabricated set under, which is the name the "
+             "case replaying it asks the double for",
+    )
+    parser.add_argument(
         "--remove",
         action="store_true",
         help="delete the fabricated set instead of writing it, which is what to "
@@ -215,22 +269,24 @@ def main() -> int:
     arguments = parser.parse_args()
 
     if arguments.remove:
-        for path in _the_answers_of(STORED_AS):
+        for path in _the_answers_of(arguments.stored_as):
             path.unlink()
             print(f"removed {path.name}")
 
         return 0
 
-    borrowed = _the_answers_of(BORROWED_FROM)
+    _the_two_names_share_a_mode(arguments.borrowed_from, arguments.stored_as)
+    borrowed = _the_answers_of(arguments.borrowed_from)
 
     if not borrowed:
         raise SystemExit(
-            f"no recording named [{BORROWED_FROM}] to borrow a walk from"
+            f"no recording named [{arguments.borrowed_from}] to borrow a walk "
+            f"from"
         )
 
-    written = _write(borrowed)
+    written = _write(borrowed, arguments.stored_as)
 
-    print(f"fabricated {len(written)} answers as {STORED_AS}:")
+    print(f"fabricated {len(written)} answers as {arguments.stored_as}:")
     for path in written:
         print(f"  {path.name}  {path.stat().st_size:>7} bytes")
     print(

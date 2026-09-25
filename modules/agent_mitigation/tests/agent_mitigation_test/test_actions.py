@@ -136,16 +136,17 @@ def test_a_flag_toggled_more_than_once_is_put_back_to_its_state_before_the_lates
 
 @pytest.mark.unit
 def test_a_cause_with_no_reversible_action_proposes_nothing() -> None:
-    # A bad deployment has no controllable condition until the git write path
-    # exists. Proposing an approximate action for it is how an agent takes a
-    # confident-looking action on a cause it cannot address.
+    # Another company's outage is reachable by nothing Argus may do: every
+    # mitigation it has acts on its own deployment. Proposing an approximate
+    # action for it is how an agent takes a confident-looking action on a cause
+    # it cannot address.
     Scenario() \
         .given(
             a_flag_did_change := an_enabling_of(DONT_CARE_FLAG)
         ) \
         .when(
             lambda: propose_action(
-                a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
+                a_hypothesis_blaming(FailureMode.UPSTREAM_DEPENDENCY_FAILURE),
                 flag_changes=[a_flag_did_change],
                 service=DONT_CARE_SERVICE
             )

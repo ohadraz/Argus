@@ -48,8 +48,7 @@ from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
-from argus_core.events import ActionTaken
-from argus_core.models import ROLL_BACK_DEPLOYMENT, FailureMode, IncidentStatus
+from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -61,12 +60,12 @@ from tests.e2e.framework.argus import (
     about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    argus_took_a_rollback_of,
     argus_wrote_a_postmortem,
-    incident_id_from,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import the_incidents_events, the_middle_of, the_shops_window
+from tests.e2e.framework.world import the_middle_of, the_shops_window
 from tests.framework.assertions import (
     some_confidence_was_given,
     the_cause_was_identified_as,
@@ -118,7 +117,7 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
                         some_confidence_was_given()
                     ),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
-                    _the_action_taken_was_a_rollback_of(THE_SERVICE_NAME),
+                    argus_took_a_rollback_of(THE_SERVICE_NAME),
                     _only_the_median_ever_moved(),
                     _the_shop_is_reaching_its_cache_again(),
                     _the_application_no_longer_syncs_itself(),
@@ -127,52 +126,6 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
                 timeout=WALK_TIMEOUT_SECONDS
             )
         )
-
-
-def _the_action_taken_was_a_rollback_of(application: str) -> Assertion[httpx.Response]:
-    """Read from the incident's own account rather than from the platform.
-
-    What the platform was asked is a fact about the fixture; what Argus decided
-    to do is the thing under test. A rollback has no direction - there is no
-    switch to have been thrown, and where it went is "the revision before" by
-    construction - so the event says so by leaving it absent, and one claiming a
-    direction would describe a different action from the one taken.
-    """
-    def assertion(response: httpx.Response) -> bool:
-        incident_id = incident_id_from(response)
-        taken = [
-            event for event in the_incidents_events(incident_id)
-            if isinstance(event, ActionTaken)
-        ]
-
-        if not taken:
-            raise AssertionError(
-                f"Incident [{incident_id}] took no action at all, so nothing "
-                f"was ever put to the question."
-            )
-
-        rollbacks = [
-            event for event in taken
-            if event.action_type == ROLL_BACK_DEPLOYMENT
-            and event.subject == application
-        ]
-
-        if not rollbacks:
-            raise AssertionError(
-                f"Expected a rollback of [{application}], and what was taken "
-                f"was {[(event.action_type, event.subject) for event in taken]}."
-            )
-
-        if rollbacks[-1].enabled is not None:
-            raise AssertionError(
-                f"Expected a rollback to carry no direction, and it reported "
-                f"[{rollbacks[-1].enabled}] - which tells a later round a "
-                f"switch was thrown."
-            )
-
-        return True
-
-    return assertion
 
 
 def _only_the_median_ever_moved() -> Assertion[httpx.Response]:

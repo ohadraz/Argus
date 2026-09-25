@@ -35,8 +35,6 @@ which harness ran it rather than what Argus does.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
@@ -44,14 +42,11 @@ from argus_testkit import Scenario, all_of, calling, eventually
 from tests.e2e.framework.argus import (
     INVESTIGATION_TIMEOUT_SECONDS,
     MITIGATION_TIMEOUT_SECONDS,
-    RECORDED_BAD_DEPLOYMENT,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
-    THE_SERVICE_NAME,
     about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
-    argus_read_a_change_event,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
@@ -103,53 +98,6 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
                     the_service_returned_to_baseline()
                 ),
                 timeout=MITIGATION_TIMEOUT_SECONDS
-            )
-        )
-
-
-@pytest.mark.e2e
-def test_a_bad_deployment_escalates_because_nothing_can_be_reverted() -> None:
-    # The change channel, end to end and load-bearing. This scenario's log
-    # lines report symptoms only - climbing latency, then timeouts - and never
-    # mention a deploy. The deploy exists in exactly one place: the Argo CD
-    # revision history the read MCP server fetches. So an incident that gets
-    # anywhere at all has been through the adapter, the onset-anchored change
-    # window, and the events reaching the prompt.
-    #
-    # What is asserted is that the walk reached a judgement it was willing to
-    # stand behind and then escalated. Not which cause it named: one replayed
-    # answer is one sample, and which label a model picks is measured by
-    # `nox -s eval` over fifty of them, against thresholds. A case here that
-    # pinned the label would fail whenever a re-recording changed the model's
-    # mind - which is what happened - and would be reporting on judgement
-    # using the one instrument in this repository that cannot measure it.
-    #
-    # It ends `escalated`, not `resolved`: no reversible action answers a bad
-    # deployment until the git write path exists, and an incident marked
-    # resolved with the bad version still serving is a lie a human would act
-    # on. Diagnosable and unmitigable is the honest state.
-    some_alert_name = "HighLatency"
-    some_severity = "critical"
-    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
-                                            alert_name=some_alert_name,
-                                            severity=some_severity)
-
-    Scenario() \
-        .given(
-            calling(_a_bad_version_was_deployed()),
-            calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT))
-        ) \
-        .when(
-            argus_is_triggered_with_alert(some_alert)
-        ) \
-        .then(
-            eventually(
-                all_of(
-                    about_the_hypothesis(some_confidence_was_given()),
-                    argus_read_a_change_event(),
-                    argus_ended_with_status(IncidentStatus.ESCALATED)
-                ),
-                timeout=INVESTIGATION_TIMEOUT_SECONDS
             )
         )
 
@@ -240,7 +188,3 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
                 timeout=MITIGATION_TIMEOUT_SECONDS
             )
         )
-
-
-def _a_bad_version_was_deployed() -> Callable[[], bool]:
-    return a_scenario_was_seeded("bad-deployment")

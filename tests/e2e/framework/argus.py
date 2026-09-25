@@ -12,16 +12,20 @@ Argus created for it.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from http import HTTPStatus as HttpStatus
-from typing import Any
+from pathlib import Path
+from typing import Any, Final
 
 import httpx
 import psycopg
+from agent_investigator.tools.windows import WINDOW_END_ARG, WINDOW_START_ARG
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
+from anthropic_double.recordings import RECORDINGS_DIR, load
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_core import get_settings
-from argus_core.events import ChangesRetrieved, StatusChanged
-from argus_core.models import IncidentStatus
+from argus_core import get_settings, parse_iso, to_iso
+from argus_core.events import ActionTaken, ChangesRetrieved, StatusChanged
+from argus_core.models import ROLL_BACK_DEPLOYMENT, IncidentStatus
 from argus_core.replay import CallType
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
 from argus_testkit import Assertion, all_of
@@ -98,6 +102,14 @@ THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
 
 # Not arbitrary! the Target Service names itself in its own log
 THE_SERVICE_NAME = "io-shop"
+
+# Anthropic's own word for a block that calls a tool, declared here rather than
+# imported: it is not on any of the kernel's front doors, and
+# `scripts/seed_a_rehearsal.py` spells it locally for the same reason.
+TOOL_USE_TYPE: Final = "tool_use"
+
+# The extension a set's capture instant is stored under, beside the recordings.
+ANCHOR_SUFFIX: Final = ".anchor"
 
 
 def stored_as(recording: str) -> str:
@@ -268,6 +280,69 @@ def argus_read_a_change_event() -> Assertion[httpx.Response]:
     return assertion
 
 
+def argus_took_a_rollback_of(application: str) -> Assertion[httpx.Response]:
+    """Read from the incident's own account rather than from the platform.
+
+    What the platform was asked is a fact about the fixture; what Argus decided
+    to do is the thing under test. A rollback has no direction - there is no
+    switch to have been thrown, and where it went is "the revision before" by
+    construction - so the event says so by leaving it absent, and one claiming a
+    direction would describe a different action from the one taken.
+
+    Shared by the two cases that end this way, which is the point of it being
+    one assertion. A value deployed into a broken state and a revision that made
+    every page slower are told apart by the evidence and by the fix left
+    afterwards, never by what is done about them now - so a copy per case would
+    be two spellings of a single claim.
+    """
+    def assertion(response: httpx.Response) -> bool:
+        incident_id = incident_id_from(response)
+        taken = [
+            event for event in _the_incidents_events(incident_id)
+            if isinstance(event, ActionTaken)
+        ]
+
+        if not taken:
+            raise AssertionError(
+                f"Incident [{incident_id}] took no action at all, so nothing "
+                f"was ever put to the question."
+            )
+
+        rollbacks = [
+            event for event in taken
+            if event.action_type == ROLL_BACK_DEPLOYMENT
+            and event.subject == application
+        ]
+
+        if not rollbacks:
+            raise AssertionError(
+                f"Expected a rollback of [{application}], and what was taken "
+                f"was {[(event.action_type, event.subject) for event in taken]}."
+            )
+
+        if rollbacks[-1].enabled is not None:
+            raise AssertionError(
+                f"Expected a rollback to carry no direction, and it reported "
+                f"[{rollbacks[-1].enabled}] - which tells a later round a "
+                f"switch was thrown."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incidents_events(incident_id: str) -> list[Any]:
+    """Everything the walk published for one incident, in the order it happened.
+
+    A local reading rather than `world.the_incidents_events`, which is the same
+    query: that module imports this one, so calling it from here would close the
+    cycle.
+    """
+    with psycopg.connect(DATABASE_URL) as conn:
+        return events.get_by_incident(conn, incident_id)
+
+
 def argus_registered_an_incident_for_the_alert(
     alert_payload: dict[str, Any]
 ) -> Assertion[httpx.Response]:
@@ -411,18 +486,118 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
     paid path and the replayed one.
     """
     def step() -> bool:
+        stored = stored_as(recording)
+        shift = _how_far_the_world_has_moved_since(stored)
+
         with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
 
-            for answered_once in _the_answers_recorded_for(stored_as(recording), control):
+            for answered_once in _the_answers_recorded_for(stored, control):
                 control.post(
                     "/double-control/seed",
-                    json={"recording": answered_once, "repeat": 1},
+                    json={"recording": answered_once, "repeat": 1}
+                    if shift is None
+                    else {"body": _rebased(load(answered_once), shift), "repeat": 1}
                 ).raise_for_status()
 
         return True
 
     return step
+
+
+def the_anchor_file_for(recording: str) -> Path:
+    """Where a recorded set keeps the instant the world was seeded at when it
+    was captured.
+
+    A sidecar beside the recordings rather than a key inside one, because a
+    recording is the raw body the API returned and a field this repo added to
+    it would be the one thing in there Anthropic never said. The suffix is not
+    `.json`, so the double's own listing of what it holds does not grow a
+    recording nobody can replay.
+    """
+    return RECORDINGS_DIR / f"{recording}{ANCHOR_SUFFIX}"
+
+
+def _how_far_the_world_has_moved_since(recording: str) -> timedelta | None:
+    """The gap between the world a set was captured in and the world it is
+    about to answer about - or `None` where there is no telling.
+
+    A recorded answer can name the window it asked about, and those bounds are
+    absolute instants frozen at capture. The scenario they were captured
+    against is not frozen: the Target Service hangs its minutes and its deploy
+    history off the instant it was seeded, so a set replayed an hour later asks
+    about an hour that no longer holds the incident. The channel then answers
+    correctly with nothing, and a case asserting on the evidence fails for a
+    property of the recording rather than of Argus.
+
+    One delta for the whole set, taken between the two seedings, because that
+    is the instant both worlds are built from. Every relative distance inside
+    the walk survives a single constant shift: a change fifteen minutes before
+    the recorded onset lands fifteen minutes before this one.
+
+    `None` wherever either anchor is missing - a set captured before anchors
+    were written, or a case that seeds no scenario at all. Nothing is shifted
+    then, which is exactly today's behaviour, rather than a guess at an anchor
+    nobody recorded.
+    """
+    anchor = the_anchor_file_for(recording)
+
+    if not anchor.exists():
+        return None
+
+    seeded_now = _the_instant_this_run_was_seeded()
+
+    if seeded_now is None:
+        return None
+
+    return seeded_now - parse_iso(anchor.read_text(encoding="utf-8").strip())
+
+
+def _the_instant_this_run_was_seeded() -> datetime | None:
+    """When the Target Service was put into the state this case is about.
+
+    Asked of the service rather than taken as the moment the seeding call
+    returned: the service decides what instant its window hangs off, and a
+    reading taken here would be a second opinion about it that drifts by
+    however long the call took.
+    """
+    response = httpx.get(
+        f"{TARGET_SERVICE_BASE_URL}/scenario/status",
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    seeded_at = response.json().get("seeded_at")
+
+    return parse_iso(seeded_at) if seeded_at else None
+
+
+def _rebased(answer: dict[str, Any], shift: timedelta) -> dict[str, Any]:
+    """One recorded answer with its retrieval windows moved into this run's world.
+
+    The two window arguments and nothing else, which is a limit rather than a
+    first pass. What the model *said* - the summaries, the evidence it quotes,
+    the postmortem - names instants too, and rewriting those would make the
+    stored answer something Anthropic never returned. So the replayed prose
+    goes on naming the hour it was captured in, no case asserts on it, and the
+    paid run is where those times are real.
+    """
+    content = []
+
+    for block in answer.get("content", []):
+        arguments = block.get("input") if block.get("type") == TOOL_USE_TYPE else None
+
+        if not arguments:
+            content.append(block)
+            continue
+
+        moved = {
+            name: to_iso(parse_iso(bound) + shift)
+            for name, bound in arguments.items()
+            if name in (WINDOW_START_ARG, WINDOW_END_ARG) and isinstance(bound, str)
+        }
+        content.append({**block, "input": {**arguments, **moved}} if moved else block)
+
+    return {**answer, "content": content}
 
 
 def _the_answers_recorded_for(recording: str, control: httpx.Client) -> list[str]:

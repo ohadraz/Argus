@@ -217,7 +217,15 @@ Strategies = Mapping[FailureMode, MitigationStrategy]
 # day something is registered for it, that will be a claim that Argus can shed
 # load or fail over - which is a mitigation somebody has to build and defend,
 # not a gap to be filled in.
+#
+# Many-to-one, and the two deployment modes are where that shows: a revision
+# carries the code and the configuration it shipped with, so returning the
+# deployment answers a bad deploy and a broken value alike. A mode is a
+# distinction a reader of an incident makes, never one this mapping makes for
+# them - what separates these two is the account the incident gives and the fix
+# left afterwards, not what is done about it now.
 DEFAULT_STRATEGIES: Strategies = {
+    FailureMode.BAD_DEPLOYMENT: RollBackDeploymentStrategy(),
     FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
     FailureMode.RESOURCE_LEAK: RestartServiceStrategy(),
     FailureMode.CONFIG_INDUCED_FAILURE: RollBackDeploymentStrategy()

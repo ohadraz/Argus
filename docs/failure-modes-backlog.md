@@ -21,7 +21,7 @@ pattern. See "A note on the name" below.
 
 | Family | Share | Modes | Argus |
 |---|---|---|---|
-| Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Partly.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here; FM-10 is built, FM-09 is diagnosed and dispatches to no strategy - the only mode of the five that does not |
+| Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Yes.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here, all diagnosed and all mitigated. FM-09 and FM-10 share one action: a revision carries the code and the configuration it shipped with, so the platform's rollback answers both |
 | Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Partly.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage |
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** `resource-leak` is the leak half of FM-13; demand saturation is not built |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
@@ -29,13 +29,6 @@ pattern. See "A note on the name" below.
 | Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Partly.** `slow-canary-rollout` is FM-06: diagnosed and mitigated by putting the flag back. In-flight compatibility is not built |
 | AI-specific | 2% | Output-quality degradation (FM-17), accelerator heterogeneity (FM-33) | No |
 | External/adversarial | 1% | External attack (FM-15), supply-chain breach (FM-16) | No, and out of scope |
-
-A mode's mitigation is a separate question from its coverage, and FM-09 is where
-the two come apart: `bad-deployment` is diagnosed and named, and it is the one
-mode of the five that reaches no strategy. What it waits for is a strategy, not a
-mechanism - returning a deployment to a revision it already ran is what the
-config rollback does, through the same platform sync, and a code deploy is the
-same action against a different revision.
 
 ## Scenarios that stage a mode already built
 
@@ -156,20 +149,37 @@ never sees.
 
 Three things it added beyond the scenario. The median became a signal the
 detector judges departure on, beside the error rate, the tail and the heap.
-A third generic mitigation arrived - returning a deployment to a configuration
-revision it already ran - and with it the first undo descriptor recording *two*
+A third generic mitigation arrived - returning a deployment to the revision it
+was running before - and with it the first undo descriptor recording *two*
 pieces of prior state, because the platform refuses a rollback while it
 reconciles the application itself and suspending that is part of performing the
 rollback rather than a separate concern. And the taxonomy stopped reaching the
-model as five bare hyphenated names: what each mode means now travels with it
-into the tool schema, because a model shown only the names reads a deploy that
-landed at the onset as a bad deployment, which is defensible and is not what
-dispatches to the right mitigation.
+model as five bare hyphenated names: what each mode means travels with it into
+the tool schema, because a name alone underdetermines which mode a deploy at the
+onset belongs to.
 
 It is mitigated and never resolved, in the plainest form the system has. The
 values file still names the port that broke it, the platform's own
 reconciliation is suspended so that nothing re-applies it, and both are what a
 withdrawal puts back.
+
+**FM-09 Deploy-induced regression is built.** `bad-deployment` stages the other
+half of the pair: a revision that derives a shopper's lifetime average from the
+purchases once per purchase - the same figure, quadratic cost, on the path every
+request takes. The shop runs without a summary cache, so every request pays and
+the median, the 95th and the 99th all climb by the same multiple. Nothing fails,
+so the error rate never stirs, and no log line mentions a release - the deploy
+exists in the Argo CD history alone, which is what makes the change channel
+load-bearing rather than corroborating.
+
+It answers with the same action FM-10 does, and that is the finding rather than
+a compromise. A revision carries the code and the configuration it shipped with,
+so the platform's rollback is one operation over both, and a second action kind
+performing the identical call would be machinery bought for nothing. What
+separates the two modes is the account the incident gives and the fix left
+afterwards - a values file for one, the service's source for the other - which
+is why a mode is a distinction a reader of an incident makes rather than one the
+strategy lookup makes for them.
 
 **FM-01 Cross-org cascade is built.** `upstream-dependency-failure` stages a
 payment provider that stops answering: errors and latency move together, memory

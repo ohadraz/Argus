@@ -122,12 +122,17 @@ def _the_set_is(expected: set[ActionType]) -> Assertion[set[ActionType]]:
 
 
 @pytest.mark.unit
-def test_rolling_a_configuration_back_may_be_taken_unasked() -> None:
+def test_rolling_a_deployment_back_may_be_taken_unasked() -> None:
     # Admissible for one specific reason, and it is not that it can be undone:
-    # the revision it applies was reviewed and ran before, so Argus replays
-    # somebody's change rather than authoring one. Writing to the
-    # configuration repository would be the other thing, and is refused by
-    # not being an action at all.
+    # the revision it returns to was reviewed and ran before, so Argus replays
+    # somebody's change rather than authoring one. Writing to the repository
+    # would be the other thing, and is refused by not being an action at all.
+    #
+    # Asked of the kind, which is why one answer covers both modes that reach
+    # it. New code that broke a service and a configuration changed into a
+    # broken state are different accounts of an incident and the same thing to
+    # do about it now, so admitting the kind admits both. A set that named the
+    # mode would be the gate keeping a second copy of the strategy mapping.
     Scenario() \
         .given(a_rollback := RollBackDeployment(application="io-shop")) \
         .when(lambda: is_a_generic_mitigation(a_rollback)) \
