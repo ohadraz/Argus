@@ -14,6 +14,7 @@ import pytest
 from agent_mitigation import (
     Action,
     MitigationStrategy,
+    RestartDependencyStrategy,
     RestartServiceStrategy,
     Strategies,
     a_mitigation_answers,
@@ -409,6 +410,101 @@ def test_a_rollback_names_no_revision_to_return_to() -> None:
             SOME_APPLICATION_THE_ALERT_NAMES
         )) \
             .then(_it_carries_nothing_but_the_application())
+
+
+@pytest.mark.unit
+def test_an_internal_dependency_is_answered_by_restarting_the_dependency() -> None:
+    # The first mitigation ever addressed to something other than the service
+    # that was paged. Every strategy before this one takes its subject from the
+    # alert, which was right for as long as the alerting service was always the
+    # faulty one - and this is the incident where it is not.
+    the_dependency_that_is_slow = "io-pricing"
+
+    Scenario() \
+        .given(
+            a_slow_neighbour := a_hypothesis_blaming(
+                FailureMode.INTERNAL_DEPENDENCY_FAILURE,
+                faulting_service=the_dependency_that_is_slow
+            )
+        ) \
+        .when(
+            lambda: RestartDependencyStrategy().propose(
+                a_slow_neighbour, NO_FLAGS_CHANGED, service="io-shop"
+            )
+        ) \
+        .then(_the_service_to_restart_is(the_dependency_that_is_slow))
+
+
+@pytest.mark.unit
+def test_the_alerting_service_is_not_what_gets_restarted() -> None:
+    # Said as its own case rather than left to the one above, because the two
+    # can both be satisfied by accident: a strategy that read the alert would
+    # pass the test above if the test happened to name the same service. Here
+    # they are deliberately different, and what must not come back is the one
+    # the alert named.
+    Scenario() \
+        .given(
+            a_slow_neighbour := a_hypothesis_blaming(
+                FailureMode.INTERNAL_DEPENDENCY_FAILURE,
+                faulting_service="io-pricing"
+            )
+        ) \
+        .when(
+            lambda: RestartDependencyStrategy().propose(
+                a_slow_neighbour, NO_FLAGS_CHANGED, service="io-shop"
+            )
+        ) \
+        .then(_it_is_not_a_restart_of("io-shop"))
+
+
+@pytest.mark.unit
+def test_a_dependency_failure_naming_no_service_proposes_nothing() -> None:
+    # Unlike the leak, which always has something to restart. Here the address
+    # is the whole of what the strategy has to work from, and an answer that
+    # fell back to the alerting service would restart the one process this
+    # incident has established is healthy - and would then read the shop's
+    # unchanged telemetry as evidence that restarting does not help.
+    Scenario() \
+        .given(
+            a_diagnosis_with_no_address := a_hypothesis_blaming(
+                FailureMode.INTERNAL_DEPENDENCY_FAILURE
+            )
+        ) \
+        .when(
+            lambda: RestartDependencyStrategy().propose(
+                a_diagnosis_with_no_address, NO_FLAGS_CHANGED, service="io-shop"
+            )
+        ) \
+        .then(nothing_was_proposed())
+
+
+@pytest.mark.unit
+def test_the_registry_argus_ships_answers_an_internal_dependency_failure() -> None:
+    Scenario() \
+        .given(
+            a_slow_neighbour := a_hypothesis_blaming(
+                FailureMode.INTERNAL_DEPENDENCY_FAILURE,
+                faulting_service="io-pricing"
+            )
+        ) \
+        .when(
+            lambda: propose_action(a_slow_neighbour, NO_FLAGS_CHANGED, "io-shop")
+        ) \
+        .then(_the_service_to_restart_is("io-pricing"))
+
+
+def _it_is_not_a_restart_of(service: str) -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if isinstance(action, RestartService) and action.service == service:
+            raise AssertionError(
+                f"The mitigation was addressed to [{service}], which is the "
+                f"service the alert named and the one this incident establishes "
+                f"is healthy."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_rolls_back(application: str) -> Assertion[Action | None]:

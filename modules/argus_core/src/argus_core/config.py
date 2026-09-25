@@ -561,12 +561,11 @@ class Settings(BaseSettings):
     argocd_restart_action_path: str = Field(
         default="/argocd/{application}/resource/actions/v2"
     )
-    # What the platform calls the thing that gets restarted, which is not what
-    # the alert calls the service. There is no rule producing one from the
-    # other, so it is configured - and the demo's stand-in ignores both, since
-    # it has one service and no namespaces.
+    # Which namespace the deployment being restarted lives in. The resource
+    # itself is not configured: it is the service being restarted, because a
+    # fixed name would carry the alerting service's deployment into a request
+    # addressed at one of its dependencies.
     restart_namespace: str = Field(default="production")
-    restart_resource_name: str = Field(default="io-shop")
     # Where a rollback is asked for, and where the sync policy is written.
     # Two more templates rather than one: the platform's rollback and its
     # spec are different routes, and a real Argo CD's are
@@ -580,6 +579,26 @@ class Settings(BaseSettings):
     # above, which the read tier already names.
     argocd_rollback_path: str = Field(default="/argocd/{application}/rollback")
     argocd_spec_path: str = Field(default="/argocd/{application}/spec")
+    # Where the platform reports what is actually running. A pod's creation time
+    # is what confirms a restart landed, and it is per application, which is the
+    # whole reason this is not read off the metrics: restarting a dependency has
+    # to be confirmed by looking at the dependency.
+    argocd_resource_tree_path: str = Field(
+        default="/argocd/{application}/resource-tree"
+    )
+
+    # Where the organisation's service register answers. The demo Target Service
+    # stands in for one, so the default points at it - and unlike the Argo CD
+    # settings above there is nothing here to authenticate with, because a
+    # register of what calls what is not secret inside the organisation keeping
+    # it.
+    service_registry_base_url: str = Field(default="http://localhost:8080")
+    # A template, as the deploy reader's paths are, so a register with one route
+    # per service and one with a single route are the same setting at different
+    # values. A path carrying no placeholder formats to itself.
+    service_registry_service_path: str = Field(
+        default="/registry/services/{service}"
+    )
 
     # How far back to look for changes. Wide on purpose, and far wider than
     # any log window: a cause precedes its symptoms by an unbounded lag - a

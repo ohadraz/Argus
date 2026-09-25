@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from argus_core import get_settings
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import ChangeEvent, MetricBucket
+from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
 
 # The minute the departure lands in, and so the onset every one of these suites
 # measures from. Named because two of them assert against it.
@@ -73,6 +73,16 @@ def no_changes(dont_care_service: str,
                dont_care_end: str) -> list[ChangeEvent]:
     """Nothing deployed and nothing toggled, so the third channel adds no
     evidence and cannot be what a walk concluded from."""
+    return []
+
+
+def no_dependencies(dont_care_service: str) -> list[ServiceDependency]:
+    """A register that knows of nothing this service calls.
+
+    Which is the honest arrangement for every case here: none of them stages a
+    dependency, so a register volunteering one would put a suspect in front of
+    the model that the scenario never staged.
+    """
     return []
 
 

@@ -359,6 +359,45 @@ def the_subject_of(action: Action) -> str:
             assert_never(action)
 
 
+def the_service_addressed_by(action: Action) -> str | None:
+    """Which service this action acts on, or `None` where it acts on none.
+
+    Not `the_subject_of`, and the difference is what this exists for. A subject
+    is whatever an action acts on, of whatever kind; this is an *address*, and
+    only some of the things Argus acts on have one. A feature flag is a switch
+    in Argus's own provider: nobody owns it but Argus, and treating its name as
+    an address compares a flag against a list of service names and gets a
+    confident wrong answer. A rollback's application is a service under the
+    platform's word for it, so that one has an address like a restart does.
+
+    `None` rather than the alerting service's name, because they are not the
+    same claim. One says this action is aimed at nothing anybody owns; the other
+    would say it is aimed at the service that alerted - which is false, and
+    false in a way that reads correctly in every account of the incident
+    afterwards.
+
+    In the kernel because two modules ask it and neither could own it. The gate
+    asks whether the address is within the estate Argus may touch; the walk asks
+    whether the action went somewhere the incident was not about, so the account
+    can say why Argus was allowed to. Kept inside either of them, it would be
+    the other installing an agent to read a `match` over three classes - and a
+    second copy of that `match` is the thing this module exists to prevent.
+
+    Exhaustive on purpose. A fourth kind of action stops this type-checking
+    rather than quietly acquiring an address of `None` and the authority that
+    comes with it.
+    """
+    match action:
+        case RevertFeatureFlag():
+            return None
+        case RestartService():
+            return action.service
+        case RollBackDeployment():
+            return action.application
+        case _:
+            assert_never(action)
+
+
 def the_direction_of(action: Action) -> bool | None:
     """Which way a two-state action moved its subject, or `None` for an action
     that has no direction to move in.

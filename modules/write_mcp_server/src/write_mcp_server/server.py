@@ -75,7 +75,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     def confirm_the_change_landed() -> list[str]:
         return flag_state.evaluated_flags(flag_settings)
 
-    confirm_a_new_process_is_serving = restarting.the_process_start_time(
+    confirm_a_new_process_is_serving = restarting.the_pod_start_time(
         restart_settings
     )
 

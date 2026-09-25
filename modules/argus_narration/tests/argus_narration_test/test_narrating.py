@@ -836,6 +836,57 @@ def test_an_order_memory_changed_names_a_rollback_as_a_rollback() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_a_restart_of_a_dependency_says_whose_dependency_it_is() -> None:
+    # Argus restarted something it was never paged about, and the account has
+    # to carry the reason it was allowed to: the service that alerted calls
+    # this one. Without the clause the line names a service that appears
+    # nowhere else in the incident, and a reader's only way to find out why it
+    # was touched is to go and read the register themselves.
+    the_service_that_alerted = "io-shop"
+    the_dependency_restarted = "io-pricing"
+
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=RESTART_SERVICE,
+        subject=the_dependency_restarted,
+        enabled=None,
+        a_dependency_of=the_service_that_alerted
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(all_of(
+            _the_only_line_marks(the_dependency_restarted),
+            _the_only_line_mentions(f"a dependency of {the_service_that_alerted}")))
+
+
+@pytest.mark.unit
+def test_a_restart_of_the_service_that_alerted_says_nothing_about_dependencies() -> None:
+    # The ordinary restart, unchanged. Argus has been restarting the service it
+    # was paged about since before there was a register, and a clause on every
+    # one of those would be a sentence that explains nothing said on the line
+    # that needs no explaining.
+    the_service_that_alerted = "io-shop"
+
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=RESTART_SERVICE,
+        subject=the_service_that_alerted,
+        enabled=None
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(all_of(
+            _the_only_line_marks(the_service_that_alerted),
+            _the_only_line_does_not_mention("dependency")))
+
+
 def _an_alert() -> Alert:
     return Alert(service="io-shop", alert_name="HighErrorRate")
 
@@ -1156,3 +1207,75 @@ def test_a_failure_nothing_answers_says_so_rather_than_saying_nothing_was_propos
                 "nothing Argus can do answers this kind of failure"),
             _the_lines_are_credited_to(["Argus"])))
 
+
+@pytest.mark.unit
+def test_every_refusal_reaches_a_reader_in_words() -> None:
+    # The lookup that renders a refusal is a subscript, not a `get`, so a value
+    # with no sentence does not degrade - it raises, while an incident is being
+    # narrated, in the one path that exists to tell somebody what happened.
+    #
+    # Asserted over the whole enum rather than per member for the reason the
+    # taxonomy's meanings are: what must hold is that no refusal reaches a page
+    # as a value nobody wrote a sentence for, and a test naming the three that
+    # exist today would say nothing about the fourth.
+    Scenario() \
+        .given(every_reason_to_refuse := list(Refusal)) \
+        .when(lambda: {
+            refusal: _what_a_reader_is_told_about(refusal)
+            for refusal in every_reason_to_refuse
+        }) \
+        .then(_every_refusal_was_put_into_words())
+
+
+def _what_a_reader_is_told_about(refusal: Refusal) -> str:
+    """The narrated line for one refusal, or the empty string where narrating it
+    fails.
+
+    Caught rather than allowed to raise, so the assertion below names every
+    refusal that has no sentence instead of the test ending on the first one.
+    """
+    try:
+        return build_narration([ActionRefused(
+            incident_id=new_id(),
+            hypothesis_id=new_id(),
+            refusal=refusal
+        )])[0].text
+    except KeyError:
+        return ""
+
+
+def _every_refusal_was_put_into_words() -> Assertion[dict[Refusal, str]]:
+    def assertion(narrated: dict[Refusal, str]) -> bool:
+        wordless = [
+            refusal.value for refusal, line in narrated.items() if not line
+        ]
+
+        if wordless:
+            raise AssertionError(
+                f"{sorted(wordless)} have no sentence, so an incident refused "
+                f"for one of those reasons fails while it is being narrated - "
+                f"in the one path whose whole job is to say what happened."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_does_not_mention(unwanted: str) -> Assertion[list[NarrationLine]]:
+    """The ordinary restart, and the clause it must not acquire.
+
+    A line saying an action was taken on a dependency is only worth anything if
+    the line about the service that alerted does not say it too - said of every
+    restart, the clause stops distinguishing anything and becomes noise on the
+    one account a responder reads under pressure.
+    """
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if unwanted in line.text:
+            raise AssertionError(f"Expected no [{unwanted}] in [{line.text}].")
+
+        return True
+
+    return assertion

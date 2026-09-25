@@ -196,7 +196,20 @@ def _one_explanation() -> dict[str, Any]:
                 "The state the subject was in after the change, in the same "
                 "vocabulary as from_state. Null exactly when from_state is null: "
                 "half a transition describes a position rather than a move."
-            )
+            ),
+            "faulting_service": {
+                "type": [_STRING_TYPE, _NULL_TYPE],
+                "description": (
+                    "The name of the service the fault is in, when that is not "
+                    "the service the alert is about - copied verbatim from the "
+                    "service register, not from a log line or a host name. "
+                    "Required whenever the cause is "
+                    f"{FailureMode.INTERNAL_DEPENDENCY_FAILURE.value}: something "
+                    "will act on this service, and an answer of that cause "
+                    "naming none is one nothing can act on. Null for every other "
+                    "cause, where the service at fault is the one that alerted."
+                )
+            }
         },
         "required": [
             "summary",
@@ -205,7 +218,8 @@ def _one_explanation() -> dict[str, Any]:
             "supporting_evidence",
             "subject",
             "from_state",
-            "to_state"
+            "to_state",
+            "faulting_service"
         ],
         "additionalProperties": False
     }

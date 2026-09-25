@@ -50,6 +50,16 @@ class FailureMode(StrEnum):
     # the pattern is what decides the response: say what happened, and hand it
     # to a person who can call them.
     UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
+    # The same propagation with the dependency on this side of the company
+    # boundary: a service the same organisation runs, which nobody remembered
+    # was on the request path, and which is now slow or failing. The alerting
+    # service is well, so the mitigation is aimed at a service Argus was not
+    # paged about - and that is the whole of what separates this from the mode
+    # above, because the two are identical in every signal either one produces.
+    # Whose the failing service is is not a fact any telemetry carries: it lives
+    # in the organisation's own register, and a host name that looks internal
+    # looks that way because somebody chose the spelling.
+    INTERNAL_DEPENDENCY_FAILURE = "internal-dependency-failure"
     # A deployment's configuration was changed into a broken state, with
     # nothing wrong in the code and nothing wrong in whatever the
     # configuration points at. Distinct from a flag toggle, which is answered by
@@ -98,8 +108,23 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "longer the process runs"
     ),
     FailureMode.UPSTREAM_DEPENDENCY_FAILURE: (
-        "a service this one depends on and does not own stopped answering, and "
-        "the failure arrived here through that dependency"
+        "a service this one depends on stopped answering and the failure "
+        "arrived here through that dependency, and the organisation running "
+        "the alerting service does not own it - so nobody here can restart or "
+        "revert anything that reaches it. Choose this over "
+        "internal-dependency-failure only once the service register says the "
+        "failing dependency belongs to another company: the evidence for the "
+        "two is identical, and a host name is not evidence of who owns it"
+    ),
+    FailureMode.INTERNAL_DEPENDENCY_FAILURE: (
+        "a service this one depends on and the same organisation *does* own is "
+        "slow or failing, and the failure arrived here through it; the "
+        "alerting service itself is healthy and its own code, configuration "
+        "and deployment are all unchanged. Choose this over "
+        "upstream-dependency-failure when the service register says the "
+        "failing dependency is the organisation's own, and over bad-deployment "
+        "when the request time is spent waiting on that dependency rather than "
+        "in this service's own work"
     ),
     FailureMode.CONFIG_INDUCED_FAILURE: (
         "a deployment changed a configuration value into a broken one - an "

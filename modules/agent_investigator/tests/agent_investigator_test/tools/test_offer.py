@@ -12,6 +12,7 @@ import pytest
 from agent_investigator.tools import (
     ANSWER_TOOL,
     CHANGES_TOOL,
+    DEPENDENCIES_TOOL,
     LOGS_TOOL,
     METRICS_TOOL,
     investigator_tools,
@@ -25,7 +26,9 @@ def test_the_investigator_is_offered_nothing_that_changes_anything() -> None:
     # Argus is allowed to act on production, and the thing that keeps
     # investigation from doing so is which tools it holds - so a write tool
     # appearing in this list is the failure that matters most in this package.
-    read_only_names = {LOGS_TOOL, METRICS_TOOL, CHANGES_TOOL, ANSWER_TOOL}
+    read_only_names = {
+        LOGS_TOOL, METRICS_TOOL, CHANGES_TOOL, DEPENDENCIES_TOOL, ANSWER_TOOL
+    }
 
     Scenario() \
         .when(

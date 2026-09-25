@@ -15,6 +15,12 @@ has to: what memory compares, and what the walk skips, is the action a
 candidate would be answered with - and that question cannot be asked before the
 history is in hand. So the cases about reading it are here, beside the ones
 about what is done with what it said.
+
+It reads the service register in the same breath and for a related reason: what
+the gate has to decide about an action addressed somewhere other than the
+alerting service is whether that somewhere is the organisation's own, and a gate
+that asked a document store for itself would be one whose answer depended on the
+store being reachable at the instant it asked.
 """
 
 from __future__ import annotations
@@ -38,8 +44,10 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    Ownership,
     Reading,
     RetrievalChannel,
+    ServiceDependency,
     Verdict,
 )
 from argus_testkit import Assertion, Kept, Scenario, all_of, calling
@@ -81,6 +89,20 @@ WHAT_THE_PROVIDER_RECORDED = [
     FlagChange(flag=ANOTHER_FLAG, enabled=True, occurred_at=DONT_CARE_MOMENT)
 ]
 
+# What the register says the alerting service calls. Non-empty for the reason
+# the flag history above is: an empty register is what an unreadable one looks
+# like, so a fixture answering nothing would make every case here indexes
+# indistinguishable from the one case about the register failing.
+WHAT_THE_REGISTER_LISTS = [
+    ServiceDependency(
+        name="kuki-pricing",
+        purpose="quotes the price shown on the account page",
+        host="pricing.io-internal.svc",
+        owner="platform",
+        ownership=Ownership.INTERNAL
+    )
+]
+
 
 @pytest.fixture
 def investigate() -> MagicMock:
@@ -100,9 +122,18 @@ def fetch_flag_changes() -> MagicMock:
     return fetch
 
 
+@pytest.fixture
+def fetch_dependencies() -> MagicMock:
+    fetch = cast(MagicMock, create_autospec(ports.FetchDependencies, instance=True))
+    fetch.return_value = list(WHAT_THE_REGISTER_LISTS)
+
+    return fetch
+
+
 @pytest.mark.unit
 def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     an_investigating_incident = _an_investigating_incident()
     some_hypothesis = a_determined_hypothesis(an_investigating_incident.incident_id)
@@ -116,7 +147,8 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
-                                      fetch_flag_changes=fetch_flag_changes)
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(all_of(
             the_result_is(
@@ -125,6 +157,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     candidates=[some_hypothesis],
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
+                    dependencies=WHAT_THE_REGISTER_LISTS,
                     already_read=[],
                     rounds=1,
                     confidence=some_hypothesis.confidence,
@@ -138,7 +171,8 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
 
 @pytest.mark.unit
 def test_a_doubtful_cause_is_still_offered_as_the_one_to_try(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # A cause was named, and that is the whole admission test for a reversible
     # mitigation. The ambiguous incident, where the model splits its confidence
@@ -160,7 +194,8 @@ def test_a_doubtful_cause_is_still_offered_as_the_one_to_try(
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
-                                      fetch_flag_changes=fetch_flag_changes)
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(all_of(
             the_result_at("hypothesis", a_doubtful_hypothesis),
@@ -170,7 +205,8 @@ def test_a_doubtful_cause_is_still_offered_as_the_one_to_try(
 
 @pytest.mark.unit
 def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # The loop reached the end of what it could read and named nothing. The
     # timeline has to say *that*, not "hypothesis formed" - a human picking
@@ -195,7 +231,8 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
-                                      fetch_flag_changes=fetch_flag_changes)
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(all_of(
             the_result_is(
@@ -204,6 +241,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     candidates=[a_hypothesis_with_no_cause],
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
+                    dependencies=WHAT_THE_REGISTER_LISTS,
                     already_read=[],
                     rounds=1,
                     confidence=None,
@@ -225,7 +263,8 @@ def test_an_investigation_that_named_a_cause_is_routed_to_the_proposal() -> None
 
 @pytest.mark.unit
 def test_every_candidate_the_investigation_offered_is_recorded(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # The incident's record should say what was considered, not only what was
     # acted on. A runner-up that never reached the table is a finding a human
@@ -247,7 +286,8 @@ def test_every_candidate_the_investigation_offered_is_recorded(
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
-                                      fetch_flag_changes=fetch_flag_changes)
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(all_of(
             _every_candidate_was_recorded([the_best_answer, a_runner_up],
@@ -259,7 +299,8 @@ def test_every_candidate_the_investigation_offered_is_recorded(
 
 @pytest.mark.unit
 def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # Both halves of what makes a second round worth paying for. Without what
     # was already read it cannot tell a fresh window from one it has seen;
@@ -284,7 +325,8 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
-                                      fetch_flag_changes=fetch_flag_changes)
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(all_of(
             _the_investigation_was_told("already_read", [a_window_already_read],
@@ -295,7 +337,8 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
 
 @pytest.mark.unit
 def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # A second investigation is told what was tried, and is free to conclude the
     # same thing anyway - being told does not oblige it to change its mind. What
@@ -323,14 +366,16 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
-                                      fetch_flag_changes=fetch_flag_changes)
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(the_result_at("nothing_worth_trying", True))
 
 
 @pytest.mark.unit
 def test_a_later_round_does_not_restart_a_service_it_already_restarted(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # The same guard, for the kind of action it never used to cover. A leak is
     # described in fresh prose every round, so comparing the candidates found
@@ -353,7 +398,8 @@ def test_a_later_round_does_not_restart_a_service_it_already_restarted(
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
-                                      fetch_flag_changes=fetch_flag_changes)
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(the_result_at("nothing_worth_trying", True))
 
@@ -368,7 +414,8 @@ def test_an_investigation_that_named_none_reaches_a_human() -> None:
 
 @pytest.mark.unit
 def test_an_action_an_earlier_incident_refuted_is_tried_last(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # The one thing memory is allowed to do to a walk. The model believed the
     # first candidate more, and an earlier incident says taking that action did
@@ -393,14 +440,16 @@ def test_an_action_an_earlier_incident_refuted_is_tried_last(
                     putting_back(SOME_FLAG)
                 ),
                 record_hypothesis=record_hypothesis,
-                fetch_flag_changes=fetch_flag_changes)
+                fetch_flag_changes=fetch_flag_changes,
+                fetch_dependencies=fetch_dependencies)
         ) \
         .then(_the_candidates_are_about([ANOTHER_FLAG, SOME_FLAG]))
 
 
 @pytest.mark.unit
 def test_a_restart_an_earlier_incident_refuted_demotes_a_leak_worded_otherwise(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # What the identity bought across incidents. Two incidents describe one
     # leak in two sets of words, and a restart addressed to the alert's service
@@ -427,7 +476,8 @@ def test_a_restart_an_earlier_incident_refuted_demotes_a_leak_worded_otherwise(
                     restarting(SOME_SERVICE)
                 ),
                 record_hypothesis=record_hypothesis,
-                fetch_flag_changes=fetch_flag_changes)
+                fetch_flag_changes=fetch_flag_changes,
+                fetch_dependencies=fetch_dependencies)
         ) \
         .then(_the_candidates_are_about([ANOTHER_FLAG,
                                          the_leak_nobody_worded_the_same_way]))
@@ -435,7 +485,8 @@ def test_a_restart_an_earlier_incident_refuted_demotes_a_leak_worded_otherwise(
 
 @pytest.mark.unit
 def test_an_order_memory_changed_is_said_on_the_timeline(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # A walk that tried its second-best candidate first, with nothing saying
     # why, is a walk a human reading the incident back cannot account for. What
@@ -463,6 +514,7 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes,
+                fetch_dependencies=fetch_dependencies,
                 publisher=published.take)
         ) \
         .then(_it_was_said_that(published,
@@ -472,7 +524,8 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
 
 @pytest.mark.unit
 def test_an_order_memory_left_alone_is_not_said(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # The ordinary incident, and the one that has to stay silent. A line on
     # every walk saying the order did not change is a timeline nobody reads.
@@ -493,6 +546,7 @@ def test_an_order_memory_left_alone_is_not_said(
                 recall_similar=_nothing_like_it_has_happened(),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes,
+                fetch_dependencies=fetch_dependencies,
                 publisher=published.take)
         ) \
         .then(_no_reordering_was_said(published))
@@ -500,7 +554,8 @@ def test_an_order_memory_left_alone_is_not_said(
 
 @pytest.mark.unit
 def test_the_round_says_what_flag_history_it_reasoned_from(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # Every action this round might propose rests on this and nothing else:
     # which flag moved, which way, and when. Published from the node that reads
@@ -521,6 +576,7 @@ def test_the_round_says_what_flag_history_it_reasoned_from(
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
                                       fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
                                       publisher=published.take)
         ) \
         .then(_the_history_published_is(WHAT_THE_PROVIDER_RECORDED, published))
@@ -528,7 +584,8 @@ def test_the_round_says_what_flag_history_it_reasoned_from(
 
 @pytest.mark.unit
 def test_a_flag_history_that_could_not_be_read_is_not_published_as_an_empty_one(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # "Nothing changed" and "the provider did not answer" lead to the same
     # place - no action - and are not the same fact. A page showing an empty
@@ -550,6 +607,7 @@ def test_a_flag_history_that_could_not_be_read_is_not_published_as_an_empty_one(
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
                                       fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
                                       publisher=published.take)
         ) \
         .then(all_of(
@@ -558,8 +616,71 @@ def test_a_flag_history_that_could_not_be_read_is_not_published_as_an_empty_one(
 
 
 @pytest.mark.unit
+def test_the_round_carries_what_the_register_says_this_service_calls(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Read at the top of the round, beside the flag history, and asked about
+    # the service that was paged - which is the service whose dependencies
+    # bound what the gate will let an action be addressed to. A gate that
+    # fetched this for itself would be one whose answer depended on a document
+    # store being reachable at the instant it asked.
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(all_of(
+            the_result_at("dependencies", WHAT_THE_REGISTER_LISTS),
+            _the_register_was_asked_about(SOME_SERVICE, fetch_dependencies)))
+
+
+@pytest.mark.unit
+def test_a_register_that_could_not_be_read_leaves_nothing_else_within_reach(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Unlike the flag history, an unreadable register is not carried as its own
+    # fact. Every mitigation addressed to the alerting service stays available -
+    # that one is within reach whatever the register says - and everything aimed
+    # elsewhere is refused, which is the restrictive direction and the right one:
+    # an estate is not a thing to guess at. An incident does not stall because a
+    # document store was down.
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_register_cannot_be_reached(fetch_dependencies)),
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(the_result_at("dependencies", []))
+
+
+@pytest.mark.unit
 def test_the_graph_says_when_it_invokes_the_investigator(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # A narration that begins at the first retrieval starts mid-sentence: the
     # Orchestrator handing the incident over is the thing that caused it.
@@ -577,6 +698,7 @@ def test_the_graph_says_when_it_invokes_the_investigator(
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
                                       fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
                                       publisher=published.append)
         ) \
         .then(_the_agents_invoked_were([Actor.INVESTIGATOR], published))
@@ -584,7 +706,8 @@ def test_the_graph_says_when_it_invokes_the_investigator(
 
 @pytest.mark.unit
 def test_the_investigation_publishes_to_the_same_place_the_graph_does(
-    investigate: MagicMock, record_hypothesis: MagicMock, fetch_flag_changes: MagicMock
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
 ) -> None:
     # The Investigator's own account and the graph's are one narration, and
     # they are only one if the node hands its publisher down rather than
@@ -603,6 +726,7 @@ def test_the_investigation_publishes_to_the_same_place_the_graph_does(
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
                                       fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
                                       publisher=published.append)
         ) \
         .then(_the_investigation_was_told("publisher", published.append, investigate))
@@ -611,6 +735,12 @@ def test_the_investigation_publishes_to_the_same_place_the_graph_does(
 def _the_provider_cannot_be_reached(fetch_flag_changes: MagicMock) -> None:
     fetch_flag_changes.side_effect = RuntimeError(
         "The Feature Flag provider could not be reached."
+    )
+
+
+def _the_register_cannot_be_reached(fetch_dependencies: MagicMock) -> None:
+    fetch_dependencies.side_effect = RuntimeError(
+        "The service register could not be reached."
     )
 
 
@@ -650,6 +780,28 @@ def _the_candidates_are_about(expected: list[str]) -> Assertion[StateDelta]:
 
         if subjects != expected:
             raise AssertionError(f"Expected {expected}, got {subjects}")
+
+        return True
+
+    return assertion
+
+
+def _the_register_was_asked_about(service: str,
+                                  fetch_dependencies: MagicMock) -> Assertion[object]:
+    """That the register was asked about the service the alert named, once.
+
+    Once, because the answer is carried rather than re-read: a round that asked
+    twice would be a round able to reason about two registers, which is the
+    thing carrying it in the state exists to prevent.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        asked = [call.args[0] for call in fetch_dependencies.call_args_list]
+
+        if asked != [service]:
+            raise AssertionError(
+                f"Expected the register to be asked about [{service}] once, "
+                f"it was asked about {asked}."
+            )
 
         return True
 

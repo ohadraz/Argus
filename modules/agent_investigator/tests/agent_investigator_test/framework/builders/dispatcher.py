@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from unittest.mock import Mock, create_autospec
 
-from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
+from agent_investigator.retrieval import (
+    ChangeFetcher,
+    DependencyFetcher,
+    LogFetcher,
+    MetricsFetcher,
+)
 from agent_investigator.tools import Dispatcher
 from argus_core.models import ToolCall
 
@@ -27,6 +32,7 @@ A_SERVICE = "io-shop"
 def a_dispatcher(reads_metrics: Mock | None = None,
                  reads_logs: Mock | None = None,
                  reads_changes: Mock | None = None,
+                 reads_dependencies: Mock | None = None,
                  alert_time: str | None = AN_ALERT_TIME) -> Dispatcher:
     """A dispatcher whose unnamed channels answer with nothing.
 
@@ -55,6 +61,9 @@ def a_dispatcher(reads_metrics: Mock | None = None,
         ),
         fetch_change_events=reads_changes or create_autospec(
             ChangeFetcher, instance=True, return_value=[]
+        ),
+        fetch_dependencies=reads_dependencies or create_autospec(
+            DependencyFetcher, instance=True, return_value=[]
         )
     )
 

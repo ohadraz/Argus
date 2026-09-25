@@ -30,7 +30,8 @@ def test_an_explanation_asks_for_every_field_a_hypothesis_is_built_from() -> Non
         "supporting_evidence",
         "subject",
         "from_state",
-        "to_state"
+        "to_state",
+        "faulting_service"
     }
 
     Scenario() \
@@ -83,6 +84,26 @@ def test_the_model_is_told_what_each_cause_means_and_not_only_its_name() -> None
         ) \
         .then(
             _every_cause_is_explained()
+        )
+
+
+@pytest.mark.unit
+def test_the_field_that_names_a_service_says_when_it_has_to_be_filled_in() -> None:
+    # Offering the field is not the same as asking for it. Every other nullable
+    # field here is null for most answers and that is fine - a flag toggle names
+    # no versions, a leak names no flag - but this one is what a restart is
+    # addressed to, and an internal dependency's failure with it left null is a
+    # diagnosis nothing can act on. So the description has to say so by naming
+    # the mode, in the way the causes themselves are described rather than merely
+    # listed.
+    Scenario() \
+        .when(
+            lambda: answer_tool()
+        ) \
+        .then(
+            _the_field("faulting_service").says_it_is_needed_for(
+                FailureMode.INTERNAL_DEPENDENCY_FAILURE
+            )
         )
 
 
@@ -155,3 +176,42 @@ def _requires(names: set[str], part: _Part, called: str) -> Assertion[ToolDefini
         return True
 
     return assertion
+
+
+def _the_field(name: str) -> _Field:
+    """One field of an explanation, named so the call site reads as a sentence.
+
+    A factory rather than a lowercase class. The sentence is the point -
+    `_the_field("faulting_service").says_it_is_needed_for(...)` - and a class
+    spelled to make it work is a class named against the convention, which
+    costs a suppression on every linter that has ever been asked about it.
+    """
+    return _Field(name)
+
+
+class _Field:
+    """Assertions about one field of an explanation.
+
+    A class rather than loose functions taking the name again, for the reason
+    `_the_meaning_of` is one in the kernel's own suite: the failure has to say
+    which field fell short, and threading a name through every helper is how it
+    comes to be left out of one of them.
+    """
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def says_it_is_needed_for(self, cause: FailureMode) -> Assertion[ToolDefinition]:
+        def assertion(tool: ToolDefinition) -> bool:
+            described = _an_explanation(tool)["properties"][self._name]["description"]
+
+            if cause.value not in described:
+                raise AssertionError(
+                    f"The description of [{self._name}] never mentions "
+                    f"[{cause.value}], so nothing tells the model that an answer "
+                    f"of that mode without this field is one nothing can act on."
+                )
+
+            return True
+
+        return assertion

@@ -26,7 +26,7 @@ from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 
 from tests.framework.assertions import the_cause_was_identified_as
-from tests.framework.investigating import the_configured_thresholds
+from tests.framework.investigating import no_dependencies, the_configured_thresholds
 from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
@@ -670,6 +670,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_metrics=_the_metrics_of(incident),
             fetch_logs=_the_logs_of(incident),
             fetch_change_events=_the_changes_of(incident),
+            fetch_dependencies=no_dependencies,
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
             converse=speak,

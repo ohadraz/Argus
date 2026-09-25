@@ -4,8 +4,19 @@ from functools import partial
 from typing import Protocol
 
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, ChangeKind, FlagChange, MetricBucket
-from read_mcp_client import get_change_events, get_log_lines, get_metrics_summary
+from argus_core.models import (
+    ChangeEvent,
+    ChangeKind,
+    FlagChange,
+    MetricBucket,
+    ServiceDependency,
+)
+from read_mcp_client import (
+    get_change_events,
+    get_log_lines,
+    get_metrics_summary,
+    get_service_dependencies,
+)
 from write_mcp_client import get_recent_flag_changes
 
 # What the loop asks of each retrieval channel, said as the shape it calls with
@@ -30,6 +41,17 @@ class ChangeFetcher(Protocol):
                  service: str,
                  window_start: str,
                  window_end: str, /) -> list[ChangeEvent]: ...
+
+
+class DependencyFetcher(Protocol):
+    """The register, asked what one service calls.
+
+    The only channel here with no window in its shape, and the absence is the
+    point: what a service calls is a fact about how it is built rather than
+    about a stretch of time, so there is nothing to date and nothing to widen.
+    """
+
+    def __call__(self, service: str, /) -> list[ServiceDependency]: ...
 
 
 # The two systems that record a change, as this module reaches them. Named types
@@ -58,6 +80,27 @@ def metrics_over(client: McpClient) -> MetricsFetcher:
 def logs_over(client: McpClient) -> LogFetcher:
     """Phase two's channel, asked over one connection to the read tier."""
     return partial(fetch_logs, client=client)
+
+
+def dependencies_over(client: McpClient) -> DependencyFetcher:
+    """The register channel, asked over one connection to the read tier.
+
+    Bound where a process starts, as every other channel is, so the loop is
+    handed a channel rather than the means to build one.
+    """
+    return partial(fetch_dependencies, client=client)
+
+
+def fetch_dependencies(service: str,
+                       *,
+                       client: McpClient) -> list[ServiceDependency]:
+    """What the register says this service calls, and whose each one is.
+
+    A named function rather than `get_service_dependencies` passed directly, for
+    the reason `fetch_metrics` is one: what the loop needs is the one calling
+    shape it uses, and a seam is only useful if a test can spec against that.
+    """
+    return get_service_dependencies(service, client=client)
 
 
 def changes_over(read: McpClient, write: McpClient) -> ChangeFetcher:

@@ -76,7 +76,12 @@ from agent_investigator.budget import (
     InvestigationSettings,
     a_budget_for,
 )
-from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
+from agent_investigator.retrieval import (
+    ChangeFetcher,
+    DependencyFetcher,
+    LogFetcher,
+    MetricsFetcher,
+)
 from agent_investigator.tools import (
     ANSWER_TOOL,
     HYPOTHESES_ARG,
@@ -128,6 +133,16 @@ another names no states at all. Do not leave them to be read back out of your \
 summary - a sentence that merely uses the word "off" is not a transition, and \
 whatever reads it cannot tell the difference.
 
+`faulting_service` is different from all of those, and it is an address rather \
+than a description: it names the service that will be acted on. Fill it in when \
+the fault is in a service this one calls and the organisation owns - which is \
+what `get_service_dependencies` tells you, and the only thing that tells you, \
+since a host name is a spelling somebody chose. Name it exactly as the register \
+does, because that is the name the platform knows it by. An answer of \
+`internal-dependency-failure` naming no service is one nothing can act on; \
+every other cause leaves this null, because the service at fault is the one \
+that alerted.
+
 Give every explanation the evidence supports, best first. The one you name \
 first is tried first, and the rest are tried in turn if it does not help.\
 """
@@ -151,6 +166,7 @@ def investigate(
     fetch_metrics: MetricsFetcher,
     fetch_logs: LogFetcher,
     fetch_change_events: ChangeFetcher,
+    fetch_dependencies: DependencyFetcher,
     *,
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
@@ -275,7 +291,8 @@ def investigate(
         having_read=[Reading(RetrievalChannel.METRICS, window_start=alert_time)],
         fetch_metrics=fetch_metrics,
         fetch_logs=fetch_logs,
-        fetch_change_events=fetch_change_events
+        fetch_change_events=fetch_change_events,
+        fetch_dependencies=fetch_dependencies
     )
     spend = budget if budget is not None else a_budget_for(settings)
     tools = investigator_tools()
@@ -400,6 +417,7 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
             subject=explanation.get("subject"),
             from_state=explanation.get("from_state"),
             to_state=explanation.get("to_state"),
+            faulting_service=explanation.get("faulting_service"),
             rank=rank
         )
         for rank, explanation in enumerate(answering.arguments[HYPOTHESES_ARG], start=1)

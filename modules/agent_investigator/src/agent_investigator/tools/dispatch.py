@@ -17,9 +17,15 @@ from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolResult
 from argus_core.replay import CallType, Replay
 
 from agent_investigator.budget import InvestigationSettings
-from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
+from agent_investigator.retrieval import (
+    ChangeFetcher,
+    DependencyFetcher,
+    LogFetcher,
+    MetricsFetcher,
+)
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_investigator.tools.changes import CHANGES_TOOL, read_changes
+from agent_investigator.tools.dependencies import DEPENDENCIES_TOOL, read_dependencies
 from agent_investigator.tools.logs import LOGS_TOOL, read_logs
 from agent_investigator.tools.metrics import METRICS_TOOL, read_metrics
 from agent_investigator.tools.results import Served, could_not_serve
@@ -87,6 +93,7 @@ class Dispatcher:
                  fetch_metrics: MetricsFetcher,
                  fetch_logs: LogFetcher,
                  fetch_change_events: ChangeFetcher,
+                 fetch_dependencies: DependencyFetcher,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
                  having_read: Sequence[Reading] = (),
@@ -101,6 +108,7 @@ class Dispatcher:
         self._fetch_metrics = fetch_metrics
         self._fetch_logs = fetch_logs
         self._fetch_change_events = fetch_change_events
+        self._fetch_dependencies = fetch_dependencies
         self._readings: list[Reading] = list(having_read)
 
     @property
@@ -197,8 +205,12 @@ class Dispatcher:
                 self._readings, self._narrator, self._settings
             )
 
+        if call.name == DEPENDENCIES_TOOL:
+            return read_dependencies(call, self._service, self._fetch_dependencies)
+
         return could_not_serve(
             call,
             f"there is no tool called {call.name!r}. The tools available are "
-            f"{METRICS_TOOL}, {LOGS_TOOL}, {CHANGES_TOOL} and {ANSWER_TOOL}."
+            f"{METRICS_TOOL}, {LOGS_TOOL}, {CHANGES_TOOL}, "
+            f"{DEPENDENCIES_TOOL} and {ANSWER_TOOL}."
         )

@@ -150,7 +150,11 @@ Takes a confirmed/high-confidence hypothesis and proposes a generic mitigation: 
 
 The lookup is many-to-one, and the two deployment modes are where that shows. A revision carries the code and the configuration it shipped with, so the platform's rollback is one operation over both: a value deployed into a broken state and new code that broke it are answered by the same action. They remain two modes because a mode classifies what broke rather than what is done about it - what separates them is the account the incident gives and the fix left afterwards, a values file for one and the service's source for the other.
 
-*Which* mitigation comes from the cause; *what it acts on* comes from the evidence that names a thing rather than describes one. A flag revert is addressed to the flag the provider recorded changing, confirmed against the candidate that blamed it; a restart is addressed to the service the alert is about; a deployment rollback is addressed to the application, and to nothing finer - which revision it returns to is the platform's to resolve, because nothing above that port holds a deployment history to choose from and a commit found in a diff is not necessarily a revision the application ever ran. None is read from the candidate's `subject`, which is the model's prose about the symptom - "io-shop process heap (memory_used_bytes / heap of 2048MiB limit)" is a real one - and describes a fault rather than naming anything a platform can be asked to act on.
+*Which* mitigation comes from the cause; *what it acts on* comes from the evidence that names a thing rather than describes one. A flag revert is addressed to the flag the provider recorded changing, confirmed against the candidate that blamed it; a deployment rollback is addressed to the application, and to nothing finer - which revision it returns to is the platform's to resolve, because nothing above that port holds a deployment history to choose from and a commit found in a diff is not necessarily a revision the application ever ran. None is read from the candidate's `subject`, which is the model's prose about the symptom - "io-shop process heap (memory_used_bytes / heap of 2048MiB limit)" is a real one - and describes a fault rather than naming anything a platform can be asked to act on.
+
+A restart is addressed to a service, and which service depends on what failed. Where the fault is in the service that was paged, the alert names it. Where the fault is in something that service calls, the alert cannot: the shop is failing its users and nothing is wrong with the shop, so the address has to come from the investigation, which writes down the service it blames beside the cause it named. That address is a field of its own rather than the candidate's `subject`, and the distinction is load-bearing: a subject is the model's description of a fault and an address is what a platform call is sent to, so a restart aimed at prose would either fail or reach whatever happens to answer to it.
+
+Two strategies rather than one with a branch, because they differ in where the service comes from - the alert, or the investigation's answer - and produce the same kind of action. What admits that kind is therefore unchanged; where it may be aimed is a second question, asked separately (§13).
 
 The cause is chosen from a closed set, and the set reaches the model with each mode's meaning attached rather than as a list of names. A name alone underdetermines the choice: handed only the names, a model that has just seen a deploy land at the onset has no way to tell which mode describes what it is looking at. Both deployment modes reach the same mitigation, so the cost of confusing them is not an action taken on the wrong thing - it is an incident whose account names the wrong cause and whose reader is sent to the wrong file afterwards.
 
@@ -273,7 +277,7 @@ flowchart TD
 
 Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-E are fixed because the onset is a **measurement, not a decision**: it anchors every window the model can ask for and every later comparison between runs, and a sampled call that locates it differently on a second run makes two investigations of one incident incomparable and the eval suite a measurement of noise. The model is not denied the metrics - it may read them again itself - but it cannot skip the first read or contest what it found. A window in which no minute departs from the baseline has no onset to anchor on and nothing to explain, so the loop exits immediately without asking the model at all: there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
 
-From there **the model chooses**: which of the three channels (§16) to pull, over what window, in what order, and when it has seen enough. It is offered those three retrieval tools and a fourth, `final_answer`, whose input schema is the ranked-hypotheses shape. Calling it is the only typed exit, which keeps the seam impossible to satisfy without producing a verdict, and makes "the model stopped asking and wrote prose" a detectable outcome rather than something to be parsed hopefully - a text-only turn is told it answered nothing and gets another turn if the budget allows one. A call the loop cannot serve - an unknown tool name, an inverted window, a window already read - comes back as a failed tool result the model can correct on its next turn, never as an exception that kills an investigation that has already paid for everything before it.
+From there **the model chooses**: which channel (§16) to pull, over what window, in what order, and when it has seen enough. Three of them are windowed - metrics, changes, logs - and the fourth, the service register, is not: it answers what this service calls and whose each of those is, which is a fact about how the service is built rather than about a stretch of time. It is offered those four retrieval tools and a fifth, `final_answer`, whose input schema is the ranked-hypotheses shape. Calling it is the only typed exit, which keeps the seam impossible to satisfy without producing a verdict, and makes "the model stopped asking and wrote prose" a detectable outcome rather than something to be parsed hopefully - a text-only turn is told it answered nothing and gets another turn if the budget allows one. A call the loop cannot serve - an unknown tool name, an inverted window, a window already read - comes back as a failed tool result the model can correct on its next turn, never as an exception that kills an investigation that has already paid for everything before it.
 
 Termination is the loop's, in **three independent bounds**: tool calls, cumulative tokens, and wall-clock seconds. They fail differently and none implies the others - a model reading three-hour windows is cheap in calls and ruinous in tokens, one looping on a narrow window is the reverse, and one frugal in both can still leave a human waiting past the point the answer was worth having. Bounding only the calls, the tempting single knob, bounds the least expensive of the three. Each is checked between turns and none is expressed to the model, because a bound it could ask to extend is not a bound. When the tool-call bound is one turn from binding the model is told so on the tool result it is already reading, so it can spend that turn answering from what it has instead of asking for evidence it will never be shown; that is a hint, and the loop cuts at the bound whatever the model does with it.
 
@@ -642,6 +646,38 @@ happen to be implemented. Deriving it would let an action acquire autonomy by
 being written, which is the one way a guardrail can be removed by an
 implementation detail.
 
+Membership settles what Argus may do; it does not settle *where*. A mitigation
+addressed to something other than the service that was paged raises a second
+question, and the kind cannot answer it: an address that comes from an
+investigation can name a third party, a service in another part of the estate,
+or prose a model mistook for a hostname, and no fact about restarting rules any
+of those out. So the reach of an action is asked separately. Within reach is the
+alerting service, always, and otherwise a dependency the organisation's service
+register both lists for that service and marks as the organisation's own.
+
+The register is evidence, not configuration. What a service calls and whose each
+of those is exists in no metric and in no log - it is recorded by a person, in a
+document nobody reads until an incident - so it is retrieved like any other
+evidence and reaches the model as a channel of its own (§16). Settings naming
+the topology instead would hardcode one deployment's answer into Argus and put
+it somewhere the investigation cannot read, which is precisely where the fact is
+needed: telling a neighbour's slow service from another company's outage is what
+decides whether the response is a restart or an escalation.
+
+Anything else is refused, and the refusal is the restrictive direction on
+purpose, because something somewhere answers to almost any plausible service
+name. That includes an ownership the register states in a word this system does
+not recognise: the question asked is whether a dependency is *ours*, never
+whether it is somebody else's, so a register that grows a fourth answer
+withholds authority rather than granting it. An unreadable register leaves every
+mitigation addressed to the alerting service exactly as available as it was, and
+refuses everything aimed elsewhere.
+
+The two questions fail differently and are reported differently, because a
+reader has to know which happened. "Argus does not do that" asks somebody to
+widen a declared set and defend the addition; "Argus does not touch that" is
+usually somebody correcting an entry in the register.
+
 A mitigation in the set is still bounded. One kind may be applied to one subject
 only so many times within a single incident, because what a repeatable
 mitigation risks is repetition rather than irreversibility: a restart can be
@@ -664,7 +700,7 @@ Enforced redundantly at four layers:
 |---|---|
 | **MCP server boundary** | `argus-read-mcp` (§12.1) has no code path to mutate anything, and holds no credential that could authorize one - enforced at the server, not the caller. The tier split *is* the process split, so "read-only" is a property of the running process, not a convention. |
 | **LangGraph node tool binding** | Each node's tool list is scoped at graph-definition time (§12.1). Code-Fix has no `merge_pull_request` function bound - because it doesn't exist anywhere in `argus-write-mcp`. |
-| **Orchestrator gate node** | Before any `ACTION` reaches its MCP call, a gate node asks whether its kind is one of the declared generic mitigations, and whether this incident has already applied that kind to that subject as often as it may. A kind absent from the set goes straight to "notify human," never to a mutating call. The check lives in the Orchestrator rather than in the agent performing the write: a guarantee enforced by the code it constrains is a convention. |
+| **Orchestrator gate node** | Before any `ACTION` reaches its MCP call, a gate node asks whether its kind is one of the declared generic mitigations, whether the service it is addressed to is within the estate Argus may touch, and whether this incident has already applied that kind to that subject as often as it may. A kind absent from the set, or an address outside the estate, goes straight to "notify human," never to a mutating call. The check lives in the Orchestrator rather than in the agent performing the write: a guarantee enforced by the code it constrains is a convention. |
 | **Branch-scoped write access** | `argus-write-mcp`'s git write functions only ever write to a branch cut for the incident, never to the deployed branch, and every write names that branch explicitly. No path is withheld - Code-Fix writes source and tests alike, because a fix that cannot bring the test exposing the bug is a claim rather than evidence. What bounds the blast radius is the branch and the human merge, not a list of protected files. |
 
 This four-layer redundancy is what lets the eval suite (§21) claim "zero actions
@@ -784,7 +820,9 @@ Where a provider serves its own history only to a credential that can also write
 
 The Investigator's opening (§9) is always the same: aggregate → locate onset → state it. What it reads after that is its own, and every window it can name is bounded - never a full dump.
 
-**Code is not one of these channels, and is not windowed in time at all.** The three above answer what the service *did*, which is a question about minutes; Code-Fix's two (§7.4) answer what the service *is*, which is a question about a commit. So they are bounded by a revision rather than by a span: substring search reads the repository at the deployed commit, and retrieval by meaning answers from an index of one - stating which, whenever the index is behind what is running. An investigation that has not located an onset cannot ask the first three anything useful; the other two it could ask at any time, and the reason it does not is that a cause is found in what changed before it is found in what the code says.
+**The service register is a channel with no window.** What a service calls, and whose each of those is, is a fact about how the service is built rather than about a stretch of time - there is nothing to date and nothing to widen, so it takes no arguments but the service and records no reading. It is retrieved rather than configured because it decides what happens next: the same slow dependency is a restart if the organisation owns it and an escalation if it does not (§13), and nothing in the metrics or the logs says which. Unlike the change channel it does not raise when the register cannot be read. An absence there is not a conclusion anything acts on - "nothing changed" sends a walk somewhere, "nobody could say what this service calls" sends it nowhere - so the model is told and goes on.
+
+**Code is not one of these channels either, and is not windowed in time at all.** The three above answer what the service *did*, which is a question about minutes; Code-Fix's two (§7.4) answer what the service *is*, which is a question about a commit. So they are bounded by a revision rather than by a span: substring search reads the repository at the deployed commit, and retrieval by meaning answers from an index of one - stating which, whenever the index is behind what is running. An investigation that has not located an onset cannot ask the first three anything useful; the other two it could ask at any time, and the reason it does not is that a cause is found in what changed before it is found in what the code says.
 
 ## 17. Model Selection Per Task
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from agent_investigator.tools.answer import ANSWER_TOOL, HYPOTHESES_ARG
 from agent_investigator.tools.changes import CHANGES_TOOL
+from agent_investigator.tools.dependencies import DEPENDENCIES_TOOL
 from agent_investigator.tools.dispatch import Dispatcher
 from agent_investigator.tools.logs import LOGS_TOOL
 from agent_investigator.tools.metrics import METRICS_TOOL
@@ -26,6 +27,7 @@ from agent_investigator.tools.offer import investigator_tools
 __all__ = [
     "ANSWER_TOOL",
     "CHANGES_TOOL",
+    "DEPENDENCIES_TOOL",
     "HYPOTHESES_ARG",
     "LOGS_TOOL",
     "METRICS_TOOL",

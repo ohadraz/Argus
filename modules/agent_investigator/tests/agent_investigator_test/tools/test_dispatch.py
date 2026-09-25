@@ -23,7 +23,12 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
+from agent_investigator.retrieval import (
+    ChangeFetcher,
+    DependencyFetcher,
+    LogFetcher,
+    MetricsFetcher,
+)
 from agent_investigator.tools import LOGS_TOOL, METRICS_TOOL, Dispatcher
 from argus_core.models import ToolResult
 from argus_core.replay import CallType, Replay, ReplayEntry
@@ -253,6 +258,9 @@ def _a_dispatcher_recording_to(recorded: Kept[ReplayEntry],
         ),
         fetch_change_events=create_autospec(
             ChangeFetcher, instance=True, return_value=[]
+        ),
+        fetch_dependencies=create_autospec(
+            DependencyFetcher, instance=True, return_value=[]
         ),
         replay=Replay(SOME_INCIDENT_ID, recorded.take)
     )

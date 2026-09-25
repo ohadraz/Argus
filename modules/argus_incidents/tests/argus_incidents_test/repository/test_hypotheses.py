@@ -112,6 +112,37 @@ def test_a_hypothesis_comes_back_carrying_the_transition_it_blamed() -> None:
 
 
 @pytest.mark.integration
+def test_a_hypothesis_comes_back_naming_the_service_it_blamed() -> None:
+    # The dynamic half of the column guard, and the field with the most riding
+    # on surviving the table: a mitigation is *addressed* to this. A walk that
+    # resumed against a row whose service had died would read a diagnosis about
+    # a dependency and then restart the service the alert named, which is the
+    # one thing this incident's mitigation must not do.
+    the_dependency_that_is_slow = "io-pricing"
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        some_hypothesis = Hypothesis(
+            incident_id=incident_id,
+            summary="the pricing service is answering slowly and the shop waits",
+            failure_mode=FailureMode.INTERNAL_DEPENDENCY_FAILURE,
+            confidence=0.88,
+            supporting_evidence=[Evidence(claim="some log line", at=None)],
+            faulting_service=the_dependency_that_is_slow
+        )
+        the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
+
+        Scenario() \
+            .when(
+                lambda: hypotheses.record(conn, some_hypothesis)
+            ) \
+            .then(
+                the_stored_hypothesis_is(some_hypothesis)
+            )
+
+
+
+@pytest.mark.integration
 def test_a_hypothesis_comes_back_at_the_rank_it_was_recorded_at() -> None:
     # An investigation that named several explanations wrote them down in its
     # own order, best first. Rows come back from a table in no order at all, so
@@ -361,9 +392,14 @@ def _no_hypothesis_came_back() -> Assertion[Hypothesis | None]:
 @pytest.mark.integration
 def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> None:
     # A determined candidate the walk went on to test: a cause, a subject, the
-    # states it moved between, the evidence it was formed from, and what came
-    # of trying it. Every column the table has, in the one case that fills
-    # them all.
+    # states it moved between, the service blamed, the evidence it was formed
+    # from, and what came of trying it. Every column the table has, in one row.
+    #
+    # Deliberately a row no investigation would produce. A flag toggle names a
+    # flag and not a service, so nothing real fills both `subject` and
+    # `faulting_service` - but what this case is for is that every column has a
+    # writer, and a fixture split across two plausible rows could not say that
+    # about either of them.
     some_evidence = ["2026-08-20T11:05:00Z WARN target-service: flag toggled on"]
 
     with connect_from_env() as conn:
@@ -373,7 +409,8 @@ def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> Non
             evidence=some_evidence,
             subject="monthly-spend-feature",
             from_state="off",
-            to_state="on"
+            to_state="on",
+            faulting_service="io-pricing"
         )
 
         def it_is_recorded_and_then_tested() -> None:
@@ -396,7 +433,8 @@ def _a_determined_hypothesis(incident_id: str,
                              subject: str | None = None,
                              rank: int = 1,
                              from_state: str | None = None,
-                             to_state: str | None = None) -> Hypothesis:
+                             to_state: str | None = None,
+                             faulting_service: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
         summary="a feature flag was toggled on just before the errors began",
@@ -406,7 +444,8 @@ def _a_determined_hypothesis(incident_id: str,
         subject=subject,
         rank=rank,
         from_state=from_state,
-        to_state=to_state
+        to_state=to_state,
+        faulting_service=faulting_service
     )
 
 

@@ -889,6 +889,109 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
         .then(_both_runs_did_the_same_work())
 
 
+@pytest.mark.unit
+def test_an_action_aimed_at_a_dependency_is_announced_as_one(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Argus restarted something it was never paged about, and the account has
+    # to carry the reason it was allowed to. The walk is the only party that
+    # holds both halves - the service that alerted and the service the action
+    # is addressed to - so it is the only one that can say it.
+    a_dependency_of_the_alerting_service = "kuki-pricing"
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_acting_elsewhere := _a_mitigating_incident(
+                proposing=RestartService(service=a_dependency_of_the_alerting_service)
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_acting_elsewhere,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_action_was_announced_as_a_dependency_of("kuki-service", published))
+
+
+@pytest.mark.unit
+def test_an_action_on_the_service_that_alerted_is_announced_as_nobodys_dependency(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The ordinary incident, and the one that has to stay silent. Argus has
+    # been restarting the service it was paged about since before there was a
+    # register, and nothing about that needs explaining.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_acting_on_the_alerting_service := _a_mitigating_incident(
+                proposing=RestartService(service="kuki-service")
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_acting_on_the_alerting_service,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_action_was_announced_as_a_dependency_of(None, published))
+
+
+@pytest.mark.unit
+def test_a_flag_put_back_is_announced_as_nobodys_dependency(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # A flag is not an address. Its subject is the flag's own name, which is
+    # never the service that alerted - so anything deciding this by comparing
+    # the two announces every revert Argus makes as acting on a dependency,
+    # and the clause that was meant to mark the unusual incident marks the
+    # commonest one instead.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_putting_a_flag_back := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_putting_a_flag_back,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_action_was_announced_as_a_dependency_of(None, published))
+
+
 def _an_incident_in(status: IncidentStatus) -> IncidentState:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
@@ -1328,6 +1431,31 @@ def _the_provider_was_never_asked(change_landed: MagicMock) -> Assertion[StateDe
                 f"Expected the provider not to be asked about a claim that "
                 f"already carries an outcome, and it was asked "
                 f"{change_landed.call_count} time(s)."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_was_announced_as_a_dependency_of(expected: str | None,
+                                                 published: list[IncidentEvent]
+                                                 ) -> Assertion[StateDelta]:
+    """Whose dependency the thing acted on was, as the announcement carries it.
+
+    `None` is the ordinary incident and is asserted as firmly as a name: a
+    clause said of every restart distinguishes nothing, and the line a
+    responder reads under pressure would carry a sentence explaining the
+    unremarkable.
+    """
+    def assertion(dont_care_result: StateDelta) -> bool:
+        announced = [event.a_dependency_of for event in published
+                     if isinstance(event, ActionTaken)]
+
+        if announced != [expected]:
+            raise AssertionError(
+                f"Expected one action announced as a dependency of [{expected}], "
+                f"got {announced}."
             )
 
         return True

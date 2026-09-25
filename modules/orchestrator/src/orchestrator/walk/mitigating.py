@@ -15,11 +15,13 @@ from argus_core.events import (
     publish,
 )
 from argus_core.models import (
+    Action,
     Actor,
     IncidentStatus,
     UnreadVerdict,
     leaves_something_to_put_back,
     the_direction_of,
+    the_service_addressed_by,
     the_subject_of,
 )
 from argus_incidents import IsStillWanted
@@ -108,7 +110,10 @@ def mitigation_node(
             hypothesis_id=state.hypothesis.id,
             action_type=state.proposed_action.action_type,
             subject=the_subject_of(state.proposed_action),
-            enabled=the_direction_of(state.proposed_action)
+            enabled=the_direction_of(state.proposed_action),
+            a_dependency_of=_whose_dependency_was_acted_on(
+                state.proposed_action, state.alert.service
+            )
         ),
         publisher
     )
@@ -164,6 +169,41 @@ def mitigation_node(
         action_outcome=outcome,
         narration=Narration(action="mitigation attempted", detail=result.detail)
     )
+
+
+def _whose_dependency_was_acted_on(action: Action,
+                                   alerting_service: str) -> str | None:
+    """The service this action's subject is a dependency of, where it is one.
+
+    `None` for the ordinary incident, in which the action is addressed to the
+    service that alerted and there is nothing to explain. A name where it is
+    not: Argus has just acted on something it was never paged about, and the
+    reason it was allowed to - that the alerting service calls this one - lives
+    in a register that an account of the incident cannot reach.
+
+    Said here because this is the only party holding both halves. The agent
+    that takes the action is not incident-scoped, and whatever renders the
+    account is given events rather than the incident, so neither of them can
+    compare the address against the service the alert named.
+
+    It does not consult the register. What put this action past the gate is
+    already the register's answer, and asking a second time would be a second
+    answer able to disagree with the one authority rested on - so what is said
+    is what is true of the address by construction: it is not the service that
+    alerted.
+
+    The address rather than the subject, which is the same distinction the gate
+    draws and for the same reason. A flag's name is never the service that
+    alerted, so deciding this by subject would announce every revert Argus makes
+    as acting on a dependency - the clause meant to mark the unusual incident
+    marking the commonest one instead.
+    """
+    addressed_to = the_service_addressed_by(action)
+
+    if addressed_to is None or addressed_to == alerting_service:
+        return None
+
+    return alerting_service
 
 
 def _what_the_earlier_attempt_left(state: IncidentState,

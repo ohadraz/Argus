@@ -36,11 +36,13 @@ from agent_mitigation.admitting import (
     GENERIC_MITIGATIONS,
     AdmittedMitigations,
     is_a_generic_mitigation,
+    is_within_reach,
 )
 from agent_mitigation.binding import an_undo_over
 from agent_mitigation.mitigating import mitigate
 from agent_mitigation.strategies import (
     MitigationStrategy,
+    RestartDependencyStrategy,
     RestartServiceStrategy,
     Strategies,
     a_mitigation_answers,
@@ -73,6 +75,7 @@ __all__ = [
     "MitigationSettings",
     "MitigationStrategy",
     "Outcome",
+    "RestartDependencyStrategy",
     "RestartServiceStrategy",
     "RevertFeatureFlag",
     "ServiceRestarter",
@@ -91,6 +94,7 @@ __all__ = [
     "flag_changes_over",
     "flag_setter_over",
     "is_a_generic_mitigation",
+    "is_within_reach",
     "mitigate",
     "recent_metrics_over",
     "service_restarter_over",

@@ -37,6 +37,12 @@ class Hypothesis(BaseModel):
     bad deployment and a lie on whatever comes next. What the string means is
     already fixed by `failure_mode` beside it.
 
+    `faulting_service` is the service the fault is *in*, and it exists because
+    that is not always the service the alert was about. It is deliberately not
+    `subject`: a subject is a description and this is an address, which is the
+    difference between something a reader parses and something a platform call
+    is sent to.
+
     `from_state` and `to_state` are what the subject moved between - `off` and
     `on` for a flag, two versions for a deployment. Strings for the same reason
     `subject` is one, and fields for the same reason it is a field: a reader
@@ -65,6 +71,19 @@ class Hypothesis(BaseModel):
     # not survive being written down. Defaults to 1: an investigation that named
     # one explanation named the best one.
     rank: int = 1
+    # The service the fault is in, where that is not the service the alert
+    # named. An address rather than a description, and a field of its own for
+    # exactly that reason: `subject` is what the cause *names*, in the model's
+    # words, and a platform call sent to it asks about something nobody runs -
+    # "kuki heap (memory_used_bytes / heap of 2048MiB limit)" is a subject a
+    # model actually wrote. This is the name of a service, and a mitigation
+    # addresses it.
+    #
+    # `None` for every cause that is about the alerting service itself, which is
+    # all of them but one: a restart, a revert and a rollback all take their
+    # subject from the alert, because until a dependency could be blamed the
+    # service that was paged was always the service at fault.
+    faulting_service: str | None = None
     tested: bool = False
     result: str | None = None
 
@@ -106,6 +125,33 @@ class Hypothesis(BaseModel):
             raise ValueError(
                 "a hypothesis names a subject only for a cause it identified - "
                 f"got subject={self.subject!r} with failure_mode=None"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def _a_service_at_fault_is_something_a_cause_names(self) -> Hypothesis:
+        """Rejects an address with nothing to blame it for.
+
+        The same incoherence `_a_subject_is_something_a_cause_names` refuses,
+        and the worst of the three to let past. A subject reaches Mitigation as
+        a value to put back; this reaches it as a process to bring down, and an
+        undetermined verdict that still named a service would have Argus restart
+        something on no diagnosis at all.
+
+        The reverse is legitimate and deliberately allowed, and it is allowed
+        more pointedly here than for a subject: a hypothesis determining an
+        internal dependency's failure and naming no service is a bad answer that
+        the record has to keep as it was given. Where that becomes a refusal is
+        the mitigation, which has the whole incident in view and can say that no
+        action could be identified - a validator rejecting it here would throw
+        away the evidence of how the investigation actually went.
+        """
+        if self.faulting_service is not None and self.failure_mode is None:
+            raise ValueError(
+                "a hypothesis names the service at fault only for a cause it "
+                f"identified - got faulting_service={self.faulting_service!r} "
+                f"with failure_mode=None"
             )
 
         return self

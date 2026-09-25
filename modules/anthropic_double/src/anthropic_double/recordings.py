@@ -62,5 +62,13 @@ def save(name: str, body: dict[str, Any]) -> Path:
     """
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     path = _path_for(name)
-    path.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # `newline` said explicitly, because the default translates on Windows and a
+    # recording is read on three platforms. A stored answer that differs from a
+    # captured one by its line endings is a diff nobody can see and every
+    # reviewer has to scroll past.
+    path.write_text(
+        json.dumps(body, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n"
+    )
     return path

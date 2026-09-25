@@ -20,7 +20,12 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from agent_codefix import FixSettings, fixes_over
-from agent_investigator import changes_over, logs_over, metrics_over
+from agent_investigator import (
+    changes_over,
+    dependencies_over,
+    logs_over,
+    metrics_over,
+)
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
 from agent_mitigation import (
@@ -64,6 +69,7 @@ from orchestrator.walk.ports import (
     Admitted,
     ChangeLanded,
     CompleteAction,
+    FetchDependencies,
     FetchFlagChanges,
     Investigate,
     ProposeFix,
@@ -98,6 +104,7 @@ class Collaborators:
     investigate: Investigate
     record_hypothesis: RecordHypothesis
     fetch_flag_changes: FetchFlagChanges
+    fetch_dependencies: FetchDependencies
     record_outcome: RecordOutcome
     admitted: Admitted
     # How often one incident may apply one kind of mitigation to one
@@ -215,6 +222,12 @@ def against(connections: Connections,
     memory = IncidentMemorySettings.of(settings)
     # Asked of the provider four different ways below, over one connection.
     flag_history = flag_changes_over(write)
+    # One register, read by the model during the investigation and by the walk
+    # on the gate's behalf. Bound once rather than at each of the two, because
+    # two bindings are two registers as far as an incident is concerned - and
+    # the failure that produces is the model defending a service the gate has
+    # never heard of.
+    register = dependencies_over(read)
     # Whether anybody but Argus has been in since it wrote. Bound once because
     # both the action and the undo it may need consult the same question of the
     # same provider with the same notion of who Argus is.
@@ -251,9 +264,14 @@ def against(connections: Connections,
             # by two systems and the Investigator reads one history.
             fetch_metrics=metrics_over(read),
             fetch_logs=logs_over(read),
-            fetch_change_events=changes_over(read, write)
+            fetch_change_events=changes_over(read, write),
+            fetch_dependencies=register
         ),
         record_hypothesis=records.hypothesis,
+        # The same channel the investigation reads, asked again by the walk -
+        # this time about the service that was paged, and for the gate rather
+        # than for the model.
+        fetch_dependencies=register,
         # Mitigation's three collaborators, each bound to the configuration
         # this deployment holds. The lookback, the name Argus writes under and
         # the wait for the service are read once, here, rather than by the

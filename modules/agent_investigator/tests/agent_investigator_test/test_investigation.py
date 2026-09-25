@@ -15,7 +15,12 @@ import pytest
 from agent_investigator import Findings, Reading, investigate
 from agent_investigator.budget import Budget
 from agent_investigator.investigation import BRIEF
-from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
+from agent_investigator.retrieval import (
+    ChangeFetcher,
+    DependencyFetcher,
+    LogFetcher,
+    MetricsFetcher,
+)
 from argus_core import new_id, parse_iso
 from argus_core.events import (
     ChannelsUnread,
@@ -1725,6 +1730,9 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
         fetch_metrics=create_autospec(MetricsFetcher, instance=True, return_value=saw),
         fetch_logs=create_autospec(LogFetcher, instance=True, return_value=[]),
         fetch_change_events=create_autospec(ChangeFetcher, instance=True, return_value=[]),
+        fetch_dependencies=create_autospec(
+            DependencyFetcher, instance=True, return_value=[]
+        ),
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),
         converse=a_model_that_says(a_turn_answering(an_explanation())),

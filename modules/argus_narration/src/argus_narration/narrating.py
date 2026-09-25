@@ -102,7 +102,18 @@ _WHY_IT_WAS_REFUSED = {
     # for whoever can call the third party.
     Refusal.NOTHING_ANSWERS_THIS_MODE: "nothing Argus can do answers this kind "
                                        "of failure",
-    Refusal.NOT_A_GENERIC_MITIGATION: "is not a mitigation Argus may take unasked"
+    Refusal.NOT_A_GENERIC_MITIGATION: "is not a mitigation Argus may take unasked",
+    # The cap, said as the count it is rather than as a failure. A reader who
+    # took this for something going wrong would look for a fault; what happened
+    # is a control working.
+    Refusal.ALREADY_TRIED_ENOUGH: "has already been tried on this subject as "
+                                  "often as this incident allows",
+    # Said as the estate rather than as the action, because that is the half
+    # somebody can correct. The kind was fine and the address was not, and a
+    # reader who read this as "Argus may not do that" would go looking at the
+    # declared set instead of at the service register.
+    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH: "is addressed to a service outside "
+                                          "the estate Argus may act on"
 }
 
 # What became of one change an incident made, said after the flag it is about.
@@ -688,11 +699,22 @@ def _an_action_taken(event: ActionTaken) -> str:
     The direction is not in the sentence: it is rendered as the same struck-out
     transition the flag table shows, because a change said the same way
     wherever it appears is one fact rather than two descriptions of one.
+
+    Whose dependency the subject is, where it is one. A restart addressed
+    somewhere other than the service that alerted names a service appearing
+    nowhere else in the incident, and a reader's only other way to find out why
+    Argus was allowed to touch it is to go and read the register themselves.
     """
     said = _an_action_said(event.action_type)
     subject = f" {event.subject}" if event.subject else ""
+    # Only where the action went somewhere the incident was not about. Said of
+    # every action the clause would distinguish nothing, and the line a
+    # responder reads under pressure would carry a sentence explaining the
+    # unremarkable.
+    whose = f", a dependency of {event.a_dependency_of}" if event.a_dependency_of else ""
 
-    return f"{said}{subject}{', moved ' if event.enabled is not None else ''}"
+    return f"{said}{subject}{whose}" \
+           f"{', moved ' if event.enabled is not None else ''}"
 
 
 def _a_percentage(confidence: float) -> str:

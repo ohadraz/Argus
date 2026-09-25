@@ -37,6 +37,22 @@ def served(call: ToolCall, content: str, reading: Reading) -> Served:
     return Served(ToolResult(call_id=call.id, content=content), reading)
 
 
+def answered(call: ToolCall, content: str) -> Served:
+    """What the call asked for, where what it asked for has no window.
+
+    Beside `served` rather than folded into it with an optional reading, because
+    the two are different claims and only one of them is about time. `served`
+    says a stretch of minutes was read and records which; this says a question
+    was answered that has no minutes to record - what a service calls is a fact
+    about how it is built.
+
+    An optional `reading` on `served` would make the windowless case look like a
+    windowed one somebody forgot to fill in, and a channel that genuinely forgot
+    would then be indistinguishable from this.
+    """
+    return Served(ToolResult(call_id=call.id, content=content), reading=None)
+
+
 def could_not_serve(call: ToolCall, why: str) -> Served:
     """A call that was not served, answered anyway.
 

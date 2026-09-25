@@ -426,6 +426,83 @@ def test_a_transition_without_a_subject_is_rejected() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_hypothesis_carries_the_service_at_fault() -> None:
+    # An address, and a separate field from `subject` on purpose. `subject` is
+    # the model's description of what went wrong - "kuki heap
+    # (memory_used_bytes / heap of 2048MiB limit)" is one a model actually
+    # wrote there - and a platform call sent to that asks about a resource
+    # nobody has. This is the name of something that can be addressed.
+    Scenario() \
+        .given(
+            the_dependency_that_is_slow := "io-pricing"
+        ) \
+        .when(
+            lambda: Hypothesis(
+                incident_id=new_id(),
+                summary=SOME_SUMMARY,
+                failure_mode=FailureMode.INTERNAL_DEPENDENCY_FAILURE,
+                confidence=0.9,
+                supporting_evidence=[],
+                faulting_service=the_dependency_that_is_slow
+            )
+        ) \
+        .then(
+            _the_faulting_service_was(the_dependency_that_is_slow)
+        )
+
+
+@pytest.mark.unit
+def test_a_service_at_fault_without_a_cause_is_rejected() -> None:
+    # "I blame io-pricing, for nothing" is not a conclusion, and it is worse
+    # than the same sentence about a flag: this field is what a restart is
+    # addressed to, so an incoherent one reaches the write tier as a process to
+    # bring down rather than as a value to put back.
+    Scenario() \
+        .given(
+            dont_care_service := "io-pricing"
+        ) \
+        .when(
+            attempting(
+                lambda: Hypothesis(
+                    incident_id=new_id(),
+                    summary=SOME_SUMMARY,
+                    failure_mode=None,
+                    confidence=None,
+                    supporting_evidence=[],
+                    faulting_service=dont_care_service
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValidationError),
+                the_error_mentioned("service")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_dependency_failure_that_names_no_service_is_still_recorded() -> None:
+    # The refusal belongs downstream, not here. A model that determined this
+    # mode and named nothing to act on has answered badly, and the record has to
+    # keep what it answered - the mitigation is where that becomes "no action
+    # could be identified", and a validator rejecting it here would lose the
+    # evidence of how the investigation actually went.
+    Scenario() \
+        .given(
+            a_diagnosis_with_no_address := FailureMode.INTERNAL_DEPENDENCY_FAILURE
+        ) \
+        .when(
+            lambda: an_investigated_hypothesis(
+                failure_mode=a_diagnosis_with_no_address, confidence=0.9
+            )
+        ) \
+        .then(
+            _the_faulting_service_was(None)
+        )
+
+
 def an_investigated_hypothesis(failure_mode: FailureMode | None,
                                confidence: float | None,
                                subject: str | None = None) -> Hypothesis:
@@ -539,6 +616,19 @@ def _the_threshold_was_not_cleared() -> Assertion[bool]:
         if confident_enough:
             raise AssertionError(
                 "Expected the hypothesis to fall short of the threshold, and it cleared it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_faulting_service_was(expected: str | None) -> Assertion[Hypothesis]:
+    def assertion(hypothesis: Hypothesis) -> bool:
+        if hypothesis.faulting_service != expected:
+            raise AssertionError(
+                f"Expected the service at fault to be [{expected}], got "
+                f"[{hypothesis.faulting_service}]."
             )
 
         return True

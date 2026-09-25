@@ -12,6 +12,7 @@ from argus_core.models import ToolDefinition
 
 from agent_investigator.tools.answer import answer_tool
 from agent_investigator.tools.changes import changes_tool
+from agent_investigator.tools.dependencies import dependencies_tool
 from agent_investigator.tools.logs import logs_tool
 from agent_investigator.tools.metrics import metrics_tool
 
@@ -19,10 +20,20 @@ from agent_investigator.tools.metrics import metrics_tool
 def investigator_tools() -> list[ToolDefinition]:
     """Every tool the Investigator is offered, and nothing else.
 
-    Three retrievals and one way to finish. Each retrieval takes its own
-    optional window, because which minutes are worth reading is the model's
-    decision to make once it has seen something - and leaving a window out is
-    also a decision, answered by each channel's own default rather than by the
-    model guessing at an anchor it was already told.
+    Four retrievals and one way to finish. Three of them take their own optional
+    window, because which minutes are worth reading is the model's decision to
+    make once it has seen something - and leaving a window out is also a
+    decision, answered by each channel's own default rather than by the model
+    guessing at an anchor it was already told.
+
+    The fourth takes nothing, and the asymmetry is the point rather than an
+    oversight: what a service calls is a fact about how it is built, so there is
+    no window to name and no default to fall back on.
     """
-    return [metrics_tool(), logs_tool(), changes_tool(), answer_tool()]
+    return [
+        metrics_tool(),
+        logs_tool(),
+        changes_tool(),
+        dependencies_tool(),
+        answer_tool()
+    ]

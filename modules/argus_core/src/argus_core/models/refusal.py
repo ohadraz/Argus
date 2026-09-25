@@ -1,11 +1,16 @@
 """Why an action was not taken, said as a value rather than as a sentence.
 
-The tier gate refuses for two reasons, and they are not the same finding: an
-investigation that produced nothing to act on has run out of ideas, where one
-that produced an action nobody has pre-authorised ran into the boundary Argus is
-built around. A reader following an incident needs to know which of those
-happened, and so does anything counting how often the boundary is what stopped a
-walk.
+The tier gate refuses for several reasons and they are not the same finding: an
+investigation that produced nothing to act on has run out of ideas, one that
+produced an action nobody has pre-authorised ran into the boundary Argus is built
+around, and one that produced an admitted action aimed somewhere Argus may not
+touch ran into a different boundary entirely. A reader following an incident needs
+to know which of those happened, and so does anything counting how often a
+boundary is what stopped a walk.
+
+They are also not equally a reason to change anything. One asks for more
+evidence, one asks whether a kind of action should be pre-authorised, one asks
+whether a register entry is right, and one is a cap doing exactly its job.
 
 Here rather than beside the gate, for the reason `Verdict` is here: the gate
 names it, the published event carries it, and a vocabulary kept inside one of
@@ -46,3 +51,16 @@ class Refusal(StrEnum):
     # restart is repetition, not irreversibility, and a restart loop is what a
     # cap exists to stop.
     ALREADY_TRIED_ENOUGH = "already-tried-enough"
+    # There is something to do, its kind is pre-authorised, and the service it
+    # is addressed to is not one Argus may touch. The only refusal that is about
+    # the *instance* rather than the kind, and it exists because a mitigation
+    # can now be aimed at a service the alert never named: an address that came
+    # from an investigation can be a third party's, somewhere else in the estate,
+    # or prose a model mistook for a hostname.
+    #
+    # Distinct from NOT_A_GENERIC_MITIGATION, and the distinction is what a
+    # reader does next. That one says Argus does not do this kind of thing, and
+    # is answered by somebody widening a declared set; this says Argus does not
+    # touch that, and is usually answered by somebody correcting an entry in the
+    # service register.
+    OUTSIDE_WHAT_ARGUS_MAY_TOUCH = "outside-what-argus-may-touch"

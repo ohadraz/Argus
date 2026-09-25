@@ -5,8 +5,8 @@ process that reads configuration is the process that starts: a server assembled
 at import would have bound its windows and its credential before anything could
 say which deployment it was in.
 
-What the tools close over is the whole of what this tier may know - four narrow
-slices, none of which has a field that could hold a credential capable of
+What the tools close over is the whole of what this tier may know - a handful of
+narrow slices, none of which has a field that could hold a credential capable of
 changing anything. That is the read tier stated as a type rather than promised
 in a comment.
 """
@@ -20,7 +20,7 @@ from argus_core import (
     get_settings,
     open_pool,
 )
-from argus_core.models import ChangeEvent, MetricBucket
+from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
 from code_index.embedding import an_embedder
 from mcp.server.fastmcp import FastMCP
 
@@ -33,6 +33,11 @@ from read_mcp_server.argocd import (
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.flags import FlagReadSettings
 from read_mcp_server.meaning import IndexReadSettings
+from read_mcp_server.registry import (
+    ServiceRegistrySettings,
+    fetch_registered_service,
+    what_a_service_depends_on,
+)
 from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.window import RetrievalSettings
@@ -43,6 +48,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  target_service: TargetServiceSettings,
                  flag_settings: FlagReadSettings,
                  argocd_settings: ArgocdSettings,
+                 registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
                  connections: Connections) -> FastMCP:
@@ -82,6 +88,9 @@ def build_server(endpoint: ReadMcpEndpoint,
         )
 
     changes: ChangeSource = deploys
+
+    def registered(service: str) -> dict[str, object]:
+        return fetch_registered_service(service, registry_settings)
 
     @mcp.tool()
     def get_log_lines(alert_time: str | None = None,
@@ -233,6 +242,33 @@ def build_server(endpoint: ReadMcpEndpoint,
         `repository.read_repository_file`; this is registration only."""
         return repository.read_repository_file(path, ref, repository_settings)
 
+    @mcp.tool()
+    def get_service_dependencies(service: str) -> list[ServiceDependency]:
+        """Returns what a service calls, and whose each of those is.
+
+        The channel nobody reads until an incident, and the one that answers a
+        question no other channel can. Metrics, logs and the deploy history all
+        describe this service; when the time a request spends is spent waiting on
+        something else, what decides the response is whether that something else
+        belongs to the same organisation. A neighbour's process can be
+        restarted. Another company's outage can only be escalated to whoever can
+        telephone them.
+
+        Worth calling whenever a log line, a failure or a latency figure points
+        at a host this service does not run. The host name will not answer it -
+        an internal-looking name is internal-looking because somebody chose the
+        spelling, and a third party on a private link reads the same.
+
+        Each entry says what it is for as well as whose it is, because an
+        incident is diagnosed from what the dependency was doing on the request
+        path. An `ownership` this system does not recognise is reported as
+        written and is treated as not ours, which is a reason to say so rather
+        than to act. A service the register holds no entry for depends on nothing
+        as far as anybody here knows; a register that could not be reached raises
+        rather than answering that. The behavior lives in
+        `registry.what_a_service_depends_on`; this is registration only."""
+        return what_a_service_depends_on(service, fetch=registered)
+
     # Everything below this line exists only where the deployment keeps an
     # index. Not a tool that answers "no" when asked: a tool that is offered
     # will be called, and one backed by an index nobody builds answers nothing
@@ -326,6 +362,7 @@ def main() -> None:
             TargetServiceSettings.of(settings),
             FlagReadSettings.of(settings),
             ArgocdSettings.of(settings),
+            ServiceRegistrySettings.of(settings),
             RepositoryReadSettings.of(settings),
             IndexReadSettings.of(settings),
             pool.connection

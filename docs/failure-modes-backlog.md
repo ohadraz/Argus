@@ -22,7 +22,7 @@ pattern. See "A note on the name" below.
 | Family | Share | Modes | Argus |
 |---|---|---|---|
 | Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Yes.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here, all diagnosed and all mitigated. FM-09 and FM-10 share one action: a revision carries the code and the configuration it shipped with, so the platform's rollback answers both |
-| Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Partly.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage |
+| Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Yes.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage. `pricing-service-degraded` is FM-23: diagnosed and mitigated by restarting a service the alert never named. What tells the pair apart is ownership, which the organisation's service register answers and no telemetry does |
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** `resource-leak` is the leak half of FM-13; demand saturation is not built |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
@@ -96,11 +96,7 @@ before it returns, which is the mistake a system without the distinction makes.
 
 In order of share, minus what is out of scope for a demo:
 
-1. **FM-23 Hidden internal coupling** (the rest of propagation's 28%). The
-   half of that family FM-01 does not cover: the dependency is one of your own
-   services, nobody remembered it was on the path, and the correct response is
-   neither escalate-and-wait nor revert.
-2. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
+1. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
    3%). A deploy that is correct on both sides of itself and wrong for the
    requests that span it.
 
@@ -187,6 +183,30 @@ is flat, nothing changed, and the mode maps to no generic mitigation - so the
 incident is named exactly and handed to a person. What it added beyond the
 scenario was the distinction at the gate between a cause nothing answers and an
 action nobody could identify.
+
+**FM-23 Hidden internal coupling is built.** `pricing-service-degraded` stages
+the other half of propagation: the account page asks a service the same company
+runs for the basket total, and that service becomes an order of magnitude slower
+to answer. It answers every call, so nothing fails and the error rate never
+moves; the shop simply waits, and the median, the 95th and the 99th all climb
+together. That shape says *deployment*, and the deploy history is empty - so the
+reading the metrics suggest is refuted by the one channel that could confirm it,
+and the only evidence naming a cause is a WARN line in the shop's own log saying
+which host the time went to.
+
+What it added is the distinction the family turns on, and it is not a signal.
+Whether the thing on the other end can be restarted or only telephoned exists in
+no metric and in no log: it is recorded by a person in a service register, which
+Argus reads as evidence rather than holding as configuration. A restart is
+therefore admitted by two questions rather than one - its kind is pre-authorised,
+and its address is a dependency the register marks as the organisation's own -
+and the second refuses in its own words, because "Argus does not do that" and
+"Argus does not touch that" ask different people for different things.
+
+It is also the first mode whose permanent fix is out of Code-Fix's reach. The
+shop's source is correct; what is wrong is in a service whose repository Argus
+was never pointed at, and a timeout or a fallback on the calling side is a
+design decision rather than a defect to patch.
 
 ## Why they are called modes
 

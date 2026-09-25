@@ -25,6 +25,7 @@ from argus_core.models import (
     OpenedPullRequest,
     PostmortemDocument,
     Reading,
+    ServiceDependency,
     TakenAction,
     UndoDescriptor,
     UnreadVerdict,
@@ -67,6 +68,23 @@ class RecordOutcome(Protocol):
 
 class FetchFlagChanges(Protocol):
     def __call__(self) -> list[FlagChange]: ...
+
+
+class FetchDependencies(Protocol):
+    """The register, asked what one service calls and whose each one is.
+
+    Takes the service, where `FetchFlagChanges` takes nothing: a flag history is
+    a stretch of time the deployment's own lookback settles, and a register is
+    asked about a particular service - here, the one that was paged.
+
+    The same channel the Investigator is handed, bound once by the process that
+    holds the connection. One register read two ways would be two registers as
+    far as an incident is concerned: the model would defend touching a service
+    the gate had never heard of.
+    """
+
+    # Positional-only: the service is the whole question.
+    def __call__(self, service: str, /) -> list[ServiceDependency]: ...
 
 
 class TakeAction(Protocol):

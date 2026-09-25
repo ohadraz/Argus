@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     -- is a move from one state to another, and half a transition is a position.
     from_state TEXT,
     to_state TEXT,
+    -- The service the fault is in, where that is not the service the alert
+    -- named. An address rather than a description, which is exactly why it is
+    -- not `subject`: a mitigation is addressed to this. Nullable, and null for
+    -- every cause that is about the alerting service itself.
+    faulting_service TEXT,
     -- Where this hypothesis came in its investigation's ordering, best first.
     -- Defaulted rather than nullable: every hypothesis has a rank, and a row
     -- that does not say otherwise is first.

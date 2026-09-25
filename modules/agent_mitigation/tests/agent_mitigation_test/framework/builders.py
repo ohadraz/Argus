@@ -60,14 +60,17 @@ def an_undo_descriptor_for(flag: str,
     )
 
 
-def a_hypothesis_blaming(failure_mode: FailureMode, subject: str | None = None) -> Hypothesis:
+def a_hypothesis_blaming(failure_mode: FailureMode,
+                         subject: str | None = None,
+                         faulting_service: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=DONT_CARE_INCIDENT_ID,
         summary=f"dont care - {failure_mode}",
         failure_mode=failure_mode,
         confidence=0.9,
         supporting_evidence=[],
-        subject=subject
+        subject=subject,
+        faulting_service=faulting_service
     )
 
 

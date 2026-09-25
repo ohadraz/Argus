@@ -58,6 +58,10 @@ STORED_AS: Final = "both-monthly-statement-panel"
 # after it is the postmortem, which is written from the incident rather than
 # from the fix.
 THE_TOOL_THAT_SUBMITS_A_FIX: Final = "submit_fix"
+# The Investigator's own answer, which is the one that has to differ when the
+# borrowed walk reached a different conclusion rather than merely fixed a
+# different file.
+THE_TOOL_THAT_ANSWERS: Final = "final_answer"
 TOOL_USE_TYPE: Final = "tool_use"
 
 # The file the fix is of - the largest module the shop has, and the whole reason
@@ -194,17 +198,126 @@ def _a_fix_of_the_large_module(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
-# Which answer has to be rewritten, by the set being fabricated. A rehearsal
-# borrows a walk through a world shaped like the new one, so most answers are
-# already right: the investigation read evidence of the same shape, and the
-# postmortem is written from the incident rather than from what was done about
-# it. A set absent from here is one where *nothing* has to differ and the
-# borrowed answers are stored as they stand - which is the ordinary case rather
-# than a shortcut, and is what makes a scenario whose walk differs only in its
-# prose free to rehearse.
-_THE_ANSWER_THAT_HAS_TO_DIFFER: Final[dict[str, Callable[[dict[str, Any]],
-                                                         dict[str, Any]]]] = {
-    STORED_AS: _a_fix_of_the_large_module
+# The dependency the register marks as this organisation's own, and the host
+# the shop's log names. Two spellings of one thing, and both are load-bearing:
+# the address is what a restart is sent to, and the host is what the model
+# would have read the address off.
+THE_FAILING_DEPENDENCY: Final = "io-pricing"
+THE_HOST_THE_TIME_WENT_TO: Final = "pricing.io-internal.svc"
+
+
+def _a_failing_internal_dependency(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by a conclusion about a dependency.
+
+    The envelope is kept exactly as recorded, for the reason the fix rewrite
+    keeps it: what is being fabricated is the content of an answer, and an
+    invented envelope is a second fabrication in the fields a later reader is
+    most likely to trust.
+
+    One hypothesis rather than the borrowed walk's several. What the rehearsal
+    is exercising is the address surviving into the hypothesis, past the gate
+    and into the platform call - and a runner-up would only add a second walk
+    through the same plumbing if the first were refuted, which it is not.
+
+    `faulting_service` is the whole point. A borrowed answer carries a subject,
+    which is the model's description of the fault; nothing in the recorded
+    corpus carries an address, because until this scenario no mitigation could
+    be aimed anywhere but the service that alerted.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.74,
+                            "failure_mode": "internal-dependency-failure",
+                            "faulting_service": THE_FAILING_DEPENDENCY,
+                            "subject": THE_HOST_THE_TIME_WENT_TO,
+                            "summary": (
+                                f"Every quantile climbed together while the "
+                                f"error rate stayed flat and the deploy history "
+                                f"is empty, which rules out the release the "
+                                f"shape suggests. The shop's own log names "
+                                f"where the time went: each account page render "
+                                f"waits on {THE_HOST_THE_TIME_WENT_TO}, and the "
+                                f"register says that host is "
+                                f"{THE_FAILING_DEPENDENCY}, a service this "
+                                f"organisation runs. Nothing is wrong with the "
+                                f"shop - it is waiting on a dependency that has "
+                                f"become an order of magnitude slower to answer."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        f"WARN io-shop: pricing lookup to "
+                                        f"{THE_HOST_THE_TIME_WENT_TO} took "
+                                        f"1489ms"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "p50 44ms -> 1546ms, p95 224ms -> "
+                                        "1716ms, p99 379ms -> 1881ms with the "
+                                        "error rate unmoved - a wait added to "
+                                        "every request rather than a slow "
+                                        "revision multiplying it"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "the deploy history is empty over the "
+                                        "whole window, so nothing was released"
+                                    )
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
+# Which answer has to be rewritten, by the set being fabricated, and which tool
+# call marks it. A rehearsal borrows a walk through a world shaped like the new
+# one, so most answers are already right: the investigation read evidence of the
+# same shape, and the postmortem is written from the incident rather than from
+# what was done about it. A set absent from here is one where *nothing* has to
+# differ and the borrowed answers are stored as they stand - which is the
+# ordinary case rather than a shortcut, and is what makes a scenario whose walk
+# differs only in its prose free to rehearse.
+#
+# The tool is named beside the rewrite rather than assumed, because the two
+# rehearsals differ in which answer they touch. The large-fix set borrows a walk
+# that reached the right conclusion about the wrong file, so only the fix
+# differs; the dependency set borrows a walk that reached a different conclusion
+# entirely, so it is the investigation's own answer that has to change and the
+# fix after it is left as the borrowed walk wrote it.
+_THE_ANSWER_THAT_HAS_TO_DIFFER: Final[
+    dict[str, tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]]
+] = {
+    STORED_AS: (THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_large_module),
+    "grep-pricing-service-degraded": (THE_TOOL_THAT_ANSWERS,
+                                      _a_failing_internal_dependency),
+    "both-pricing-service-degraded": (THE_TOOL_THAT_ANSWERS,
+                                      _a_failing_internal_dependency)
 }
 
 
@@ -214,16 +327,15 @@ def _write(borrowed: list[Path], stored_as: str) -> list[Path]:
     Numbered exactly as the source was, because the double serves a queue in
     order and a gap in the numbering is a walk that stops one answer early.
     """
-    rewrite = _THE_ANSWER_THAT_HAS_TO_DIFFER.get(stored_as)
+    differs = _THE_ANSWER_THAT_HAS_TO_DIFFER.get(stored_as)
     written = []
 
     for index, path in enumerate(borrowed, start=1):
         was = json.loads(path.read_text(encoding="utf-8"))
         now = (
-            rewrite(was)
-            if rewrite is not None and any(
-                block.get("name") == THE_TOOL_THAT_SUBMITS_A_FIX
-                for block in was["content"]
+            differs[1](was)
+            if differs is not None and any(
+                block.get("name") == differs[0] for block in was["content"]
             )
             else was
         )

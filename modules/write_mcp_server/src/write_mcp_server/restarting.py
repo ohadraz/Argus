@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Final, Protocol
 
 import httpx
@@ -47,6 +48,11 @@ RESTART_ACTION: Final = "restart"
 # else.
 RESTART_GROUP: Final = "apps"
 RESTART_KIND: Final = "Deployment"
+
+# What a process is, in the resource tree. Everything else the tree reports -
+# the Deployment, the ReplicaSet, the Service - was created when somebody
+# declared it and has not come up since.
+POD_KIND: Final = "Pod"
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -66,24 +72,32 @@ class RestartSettings(SettingsSlice):
     `/api/v1/applications/{application}/resource/actions/v2` are one setting
     with two values.
 
-    `restart_resource_name` is what the platform calls the thing being
-    restarted, which is not what the alert calls the service. Configured rather
-    than derived, because the mapping between the two is a deployment's fact
-    and there is no rule that produces one from the other.
+    What the platform calls the thing being restarted used to be configured
+    here, and was right for as long as the only service Argus could restart was
+    the one it was paged about. A mitigation addressed at a dependency makes a
+    fixed name actively wrong: the request would carry the shop's deployment
+    whatever application it was sent to, so the platform would restart the wrong
+    thing and report success. The resource is the service now, which is what the
+    demo's stand-in and a Kubernetes deployment named after its service both
+    already assume.
     """
 
     argocd_base_url: str
     argocd_restart_action_path: str
     argocd_auth_token: str
     restart_namespace: str
-    restart_resource_name: str
-    # Where the start time is read back from. The write tier reads it itself
-    # rather than asking the read tier, for the reason `set_feature_flag`
+    # Where the platform says what is actually running. The write tier reads it
+    # itself rather than asking the read tier, for the reason `set_feature_flag`
     # confirms its own write: verifying one's own change is not a retrieval
     # concern, and a write server that depended on the read server could not
-    # restart anything while the read server was down. No credential is named
-    # - this is the same unauthenticated gauge every monitoring stack scrapes.
-    target_service_url: str
+    # restart anything while the read server was down.
+    #
+    # A template like the action path, and per application, which is the whole
+    # reason the confirmation is not read off the metrics any more: restarting a
+    # dependency moves that dependency's pod and leaves the alerting service's
+    # exactly where it was. One gauge scraped from one address cannot tell those
+    # apart, and would report a restart that landed as one that never happened.
+    argocd_resource_tree_path: str
 
 
 HttpPost = Callable[..., httpx.Response]
@@ -99,11 +113,18 @@ class ObserveStartTime(Protocol):
 
     A `Protocol` rather than a `Callable` alias for the reason `EvaluateFlags`
     is one: a test stands it in with `create_autospec`, which needs something
-    introspectable. It answers the current process start time, and knows
-    nothing about which restart is being waited on.
+    introspectable. It answers the start time of the process serving one
+    service, and knows nothing about which restart is being waited on.
+
+    It takes that service, where it used to take nothing. A no-argument reading
+    was one address scraped from configuration, which said what the alerting
+    service was doing however the restart was addressed - so a dependency
+    restarted perfectly well reported a reading that never moved, and the
+    restart was raised as one that never happened.
     """
 
-    def __call__(self) -> float | None: ...
+    # Positional-only: the service is the whole question.
+    def __call__(self, service: str, /) -> float | None: ...
 
 
 class ServiceNotRestarted(Exception):
@@ -119,37 +140,70 @@ class ServiceNotRestarted(Exception):
     """
 
 
-def the_process_start_time(settings: RestartSettings,
-                           get: HttpGet = httpx.get) -> ObserveStartTime:
-    """Reads the start time of the process now serving, from the metrics.
+def the_pod_start_time(settings: RestartSettings,
+                       get: HttpGet = httpx.get) -> ObserveStartTime:
+    """Reads when the process now serving a service came up, from the platform.
+
+    Argo CD's resource tree is how anybody finds out what is actually running,
+    and a pod's `createdAt` is the platform's own answer to "did the restart
+    land". Read from here rather than from the service's own metrics because it
+    is per application: one gauge at one address says what the alerting service
+    is doing whoever the restart was addressed to.
 
     A factory rather than a function taking the address, so that what
-    `restart_service` is handed stays the no-argument `ObserveStartTime` a test
-    can stand in with a lambda. The address is bound once, where the server is
-    built.
+    `restart_service` is handed is the `ObserveStartTime` a test can stand in.
+    The address is bound once, where the server is built; the service is asked
+    per reading.
 
-    The *latest* minute's reading, because that is the one that says what is
-    serving now - an older bucket describes the process that was. A window with
-    no minutes in it answers `None`: a service reporting nothing is one this
-    cannot see a restart in, which is a different answer from one reporting
-    that it has not restarted.
+    The *newest* pod, because a rollout has two of them in it for a while and
+    the older one is precisely the process a restart has to be told apart from.
+    Only pods: a real tree carries the Deployment, the ReplicaSet and the
+    Service too, and their creation times have not moved since somebody declared
+    them.
+
+    `None` where nothing is running, and `None` where a creation time cannot be
+    read. Both are the absence of a reading rather than a reading of no change,
+    which is the distinction the wait below turns on - and a crash on an
+    unparseable timestamp would report an unconfirmable restart as a broken one.
     """
-    def observe() -> float | None:
+    def observe(service: str, /) -> float | None:
         response = get(
-            f"{settings.target_service_url}/metrics",
+            f"{settings.argocd_base_url}"
+            f"{settings.argocd_resource_tree_path.format(application=service)}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
-        buckets: list[dict[str, Any]] = response.json()
+        nodes: list[dict[str, Any]] = response.json().get("nodes", [])
 
-        if not buckets:
-            return None
+        came_up = [
+            _when_it_came_up(node.get("createdAt"))
+            for node in nodes if node.get("kind") == POD_KIND
+        ]
+        readable = [moment for moment in came_up if moment is not None]
 
-        started_at = buckets[-1].get("process_start_time_seconds")
-
-        return float(started_at) if started_at is not None else None
+        return max(readable) if readable else None
 
     return observe
+
+
+def _when_it_came_up(created_at: str | None) -> float | None:
+    """One `createdAt` as seconds since the epoch, or `None` where it is not one.
+
+    Seconds because that is what everything above compares: the reading before
+    the action and the reading after it are told apart by differing, and a pair
+    of strings would be compared by spelling.
+
+    Kubernetes stamps these to the second, which is enough. What the value is
+    measured against is the *previous* process's start time, minutes old by the
+    time anything asks.
+    """
+    if created_at is None:
+        return None
+
+    try:
+        return datetime.fromisoformat(created_at).timestamp()
+    except ValueError:
+        return None
 
 
 def restart_service(
@@ -171,14 +225,14 @@ def restart_service(
     the start time moved. There is no undo descriptor and no field for one: a
     restart changes no persistent state, so there is nothing to put back (§13).
     """
-    was_started_at = observe()
+    was_started_at = observe(service)
     url = f"{settings.argocd_base_url}{_restart_path(settings, service)}"
 
     try:
         response = post(
             url,
             headers=_headers_for(settings.argocd_auth_token),
-            json=_the_restart_action(settings),
+            json=_the_restart_action(settings, service),
             timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
@@ -195,7 +249,7 @@ def restart_service(
     )
 
 
-def _the_restart_action(settings: RestartSettings) -> dict[str, Any]:
+def _the_restart_action(settings: RestartSettings, service: str) -> dict[str, Any]:
     """The action request, in the shape Argo CD's v2 endpoint takes.
 
     v2 rather than the original, which carries the same fields as query
@@ -203,10 +257,15 @@ def _the_restart_action(settings: RestartSettings) -> dict[str, Any]:
     by group, kind, namespace and name because that is how the server finds
     the Lua registered for it - `apps/Deployment` is what the built-in restart
     is written against.
+
+    The name is the service, not a configured one. A fixed name carried the
+    alerting service's deployment into every request, so a restart addressed at
+    a dependency reached the right application and restarted the wrong thing -
+    and the platform answered that it had worked.
     """
     return {
         "namespace": settings.restart_namespace,
-        "resourceName": settings.restart_resource_name,
+        "resourceName": service,
         "group": RESTART_GROUP,
         "kind": RESTART_KIND,
         "action": RESTART_ACTION
@@ -230,7 +289,7 @@ def _wait_until_a_new_process_serves(service: str,
     """
     for attempt in range(_START_TIME_ATTEMPTS):
         try:
-            started_at = observe()
+            started_at = observe(service)
         except Exception as error:
             raise ServiceNotRestarted(
                 f"could not confirm [{service}] restarted: {error}"

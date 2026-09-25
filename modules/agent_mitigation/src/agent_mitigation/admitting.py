@@ -27,6 +27,7 @@ line somebody writes and defends.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
 from typing import Final
 
@@ -36,12 +37,15 @@ from argus_core.models import (
     ROLL_BACK_DEPLOYMENT,
     Action,
     ActionType,
+    ServiceDependency,
+    the_service_addressed_by,
 )
 
 __all__ = [
     "GENERIC_MITIGATIONS",
     "AdmittedMitigations",
-    "is_a_generic_mitigation"
+    "is_a_generic_mitigation",
+    "is_within_reach"
 ]
 
 # The kinds of action that may be taken without a human. Small enough to read
@@ -63,3 +67,55 @@ def is_a_generic_mitigation(action: Action,
     unreviewed action reaches production the day it is implemented.
     """
     return action.action_type in admitted
+
+
+def is_within_reach(action: Action,
+                    alerting_service: str,
+                    dependencies: Sequence[ServiceDependency]) -> bool:
+    """Whether the thing this action is addressed to is within the estate Argus
+    may touch.
+
+    The second question, and the one the kind cannot answer. Until a mitigation
+    could be aimed somewhere other than the service that was paged, there was
+    nothing here to ask: the subject came from the alert, so the subject was by
+    construction something Argus was already acting on. An address that comes
+    from an investigation is different - a model can write a third party's name
+    in it, a service in another part of the estate, or prose it mistook for a
+    hostname - and no fact about the kind of action rules any of those out.
+
+    Kept beside `is_a_generic_mitigation` rather than folded into it, because the
+    two fail for different reasons and a reader picking the incident up needs to
+    know which. "Argus does not do that" and "Argus does not touch that" are
+    different sentences, and one of them is a reason to widen a declared set
+    while the other is a reason to correct a register.
+
+    Within reach is the alerting service itself, always - Argus has been
+    restarting and rolling that one back since before there was a register, and
+    making it conditional on a document somebody maintains would let a stale
+    entry withdraw an authority nobody meant to withdraw. Otherwise it is a
+    dependency the register lists for that service *and* marks as the
+    organisation's own.
+
+    Everything else is refused, and the refusal is the restrictive direction on
+    purpose: an estate is not a thing to guess at, because something somewhere
+    answers to almost any plausible service name. That includes an ownership
+    nothing here recognises - `ServiceDependency.is_ours` tests for the one word
+    that means ours, so a register that grows a fourth answer withholds authority
+    rather than granting it.
+
+    The dependencies arrive as a value, retrieved before the walk reached this
+    question. That is the same discipline `propose_action` keeps about flag
+    changes and for the same reason: whether Argus may act cannot depend on a
+    document store being reachable at the moment it asks, and an empty list is
+    what an unreachable register looks like - which leaves every mitigation
+    addressed to the alerting service exactly as available as it was.
+    """
+    addressed_to = the_service_addressed_by(action)
+
+    if addressed_to is None or addressed_to == alerting_service:
+        return True
+
+    return any(
+        dependency.name == addressed_to and dependency.is_ours
+        for dependency in dependencies
+    )

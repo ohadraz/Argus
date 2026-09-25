@@ -10,6 +10,8 @@ the provider rather than two.
 
 from __future__ import annotations
 
+import logging
+
 from argus_core.events import (
     AgentInvoked,
     CandidatesReordered,
@@ -18,7 +20,13 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models import Actor, FlagChange, Hypothesis, IncidentStatus
+from argus_core.models import (
+    Actor,
+    FlagChange,
+    Hypothesis,
+    IncidentStatus,
+    ServiceDependency,
+)
 
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
@@ -31,6 +39,7 @@ from incident_memory.ordering import demoting_what_was_refuted
 from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_do
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
+    FetchDependencies,
     FetchFlagChanges,
     Investigate,
     RecallSimilar,
@@ -39,6 +48,8 @@ from orchestrator.walk.ports import (
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
+_logger = logging.getLogger(__name__)
+
 
 def investigator_node(
     state: IncidentState,
@@ -46,6 +57,7 @@ def investigator_node(
     investigate: Investigate,
     recall_similar: RecallSimilar,
     fetch_flag_changes: FetchFlagChanges,
+    fetch_dependencies: FetchDependencies,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
 ) -> StateDelta:
@@ -86,6 +98,12 @@ def investigator_node(
     # the history is in hand - so it is read at the top of the round, once, and
     # carried to everything in the round that needs it.
     flag_changes = _what_the_provider_recorded(state, fetch_flag_changes, publisher)
+    # The estate this incident is allowed to reach into, read in the same
+    # breath. Nothing in this round uses it: it is read here because it is
+    # read *once*, and the node that needs it is a gate two steps away that
+    # must not have its answer depend on a document store being up at the
+    # instant it asks.
+    dependencies = _what_the_register_lists(state, fetch_dependencies)
     # What memory makes of this round's candidates, before anything is chosen
     # from them. Read once here rather than per candidate: one search, a
     # deterministic order, and one line accounting for it.
@@ -153,6 +171,12 @@ def investigator_node(
         # that could not be read has to reach them as that rather than as a
         # history that happens to be empty.
         flag_changes=flag_changes,
+        # Carried on for the gate, which is where it is finally asked a
+        # question. Empty where the register would not answer, deliberately
+        # indistinguishable from a register that listed nothing: both leave
+        # every mitigation addressed to the alerting service available and
+        # refuse everything aimed elsewhere.
+        dependencies=dependencies,
         # Everything read across this incident, not only this round's, so a
         # third round is told about the first as well as the second.
         already_read=[*state.already_read, *findings.already_read],
@@ -194,6 +218,42 @@ def _what_the_provider_recorded(state: IncidentState,
     )
 
     return flag_changes
+
+
+def _what_the_register_lists(state: IncidentState,
+                             fetch_dependencies: FetchDependencies
+                             ) -> list[ServiceDependency]:
+    """What the register says the alerting service calls, or nothing at all.
+
+    Asked about the service that was paged, because that is the service whose
+    dependencies bound where a mitigation for this incident may be aimed.
+
+    A register that cannot be read answers nothing rather than raising, as the
+    flag provider does - but unlike the flag provider it answers with an empty
+    list rather than with a third value, and the difference is what the two
+    absences mean. "Nobody could say what changed" is a fact the walk reasons
+    about differently from "nothing changed"; "nobody could say what this
+    service calls" is not a fact the walk reasons about at all. It is simply an
+    estate Argus cannot vouch for, and an estate it cannot vouch for is one it
+    does not touch - which is exactly what an empty list already means here.
+
+    Unpublished for the same reason. What a service calls is a fact about how it
+    is built rather than about this incident, and a line on the timeline saying
+    the register was read would be a line every walk carries and nobody reads.
+    What a reader needs to know is the one thing the register decided, and the
+    gate says that where it happens: an action refused for being addressed
+    outside what Argus may touch.
+    """
+    try:
+        return fetch_dependencies(state.alert.service)
+    except Exception:
+        _logger.warning(
+            "the service register could not be read; nothing but %s is within reach",
+            state.alert.service,
+            exc_info=True
+        )
+
+        return []
 
 
 def _what_the_investigation_did(hypothesis: Hypothesis) -> str:

@@ -67,6 +67,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_LARGE_CODE_FIX,
+    RECORDED_PRICING_SERVICE_DEGRADED,
     RECORDED_RESOURCE_LEAK,
     RECORDED_SLOW_CANARY_ROLLOUT,
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
@@ -310,6 +311,23 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "slow-canary-rollout",
         "HighLatency",
         IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN,)
+    ),
+    # The third latency incident, and the one whose answer is not the service
+    # that was paged. Its alert is latency for the same reason as the two above
+    # - nothing fails, the dependency answers every call slowly - and what
+    # separates it from them is that the deploy history is empty, so the
+    # release its shape suggests is refuted by the one channel that could
+    # confirm it.
+    _Recording(
+        RECORDED_PRICING_SERVICE_DEGRADED,
+        "pricing-service-degraded",
+        "HighLatency",
+        IncidentStatus.MITIGATED,
+        # An action, because a recording of this walk that escalated would be a
+        # recording of the model declining to name a service it was not paged
+        # about - which is the failure this scenario exists to catch, not the
+        # answer it exists to store.
         (_AN_ACTION_WAS_TAKEN,)
     ),
     # The flag scenario again, with the fault moved into the largest module the

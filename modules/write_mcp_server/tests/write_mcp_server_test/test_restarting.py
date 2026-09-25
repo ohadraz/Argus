@@ -22,19 +22,22 @@ from write_mcp_server.restarting import (
     RestartSettings,
     ServiceNotRestarted,
     restart_service,
-    the_process_start_time,
+    the_pod_start_time,
 )
 
 DONT_CARE_SERVICE = "dont-care-service"
 DONT_CARE_URL = "http://argocd.invalid/"
 SOME_ACTION_PATH = "/api/v1/applications/{application}/resource/actions/v2"
+SOME_RESOURCE_TREE_PATH = "/api/v1/applications/{application}/resource-tree"
 
-# Two readings of the gauge that are unmistakably different processes, in
-# seconds since the epoch, because that is what the metric is. What separates
-# them is that they differ - not how far apart they are, and not which is
-# later, since the two clocks involved are not the same clock.
-THE_PROCESS_THAT_WAS_SERVING = 1_756_000_000.0
-THE_PROCESS_THAT_CAME_UP = 1_756_000_600.0
+# Two pod creation times that are unmistakably different processes, as the
+# platform reports them and as seconds since the epoch. Both spellings, because
+# the reading crosses that boundary: the platform answers in the vendor's own
+# RFC 3339, and what a restart is confirmed by is a number that can be compared.
+WHEN_THE_POD_THAT_WAS_SERVING_CAME_UP = "2026-08-20T11:00:00Z"
+WHEN_THE_POD_THAT_CAME_UP_CAME_UP = "2026-08-20T11:10:00Z"
+THE_PROCESS_THAT_WAS_SERVING = 1_787_223_600.0
+THE_PROCESS_THAT_CAME_UP = 1_787_224_200.0
 
 
 @pytest.mark.unit
@@ -44,16 +47,15 @@ def test_a_restart_is_asked_for_as_the_action_the_platform_registers_it_under() 
     # group, kind, namespace, name and action - a request missing one of them
     # is a request that reaches no script at all.
     some_namespace = "kuki-production"
-    some_resource_name = "kuki-shop"
+    some_service = "kuki-pricing"
     platform = a_platform()
 
     Scenario() \
         .given(platform) \
         .when(
             lambda: restart_service(
-                DONT_CARE_SERVICE,
-                settings=some_settings(namespace=some_namespace,
-                                       resource_name=some_resource_name),
+                some_service,
+                settings=some_settings(namespace=some_namespace),
                 post=platform.post,
                 observe=platform.observe,
                 sleep=dont_care_sleep
@@ -63,13 +65,40 @@ def test_a_restart_is_asked_for_as_the_action_the_platform_registers_it_under() 
             _the_action_asked_for_is(
                 {
                     "namespace": some_namespace,
-                    "resourceName": some_resource_name,
+                    "resourceName": some_service,
                     "group": RESTART_GROUP,
                     "kind": RESTART_KIND,
                     "action": RESTART_ACTION
                 },
                 platform
             )
+        )
+
+
+@pytest.mark.unit
+def test_the_resource_restarted_is_the_service_asked_about_not_a_configured_one() -> None:
+    # The resource name used to be configuration, which was true for as long as
+    # the only service Argus could restart was the one it was paged about. A
+    # mitigation addressed at a dependency makes a fixed name actively wrong:
+    # the request would be aimed at the shop's application and carry the shop's
+    # deployment, so the platform would restart the wrong thing and report
+    # success.
+    a_dependency_of_the_alerting_service = "kuki-pricing"
+    platform = a_platform()
+
+    Scenario() \
+        .given(platform) \
+        .when(
+            lambda: restart_service(
+                a_dependency_of_the_alerting_service,
+                settings=some_settings(),
+                post=platform.post,
+                observe=platform.observe,
+                sleep=dont_care_sleep
+            )
+        ) \
+        .then(
+            _the_resource_named_is(a_dependency_of_the_alerting_service, platform)
         )
 
 
@@ -172,6 +201,31 @@ def test_a_restart_returns_only_once_a_new_process_is_serving() -> None:
             _the_service_was_looked_at(times=4, platform=platform),
             _the_process_that_came_up_is(DONT_CARE_SERVICE, THE_PROCESS_THAT_CAME_UP)
         ))
+
+
+@pytest.mark.unit
+def test_the_pod_looked_at_is_the_one_belonging_to_the_service_restarted() -> None:
+    # The whole reason the confirmation moved off the metrics. A restart
+    # addressed at a dependency has to be confirmed against that dependency's
+    # pod: asked about the shop instead, the reading never moves, and a restart
+    # that landed perfectly well is reported as one that never happened.
+    a_dependency_of_the_alerting_service = "kuki-pricing"
+    platform = a_platform()
+
+    Scenario() \
+        .given(platform) \
+        .when(
+            lambda: restart_service(
+                a_dependency_of_the_alerting_service,
+                settings=some_settings(),
+                post=platform.post,
+                observe=platform.observe,
+                sleep=dont_care_sleep
+            )
+        ) \
+        .then(
+            _every_look_was_at(a_dependency_of_the_alerting_service, platform)
+        )
 
 
 @pytest.mark.unit
@@ -319,36 +373,114 @@ def test_a_service_that_cannot_be_read_after_the_action_is_not_reported_as_resta
 
 
 @pytest.mark.unit
-def test_the_process_serving_now_is_read_from_the_latest_minute() -> None:
-    # An older bucket describes the process that was, which is precisely the
-    # reading a restart has to be told apart from.
-    dont_care_earlier_minute = {"process_start_time_seconds": THE_PROCESS_THAT_WAS_SERVING}
-    the_latest_minute = {"process_start_time_seconds": THE_PROCESS_THAT_CAME_UP}
+def test_the_process_serving_now_is_read_from_the_pod_that_came_up_last() -> None:
+    # A rollout has two pods in it for a while, and the older one is precisely
+    # the process a restart has to be told apart from. The newest is what is
+    # serving as far as anything downstream is concerned.
+    dont_care_older_pod = a_pod(came_up=WHEN_THE_POD_THAT_WAS_SERVING_CAME_UP)
+    the_pod_that_came_up = a_pod(came_up=WHEN_THE_POD_THAT_CAME_UP_CAME_UP)
 
     Scenario() \
-        .given(a_service := a_service_reporting([dont_care_earlier_minute, the_latest_minute])) \
-        .when(lambda: the_process_start_time(some_settings(), get=a_service)()) \
+        .given(
+            a_platform_reporting := a_platform_whose_tree_holds(
+                [dont_care_older_pod, the_pod_that_came_up]
+            )
+        ) \
+        .when(
+            lambda: the_pod_start_time(
+                some_settings(), get=a_platform_reporting
+            )(DONT_CARE_SERVICE)
+        ) \
         .then(_the_start_time_read_is(THE_PROCESS_THAT_CAME_UP))
 
 
 @pytest.mark.unit
-def test_a_service_reporting_no_minutes_has_no_process_that_can_be_seen() -> None:
-    # Different from a service that reports it has not restarted: one is a
-    # reading, the other is the absence of one, and only the second leaves the
-    # restart unconfirmable.
+def test_the_resource_tree_is_asked_about_the_service_being_confirmed() -> None:
+    # Per application, which is the whole point: restarting the pricing service
+    # moves its pod's creation time and leaves the shop's exactly where it was.
+    some_service = "kuki-pricing"
+    some_base_url = "http://argocd.kuki.com"
+
     Scenario() \
-        .given(a_service_reporting_nothing := a_service_reporting([])) \
-        .when(lambda: the_process_start_time(some_settings(), get=a_service_reporting_nothing)()) \
+        .given(
+            a_platform_reporting := a_platform_whose_tree_holds(
+                [a_pod(came_up=WHEN_THE_POD_THAT_CAME_UP_CAME_UP)]
+            )
+        ) \
+        .when(
+            lambda: the_pod_start_time(
+                some_settings(base_url=some_base_url), get=a_platform_reporting
+            )(some_service)
+        ) \
+        .then(
+            _the_tree_read_is(
+                f"{some_base_url}/api/v1/applications/{some_service}/resource-tree",
+                a_platform_reporting
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_application_with_nothing_running_has_no_process_that_can_be_seen() -> None:
+    # Different from an application reporting a pod that has not restarted: one
+    # is a reading, the other is the absence of one, and only the second leaves
+    # the restart unconfirmable.
+    Scenario() \
+        .given(a_platform_running_nothing := a_platform_whose_tree_holds([])) \
+        .when(
+            lambda: the_pod_start_time(
+                some_settings(), get=a_platform_running_nothing
+            )(DONT_CARE_SERVICE)
+        ) \
         .then(_the_start_time_read_is(None))
 
 
 @pytest.mark.unit
-def test_a_minute_that_does_not_carry_a_start_time_reports_none() -> None:
-    a_minute_reporting_only_traffic = {"error_rate": 0.01}
+def test_a_tree_holding_no_pod_at_all_reports_none() -> None:
+    # A real resource tree carries the whole application - the Deployment, the
+    # ReplicaSet, the Service - and only a pod is a process that came up. Taken
+    # from whatever node happens to be first, the answer would be the creation
+    # time of an object that has not restarted since it was declared.
+    a_deployment = {
+        "kind": "Deployment",
+        "name": "kuki-shop",
+        "namespace": "production",
+        "createdAt": WHEN_THE_POD_THAT_WAS_SERVING_CAME_UP
+    }
 
     Scenario() \
-        .given(a_service := a_service_reporting([a_minute_reporting_only_traffic])) \
-        .when(lambda: the_process_start_time(some_settings(), get=a_service)()) \
+        .given(a_platform_reporting := a_platform_whose_tree_holds([a_deployment])) \
+        .when(
+            lambda: the_pod_start_time(
+                some_settings(), get=a_platform_reporting
+            )(DONT_CARE_SERVICE)
+        ) \
+        .then(_the_start_time_read_is(None))
+
+
+@pytest.mark.unit
+def test_a_pod_whose_creation_time_cannot_be_read_reports_none() -> None:
+    # Unreadable is not absent, but it leads to the same place: nothing here
+    # can say what is serving, so nothing above may proceed as though it had
+    # been told. A crash would report an unconfirmable restart as a broken one.
+    a_pod_with_a_creation_time_nobody_can_parse = {
+        "kind": "Pod",
+        "name": "kuki-shop-7d4f",
+        "namespace": "production",
+        "createdAt": "whenever it was"
+    }
+
+    Scenario() \
+        .given(
+            a_platform_reporting := a_platform_whose_tree_holds(
+                [a_pod_with_a_creation_time_nobody_can_parse]
+            )
+        ) \
+        .when(
+            lambda: the_pod_start_time(
+                some_settings(), get=a_platform_reporting
+            )(DONT_CARE_SERVICE)
+        ) \
         .then(_the_start_time_read_is(None))
 
 
@@ -360,6 +492,20 @@ def _the_action_asked_for_is(expected: dict[str, str],
             raise AssertionError(
                 f"Expected the restart to be asked for as {expected}, "
                 f"and it was asked for as {asked_for}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_resource_named_is(expected: str, platform: _Platform) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        named = platform.post.call_args.kwargs["json"]["resourceName"]
+        if named != expected:
+            raise AssertionError(
+                f"Expected the deployment restarted to be [{expected}], "
+                f"and it was [{named}]."
             )
 
         return True
@@ -423,6 +569,42 @@ def _the_service_was_looked_at(times: int, platform: _Platform) -> Assertion[obj
     return assertion
 
 
+def _every_look_was_at(expected: str, platform: _Platform) -> Assertion[object]:
+    """Every reading taken about the service being restarted, not only the last.
+
+    The look before the action is the one that matters most: it is what the
+    reading afterwards is compared against, and a pair of readings taken about
+    two different applications would report a restart whenever either of them
+    happened to roll.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        looked_at = [call.args[0] for call in platform.observe.call_args_list]
+
+        if set(looked_at) != {expected}:
+            raise AssertionError(
+                f"Expected every look to be at [{expected}], and they were at "
+                f"{looked_at}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tree_read_is(expected: str, get: Any) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        read = get.call_args.args[0]
+        if read != expected:
+            raise AssertionError(
+                f"Expected the resource tree to be read from [{expected}], "
+                f"and it was read from [{read}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_process_that_came_up_is(service: str,
                                  started_at: float) -> Assertion[RestartedService]:
     def assertion(restarted: RestartedService) -> bool:
@@ -452,18 +634,19 @@ def _the_start_time_read_is(expected: float | None) -> Assertion[float | None]:
 
 
 class _Platform:
-    """The deployment platform, and the gauge that says what is serving.
+    """The deployment platform, asked for a restart and then asked what is up.
 
     One stand-in rather than two, because no test here needs only one of them:
-    a restart is asked of the platform and confirmed against the gauge, and a
-    test that stood in only the first would be waiting on a real service.
+    a restart is asked of the platform and confirmed against the platform's own
+    view of what is running, and a test that stood in only the first would be
+    waiting on a real server.
     """
 
     def __init__(self) -> None:
         self.post: Any = create_autospec(httpx.post)
         # Spec'd against the port rather than `httpx.get`: what confirms the
-        # restart is a reading, and where it is read from is bound once, where
-        # the server is built.
+        # restart is a reading about one application, and where it is read
+        # from is bound once, where the server is built.
         self.observe: Any = create_autospec(ObserveStartTime, instance=True)
 
 
@@ -535,12 +718,22 @@ def a_platform_that_cannot_be_reached() -> _Platform:
     return platform
 
 
-def a_service_reporting(minutes: list[dict[str, Any]]) -> Any:
-    """The metrics endpoint, answering with the window it was asked for."""
+def a_pod(came_up: str) -> dict[str, Any]:
+    """One live pod, in the shape the platform's resource tree reports it."""
+    return {
+        "kind": "Pod",
+        "name": "kuki-shop-7d4f",
+        "namespace": "production",
+        "createdAt": came_up
+    }
+
+
+def a_platform_whose_tree_holds(nodes: list[dict[str, Any]]) -> Any:
+    """The resource-tree route, answering with the objects it was given."""
     get: Any = create_autospec(httpx.get)
     get.return_value = httpx.Response(
         status_code=200,
-        json=minutes,
+        json={"nodes": nodes},
         request=httpx.Request("GET", DONT_CARE_URL)
     )
 
@@ -548,22 +741,19 @@ def a_service_reporting(minutes: list[dict[str, Any]]) -> Any:
 
 
 def some_settings(namespace: str = "dont-care-namespace",
-                  resource_name: str = "dont-care-resource",
                   auth_token: str = "dont-care-token",
                   base_url: str = "http://argocd.invalid") -> RestartSettings:
     """Where a restart is asked for, as this suite configures it.
 
-    Each test names only the field it is about. The path is never one of them:
-    it is a template in every deployment, and the test that cares about it
-    spells the result out rather than the shape.
+    Each test names only the field it is about. The paths are never among them
+    except in the two cases that spell a whole URL out: they are templates in
+    every deployment, and a test asserting the shape would be asserting the
+    default.
     """
-    dont_care_service_url = "http://kuki-service.invalid"
-
     return RestartSettings(
         argocd_base_url=base_url,
         argocd_restart_action_path=SOME_ACTION_PATH,
         argocd_auth_token=auth_token,
         restart_namespace=namespace,
-        restart_resource_name=resource_name,
-        target_service_url=dont_care_service_url
+        argocd_resource_tree_path=SOME_RESOURCE_TREE_PATH
     )

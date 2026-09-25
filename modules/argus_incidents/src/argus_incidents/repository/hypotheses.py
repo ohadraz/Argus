@@ -20,8 +20,8 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
             "INSERT INTO hypothesis "
             "       (id, incident_id, summary, failure_mode, confidence, "
             "        supporting_evidence, subject, from_state, to_state, "
-            "        rank, tested, result) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "        faulting_service, rank, tested, result) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 hypothesis.id,
                 hypothesis.incident_id,
@@ -38,6 +38,7 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                 hypothesis.subject,
                 hypothesis.from_state,
                 hypothesis.to_state,
+                hypothesis.faulting_service,
                 hypothesis.rank,
                 hypothesis.tested,
                 hypothesis.result,
@@ -87,7 +88,7 @@ def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypo
         cursor.execute(
             "SELECT id, incident_id, summary, failure_mode, confidence, "
             "       supporting_evidence, subject, from_state, to_state, "
-            "       rank, tested, result "
+            "       faulting_service, rank, tested, result "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
             "ORDER BY rank, created_at",
@@ -118,7 +119,7 @@ def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypoth
         cursor.execute(
             "SELECT id, incident_id, summary, failure_mode, confidence, "
             "       supporting_evidence, subject, from_state, to_state, "
-            "       rank, tested, result "
+            "       faulting_service, rank, tested, result "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
             "ORDER BY rank, created_at DESC "

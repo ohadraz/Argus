@@ -223,6 +223,17 @@ class ActionTaken(_Event):
     # an account that leaves it out describes a button being pressed. `None`
     # where the action is not a two-state one.
     enabled: bool | None = None
+    # The service this action's subject is a dependency of, where it is one -
+    # which is to say, where Argus acted on something it was never paged about.
+    # `None` is the ordinary incident, in which the subject is the service that
+    # alerted and there is nothing to explain.
+    #
+    # Carried rather than worked out by whoever renders the line. The comparison
+    # needs the incident's own alerting service, which an account rendered from
+    # events alone does not have, and putting it on every action line so that
+    # one kind of line could compare against it would have every publisher
+    # restate a fact about the incident on every row it wrote.
+    a_dependency_of: str | None = None
 
 
 class AwaitingRecovery(_Event):

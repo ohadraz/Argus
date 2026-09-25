@@ -28,6 +28,7 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     Reading,
+    ServiceDependency,
     Verdict,
 )
 from pydantic import BaseModel, ConfigDict
@@ -86,6 +87,13 @@ class StateDelta(BaseModel):
     # `model_fields_set` is what makes that possible: a `None` a node chose is
     # sent on, where a `None` it never mentioned is not.
     flag_changes: list[FlagChange] | None = None
+    # What the register says the alerting service calls, read in the same round
+    # as the flag history. Optional here for the reason every field above is -
+    # a node that did not set it must not overwrite what another node decided -
+    # and never `None` in the state, because an unreadable register and a
+    # register that lists nothing leave the gate with the same authority:
+    # the alerting service, and nothing else.
+    dependencies: list[ServiceDependency] | None = None
     proposed_action: Action | None = None
     nothing_worth_trying: bool | None = None
     fix_found: bool | None = None

@@ -18,6 +18,7 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     Reading,
+    ServiceDependency,
     Verdict,
 )
 from pydantic import BaseModel
@@ -69,6 +70,21 @@ class IncidentState(BaseModel):
     # while meaning the opposite thing, and an account that spelled them the
     # same would tell a reader nothing changed when nobody could say.
     flag_changes: list[FlagChange] | None = None
+    # What the service register says this service calls, read once at the top of
+    # each round beside the flag history. Carried for the same reason: the gate
+    # reads it to decide whether the service an action is addressed to is one
+    # Argus may touch, and a gate that fetched it for itself would be one whose
+    # answer depended on a document store being reachable at the instant it
+    # asked.
+    #
+    # An empty list is what an unreadable register looks like here, and that is
+    # deliberately not distinguished from a register that listed nothing. Both
+    # leave every mitigation addressed to the alerting service exactly as
+    # available as it was - the alerting service is within reach whatever the
+    # register says - and both refuse an action aimed anywhere else, which is the
+    # restrictive direction and the right one: an estate is not a thing to guess
+    # at.
+    dependencies: list[ServiceDependency] = []
     # Chosen by Mitigation and inspected by the tier gate before anything
     # mutating runs (spec §13). It lives in the graph's state rather than being
     # passed between the two, because a gate the acting node could bypass by

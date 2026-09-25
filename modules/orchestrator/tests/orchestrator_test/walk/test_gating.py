@@ -38,14 +38,16 @@ from argus_core.models import (
     FlagUndo,
     Hypothesis,
     IncidentStatus,
+    Ownership,
     Refusal,
     RestartService,
     RevertFeatureFlag,
+    ServiceDependency,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
-from orchestrator.walk.gating import route_after_gate, tier_gate_node
+from orchestrator.walk.gating import route_after_gate, tier_gate_node, what_the_row_says
 from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -319,7 +321,9 @@ def test_a_candidate_refused_for_having_been_tried_enough_says_so_in_its_row(
 
 def _a_mitigating_incident(proposing: Action | None = None,
                            about: Hypothesis | None = None,
-                           already_tried: list[Attempt] | None = None) -> IncidentState:
+                           already_tried: list[Attempt] | None = None,
+                           listing: list[ServiceDependency] | None = None
+                           ) -> IncidentState:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
 
@@ -327,7 +331,8 @@ def _a_mitigating_incident(proposing: Action | None = None,
         update={
             "hypothesis": about or a_determined_hypothesis(state.incident_id),
             "proposed_action": proposing,
-            "attempts": already_tried or []
+            "attempts": already_tried or [],
+            "dependencies": listing or []
         }
     )
 
@@ -638,6 +643,147 @@ def test_a_candidate_that_named_no_mode_is_refused_as_unproposed(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(_the_refusal_was_published(Refusal.NO_MITIGATION_PROPOSED, published))
+
+
+@pytest.mark.unit
+def test_an_action_addressed_outside_the_estate_is_refused(
+    record_outcome: MagicMock
+) -> None:
+    # The second gate, and the first refusal that is about the *instance*
+    # rather than the kind. A restart is pre-authorised, and this one names a
+    # service the register has nothing to say about - which is where a mistyped
+    # name, a third party's, and one a model invented all land together.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_aimed_elsewhere := _a_mitigating_incident(
+                proposing=_a_proposed_restart("io-billing"),
+                listing=[_a_dependency_of_ours("io-pricing")]
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_aimed_elsewhere,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(all_of(_the_action_was_cleared(),
+                     _the_incident_was_moved_nowhere(),
+                     _nothing_was_narrated(),
+                     _the_refusal_was_published(
+                         Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH, published)))
+
+
+@pytest.mark.unit
+def test_a_restart_of_a_dependency_the_register_calls_ours_is_let_through(
+    record_outcome: MagicMock
+) -> None:
+    # The whole point of the mode at the gate: a service Argus was never paged
+    # about, touched anyway, because the register says the alerting service
+    # calls it and the organisation owns it. Without this the second gate would
+    # be a refusal with no matching permission.
+    Scenario() \
+        .given(
+            an_incident_blaming_a_dependency := _a_mitigating_incident(
+                proposing=_a_proposed_restart("io-pricing"),
+                listing=[_a_dependency_of_ours("io-pricing")]
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_blaming_a_dependency,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(all_of(_the_gate_changed_nothing(),
+                     _no_outcome_was_recorded(record_outcome)))
+
+
+@pytest.mark.unit
+def test_a_candidate_refused_for_where_it_was_aimed_says_so_in_its_row(
+    record_outcome: MagicMock
+) -> None:
+    # "Argus does not do that" and "Argus does not touch that" ask different
+    # people for different things - one to widen a declared set, the other to
+    # correct an entry in the register - and the row is where whoever picks the
+    # incident up finds out which was meant.
+    Scenario() \
+        .given(
+            some_candidate := a_determined_hypothesis(a_random_id()),
+            an_incident_aimed_elsewhere := _a_mitigating_incident(
+                proposing=_a_proposed_restart("io-billing"),
+                about=some_candidate
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_aimed_elsewhere,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(_the_candidate_was_recorded_as_untried(
+            some_candidate,
+            "outside the estate Argus may act on",
+            record_outcome))
+
+
+@pytest.mark.unit
+def test_every_refusal_has_a_sentence_for_the_candidates_row() -> None:
+    # The same subscript the narration carried, in a worse place. A refusal
+    # with no sentence here does not degrade to a blank row - it raises inside
+    # the gate, which is on the walk itself rather than on the page, so a sixth
+    # refusal would end the incident instead of spoiling its account.
+    #
+    # Over the whole enum rather than per member, for the reason the narration's
+    # is: what must hold is that no refusal reaches a candidate's row as a value
+    # nobody wrote a sentence for, and a test naming the five that exist today
+    # would say nothing about the sixth.
+    Scenario() \
+        .given(every_reason_to_refuse := list(Refusal)) \
+        .when(lambda: {
+            refusal: _what_the_row_would_say_about(refusal)
+            for refusal in every_reason_to_refuse
+        }) \
+        .then(_every_refusal_was_put_into_words())
+
+
+def _what_the_row_would_say_about(refusal: Refusal) -> str:
+    """The row's sentence for one refusal, or the empty string where there is none.
+
+    Caught rather than allowed to raise, so the assertion below names every
+    refusal without a sentence instead of the test ending on the first one.
+    """
+    try:
+        return what_the_row_says(refusal)
+    except KeyError:
+        return ""
+
+
+def _every_refusal_was_put_into_words() -> Assertion[dict[Refusal, str]]:
+    def assertion(said: dict[Refusal, str]) -> bool:
+        wordless = [refusal.value for refusal, sentence in said.items() if not sentence]
+
+        if wordless:
+            raise AssertionError(
+                f"{sorted(wordless)} have no sentence, so a candidate refused "
+                f"for one of those reasons fails the walk at the gate - before "
+                f"anything has been tried and before anything has been said."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_dependency_of_ours(name: str) -> ServiceDependency:
+    """One entry the register marks as the organisation's own.
+
+    Only the name and the ownership decide anything here; the rest is what an
+    entry happens to carry.
+    """
+    return ServiceDependency(
+        name=name,
+        purpose="dont care",
+        host=f"{name}.io-internal.svc",
+        owner="dont-care-team",
+        ownership=Ownership.INTERNAL
+    )
 
 
 def _a_cause_nobody_named() -> Hypothesis:

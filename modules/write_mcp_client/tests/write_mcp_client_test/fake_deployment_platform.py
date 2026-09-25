@@ -5,6 +5,7 @@ import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 from typing import Any
@@ -15,12 +16,21 @@ FAKE_PLATFORM_PORT = 8184
 
 RESTART_ACTION_PATH = "/argocd/{application}/resource/actions/v2"
 APPLICATION_PATH = "/argocd/{application}"
+RESOURCE_TREE_PATH = "/argocd/{application}/resource-tree"
 ROLLBACK_PATH = "/argocd/{application}/rollback"
 SPEC_PATH = "/argocd/{application}/spec"
 
-# What the gauge reads before anything is restarted, and how far a restart
-# moves it. Both arbitrary: what a caller can tell from this reading is that it
-# *changed*, and nothing else - the two clocks involved are not the same clock.
+# How the platform spells a creation time, which is Kubernetes' own: RFC 3339
+# to the second. The resolution is not a shortcut - what the value is compared
+# against is the previous process's start time, minutes old by then.
+POD_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+# When the pod that is serving came up, and how far a restart moves it. Both
+# arbitrary: what a caller can tell from this reading is that it *changed*, and
+# nothing else - the two clocks involved are not the same clock. Held as
+# seconds since the epoch because that is what the caller ends up holding, and
+# a whole number of them survives the round trip through a second-resolution
+# timestamp exactly.
 THE_PROCESS_THAT_WAS_SERVING = 1_756_000_000.0
 A_NEW_PROCESS_LATER = 600.0
 
@@ -39,11 +49,18 @@ _APPLICATION_IN = re.compile(r"^/argocd/(?P<application>[^/]+)")
 class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     """A deployment platform in Argo CD's own wire shape, with a memory.
 
-    It answers the surfaces a restart needs - the resource action, and the gauge
-    that says which process is serving - and running the action actually moves
-    the gauge. That is the point: `restart_service` returns only once the start
-    time has changed, so a fake whose POST did not move its own state would hang
-    rather than fail, and would prove nothing about the round trip.
+    It answers the surfaces a restart needs - the resource action, and the
+    resource tree that says when the pod now serving came up - and running the
+    action actually moves the pod's creation time. That is the point:
+    `restart_service` returns only once that time has changed, so a fake whose
+    POST did not move its own state would hang rather than fail, and would prove
+    nothing about the round trip.
+
+    The tree rather than a metrics gauge, because that is where the confirmation
+    reads from now. A gauge is one address serving one process, which says what
+    the alerting service is doing however the restart was addressed; a tree is
+    per application, which is what lets a restart aimed at a dependency be
+    confirmed against the dependency.
 
     It answers the surfaces a rollback needs for the same reason, and the same
     way. A rollback is three requests against three routes - the application is
@@ -54,9 +71,11 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     the rollback route refuses while the policy says the platform syncs itself,
     exactly as a real server refuses it.
 
-    One server for every role, because one deployment's Argo CD and its metrics
-    endpoint are two addresses and the test only needs them to be reachable -
-    which settings point where is what the context manager below decides.
+    One pod's creation time rather than one per application. What a per
+    application memory would witness - that the tree read is the one belonging
+    to the service restarted - is a property of the adapter, covered where the
+    adapter is, and holding it here would buy a second copy of that assertion
+    rather than anything this round trip can only show end to end.
     """
 
     process_start_time_seconds: float = THE_PROCESS_THAT_WAS_SERVING
@@ -66,8 +85,8 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     sync_policies_written: list[dict[str, Any]] = []
 
     def do_GET(self) -> None:
-        if self.path.startswith("/metrics"):
-            self._respond_with([self._the_minute_in_progress()])
+        if self.path.endswith("/resource-tree"):
+            self._respond_with(self._the_resource_tree())
         elif self._names_an_application() and self.path.count("/") == 2:
             self._respond_with(self._the_application())
         else:
@@ -102,8 +121,8 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         type(self).actions_run = self.actions_run + [
             {"path": self.path, "asked_for": self._the_body()}
         ]
-        # A restart is a new process, and the gauge moving is the only way
-        # anything outside can tell that it happened.
+        # A restart is a new process, and the pod's creation time moving is the
+        # only way anything outside can tell that it happened.
         type(self).process_start_time_seconds = (
             self.process_start_time_seconds + A_NEW_PROCESS_LATER
         )
@@ -129,6 +148,38 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
     def _names_an_application(self) -> bool:
         return _APPLICATION_IN.match(self.path) is not None
+
+    def _the_application_named(self) -> str:
+        """Which application the path is about, or nothing recognisable.
+
+        Only the pod's name is built from it, which nothing reads - but a pod
+        named after an application it does not belong to is a fixture that
+        would mislead whoever next looked at a failure here.
+        """
+        named = _APPLICATION_IN.match(self.path)
+
+        return named.group("application") if named else "unknown"
+
+    def _the_resource_tree(self) -> dict[str, Any]:
+        """What is running, in the shape Argo CD's resource tree reports it.
+
+        One pod, because the caller takes the newest and a single one makes that
+        unambiguous. A real tree carries the Deployment, the ReplicaSet and the
+        Service beside it, and a stand-in inventing creation times for those
+        would be putting figures into the world for nobody to read.
+        """
+        return {
+            "nodes": [
+                {
+                    "kind": "Pod",
+                    "name": f"{self._the_application_named()}-7d4f9c",
+                    "namespace": "production",
+                    "createdAt": datetime.fromtimestamp(
+                        self.process_start_time_seconds, UTC
+                    ).strftime(POD_TIMESTAMP_FORMAT)
+                }
+            ]
+        }
 
     def _the_application(self) -> dict[str, Any]:
         """The application in Argo CD's own shape, as much of it as is read.
@@ -165,25 +216,6 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         body: dict[str, Any] = json.loads(self.rfile.read(length))
 
         return body
-
-    def _the_minute_in_progress(self) -> dict[str, Any]:
-        """One bucket, in the shape the metrics channel serves them.
-
-        Only the start time is read here, but a window that carried nothing
-        else would be a window no real service produces - and the reader takes
-        the *latest* minute, which a one-minute window makes unambiguous.
-        """
-        return {
-            "bucket_id": "2026-08-20T11:00:00Z",
-            "error_rate": 0.01,
-            "p50_ms": 80,
-            "p95_ms": 200,
-            "p99_ms": 350,
-            "request_volume": 1000,
-            "memory_used_bytes": 440 * 1024**2,
-            "memory_limit_bytes": None,
-            "process_start_time_seconds": self.process_start_time_seconds,
-        }
 
     def _respond_with(self, payload: object) -> None:
         body = json.dumps(payload).encode()
@@ -222,12 +254,12 @@ def a_running_platform() -> Iterator[type[FakeDeploymentPlatformHandler]]:
     os.environ["ARGOCD_BASE_URL"] = address
     os.environ["ARGOCD_RESTART_ACTION_PATH"] = RESTART_ACTION_PATH
     os.environ["ARGOCD_APPLICATION_PATH"] = APPLICATION_PATH
+    os.environ["ARGOCD_RESOURCE_TREE_PATH"] = RESOURCE_TREE_PATH
     os.environ["ARGOCD_ROLLBACK_PATH"] = ROLLBACK_PATH
     os.environ["ARGOCD_SPEC_PATH"] = SPEC_PATH
     # Empty on purpose: the stand-in takes no credential, and an inherited one
     # would be sent as a header a real server would then refuse.
     os.environ["ARGOCD_AUTH_TOKEN"] = ""
-    os.environ["TARGET_SERVICE_URL"] = address
     get_settings.cache_clear()
 
     try:
@@ -244,8 +276,8 @@ def a_running_platform() -> Iterator[type[FakeDeploymentPlatformHandler]]:
         del os.environ["ARGOCD_BASE_URL"]
         del os.environ["ARGOCD_RESTART_ACTION_PATH"]
         del os.environ["ARGOCD_APPLICATION_PATH"]
+        del os.environ["ARGOCD_RESOURCE_TREE_PATH"]
         del os.environ["ARGOCD_ROLLBACK_PATH"]
         del os.environ["ARGOCD_SPEC_PATH"]
         del os.environ["ARGOCD_AUTH_TOKEN"]
-        del os.environ["TARGET_SERVICE_URL"]
         get_settings.cache_clear()

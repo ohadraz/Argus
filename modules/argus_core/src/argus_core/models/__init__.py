@@ -29,6 +29,7 @@ from argus_core.models.action import (
     the_direction_of,
     the_identity_of,
     the_identity_recorded,
+    the_service_addressed_by,
     the_subject_of,
 )
 from argus_core.models.actor import Actor
@@ -56,6 +57,7 @@ from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
 from argus_core.models.reading import Reading, RetrievalChannel
 from argus_core.models.refusal import Refusal
+from argus_core.models.service_dependency import Ownership, ServiceDependency
 from argus_core.models.taken_action import TakenAction
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import (
@@ -85,6 +87,7 @@ __all__ = [
     "the_direction_of",
     "the_identity_of",
     "the_identity_recorded",
+    "the_service_addressed_by",
     "the_subject_of",
     "SET_FEATURE_FLAG_TOOL",
     "Action",
@@ -115,6 +118,7 @@ __all__ = [
     "ModelPolicy",
     "OpenedPullRequest",
     "Outcome",
+    "Ownership",
     "Postmortem",
     "PostmortemDocument",
     "PublishedRates",
@@ -126,6 +130,7 @@ __all__ = [
     "RollBackDeployment",
     "RestartedService",
     "RevertFeatureFlag",
+    "ServiceDependency",
     "TakenAction",
     "ToolCall",
     "ToolDefinition",

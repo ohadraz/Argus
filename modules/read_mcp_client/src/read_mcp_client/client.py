@@ -4,7 +4,7 @@ from typing import Final
 
 from argus_core import ReadMcpEndpoint
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, MetricBucket
+from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
 from pydantic import TypeAdapter
 
 # What each tool answers with, said once. The transport hands back whatever the
@@ -15,6 +15,7 @@ _LOG_LINES: Final = TypeAdapter(list[str])
 _METRIC_BUCKETS: Final = TypeAdapter(list[MetricBucket])
 _CHANGE_EVENTS: Final = TypeAdapter(list[ChangeEvent])
 _FLAG_NAMES: Final = TypeAdapter(list[str])
+_SERVICE_DEPENDENCIES: Final = TypeAdapter(list[ServiceDependency])
 _FILE_PATHS: Final = TypeAdapter(list[str])
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
@@ -116,6 +117,37 @@ def get_enabled_flags(*, client: McpClient) -> list[str]:
     with nothing to revert.
     """
     return client.call("get_enabled_flags", _FLAG_NAMES.validate_python)
+
+
+def get_service_dependencies(service: str,
+                             *,
+                             client: McpClient) -> list[ServiceDependency]:
+    """Reads what a service calls, and whose each of those is.
+
+    The one channel that answers whether a failing dependency is the
+    organisation's own, which is what separates a propagation incident somebody
+    here can end from one only a telephone call can. Nothing else carries it: a
+    host name is a spelling somebody chose, and the owning team does not settle
+    it either, since somebody here owns the integration with a vendor.
+
+    Read by the Orchestrator before a mitigation is chosen as well as by the
+    Investigator while it works, and for two different reasons. The
+    investigation needs it to name the cause; the choice of action needs it to
+    know what Argus may address at all, and needs it in hand *before* the choice
+    so that the gate can refuse without anything having been called.
+
+    A service the register holds no entry for depends on nothing as far as
+    anybody here knows, which is a real answer. Raises rather than returning an
+    empty list when the register cannot be reached: an outage read as "it calls
+    nothing" leaves the estate looking empty, and an empty estate is one where
+    every address is out of reach - so an outage would silently forbid every
+    mitigation instead of reporting itself.
+    """
+    return client.call(
+        "get_service_dependencies",
+        _SERVICE_DEPENDENCIES.validate_python,
+        service=service,
+    )
 
 
 def search_repository(query: str, ref: str, *, client: McpClient) -> list[str]:

@@ -17,12 +17,18 @@ from __future__ import annotations
 from argus_core.models import Findings, Reading
 
 from agent_investigator.investigation import investigate
-from agent_investigator.retrieval import changes_over, logs_over, metrics_over
+from agent_investigator.retrieval import (
+    changes_over,
+    dependencies_over,
+    logs_over,
+    metrics_over,
+)
 
 __all__ = [
     "Findings",
     "Reading",
     "changes_over",
+    "dependencies_over",
     "investigate",
     "logs_over",
     "metrics_over"

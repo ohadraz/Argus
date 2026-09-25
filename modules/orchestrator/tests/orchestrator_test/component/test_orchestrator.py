@@ -90,6 +90,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         max_rounds=SOME_ROUND_BUDGET,
         record_hypothesis=lambda dont_care_hypothesis: None,
         fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG)),
+        fetch_dependencies=lambda dont_care_service: [],
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
         admitted=lambda dont_care_action: True,
         attempts_per_subject=EVERY_ATTEMPT_A_WALK_MAKES,

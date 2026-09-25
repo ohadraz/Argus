@@ -45,6 +45,7 @@ from argus_core.models import (
 __all__ = [
     "DEFAULT_STRATEGIES",
     "MitigationStrategy",
+    "RestartDependencyStrategy",
     "RestartServiceStrategy",
     "RollBackDeploymentStrategy",
     "RevertFeatureFlagStrategy",
@@ -208,6 +209,62 @@ class RollBackDeploymentStrategy:
         return RollBackDeployment(application=service)
 
 
+class RestartDependencyStrategy:
+    """Answering a neighbour's fault by restarting the neighbour.
+
+    The same call the leak is answered with, addressed somewhere else - and that
+    is the whole of what is new here. `RestartService` already carries the
+    service it acts on; what changes is where that name comes from.
+
+    It comes from the hypothesis, and this is the one strategy where that is
+    right. The three above refuse to read the hypothesis for a subject, and the
+    refusal is sound: what a model writes in `subject` is its description of what
+    went wrong, and a platform call sent to "kuki heap (memory_used_bytes / heap
+    of 2048MiB limit)" asks about a resource nobody has. `faulting_service` is a
+    different field for exactly that reason - an address rather than a
+    description, written from the service register, which is the only place the
+    name a platform knows a service by can be copied from.
+
+    Not from the alert, which is the point of the whole mode: the alerting
+    service is well. A strategy that fell back to it when the hypothesis named
+    nothing would restart the one process the incident has established is
+    healthy, and would then read that service's unchanged telemetry as evidence
+    that restarting does not help - a wrong action and a wrong conclusion drawn
+    from it.
+
+    Whether Argus may then touch the service named is a different question with a
+    different answer, and it is not asked here: a strategy says what would help,
+    and `admitting` says what is permitted. That separation is why this one can
+    propose a restart of anything the investigation blamed without also being the
+    thing that decides how far Argus's authority reaches.
+    """
+
+    action_type: ActionType = RESTART_SERVICE
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None:
+        """The dependency to restart, or `None` where the evidence names none.
+
+        `None` rather than a restart of the alerting service, for the reason
+        above. It reaches the same place a flag revert's `None` reaches - a
+        refusal saying no mitigation could be identified for this cause - which
+        is the honest account: the mode has an answer in general and this
+        particular diagnosis did not say what to apply it to.
+
+        The recorded flag changes are not read. A neighbour being slow is not
+        something a flag did, and one that happened to move meanwhile is a
+        coincidence this must not act on. The parameters are still spelled as the
+        protocol spells them, for the reason the other strategies' unread ones
+        are.
+        """
+        if hypothesis.faulting_service is None:
+            return None
+
+        return RestartService(service=hypothesis.faulting_service)
+
+
 Strategies = Mapping[FailureMode, MitigationStrategy]
 
 # Which mitigation answers which cause. A mode absent from this is one Argus
@@ -224,11 +281,20 @@ Strategies = Mapping[FailureMode, MitigationStrategy]
 # distinction a reader of an incident makes, never one this mapping makes for
 # them - what separates these two is the account the incident gives and the fix
 # left afterwards, not what is done about it now.
+#
+# The two restarts are the other shape of the same thing, and they are two
+# strategies rather than one because they differ in something a caller cannot
+# supply: where the service comes from. A leak is in the service that alerted, so
+# that strategy is handed the name; a neighbour's fault is somewhere the alert
+# never mentioned, so that one reads the address the investigation wrote down.
+# Both produce the same kind of action, which is why `GENERIC_MITIGATIONS` is
+# unaffected by this mode arriving.
 DEFAULT_STRATEGIES: Strategies = {
     FailureMode.BAD_DEPLOYMENT: RollBackDeploymentStrategy(),
     FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
     FailureMode.RESOURCE_LEAK: RestartServiceStrategy(),
-    FailureMode.CONFIG_INDUCED_FAILURE: RollBackDeploymentStrategy()
+    FailureMode.CONFIG_INDUCED_FAILURE: RollBackDeploymentStrategy(),
+    FailureMode.INTERNAL_DEPENDENCY_FAILURE: RestartDependencyStrategy()
 }
 
 

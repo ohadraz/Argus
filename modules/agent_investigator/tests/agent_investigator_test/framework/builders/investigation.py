@@ -15,11 +15,22 @@ from unittest.mock import Mock, create_autospec
 
 from agent_investigator import Findings, Reading, investigate
 from agent_investigator.budget import Budget, InvestigationSettings
-from agent_investigator.retrieval import ChangeFetcher, LogFetcher, MetricsFetcher
+from agent_investigator.retrieval import (
+    ChangeFetcher,
+    DependencyFetcher,
+    LogFetcher,
+    MetricsFetcher,
+)
 from argus_core import new_id
 from argus_core.events import Publisher, nobody
 from argus_core.llm import Conversations, a_conversation_recorded_for
-from argus_core.models import Alert, Attempt, ChangeEvent, MetricBucket
+from argus_core.models import (
+    Alert,
+    Attempt,
+    ChangeEvent,
+    MetricBucket,
+    ServiceDependency,
+)
 from argus_testkit import raising, returning
 
 from agent_investigator_test.framework.builders.budget import a_budget
@@ -36,6 +47,7 @@ class Investigation(NamedTuple):
     metrics_fetcher: Mock
     log_fetcher: Mock
     change_fetcher: Mock
+    dependency_fetcher: Mock
     model: Mock
     budget: Budget
 
@@ -63,6 +75,7 @@ class Investigation(NamedTuple):
             fetch_metrics=self.metrics_fetcher,
             fetch_logs=self.log_fetcher,
             fetch_change_events=self.change_fetcher,
+            fetch_dependencies=self.dependency_fetcher,
             settings=settings or some_investigation_settings(),
             thresholds=some_thresholds(),
             converse=None if conversations is not None else self.model,
@@ -88,6 +101,14 @@ class Investigation(NamedTuple):
     def the_change_source_failed(self, error: Exception) -> Callable[[], None]:
         return raising(self.change_fetcher, error)
 
+    def the_register_reported(self,
+                             dependencies: list[ServiceDependency]
+                             ) -> Callable[[], None]:
+        return returning(self.dependency_fetcher, dependencies)
+
+    def the_register_failed(self, error: Exception) -> Callable[[], None]:
+        return raising(self.dependency_fetcher, error)
+
 
 def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation:
     """The loop, with a scripted model and every channel answering emptily.
@@ -101,6 +122,9 @@ def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation
         metrics_fetcher=create_autospec(MetricsFetcher, instance=True, return_value=[]),
         log_fetcher=create_autospec(LogFetcher, instance=True, return_value=NO_LOGS),
         change_fetcher=create_autospec(ChangeFetcher, instance=True, return_value=[]),
+        dependency_fetcher=create_autospec(
+            DependencyFetcher, instance=True, return_value=[]
+        ),
         model=model,
         budget=budget or a_budget()
     )

@@ -37,6 +37,7 @@ from tests.framework.investigating import (
     logs_that_say_little,
     metrics_that_show_an_onset,
     no_changes,
+    no_dependencies,
     the_configured_thresholds,
 )
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
@@ -81,6 +82,7 @@ def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
                     fetch_metrics=metrics_that_show_an_onset,
                     fetch_logs=logs_that_say_little,
                     fetch_change_events=no_changes,
+                    fetch_dependencies=no_dependencies,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
                     budget=the_budget,
