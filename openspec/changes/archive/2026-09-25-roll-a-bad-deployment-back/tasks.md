@@ -143,6 +143,6 @@
 - [x] 7.2 `docs/failure-modes-backlog.md`: change-induced reads built, the
       paragraph about what FM-09 waited for is gone, and FM-09 has a section of
       its own beside FM-10 saying why one action answers both
-- [ ] 7.3 `openspec/specs/` synced, and the spec folder
+- [x] 7.3 `openspec/specs/` synced, and the spec folder
       `config-rollback-mitigation` renamed to `deployment-rollback-mitigation`
       at archive time
