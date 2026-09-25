@@ -5,6 +5,27 @@ a second thing that can fail, and it fails by producing a file that is subtly
 not what anyone wrote - where a whole file that came out wrong is wrong
 visibly, on a branch, in front of the person who has to approve it.
 
+That is a decision rather than a constraint, and the cost of it is measured.
+An answer is a pair, because the submission below asks for the test that
+exposes the bug alongside the source it fixes - so both halves are what a
+whole-file shape has to carry. The Target Service is 30,043 tokens of source
+and 9,880 of tests, 39,923 entire; the largest pair in it is
+`monthly_statement.py` at 21,593 with `test_monthly_statement.py` at 2,142,
+23,735 together. Everything else is small - `account_page.py` 3,233 beside a
+3,119-token test, and no other file over 1,500. Against a
+`codefix_max_output_tokens` of 128,000, the premium a diff would save is one
+file's tokens per file changed, bounded by those figures rather than
+open-ended. Truncation used to be the argument against this shape; a
+larger bound and a streamed answer removed it, which withdrew an argument
+against whole files without supplying one for diffs.
+
+Reopening it needs an experiment that can read the difference, and the fix
+corpus cannot supply one: `grade_fixes` yields a single binary outcome per
+walk over eight walks, and two arms of that separate only in total failure -
+the same wall the model and effort comparisons hit. The prerequisite is a
+grader with many more than eight outcomes in it, not a paid re-record against
+a diff-shaped prompt.
+
 It arrives as a tool call rather than as prose. Source parsed back out of a
 fenced block is source that can be parsed wrongly, and every failure mode is
 silent: a stray line of commentary becomes a line of Python, and a closing fence

@@ -343,11 +343,13 @@ class Settings(BaseSettings):
     codefix_effort: Effort = Field(default=DEFAULT_EFFORT)
     # How much room one fix gets to be written in. Alone among the agents
     # Code-Fix answers with whole files, and the largest in the Target
-    # Service is 21,484 tokens - so the 16,000 every other agent is happy
+    # Service - `monthly_statement.py` - is 21,593 tokens, 23,735 with the test
+    # a fix is asked to bring with it, so the 16,000 every other agent is happy
     # with makes a whole class of fix impossible rather than tight, and no
     # retry helps because the same request overflows the same ceiling every
-    # time. Past 21,333 the answer is streamed, which is the only way the
-    # SDK will carry one that large; 128,000 is the model's own ceiling and
+    # time. That pair alone is past 21,333, where the answer
+    # is streamed, which is the only way the SDK will carry one that large;
+    # 128,000 is the model's own ceiling and
     # a ceiling is not a reservation, so asking for all of it costs nothing
     # for the fixes that turn out to be small.
     codefix_max_output_tokens: int = Field(default=128_000, gt=0)

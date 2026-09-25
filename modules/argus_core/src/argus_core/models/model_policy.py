@@ -31,10 +31,10 @@ DEFAULT_EFFORT: Final[Effort] = "high"
 # How much room an answer gets. Sixteen thousand is what every agent had
 # when they shared one client, and it is the right order for an answer
 # that is a short thing to say plus the calls it asks for. It is the wrong
-# order for an answer that is a file: the largest in the Target Service is
-# 21,484 tokens, so a cap of this size makes some fixes impossible rather
-# than merely tight, and no retry can help because the same request
-# overflows the same ceiling every time.
+# order for an answer that is a file: the largest in the Target Service,
+# `monthly_statement.py`, is 21,593 tokens, so a cap of this size makes some
+# fixes impossible rather than merely tight, and no retry can help because
+# the same request overflows the same ceiling every time.
 DEFAULT_MAX_OUTPUT_TOKENS: Final = 16_000
 
 # Above this the SDK refuses a non-streaming request outright, by a rule

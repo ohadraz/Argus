@@ -175,6 +175,9 @@ def to_messages(transcript: Transcript) -> list[MessageParam]:
     `ToolResults` and never learns that a tool result is a content block with
     an `is_error` flag.
 
+    A `Turn`'s `reasoning` is not rendered here, deliberately; `to_turn` records
+    why, since that is where it was read out of the response.
+
     Public rather than private because it is a pure function with real rules in
     it - which side each entry is attributed to, and that one turn's results
     travel together - and those rules are worth testing without a client, a key
@@ -202,7 +205,20 @@ def to_turn(message: Message) -> Turn:
     joined to the text. Why a wrong hypothesis looked right is the most
     useful thing a later reader of an incident can have, and this response is
     the only place it ever exists; what is not read out of it here is gone.
-    Nothing that narrates goes near it, and nothing sends it back.
+    Nothing that narrates goes near it.
+
+    It is not sent back either, and that is a decision rather than a rule.
+    Anthropic's guidance is to echo thinking blocks unchanged while a
+    conversation continues on the same model, and `SUMMARISED_THINKING` means
+    the blocks hold real reasoning text rather than empty shells - so something
+    is genuinely being dropped. Against that: on Sonnet 5 they are not
+    load-bearing, so dropping them is neither an error nor a repriced turn; the
+    benefit is below the investigator eval's resolution, where five of six cases
+    already sit at 50/50; and the cost is not linear, since every turn's
+    reasoning would be resent by every turn after it - quadratic across a walk
+    of up to twelve rounds per investigation. `measure_spend` can price that
+    side exactly, which is the measurement to take when the eval grows a case
+    sharp enough to make the other side worth paying for.
 
     Text is joined rather than taken first, because one turn's words arrive as
     however many blocks the API chose to break them into and they are one
