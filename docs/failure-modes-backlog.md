@@ -21,7 +21,7 @@ pattern. See "A note on the name" below.
 
 | Family | Share | Modes | Argus |
 |---|---|---|---|
-| Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Partly.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here; FM-10 is built, FM-09 is diagnosed but has no mitigation until the git write path |
+| Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Partly.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here; FM-10 is built, FM-09 is diagnosed and dispatches to no strategy - the only mode of the five that does not |
 | Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Partly.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage |
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** `resource-leak` is the leak half of FM-13; demand saturation is not built |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
@@ -29,6 +29,27 @@ pattern. See "A note on the name" below.
 | Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Partly.** `slow-canary-rollout` is FM-06: diagnosed and mitigated by putting the flag back. In-flight compatibility is not built |
 | AI-specific | 2% | Output-quality degradation (FM-17), accelerator heterogeneity (FM-33) | No |
 | External/adversarial | 1% | External attack (FM-15), supply-chain breach (FM-16) | No, and out of scope |
+
+A mode's mitigation is a separate question from its coverage, and FM-09 is where
+the two come apart: `bad-deployment` is diagnosed and named, and it is the one
+mode of the five that reaches no strategy. What it waits for is a strategy, not a
+mechanism - returning a deployment to a revision it already ran is what the
+config rollback does, through the same platform sync, and a code deploy is the
+same action against a different revision.
+
+## Scenarios that stage a mode already built
+
+Not every scenario adds coverage. Four stage `feature-flag-toggle`, which the
+table already counts, because what they exercise is the walk rather than the
+catalogue: `flag-toggle-red-herring` puts a real, logged, irrelevant toggle where
+the cause should be, so a mitigation taken on it is refuted and has to be put
+back; `competing-flag-changes` moves two flags in one minute and lets the
+evidence support both readings; `fallback-disabled` begins the incident by
+switching a flag *off*, which an agent that can only switch flags off cannot end;
+and `monthly-statement-panel` puts the same fault in the Target Service's largest
+module, so that the permanent fix is an answer no unstreamed cap can carry. They
+are eval cases, and a green run of one says nothing about which families above
+are covered.
 
 ## FM-13 Resource exhaustion, split by response
 
@@ -122,8 +143,9 @@ the one generated scenario that is resolved as well as mitigated: what ends it
 is a flag going back, and nothing is left in a heap or a values file for a new
 process or a re-sync to bring back.
 
-**FM-10 Config-induced failure is built.** `config-induced-failure` stages a
-deploy that moves the cache's port in `deploy/values-production.yaml`: every
+**FM-10 Config-induced failure is built.** `cache-misconfigured` stages it - the
+mode is `config-induced-failure`, and the scenario is one way of reaching it: a
+change that moves the cache's port in `deploy/values-production.yaml`. Every
 lookup is refused, every page recomputes, and every page is still correct -
 the fallback is designed behaviour - so the error rate never moves. The
 incident lives entirely in the median, because nine requests in ten used to be
