@@ -203,10 +203,15 @@ and its address is a dependency the register marks as the organisation's own -
 and the second refuses in its own words, because "Argus does not do that" and
 "Argus does not touch that" ask different people for different things.
 
-It is also the first mode whose permanent fix is out of Code-Fix's reach. The
-shop's source is correct; what is wrong is in a service whose repository Argus
-was never pointed at, and a timeout or a fallback on the calling side is a
-design decision rather than a defect to patch.
+It is also the first mode whose *cause* is out of Code-Fix's reach, which is not
+the same as having nothing to propose. What became slow is in a service whose
+repository Argus was never pointed at, and no change to the shop makes it fast
+again. But the shop calls that service on the render path with no deadline, so
+whatever the dependency takes, the page takes - a fault in the caller however
+well the dependency behaves. What Argus proposes here is therefore a defence
+rather than a repair, and saying so is the point: the bound stops one service's
+slowness from being all of Argus's, and the thing that was actually wrong is
+still somebody else's to fix.
 
 ## Why they are called modes
 

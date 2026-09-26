@@ -239,9 +239,28 @@
       and is offered a fourth tool, which the register makes wrong, and §16's
       account of windowing had no place for a channel that has no window
 - [x] 8.2 `docs/failure-modes-backlog.md`: the propagation row becomes **Yes**, and
-      FM-23 gets its paragraph beside the others - including that its permanent fix
-      is the first one out of Code-Fix's reach. Also struck from "what is worth
-      building next", which now opens with FM-35
+      FM-23 gets its paragraph beside the others. Also struck from "what is worth
+      building next", which now opens with FM-35.
+      **Corrected by the paid runs**: the claim was that this mode's permanent
+      fix is out of Code-Fix's reach, and it is not - its *cause* is. The shop
+      calls the dependency with no deadline, which is a fault in the caller
+      however well the dependency behaves, and the model proposed exactly that
+      bound in both modes. What the mode is really the first of is a fix that is
+      a defence rather than a repair
 - [x] 8.3 `nox -s lint`, `typecheck`, `guard_layering`, `test_all` green - 522
       files, 6 contracts kept, 1385 tests
-- [ ] 8.4 Commit per the repo's one-line convention, then archive as a second commit
+- [x] 8.4 Commit per the repo's one-line convention, then archive as a second commit.
+      Four commits rather than one: the change itself, and then three things it
+      turned up that are nobody's business but their own - protocol parameters
+      that bind an implementation's names, a paid run against a Target Service
+      the model cannot see, and a described fix that arrives with no patch.
+      Splitting them further would have left a commit whose `grep` replay was
+      red, since that recording exists only because of the retry.
+      **What the paid runs bought beyond recordings**: two were spent against a
+      demo app whose pricing module had never been pushed, so Code-Fix searched
+      correctly, found nothing, and bounded a summary cache belonging to another
+      scenario - a well-written fix to a file this incident was never about.
+      `_refuse_a_target_service_the_model_cannot_see` now blocks that before the
+      stack comes up. The fifth proved the retry works on a real model: told its
+      patch was missing, it attached the bound it had described and fixed the
+      call site too

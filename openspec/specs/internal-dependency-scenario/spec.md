@@ -1,4 +1,14 @@
-## ADDED Requirements
+# internal-dependency-scenario Specification
+
+## Purpose
+The Target Service staging a dependency of its own becoming an order of
+magnitude slower to answer: every quantile climbs together, nothing fails,
+nothing was deployed and no flag moved. The shop is well throughout - the time
+every request spends is spent waiting - and the only evidence naming a cause is
+the shop's own log saying which host it went to. Restarting the dependency ends
+it and restarting the shop provably does not, which is what makes the address
+load-bearing rather than incidental.
+## Requirements
 
 ### Requirement: The shop depends on a pricing service the same organisation owns
 The Target Service SHALL render the account page partly from a second internal
@@ -95,14 +105,31 @@ other's.
 - **WHEN** the pricing service is restarted
 - **THEN** its process start time moves and the shop's does not
 
-### Requirement: The incident is mitigated and its fix is out of reach
-The scenario SHALL leave nothing in the shop's own source to fix. What remains
-after the restart is a fault in another service's code, in a repository this
-system neither indexes nor proposes changes to, so the incident SHALL end
-mitigated with the permanent fix named rather than authored.
+### Requirement: The cause is out of reach, and what the caller can do about it is not
+The scenario SHALL leave the cause in a repository this system neither indexes
+nor proposes changes to: what became slow is another service's code, and no
+change to the shop makes it fast again.
 
-#### Scenario: No fix is proposed against the shop
+The shop SHALL still have something worth proposing. It calls a dependency on
+the render path with no deadline of any kind, so whatever that dependency takes,
+the page takes - which is a fault in the caller however well the dependency
+behaves. What Argus proposes for this mode is therefore a defence rather than a
+repair, and the difference SHALL be readable: the incident's account says the
+permanent fix belongs to the dependency's owner, and the proposal bounds the
+wait rather than claiming to have fixed the cause.
+
+The proposal SHALL be addressed to the module holding that call. The account
+page calls a summary cache as well, belonging to another scenario, and a bound
+written there would read perfectly and change nothing about this incident.
+
+#### Scenario: What is proposed bounds the call this incident is about
 - **GIVEN** the scenario mitigated by restarting the pricing service
 - **WHEN** the walk looks for a permanent fix
-- **THEN** none is proposed against the Target Service's repository, and the
-  incident's account says the fix belongs to the dependency's owner
+- **THEN** what is proposed changes the module holding the unbounded pricing
+  call, and not the module holding the summary cache
+
+#### Scenario: The cause is named rather than authored
+- **GIVEN** a proposal bounding the caller's wait
+- **WHEN** the incident's account is read
+- **THEN** it says the fix for the cause belongs to the dependency's owner,
+  rather than presenting the bound as having ended the fault
