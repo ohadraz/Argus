@@ -14,9 +14,17 @@ is indistinguishable, downstream, from one that was never asked.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
-from agent_codefix.prompting import SubmittedFix
+from agent_codefix.prompting import (
+    EXPLANATION_FIELD,
+    FILES_FIELD,
+    REPORT_NOTHING_TO_CHANGE,
+    REPORT_TOOL_NAME,
+    SUBMIT_FIX,
+    SubmittedFix,
+)
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
 
@@ -231,6 +239,83 @@ def test_a_submission_naming_the_same_file_twice_keeps_the_later_one() -> None:
                 _the_patch_is({SOME_PATH: SOME_CONTENT})
             )
         )
+
+
+@pytest.mark.unit
+def test_the_submit_tool_will_not_accept_a_patch_with_no_files() -> None:
+    # The schema refuses it rather than the loop reading it back: strict mode
+    # constrains sampling, so a patch with nothing in it cannot be sent at all.
+    # `minItems` is one of the few numeric constraints strict mode honours, and
+    # only for 0 and 1 - which is exactly the bound wanted here.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            all_of(
+                _the_schema_requires(FILES_FIELD),
+                _the_schema_asks_for_at_least_one(FILES_FIELD)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_nothing_to_change_is_its_own_tool_and_carries_its_reasoning() -> None:
+    # A verdict and a proposal are two answers, so they are two calls. One tool
+    # answering both made an empty patch ambiguous between them, and no reading
+    # of the prose separates the two - an explanation accompanies either.
+    #
+    # The explanation is required though nothing downstream reads it: being
+    # asked for one is what makes submitting this a conclusion rather than a way
+    # out of a hard read.
+    Scenario() \
+        .when(lambda: REPORT_NOTHING_TO_CHANGE.to_wire()) \
+        .then(
+            all_of(
+                _the_tool_is_called(REPORT_TOOL_NAME),
+                _the_schema_requires(EXPLANATION_FIELD)
+            )
+        )
+
+
+def _the_tool_is_called(name: str) -> Assertion[dict[str, Any]]:
+    def assertion(offered: dict[str, Any]) -> bool:
+        if offered["name"] != name:
+            raise AssertionError(
+                f"Expected the tool to be called [{name!r}], got "
+                f"[{offered['name']!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_schema_requires(field: str) -> Assertion[dict[str, Any]]:
+    def assertion(offered: dict[str, Any]) -> bool:
+        required = offered["input_schema"]["required"]
+
+        if field not in required:
+            raise AssertionError(
+                f"Expected [{field!r}] to be required, got [{required!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_schema_asks_for_at_least_one(field: str) -> Assertion[dict[str, Any]]:
+    def assertion(offered: dict[str, Any]) -> bool:
+        asked = offered["input_schema"]["properties"][field].get("minItems")
+
+        if asked != 1:
+            raise AssertionError(
+                f"Expected [{field!r}] to ask for at least one item, got "
+                f"minItems [{asked!r}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_summary_is(summary: str | None) -> Assertion[SubmittedFix]:

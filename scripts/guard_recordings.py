@@ -19,12 +19,13 @@ edited for it:
   produces, on every path including escalation: escalating means a person has
   to act, not that nothing was learned, and the document is the handover to
   whoever picks it up.
-- **A walk that started Code-Fix has to have finished it.** `submit_fix` is
-  how every ending but two is reached - a proposal, and a judgement that
-  nothing needs changing, both go through it. Reaching the end of the loop
-  without it is the agent reading until its bounds ran out, which is a
-  statement about the bound rather than about the code, and the answers it
-  leaves behind stop in the middle of reading a repository.
+- **A walk that started Code-Fix has to have finished it.** There are two ways
+  to finish - a proposal, and a judgement that nothing needs changing - and one
+  tool each, because an empty patch could not be told from a dropped one.
+  Reaching the end of the loop having called neither is the agent reading until
+  its bounds ran out, which is a statement about the bound rather than about the
+  code, and the answers it leaves behind stop in the middle of reading a
+  repository.
 
 What each *particular* recording had to do - which cause, which action -
 belongs to the run that captures it, where the incident's own events can be
@@ -42,7 +43,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Final
 
-# The three tools that say which stage a walk got to. Spelled here rather than
+# The tools that say which stage a walk got to. Spelled here rather than
 # imported: neither `agent_postmortem` nor `agent_codefix` exports its submit
 # tool, and a guard over committed data has no business reaching past a
 # package's front door to read a name. A rename fails this loudly on every
@@ -53,7 +54,9 @@ THE_LAST_ANSWER: Final = "submit_postmortem"
 # walks that escalate before reaching it have no business submitting a fix,
 # and this is what tells them apart from the walks that reached it and failed.
 CODE_FIX_BEGAN: Final = "list_repository_files"
-CODE_FIX_ANSWERED: Final = "submit_fix"
+# Either of the two endings, so a walk that concluded the code is fine reads as
+# finished rather than as one that ran out mid-read.
+CODE_FIX_ANSWERED: Final = ("submit_fix", "report_nothing_to_change")
 
 RECORDINGS_DIR: Final = (
     Path(__file__).resolve().parent.parent
@@ -130,11 +133,14 @@ def what_gave_up(corpus: str, answers: list[Path]) -> str | None:
                 f"[{ended_on or 'no tool call'}] - the walk never wrote its "
                 f"postmortem")
 
-    if CODE_FIX_BEGAN in asked_for and CODE_FIX_ANSWERED not in asked_for:
+    if CODE_FIX_BEGAN in asked_for and not any(
+        answered in asked_for for answered in CODE_FIX_ANSWERED
+    ):
         reading = sum(1 for called in asked_for if called.startswith("search_"))
         return (f"{corpus}: {len(answers)} answers, Code-Fix searched "
-                f"{reading} times and never called [{CODE_FIX_ANSWERED}] - it "
-                f"read until its bounds ran out")
+                f"{reading} times and called neither of "
+                f"[{', '.join(CODE_FIX_ANSWERED)}] - it read until its bounds "
+                f"ran out")
 
     return None
 

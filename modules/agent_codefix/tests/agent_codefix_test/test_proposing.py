@@ -617,7 +617,11 @@ def test_a_deployment_with_an_index_offers_both_ways_of_searching() -> None:
                 _the_model_was_offered(model, "search_repository"),
                 _the_model_was_offered(model, "search_repository_by_meaning"),
                 _the_model_was_offered(model, "read_repository_file"),
-                _the_model_was_offered(model, "submit_fix")
+                _the_model_was_offered(model, "submit_fix"),
+                # Offered alongside the patch tool, not instead of it: a
+                # deployment where the model can propose but cannot conclude is
+                # one where the only answer is a fix, however the code reads.
+                _the_model_was_offered(model, "report_nothing_to_change")
             )
         )
 
@@ -927,14 +931,15 @@ def test_what_comes_back_is_where_the_proposal_can_be_read() -> None:
 
 
 @pytest.mark.unit
-def test_a_fix_proposing_no_files_writes_nothing_and_proposes_nothing() -> None:
+def test_a_model_reporting_nothing_to_change_writes_nothing_and_proposes_nothing() -> None:
     # "The fault is not in the code" is a conclusion, and a real one - the flag
     # scenarios are caused by code that is working as written. An empty pull
     # request would send a human to read a diff with nothing in it.
+    #
+    # One turn, and believed the first time: it is a tool nothing else reaches,
+    # so there is no second reading of it to rule out.
     repository = a_repository()
-    # Twice: an empty patch is put back once, and a model that meant it repeats
-    # it. See `_no_patch_was_attached`.
-    model = a_model_that(submits_a_fix_touching(), submits_a_fix_touching())
+    model = a_model_that(reports_nothing_to_change())
 
     Scenario() \
         .when(
@@ -1114,29 +1119,34 @@ def test_a_model_on_its_last_call_is_told_so_before_it_spends_it() -> None:
 
 
 @pytest.mark.unit
-def test_a_model_that_submits_no_files_has_answered() -> None:
-    # The other half of the same distinction, and a real conclusion: the code
-    # was read and there is nothing in it to change. No branch, no proposal,
-    # and no failure either - a human acts on this.
+def test_an_empty_patch_sent_twice_is_never_read_as_a_verdict() -> None:
+    # The behaviour this replaces: an empty patch repeated used to be believed
+    # as "there is nothing to change". It cannot be any longer, because the
+    # verdict has a tool of its own and this one's schema refuses an empty
+    # patch - so a model sending this twice has used the wrong tool twice, and
+    # reporting that as a conclusion would put words in its mouth.
+    #
+    # It ends as a run that never answered, which is what it is: a reader told
+    # that goes looking at the agent, where a reader told "nothing to change"
+    # goes looking at the code and finds it fine.
     repository = a_repository()
-    # Twice, because an empty patch is put back once: "there is nothing to
-    # change" and "here is the change" with nothing attached are the same call,
-    # and a model that meant the first says it again.
     model = a_model_that(submits_a_fix_touching(), submits_a_fix_touching())
 
     Scenario() \
         .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(),
-                converse=model.converse,
-                **repository.ports()
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=2),
+                    converse=model.converse,
+                    **repository.ports()
+                )
             )
         ) \
         .then(
             all_of(
-                _nothing_was_proposed(),
+                an_error_was_raised(FixNotAnswered),
                 _no_branch_was_written(repository)
             )
         )
@@ -1234,18 +1244,19 @@ def test_a_scripted_conversation_never_reaches_the_real_client() -> None:
 
 
 @pytest.mark.unit
-def test_a_submission_with_no_files_is_put_back_before_it_counts_as_a_verdict() -> None:
-    # An empty patch means "I read the code and there is nothing to change",
-    # and the walk reports it as exactly that. A live run submitted one
-    # alongside an explanation naming the file, describing the bound it wanted
-    # and why - and the incident was recorded as Argus having looked and found
-    # nothing. That is not a smaller answer than the truth; it is the opposite
-    # of it, and it reaches a human as a verdict nobody reached.
+def test_a_submission_with_no_files_is_put_back_rather_than_read_as_a_verdict() -> None:
+    # The schema forbids an empty patch, so one arriving here is a submission
+    # whose every entry was dropped as unreadable - see the leniency in
+    # `SubmittedFix`. That is a model that meant to attach a patch, not one
+    # reaching a verdict: the verdict has a tool of its own, and a model that
+    # wanted it would have called that.
     #
-    # Prose cannot tell the two apart - "there is nothing to change" is an
-    # explanation too - so the empty submission is put back once rather than
-    # judged. A model that meant it submits empty again and is believed; one
-    # that forgot the patch gets the turn it needed.
+    # Put back once, because the model has already decided what to write and
+    # needs the turn rather than the judgement. Ending here instead would throw
+    # away every file it had read correctly and report it as a conclusion
+    # about the code - which is what a live run did, recording "Argus looked
+    # and found nothing" over a submission naming the file and the bound it
+    # wanted.
     repository = a_repository()
     model = a_model_that(
         submits_a_fix_touching(),
@@ -1490,6 +1501,12 @@ def asks_to_search_by_meaning_for(description: str) -> Turn:
     return _a_turn_calling(
         "search_repository_by_meaning", {"description": description}
     )
+
+
+def reports_nothing_to_change(explanation: str = "an explanation") -> Turn:
+    return _a_turn_calling("report_nothing_to_change", {
+        "explanation": explanation
+    })
 
 
 def submits_a_fix_touching(*paths: str,

@@ -50,6 +50,12 @@ from pydantic import BaseModel, field_validator
 # apart - and a spelling that differed between the two would leave a field
 # quietly always missing.
 SUBMIT_TOOL_NAME: Final = "submit_fix"
+# The other ending, and a tool of its own rather than a shape of the first.
+# "I read the code and there is nothing to change" and "here is the change I
+# described" arrived as the same call while one tool answered both, and no
+# reading of the prose separates them - a verdict carries an explanation as
+# readily as a proposal does. Two names cannot be confused.
+REPORT_TOOL_NAME: Final = "report_nothing_to_change"
 
 # What is true of fixing a fault whatever the fault was, and so what Code-Fix
 # is told once rather than at the top of each incident. It travels as the
@@ -94,10 +100,12 @@ STANDING_BRIEF: Final = "\n\n".join([
     "in, read no further. Every call re-sends everything you have read, and a "
     "walk that runs out mid-read submits nothing at all.",
 
-    "Submit no files only if you have read the code and there is genuinely "
-    "nothing to change - never because a configuration change triggered the "
-    "incident, which is the common case and still a code fault. If you cannot "
-    "name the fault, say so and fix what you can defend.",
+    f"Report that there is nothing to change only if you have read the code "
+    f"and that is genuinely what you found - never because a configuration "
+    f"change triggered the incident, which is the common case and still a code "
+    f"fault. It is a separate answer with its own tool, "
+    f"{REPORT_TOOL_NAME}, because it is a conclusion rather than an empty "
+    f"patch. If you cannot name the fault, say so and fix what you can defend.",
 
     "Change as little as possible: you send whole files, so a tidy-up is "
     "invisible in your answer and enormous in the diff a person has to "
@@ -240,10 +248,10 @@ SUBMIT_FIX = ToolDefinition(
         "Submit the code fix for this incident. Give every file you are "
         "changing in full - its entire new contents, not a diff and not an "
         "excerpt - because what you send is written to the branch exactly as "
-        "it stands. Read a file before you rewrite it. Submit no files only "
-        "if you have read the code and there is genuinely nothing in it to "
-        "change - a flag or a deploy that exposed a fault is still a fault in "
-        "the code that could not survive it."
+        "it stands. Read a file before you rewrite it. This tool is for a "
+        f"patch; if you read the code and found nothing in it to change, call "
+        f"{REPORT_TOOL_NAME} instead - a flag or a deploy that exposed a fault "
+        "is still a fault in the code that could not survive it."
     ),
     properties={
         SUMMARY_FIELD: {
@@ -263,6 +271,12 @@ SUBMIT_FIX = ToolDefinition(
         },
         FILES_FIELD: {
             "type": "array",
+            # At least one, refused by the schema rather than read back out of
+            # the answer. Strict mode constrains sampling, so an empty patch is
+            # not a thing the model can send here - which is the whole of why
+            # the verdict needed a tool of its own. `minItems` is honoured only
+            # for 0 and 1, and 1 is the bound wanted.
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "properties": {
@@ -285,11 +299,33 @@ SUBMIT_FIX = ToolDefinition(
                 "the test. Bring the test that exposes the bug: the case that "
                 "was failing, asserted to pass, alongside the service's other "
                 "tests. A fix without one is a claim; a fix with one is "
-                "evidence. Empty means you read the code and found nothing to "
-                "change, which is rare: an incident traced to a cause in this "
-                "service usually has one."
+                "evidence. At least one file: this tool is how a patch is sent, "
+                "and an incident traced to a cause in this service usually has "
+                "one."
             )
         }
     },
     required=REQUIRED_FIELDS
+)
+
+REPORT_NOTHING_TO_CHANGE = ToolDefinition(
+    name=REPORT_TOOL_NAME,
+    description=(
+        "Report that you read the code and there is genuinely nothing in it to "
+        "change. This is a conclusion a person acts on, not a way out of a hard "
+        "read: an incident traced to a cause in this service usually has a fix, "
+        "and a flag or a deploy that exposed a fault is still a fault in the "
+        f"code that could not survive it. Use {SUBMIT_TOOL_NAME} for anything "
+        "you would change, however small."
+    ),
+    properties={
+        EXPLANATION_FIELD: {
+            "type": "string",
+            "description": (
+                "What you read, and why none of it needs changing. Written for "
+                "the person who has to accept that no fix is coming."
+            )
+        }
+    },
+    required=[EXPLANATION_FIELD]
 )

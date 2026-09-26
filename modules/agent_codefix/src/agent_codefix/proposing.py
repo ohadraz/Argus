@@ -64,6 +64,9 @@ from read_mcp_client import (
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
 from agent_codefix.prompting import (
+    EXPLANATION_FIELD,
+    REPORT_NOTHING_TO_CHANGE,
+    REPORT_TOOL_NAME,
     STANDING_BRIEF,
     SUBMIT_FIX,
     SUBMIT_TOOL_NAME,
@@ -381,7 +384,8 @@ def tools_for(settings: FixSettings) -> list[ToolDefinition]:
         *searching[settings.code_search],
         LIST_FILES,
         READ_FILE,
-        SUBMIT_FIX
+        SUBMIT_FIX,
+        REPORT_NOTHING_TO_CHANGE
     ]
 
 
@@ -529,10 +533,6 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         ))
     ]
     spend = a_budget_for(settings)
-    # Whether the model has already been asked to attach what it described.
-    # One retry and no more, so a considered "nothing to change" stays an
-    # answer rather than becoming a loop.
-    asked_for_the_patch = False
 
     while not spend.bounds_reached():
         try:
@@ -556,25 +556,29 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         spend.record(turn)
         transcript.append(turn)
 
+        verdict = _the_verdict_in(turn)
+
+        if verdict is not None:
+            return verdict
+
         submitted = _the_submission_in(turn)
 
-        if submitted is not None and (submitted.files or asked_for_the_patch):
+        if submitted is not None and submitted.files:
             return submitted
 
         if submitted is not None:
-            # An empty patch put back, once. "I read the code and there is
-            # nothing to change" and "here is the change - " with nothing
-            # attached are the same call, and prose cannot separate them: a
-            # verdict carries an explanation too. A live run submitted one
-            # naming the file and describing the bound it wanted, and the
-            # incident was recorded as Argus having looked and found nothing -
-            # the opposite of what the model said, reaching a human as a
-            # verdict nobody reached.
+            # A patch with nothing in it, which the submission's own schema
+            # refuses - so this is one whose every entry was dropped as
+            # unreadable rather than one the model sent empty on purpose. It
+            # meant to attach a patch, and put back it gets the turn to.
             #
-            # Once, because a model that meant it says so again and is
-            # believed. Asking forever would turn a real answer into a budget
-            # nobody spent on reading.
-            asked_for_the_patch = True
+            # Never read as a verdict, however often it arrives. The verdict is
+            # a tool of its own, so a model that wanted it would have called
+            # it, and reporting this as "there is nothing to change" would put
+            # a conclusion in its mouth - which is what happened, on a live run
+            # that submitted one naming the file and the bound it wanted. A
+            # model that keeps sending this runs out instead, and running out
+            # is what a reader is told.
             transcript.append(_what_it_is_told_next(
                 [_no_patch_was_attached(turn)],
                 one_call_left=spend.is_on_its_last_call()
@@ -639,10 +643,10 @@ def _no_patch_was_attached(turn: Turn) -> ToolResult:
     this is something to recover from rather than evidence about the incident -
     and recovering is the whole point: it has already decided what to write.
 
-    Both readings are named, because only the model knows which it meant. Told
-    only that files were missing, a model that had found nothing to change
-    would invent a change to satisfy the complaint, which is the worse of the
-    two failures this is guarding.
+    The other ending is named rather than left to be remembered. Told only that
+    files were missing, a model that had in fact found nothing to change would
+    invent a change to satisfy the complaint, which is the worse of the two
+    failures this is guarding - so the way to say that is put in front of it.
     """
     submitting = next(
         (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
@@ -651,14 +655,40 @@ def _no_patch_was_attached(turn: Turn) -> ToolResult:
     return ToolResult(
         call_id=submitting.id if submitting is not None else "",
         content=(
-            "That submission carried no files. If you meant that the code needs "
-            "no change, submit again with no files and say so in the "
-            "explanation - that is a complete answer and it will be taken as "
-            "one. If you meant to propose the change you described, submit "
-            "again with the whole content of every file it touches."
+            "That submission carried no files, so nothing was read from it. "
+            "Submit again with the whole content of every file the fix touches. "
+            "If what you meant is that the code needs no change, that is a "
+            f"complete answer and {REPORT_TOOL_NAME} is how to give it."
         ),
         failed=True
     )
+
+
+def _the_verdict_in(turn: Turn) -> SubmittedFix | None:
+    """The judgement that nothing needs changing, if this turn reached one.
+
+    Said as a `SubmittedFix` carrying no files, because that is what it is to
+    everything downstream: no branch, no proposal, and an explanation for the
+    person who has to accept that no fix is coming. What the second tool buys
+    is not a second type - it is that reaching this no longer depends on
+    reading a patch that turned out to be empty.
+
+    Believed the first time, unlike an empty patch. Only this tool means this,
+    so there is no other reading to rule out.
+    """
+    reporting = next(
+        (call for call in turn.tool_calls if call.name == REPORT_TOOL_NAME), None
+    )
+
+    if reporting is None:
+        return None
+
+    try:
+        return SubmittedFix.model_validate(
+            {EXPLANATION_FIELD: reporting.arguments.get(EXPLANATION_FIELD)}
+        )
+    except (ValidationError, TypeError):
+        return None
 
 
 def _the_submission_in(turn: Turn) -> SubmittedFix | None:
