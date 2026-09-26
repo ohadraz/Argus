@@ -431,6 +431,47 @@ def test_a_quiet_window_is_not_a_flat_one_and_still_has_no_onset() -> None:
 
 
 @pytest.mark.unit
+def test_a_signal_whose_worst_minute_lands_on_its_own_bar_is_not_an_incident() -> None:
+    # The sibling below excludes a signal that never departed. This is that
+    # signal one attounit of arithmetic away from not being excluded, and the
+    # gap decides a mitigation.
+    #
+    # The error rate idles at half a percent and jitters in half-percent steps,
+    # so its bar is the baseline plus three times two steps - 0.005 + 3 * 0.01 -
+    # which in binary floating point is 0.034999999999999996. Its worst minute
+    # reports seven failures in two hundred requests, which is 0.035. The series
+    # therefore "departs" by 7e-18, escapes the exclusion written for signals
+    # with no incident in them, and is handed a recovery ceiling its own worst
+    # minute clears by the same nothing.
+    #
+    # That minute is the only one after the action, because the fixture freezes
+    # its window one settling minute past a revert - so the tolerance for a lone
+    # departed minute cannot apply, and polling cannot help a frozen window.
+    # Measured: it refuted a flag revert that had worked, and the walk then
+    # escalated an incident it had already ended.
+    an_error_rate_that_only_jitters = [
+        0.005, 0.005, 0.005, 0.01, 0.005, 0.01, 0.005, 0.01,
+        0.01, 0.015, 0.015, 0.015, 0.01, 0.005, 0.01, 7 / 200
+    ]
+    a_tail_that_departed_and_came_back = (
+        [CALM_P99_MS] * 8 + [CALM_P99_MS * 10] * 4 + [CALM_P99_MS] * 4
+    )
+    some_window = a_window_of(
+        an_error_rate_that_only_jitters,
+        p99_ms_values=a_tail_that_departed_and_came_back
+    )
+
+    the_only_minute_since_the_revert = some_window[-1].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: has_recovered_since(
+            some_window, the_only_minute_since_the_revert, SOME_THRESHOLDS
+        )) \
+        .then(_the_answer_is(True))
+
+
+@pytest.mark.unit
 def test_a_signal_that_never_departed_does_not_hold_recovery_open() -> None:
     # The median departs and comes back; the error rate only jitters inside its
     # own calm range the whole time. Recovery has to be judged on the signal

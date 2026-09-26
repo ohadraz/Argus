@@ -424,11 +424,43 @@ def _subsided_threshold(values: Sequence[float],
     floored. `inf` says that plainly: no minute can exceed it, so this signal
     contributes nothing to whether the incident is still going on - which is
     what the reasoning above always meant.
+
+    "Never reached it" has to be read to the precision the series has, and this
+    is the one comparison in the module where both sides answer the same
+    question - did this signal ever depart - so a difference smaller than the
+    series can resolve is not a departure. Compared exactly, it was: an error
+    rate idling at half a percent has a bar of `0.005 + 3 * 0.01`, which in
+    binary floating point is 0.034999999999999996, and a minute reporting seven
+    failures in two hundred requests is 0.035. That series departed by seven
+    attounits, escaped this exclusion, and was handed a ceiling its own worst
+    minute cleared by the same nothing - which refuted a flag revert that had
+    worked and escalated an incident Argus had already ended.
+
+    The margin is one step of what the quiet stretch resolves, which leaves this
+    bar deliberately one step above the one `_departures` reads. The two do not
+    agree at that step, and are not meant to: a single step apart is what two
+    otherwise identical minutes look like when one of them caught one more
+    failure, which is the position `_WITHIN_THE_NOISE_OF_ITS_OWN_STEPS` already
+    takes when it floors the spread at two of them. A margin picked to make the
+    two agree exactly would put the boundary back where the tie above put it -
+    decided by which way a sum of floats happened to round, which is the one
+    thing this is here to stop deciding anything.
+
+    Asked of the quiet minutes rather than of the whole window, for the reason
+    `_what_the_series_resolves` is: across a whole window the nearest two distinct
+    values may be the calm level and the incident's.
+
+    A stretch of identical readings resolves nothing, so the comparison there is
+    exact again. That case is a different fault and not this one: with no step to
+    go on the spread falls back to a fraction of the baseline, which can put the
+    bar *inside* one step of the series, so a one-step jitter reads as an
+    incident however this comparison is written.
     """
     departed = _departure_threshold(values, thresholds, _THE_QUIETEST_MINUTES)
     at_its_worst = max(values, default=departed)
+    resolves = _what_the_series_resolves(_THE_QUIETEST_MINUTES.minutes(values))
 
-    if at_its_worst <= departed:
+    if at_its_worst <= departed + resolves:
         return inf
 
     subsided = thresholds.recovery_fraction_of_the_rise
