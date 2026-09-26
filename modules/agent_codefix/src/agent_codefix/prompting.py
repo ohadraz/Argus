@@ -39,6 +39,7 @@ throw away three correct files over a fourth - and an incident that recorded
 
 from __future__ import annotations
 
+import ast
 import json
 from typing import Any, Final
 
@@ -122,6 +123,64 @@ CONTENT_FIELD: Final = "content"
 
 REQUIRED_FIELDS: Final = [SUMMARY_FIELD, FILES_FIELD]
 
+# The tag a model closed around a file it was asked for the contents of, named
+# for the field rather than spelled at the point it is stripped: it is the
+# field's own name that produced it, and the two have to move together.
+_A_CLOSING_CONTENT_TAG: Final = f"</{CONTENT_FIELD}>"
+
+
+def _the_source_in(content: str) -> str:
+    """The file's text, less a closing tag the model wrote around it.
+
+    Shared by the two readers below rather than done in one of them, because
+    they have to agree: the entry is dropped or kept by what the content *is*,
+    and the content is written out by the same reading. A strip in one place
+    only would judge an entry by its wrapping and then write the unwrapped
+    thing, or the reverse.
+    """
+    without = content.rstrip()
+
+    if not without.endswith(_A_CLOSING_CONTENT_TAG):
+        return content
+
+    return without[: -len(_A_CLOSING_CONTENT_TAG)]
+
+
+def _is_only_a_placeholder(content: str) -> bool:
+    """Whether this is the model eliding a file rather than writing one.
+
+    A real answer, and the most expensive kind to accept: `PLACEHOLDER`, eleven
+    characters, offered as the whole new contents of an 11KB module beside an
+    explanation that named the fault correctly. Written out it replaces the
+    module with one word, and nothing else here would have stopped it - the
+    content is a string, it is not empty, and a bare name is valid Python, so
+    parsing proves nothing.
+
+    What gives it away is that a module somebody wrote always *does* something:
+    an import, a definition, an assignment. A file that is nothing but bare
+    expressions is an elision - `PLACEHOLDER`, `TODO`, `...` - and a docstring
+    is the one exception, which is why a string constant is allowed to stand
+    alone. That is the whole line between the two, and it is the reason this
+    tests for what a module has rather than for how short it is: a length is a
+    number somebody would have to defend.
+
+    Anything that will not parse is not judged here. A file that is not Python
+    is a different failure, and one this has no business deciding.
+    """
+    try:
+        parsed = ast.parse(content)
+    except (SyntaxError, ValueError):
+        return False
+
+    if not parsed.body:
+        return False
+
+    return all(
+        isinstance(statement, ast.Expr)
+        and not isinstance(statement.value, ast.Constant)
+        for statement in parsed.body
+    )
+
 
 def _the_array_inside(submitted: str) -> Any:
     """The patch a model sent as text, where the array itself was asked for.
@@ -155,6 +214,28 @@ class ProposedFile(BaseModel):
 
     path: str
     content: str
+
+    @field_validator(CONTENT_FIELD, mode="before")
+    @classmethod
+    def _without_a_tag_it_never_opened(cls, value: Any) -> Any:
+        """The file's text, less a closing tag the model wrote around it.
+
+        A real answer, across a whole recorded walk: every file in the patch
+        ended with a literal `</content>` - the name of the field it was the
+        value of - so all three were invalid Python, and the one that was a
+        `conftest.py` took the Target Service's entire suite down with a
+        `SyntaxError`. Nothing rejected it: the content was a string, and a
+        non-empty one.
+
+        Repaired rather than refused, for the reason the array inside a string
+        is: the wrapping was wrong and the answer was not. A patch dropped here
+        reaches a human as an agent that found nothing to change, which is a
+        verdict nobody reached.
+
+        Only at the end, and only that one tag. A `</content>` in the middle of a
+        file is somebody's HTML and none of this function's business.
+        """
+        return _the_source_in(value) if isinstance(value, str) else value
 
 
 class SubmittedFix(BaseModel):
@@ -239,6 +320,7 @@ class SubmittedFix(BaseModel):
             if isinstance(entry, dict)
             and isinstance(entry.get(PATH_FIELD), str)
             and isinstance(entry.get(CONTENT_FIELD), str)
+            and not _is_only_a_placeholder(_the_source_in(entry[CONTENT_FIELD]))
         ]
 
 
@@ -299,9 +381,13 @@ SUBMIT_FIX = ToolDefinition(
                 "the test. Bring the test that exposes the bug: the case that "
                 "was failing, asserted to pass, alongside the service's other "
                 "tests. A fix without one is a claim; a fix with one is "
-                "evidence. At least one file: this tool is how a patch is sent, "
-                "and an incident traced to a cause in this service usually has "
-                "one."
+                "evidence. The test has to fail against the code as it stands "
+                "now, or it proves nothing: where the fault is slowness, assert "
+                "a bound on how long the work takes or how much of it is done, "
+                "because a test that only checks the answer passes against the "
+                "slow code too. At least one file: this tool is how a patch is "
+                "sent, and an incident traced to a cause in this service "
+                "usually has one."
             )
         }
     },

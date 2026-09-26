@@ -46,8 +46,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from agent_codefix import SubmittedFix
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
+from pydantic import ValidationError
 
 from tests.e2e.framework.argus import THE_RECORDINGS_THAT_MUST_CARRY_A_FIX
 
@@ -67,9 +69,6 @@ THE_MODE = "both"
 
 SUBMIT_TOOL_NAME = "submit_fix"
 TOOL_USE_TYPE = "tool_use"
-FILES_FIELD = "files"
-PATH_FIELD = "path"
-CONTENT_FIELD = "content"
 
 # Where the shop keeps its tests. The split has to be the path rather than the
 # filename: a module called `test_something.py` under `src/` would be source,
@@ -146,16 +145,23 @@ def _every_corpus() -> dict[str, list[Path]]:
 
 
 def _the_patch_in(corpus: list[Path]) -> dict[str, str]:
-    """The fix this walk submitted, as path to whole contents, or nothing at all.
+    """The fix this walk submitted, as the agent would write it to the branch.
 
     Empty for a walk that proposed no fix - one that escalated, or concluded the
     cause was not in the code. That is a walk with nothing to grade rather than a
     walk that failed.
 
-    A `files` argument that arrived as a string is read for the array inside it,
-    the way the agent's own reader does: a model asked for a large array
-    sometimes sends its JSON as text, and grading those walks as "proposed
-    nothing" would skip exactly the answers worth grading.
+    Read through `SubmittedFix` rather than out of the JSON, and that is the
+    whole of what this grades: a human reviews the files that reach the branch,
+    so the question is whether *those* hold up. A copy of the agent's leniency
+    lived here and answered a different question - what the model said - and the
+    two part company the moment anything in the agent repairs a malformed
+    answer, which is the day a patch that lands correct would be graded on the
+    mangled text it arrived as.
+
+    Not a loss of independence. What must not grade this agent is the model, and
+    the model is nowhere in here; the writer is deterministic production code
+    with a suite of its own.
     """
     for recording in corpus:
         body = json.loads(recording.read_text(encoding="utf-8"))
@@ -164,24 +170,10 @@ def _the_patch_in(corpus: list[Path]) -> dict[str, str]:
             if block.get("type") != TOOL_USE_TYPE or block.get("name") != SUBMIT_TOOL_NAME:
                 continue
 
-            submitted = block.get("input", {}).get(FILES_FIELD)
-
-            if isinstance(submitted, str):
-                try:
-                    submitted = json.loads(submitted)
-                except ValueError:
-                    return {}
-
-            if not isinstance(submitted, list):
+            try:
+                return SubmittedFix.model_validate(block.get("input", {})).patch()
+            except ValidationError:
                 return {}
-
-            return {
-                entry[PATH_FIELD]: entry[CONTENT_FIELD]
-                for entry in submitted
-                if isinstance(entry, dict)
-                and isinstance(entry.get(PATH_FIELD), str)
-                and isinstance(entry.get(CONTENT_FIELD), str)
-            }
 
     return {}
 

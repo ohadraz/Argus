@@ -276,6 +276,106 @@ def test_nothing_to_change_is_its_own_tool_and_carries_its_reasoning() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_file_wrapped_in_a_stray_closing_tag_is_read_without_it() -> None:
+    # A real answer, on a whole recorded walk: every file in the patch ended
+    # with a literal `</content>`, so each one was syntactically invalid Python
+    # that would have been written to the branch and reviewed by somebody. The
+    # field is named `content`, and the model closed a tag it never opened.
+    #
+    # Repaired rather than refused, for the reason `_the_array_inside` is: the
+    # wrapping was wrong and the answer was not, and a patch dropped here
+    # reaches a human as "there was nothing to change".
+    Scenario() \
+        .when(
+            lambda: SubmittedFix.model_validate({
+                "summary": "dont care",
+                "files": [{"path": SOME_PATH, "content": SOME_CONTENT + "</content>"}]
+            })
+        ) \
+        .then(_the_patch_is({SOME_PATH: SOME_CONTENT}))
+
+
+@pytest.mark.unit
+def test_the_patch_field_says_a_test_for_slowness_has_to_bound_something() -> None:
+    # A whole recorded walk turned on this. The fix was a real one - a quadratic
+    # repeated-minimum scan replaced by one ordering - and the test it brought
+    # asserted the figure the function returns. That assertion is just as true of
+    # the slow implementation; it only takes longer. So the test passed against
+    # the unfixed service and demonstrated nothing about the fault.
+    #
+    # It is the one class of fault a correctness assertion cannot show, and the
+    # model cannot be expected to notice on its own: it is asked for a test that
+    # fails first, and its test does fail to *prove* anything while passing.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            all_of(
+                _the_description_of(FILES_FIELD, mentions="bound"),
+                _the_description_of(FILES_FIELD, mentions="how long")
+            )
+        )
+
+
+def _the_description_of(field: str, mentions: str) -> Assertion[dict[str, Any]]:
+    def assertion(offered: dict[str, Any]) -> bool:
+        said = offered["input_schema"]["properties"][field]["description"]
+
+        if mentions not in said:
+            raise AssertionError(
+                f"Expected [{field!r}]'s description to mention [{mentions!r}], "
+                f"got [{said!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_a_file_that_is_only_a_placeholder_word_is_dropped() -> None:
+    # A real answer: `PLACEHOLDER`, eleven characters, offered as the whole new
+    # contents of an 11KB module - beside an explanation that correctly named the
+    # fault and the fix. Written out, it replaces the module with one word.
+    #
+    # Nothing caught it. The content was a string, it was not empty, and it is
+    # valid Python - a bare name is an expression statement - so parsing it
+    # proves nothing either. What gives it away is that a module the model claims
+    # to have rewritten in full always contains something: an import, a
+    # definition, an assignment. A file that is only a bare word is the model
+    # eliding the work, and the one thing worse than losing the patch is writing
+    # it.
+    Scenario() \
+        .when(
+            lambda: SubmittedFix.model_validate({
+                "summary": "dont care",
+                "files": [
+                    {"path": "src/io_shop/pricing_service.py", "content": "PLACEHOLDER"},
+                    {"path": SOME_PATH, "content": SOME_CONTENT}
+                ]
+            })
+        ) \
+        .then(_the_patch_is({SOME_PATH: SOME_CONTENT}))
+
+
+@pytest.mark.unit
+def test_a_module_that_is_only_its_docstring_is_kept() -> None:
+    # The rule above has to let this through: a package's `__init__.py` is often
+    # a docstring and nothing else, and it is a real file somebody wrote. A
+    # docstring is a string constant, where a placeholder is a bare name, and
+    # that is the line between them.
+    an_init = '"""The shop\'s pricing, as the account page asks for it."""\n'
+
+    Scenario() \
+        .when(
+            lambda: SubmittedFix.model_validate({
+                "summary": "dont care",
+                "files": [{"path": "src/io_shop/__init__.py", "content": an_init}]
+            })
+        ) \
+        .then(_the_patch_is({"src/io_shop/__init__.py": an_init}))
+
+
 def _the_tool_is_called(name: str) -> Assertion[dict[str, Any]]:
     def assertion(offered: dict[str, Any]) -> bool:
         if offered["name"] != name:
