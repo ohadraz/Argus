@@ -218,7 +218,7 @@ class _StandInStrategy:
     def propose(self,
                 dont_care_hypothesis: Hypothesis,
                 dont_care_flag_changes: Sequence[FlagChange],
-                dont_care_service: str) -> Action | None:
+                service: str) -> Action | None:
         return self._proposing
 
 

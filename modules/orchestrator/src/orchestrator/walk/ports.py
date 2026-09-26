@@ -182,7 +182,11 @@ class ChangeLanded(Protocol):
     say so and stop.
     """
 
-    def __call__(self, flag: str, since: datetime) -> bool | None: ...
+    # Positional-only: the flag and the moment are the whole question, and
+    # nothing names them at the call. A protocol that fixed their names would
+    # oblige every stand-in to repeat them - which is a real constraint on one
+    # that ignores what it is handed, where `dont_care_flag` is the honest name.
+    def __call__(self, flag: str, since: datetime, /) -> bool | None: ...
 
 
 class ClaimedAction(BaseModel):

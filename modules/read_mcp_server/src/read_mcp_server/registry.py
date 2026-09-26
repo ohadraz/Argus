@@ -85,7 +85,9 @@ class FetchRegisteredService(Protocol):
     the settings it reads under, and what maps its answer holds none.
     """
 
-    def __call__(self, service: str) -> dict[str, Any]: ...
+    # Positional-only: the service is the whole question, and a stand-in that
+    # ignores it should be free to say so in the parameter's name.
+    def __call__(self, service: str, /) -> dict[str, Any]: ...
 
 
 class RegistryUnavailable(Exception):

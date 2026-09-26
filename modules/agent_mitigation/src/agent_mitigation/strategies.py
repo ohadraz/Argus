@@ -65,9 +65,16 @@ class MitigationStrategy(Protocol):
 
     action_type: ActionType
 
+    # The evidence is positional, the service is named. A protocol that fixes a
+    # parameter's *name* obliges every implementation to repeat it, which is a
+    # real constraint on a stand-in whose whole point is that it ignores what it
+    # is handed - `dont_care_hypothesis` is the right name there and an error
+    # against a protocol spelling it `hypothesis`. The service stays named
+    # because callers name it, and a keyword argument is part of the call.
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
+                /,
                 service: str) -> Action | None: ...
 
 
