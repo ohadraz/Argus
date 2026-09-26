@@ -37,6 +37,7 @@ from tests.framework.investigating import (
     metrics_that_show_an_onset,
     no_changes,
     no_dependencies,
+    no_deployment_was_read,
     the_configured_thresholds,
 )
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
@@ -81,6 +82,7 @@ def test_an_investigations_calls_reach_the_replay_log(
                     fetch_logs=logs_that_say_little,
                     fetch_change_events=no_changes,
                     fetch_dependencies=no_dependencies,
+                    fetch_what_a_deployment_changed=no_deployment_was_read,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
                     recorder=calls_into(connect_from_env)
@@ -117,6 +119,7 @@ def test_an_investigation_that_records_nowhere_still_investigates(
                     fetch_logs=logs_that_say_little,
                     fetch_change_events=no_changes,
                     fetch_dependencies=no_dependencies,
+                    fetch_what_a_deployment_changed=no_deployment_was_read,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
                 )

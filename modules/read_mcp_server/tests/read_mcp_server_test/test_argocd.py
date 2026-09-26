@@ -17,6 +17,7 @@ from read_mcp_server.argocd import (
     FetchApplication,
     fetch_argocd_application,
     fetch_deploys,
+    the_revisions_deployed,
 )
 from read_mcp_server.change_source import ChangeSourceUnavailable
 
@@ -77,6 +78,42 @@ def test_a_deploy_event_carries_who_deployed_it_and_from_where() -> None:
             _the_first_deploy_was_made_by(some_username),
             _the_first_deploy_came_from(some_repo_url)
         ))
+
+
+@pytest.mark.unit
+def test_a_deploy_says_what_it_shipped_and_not_only_that_it_happened() -> None:
+    # What this cost, measured on a real walk. Argus names two causes for a
+    # deployment that broke a service - the code in it was bad, or a
+    # configuration value in it was - and tells the model to prefer the second
+    # "whenever the change that landed was to configuration rather than to
+    # code". Nothing told it which had landed: the path was already read here
+    # and went out as a suffix on the repository URL, while the summary - the
+    # field a reader reads - said "deployed revision <sha>", which is true of
+    # every deployment there has ever been.
+    #
+    # The walk ranked both readings, named the moved port in the second, and
+    # chose the first. On that evidence either ranking is defensible, which is
+    # the definition of evidence that does not decide anything.
+    some_path = "deploy/values-production.yaml"
+    some_deploy_minute = A_DEPLOY_MINUTE
+    argocd = a_mock_argocd_server()
+    argocd_reported = partial(returning, argocd)
+
+    Scenario() \
+        .given(
+            calling(argocd_reported(
+                an_application_deployed_at(some_deploy_minute, path=some_path)
+            ))
+        ) \
+        .when(
+            lambda: fetch_deploys(
+                SOME_APPLICATION,
+                window_start=a_while_before(some_deploy_minute),
+                window_end=a_while_after(some_deploy_minute),
+                fetch=argocd
+            )
+        ) \
+        .then(_the_first_deploy_says_it_shipped(some_path))
 
 
 @pytest.mark.unit
@@ -314,6 +351,79 @@ def test_an_unreachable_server_raises_rather_than_reporting_no_changes() -> None
         )
 
 
+@pytest.mark.unit
+def test_every_revision_deployed_comes_back_with_no_window_applied() -> None:
+    # What a deployment is compared against is the revision deployed before it,
+    # and that revision is under no obligation to fall inside any window an
+    # investigation happens to be reading. Windowed, the comparison would silently
+    # be against whatever the window's oldest entry happened to be - a diff of the
+    # wrong thing, indistinguishable from a diff of the right one.
+    some_deploy_minute = A_DEPLOY_MINUTE
+    argocd = a_mock_argocd_server()
+    argocd_reported = partial(returning, argocd)
+
+    Scenario() \
+        .given(
+            calling(argocd_reported(
+                an_application_with(
+                    a_deploy_of("long-ago", at=a_while_before(some_deploy_minute)),
+                    a_deploy_of("just-now", at=some_deploy_minute)
+                )
+            ))
+        ) \
+        .when(
+            lambda: the_revisions_deployed(SOME_APPLICATION, fetch=argocd)
+        ) \
+        .then(
+            _the_deploys_are("long-ago", "just-now")
+        )
+
+
+@pytest.mark.unit
+def test_the_revisions_deployed_are_answered_oldest_first() -> None:
+    # The order is the whole of how "the revision deployed before this one" is
+    # found. Argo CD's own ordering is Argo CD's business and not a promise this
+    # adapter may rest a diagnosis on, so the history is put in time order here.
+    some_deploy_minute = A_DEPLOY_MINUTE
+    argocd = a_mock_argocd_server()
+    argocd_reported = partial(returning, argocd)
+
+    Scenario() \
+        .given(
+            calling(argocd_reported(
+                an_application_with(
+                    a_deploy_of("second", at=some_deploy_minute),
+                    a_deploy_of("first", at=a_while_before(some_deploy_minute))
+                )
+            ))
+        ) \
+        .when(
+            lambda: the_revisions_deployed(SOME_APPLICATION, fetch=argocd)
+        ) \
+        .then(
+            _the_deploys_are("first", "second")
+        )
+
+
+@pytest.mark.unit
+def test_an_application_that_never_deployed_has_no_revisions_to_answer_with() -> None:
+    # `history` is `omitempty` in Argo CD's own type, so an absent key is an
+    # ordinary answer about an application nobody has deployed.
+    argocd = a_mock_argocd_server()
+    argocd_reported = partial(returning, argocd)
+
+    Scenario() \
+        .given(
+            calling(argocd_reported(an_application_that_never_deployed()))
+        ) \
+        .when(
+            lambda: the_revisions_deployed(SOME_APPLICATION, fetch=argocd)
+        ) \
+        .then(
+            _no_deploys_were_returned()
+        )
+
+
 SOME_APPLICATION = "kukibuki-service"
 A_DEPLOY_MINUTE = "2026-08-20T11:05:00Z"
 A_WHILE = timedelta(hours=1)
@@ -364,6 +474,7 @@ def a_deploy_of(
     at: str,
     username: str = "kuki",
     repo_url: str = "https://github.com/kuki/k8s-configs",
+    path: str = "apps/target-service/production",
     reporting_a_start_time: bool = True
 ) -> dict[str, Any]:
     """One `status.history` entry, in Argo CD's own wire shape."""
@@ -373,7 +484,7 @@ def a_deploy_of(
         "deployedAt": at,
         "source": {
             "repoURL": repo_url,
-            "path": "apps/target-service/production",
+            "path": path,
             "targetRevision": "main"
         },
         "initiatedBy": {"username": username}
@@ -397,6 +508,7 @@ def an_application_deployed_at(
     revision: str = "9f4c1e7b2a3d5c8e",
     username: str = "kuki",
     repo_url: str = "https://github.com/kuki/k8s-configs",
+    path: str = "apps/target-service/production",
     reporting_a_start_time: bool = True
 ) -> dict[str, Any]:
     return an_application_with(
@@ -405,6 +517,7 @@ def an_application_deployed_at(
             at=moment,
             username=username,
             repo_url=repo_url,
+            path=path,
             reporting_a_start_time=reporting_a_start_time
         )
     )
@@ -475,6 +588,26 @@ def _the_first_deploy_came_from(expected_repo_url: str) -> Assertion[list[Change
         return True
 
     return assertion
+
+def _the_first_deploy_says_it_shipped(expected_path: str) -> Assertion[list[ChangeEvent]]:
+    """That the summary names what the deployment touched, not only that one
+    happened.
+
+    Against `summary` rather than `source`, and that is the point of the test:
+    the path already reached the model as a suffix on a URL, and the field it
+    reads said "deployed revision <sha>" - which is true of every deployment
+    there has ever been.
+    """
+    def assertion(deploys: list[ChangeEvent]) -> bool:
+        summary = deploys[0].summary
+        assert expected_path in summary, (
+            f"Expected the deploy to say it shipped [{expected_path}], got "
+            f"[{summary}]."
+        )
+        return True
+
+    return assertion
+
 
 
 def _the_request_carried(get: Any, authorization: str | None) -> Assertion[Any]:

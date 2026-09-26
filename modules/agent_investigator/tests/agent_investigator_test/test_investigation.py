@@ -18,6 +18,7 @@ from agent_investigator.investigation import BRIEF
 from agent_investigator.retrieval import (
     ChangeFetcher,
     DependencyFetcher,
+    DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
 )
@@ -1732,6 +1733,9 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
         fetch_change_events=create_autospec(ChangeFetcher, instance=True, return_value=[]),
         fetch_dependencies=create_autospec(
             DependencyFetcher, instance=True, return_value=[]
+        ),
+        fetch_what_a_deployment_changed=create_autospec(
+            DeploymentDiffFetcher, instance=True, return_value=[]
         ),
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),

@@ -13,6 +13,8 @@ in a comment.
 
 from __future__ import annotations
 
+from typing import Any
+
 from argus_core import (
     Connections,
     DatabaseSettings,
@@ -24,7 +26,7 @@ from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
 from code_index.embedding import an_embedder
 from mcp.server.fastmcp import FastMCP
 
-from read_mcp_server import flags, meaning, repository, retrieval
+from read_mcp_server import deployments, flags, meaning, repository, retrieval
 from read_mcp_server.argocd import (
     ArgocdSettings,
     fetch_argocd_application,
@@ -76,6 +78,13 @@ def build_server(endpoint: ReadMcpEndpoint,
     def toggles() -> list[dict[str, object]]:
         return list(flags.fetch_evaluated_toggles(flag_settings))
 
+    # Bound once and asked twice: the change channel reads the history for a
+    # window, and the deployment channel reads it to find what a revision
+    # replaced. Two closures over the same settings would be two places deciding
+    # where a deployment's server is.
+    def the_application(named: str) -> dict[str, Any]:
+        return fetch_argocd_application(named, argocd_settings)
+
     def deploys(application: str,
                 *,
                 window_start: str,
@@ -84,7 +93,7 @@ def build_server(endpoint: ReadMcpEndpoint,
             application,
             window_start=window_start,
             window_end=window_end,
-            fetch=lambda named: fetch_argocd_application(named, argocd_settings)
+            fetch=the_application
         )
 
     changes: ChangeSource = deploys
@@ -241,6 +250,51 @@ def build_server(endpoint: ReadMcpEndpoint,
         arrive looking alike. The behavior lives in
         `repository.read_repository_file`; this is registration only."""
         return repository.read_repository_file(path, ref, repository_settings)
+
+    @mcp.tool()
+    def get_what_a_deployment_changed(service: str, revision: str) -> list[str]:
+        """Returns what one deployment of a service changed - the files that
+        differ from the revision deployed before it, and the change made to each.
+
+        The channel that tells a bad deployment from a broken configuration, and
+        the only one that can. Both arrive as a deployment, both move the same
+        signals, and both are put right by returning the deployment - what
+        separates them is whether the commit that landed touched source code or
+        the values it shipped with, and that is inside the commit.
+
+        Nothing else answers it. A deploy's summary names the path the
+        application syncs from, which is the directory its manifests live in and
+        is the same directory whatever the commit changed - so it is constant
+        across exactly the distinction it looks like it would settle. The logs
+        report a symptom and the metrics its shape.
+
+        `revision` is the deploy's own reference as `get_change_events` reported
+        it. What it is compared against is not asked for: the revision deployed
+        before it is in the deployment history, which you cannot see, so naming
+        it would be naming a guess - and a diff against a guessed base describes
+        the wrong change in the shape a right one has.
+
+        Worth calling whenever a deployment precedes the onset and you are about
+        to say which of the two causes it was. Read the paths first: a change
+        confined to configuration is not new code, whatever else is true, and a
+        change to a source file is not a values mistake.
+
+        No path is labelled code or configuration, deliberately - which
+        directories hold configuration is that repository's business, and this
+        answers with what changed so you can see for yourself. The answer is
+        bounded and says so wherever it was: a deployment can be a repository-wide
+        sweep, and an answer shortened in silence would read as the whole change.
+
+        Three answers are facts rather than failures and are worth acting on
+        differently: a revision no deployment has (which is what a feature flag's
+        name looks like here), a deployment with nothing before it, and a
+        deployment that changed nothing at all. A repository that could not be
+        compared raises instead, because that last answer rules a deployment out
+        and an outage is not evidence for it. The behavior lives in
+        `deployments.what_a_deployment_changed`; this is registration only."""
+        return deployments.what_a_deployment_changed(
+            service, revision, repository_settings, fetch=the_application
+        )
 
     @mcp.tool()
     def get_service_dependencies(service: str) -> list[ServiceDependency]:

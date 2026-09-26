@@ -86,6 +86,17 @@ def no_dependencies(dont_care_service: str) -> list[ServiceDependency]:
     return []
 
 
+def no_deployment_was_read(dont_care_service: str,
+                           dont_care_revision: str) -> list[str]:
+    """A deployment channel that answers about nothing.
+
+    Which is honest for every case here: none of them stages a deployment whose
+    diff decides anything, and a channel volunteering a diff would put a change
+    in front of the model that the scenario never made.
+    """
+    return []
+
+
 def the_configured_thresholds() -> AnomalyThresholds:
     """Where the algorithm draws its lines, read from this deployment.
 

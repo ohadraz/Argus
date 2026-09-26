@@ -87,6 +87,38 @@ def fetch_argocd_application(
     return body
 
 
+def the_revisions_deployed(application: str,
+                           *,
+                           fetch: FetchApplication) -> list[ChangeEvent]:
+    """Every deploy of one application, oldest first, with no window applied.
+
+    The whole history, because what one deployment is compared against is the
+    revision deployed before it - and that revision is under no obligation to
+    fall inside whatever window an investigation happens to be reading. Windowed,
+    the comparison would quietly be against the window's oldest entry instead: a
+    diff of the wrong thing, in exactly the shape a diff of the right thing has.
+
+    Ordered here rather than taken as Argo CD served it. Which order its history
+    arrives in is Argo CD's business and not a promise a diagnosis may rest on,
+    and "the one before this" is meaningless without one.
+
+    `deployedAt` anchors each event: Argo CD always sets it, where
+    `deployStartedAt` is a pointer in its own type and may be absent. A deploy is
+    "at" the moment it landed, which is the moment the symptoms could start.
+    """
+    application_state = fetch(application)
+
+    # `history` is `omitempty` in Argo CD's own type, so an application that
+    # has never deployed simply has no such key - an ordinary answer, not a
+    # malformed one.
+    history = application_state.get("status", {}).get("history", [])
+
+    return sorted(
+        (_a_deploy_from(entry) for entry in history),
+        key=lambda deploy: parse_iso(deploy.occurred_at)
+    )
+
+
 def fetch_deploys(
     application: str,
     *,
@@ -102,24 +134,18 @@ def fetch_deploys(
     that can filter server-side would do so and this function would shrink;
     nothing above the port would notice either way.
 
-    `deployedAt` anchors each event: Argo CD always sets it, where
-    `deployStartedAt` is a pointer in its own type and may be absent. A deploy
-    is "at" the moment it landed, which is the moment the symptoms could start.
+    The history itself comes from `the_revisions_deployed`, which is the same
+    read without the window. Two functions rather than one with an optional
+    window: a channel asking about a stretch of time and a channel asking what
+    one deployment replaced are different questions, and a defaulted window is
+    how the second one silently becomes the first.
     """
-    application_state = fetch(application)
     window_opened = parse_iso(window_start)
     window_closed = parse_iso(window_end)
 
-    # `history` is `omitempty` in Argo CD's own type, so an application that
-    # has never deployed simply has no such key - an ordinary answer, not a
-    # malformed one.
-    history = application_state.get("status", {}).get("history", [])
-
-    deploys = [_a_deploy_from(entry) for entry in history]
-
     return [
         deploy
-        for deploy in deploys
+        for deploy in the_revisions_deployed(application, fetch=fetch)
         if window_opened <= parse_iso(deploy.occurred_at) <= window_closed
     ]
 
@@ -147,7 +173,37 @@ def _a_deploy_from(entry: dict[str, Any]) -> ChangeEvent:
         kind=ChangeKind.DEPLOY,
         occurred_at=entry["deployedAt"],
         reference=revision,
-        summary=f"deployed revision {revision}",
+        summary=_what_it_shipped(revision, path),
         actor=entry.get("initiatedBy", {}).get("username"),
         source=f"{repo_url}/{path}" if repo_url and path else repo_url,
     )
+
+
+def _what_it_shipped(revision: str, path: str | None) -> str:
+    """A deployment said as the two facts that locate it: its revision and where
+    it was synced from.
+
+    Both are addresses rather than descriptions. The revision is what a later
+    channel is asked about - what this deployment changed is answered by naming
+    it - and the path is where in the repository the manifests it applied live,
+    which is what a person opens.
+
+    The path is not what the deployment changed, and nothing here should be read
+    as saying so. An application syncs from one directory for the life of the
+    application: every deployment of the shop reports `deploy`, the ones whose
+    commits rewrote source code included. So the path is constant across the one
+    distinction a reader of a deployment most needs - code or configuration - and
+    a model asked to draw that distinction from it will draw it wrongly, which a
+    paid walk duly did.
+
+    Said rather than classified, for the reason it is said rather than
+    interpreted. Which directories hold configuration is that repository's
+    business and changes between them, so a `path` mapped here to "code" or
+    "config" would be this adapter deciding something it cannot know - and
+    deciding it wrongly the first time somebody keeps their values beside their
+    source.
+    """
+    if not path:
+        return f"deployed revision {revision}"
+
+    return f"deployed revision {revision}, from {path}"

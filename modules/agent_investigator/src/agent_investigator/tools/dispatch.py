@@ -20,12 +20,17 @@ from agent_investigator.budget import InvestigationSettings
 from agent_investigator.retrieval import (
     ChangeFetcher,
     DependencyFetcher,
+    DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
 )
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_investigator.tools.changes import CHANGES_TOOL, read_changes
 from agent_investigator.tools.dependencies import DEPENDENCIES_TOOL, read_dependencies
+from agent_investigator.tools.deployments import (
+    DEPLOYMENT_DIFF_TOOL,
+    read_what_a_deployment_changed,
+)
 from agent_investigator.tools.logs import LOGS_TOOL, read_logs
 from agent_investigator.tools.metrics import METRICS_TOOL, read_metrics
 from agent_investigator.tools.results import Served, could_not_serve
@@ -94,6 +99,7 @@ class Dispatcher:
                  fetch_logs: LogFetcher,
                  fetch_change_events: ChangeFetcher,
                  fetch_dependencies: DependencyFetcher,
+                 fetch_what_a_deployment_changed: DeploymentDiffFetcher,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
                  having_read: Sequence[Reading] = (),
@@ -109,6 +115,7 @@ class Dispatcher:
         self._fetch_logs = fetch_logs
         self._fetch_change_events = fetch_change_events
         self._fetch_dependencies = fetch_dependencies
+        self._fetch_what_a_deployment_changed = fetch_what_a_deployment_changed
         self._readings: list[Reading] = list(having_read)
 
     @property
@@ -208,9 +215,14 @@ class Dispatcher:
         if call.name == DEPENDENCIES_TOOL:
             return read_dependencies(call, self._service, self._fetch_dependencies)
 
+        if call.name == DEPLOYMENT_DIFF_TOOL:
+            return read_what_a_deployment_changed(
+                call, self._service, self._fetch_what_a_deployment_changed
+            )
+
         return could_not_serve(
             call,
             f"there is no tool called {call.name!r}. The tools available are "
             f"{METRICS_TOOL}, {LOGS_TOOL}, {CHANGES_TOOL}, "
-            f"{DEPENDENCIES_TOOL} and {ANSWER_TOOL}."
+            f"{DEPENDENCIES_TOOL}, {DEPLOYMENT_DIFF_TOOL} and {ANSWER_TOOL}."
         )

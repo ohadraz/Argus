@@ -26,6 +26,7 @@ import pytest
 from agent_investigator.retrieval import (
     ChangeFetcher,
     DependencyFetcher,
+    DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
 )
@@ -261,6 +262,9 @@ def _a_dispatcher_recording_to(recorded: Kept[ReplayEntry],
         ),
         fetch_dependencies=create_autospec(
             DependencyFetcher, instance=True, return_value=[]
+        ),
+        fetch_what_a_deployment_changed=create_autospec(
+            DeploymentDiffFetcher, instance=True, return_value=[]
         ),
         replay=Replay(SOME_INCIDENT_ID, recorded.take)
     )

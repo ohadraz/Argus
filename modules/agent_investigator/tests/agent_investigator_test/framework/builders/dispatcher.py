@@ -13,6 +13,7 @@ from unittest.mock import Mock, create_autospec
 from agent_investigator.retrieval import (
     ChangeFetcher,
     DependencyFetcher,
+    DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
 )
@@ -33,6 +34,7 @@ def a_dispatcher(reads_metrics: Mock | None = None,
                  reads_logs: Mock | None = None,
                  reads_changes: Mock | None = None,
                  reads_dependencies: Mock | None = None,
+                 reads_a_deployment: Mock | None = None,
                  alert_time: str | None = AN_ALERT_TIME) -> Dispatcher:
     """A dispatcher whose unnamed channels answer with nothing.
 
@@ -64,6 +66,9 @@ def a_dispatcher(reads_metrics: Mock | None = None,
         ),
         fetch_dependencies=reads_dependencies or create_autospec(
             DependencyFetcher, instance=True, return_value=[]
+        ),
+        fetch_what_a_deployment_changed=reads_a_deployment or create_autospec(
+            DeploymentDiffFetcher, instance=True, return_value=[]
         )
     )
 

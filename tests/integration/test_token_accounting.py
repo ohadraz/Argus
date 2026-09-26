@@ -38,12 +38,12 @@ from tests.framework.investigating import (
     metrics_that_show_an_onset,
     no_changes,
     no_dependencies,
+    no_deployment_was_read,
     the_configured_thresholds,
 )
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
 
 DATABASE_URL = get_settings().database_url
-
 
 
 @pytest.fixture
@@ -83,6 +83,7 @@ def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
                     fetch_logs=logs_that_say_little,
                     fetch_change_events=no_changes,
                     fetch_dependencies=no_dependencies,
+                    fetch_what_a_deployment_changed=no_deployment_was_read,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
                     budget=the_budget,

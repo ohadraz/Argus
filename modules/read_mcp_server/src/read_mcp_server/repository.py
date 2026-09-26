@@ -205,7 +205,7 @@ def search_repository(query: str,
     facts about the world, and the silent one teaches a model that the cause is
     not in the code.
     """
-    held = read_source(ref, _the_source_settings(settings))
+    held = read_source(ref, the_source_settings(settings))
     hits: list[str] = []
 
     for path, source in held.items():
@@ -230,14 +230,19 @@ def search_repository(query: str,
     return hits
 
 
-def _the_source_settings(
+def the_source_settings(
     settings: RepositoryReadSettings
 ) -> RepositorySourceSettings:
-    """This tier's view of the repository, as the reader asks for it.
+    """This tier's view of the repository, as a reader of it asks for it.
 
-    A slice of a slice. The reader needs the repository and a credential and
-    has no use for the source paths, which are this module's business and the
-    index's separately.
+    A slice of a slice. A reader needs the repository and a credential and has no
+    use for the source paths, which are this module's business and the index's
+    separately.
+
+    Public because it is now asked for twice - here, and by the channel that reads
+    what a deployment changed. Two narrowings of one slice would be two places
+    deciding which fields a repository reader is entitled to, and they would come
+    to disagree the first time the slice grows a field.
     """
     return RepositorySourceSettings(
         github_api_url=settings.github_api_url,

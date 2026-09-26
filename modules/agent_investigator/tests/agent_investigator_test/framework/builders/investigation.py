@@ -18,6 +18,7 @@ from agent_investigator.budget import Budget, InvestigationSettings
 from agent_investigator.retrieval import (
     ChangeFetcher,
     DependencyFetcher,
+    DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
 )
@@ -48,6 +49,7 @@ class Investigation(NamedTuple):
     log_fetcher: Mock
     change_fetcher: Mock
     dependency_fetcher: Mock
+    deployment_diff_fetcher: Mock
     model: Mock
     budget: Budget
 
@@ -76,6 +78,7 @@ class Investigation(NamedTuple):
             fetch_logs=self.log_fetcher,
             fetch_change_events=self.change_fetcher,
             fetch_dependencies=self.dependency_fetcher,
+            fetch_what_a_deployment_changed=self.deployment_diff_fetcher,
             settings=settings or some_investigation_settings(),
             thresholds=some_thresholds(),
             converse=None if conversations is not None else self.model,
@@ -124,6 +127,9 @@ def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation
         change_fetcher=create_autospec(ChangeFetcher, instance=True, return_value=[]),
         dependency_fetcher=create_autospec(
             DependencyFetcher, instance=True, return_value=[]
+        ),
+        deployment_diff_fetcher=create_autospec(
+            DeploymentDiffFetcher, instance=True, return_value=[]
         ),
         model=model,
         budget=budget or a_budget()

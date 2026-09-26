@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -79,6 +79,8 @@ CASE_THE_UNRELATED_CHANGE = "unrelated-change-is-not-blamed"
 CASE_THE_LOWER_BOUND = "lower-bound-onset-is-read-past"
 CASE_THE_UPSTREAM_FAILURE = "upstream-dependency-failure-is-identified"
 CASE_THE_INTERNAL_FAILURE = "internal-dependency-failure-is-told-from-upstream"
+CASE_THE_MOVED_PORT = "config-induced-failure-is-told-from-a-bad-deployment"
+CASE_THE_REWRITTEN_SUM = "bad-deployment-is-told-from-a-config-change"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -93,6 +95,10 @@ CASE_THE_INTERNAL_FAILURE = "internal-dependency-failure-is-told-from-upstream"
 # a single lapse survives while two do not. Re-measure after any change to
 # `BRIEF`, to a tool description, or to the budget, and do not re-derive from a
 # batch: 10 samples distinguish nothing short of total failure.
+# That re-measure is owed as of the deployment channel: `BRIEF` and the tool list
+# both moved, so every figure below describes the configuration digested as
+# `33a135e3fc06` and none of them has been measured since. They are kept as the
+# last thing that was true rather than reset, and the pool separates the two.
 MUST_IDENTIFY_THE_FLAG_TOGGLE = 9  # 50/50 on every arm
 MUST_STAY_UNDETERMINED = 9  # 50/50 on every arm
 MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 9  # 50/50 on every arm
@@ -111,6 +117,14 @@ MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 7  # 41/50 on the configured model
 # hardest claim in the suite: the evidence for the two dependency causes is
 # identical by construction, and only the register separates them.
 MUST_IDENTIFY_THE_INTERNAL_FAILURE = 9  # UNMEASURED - no pooled samples yet
+# The second matched pair, and unmeasured for the same reason. Both members
+# stage a deployment before a latency departure with identical metrics,
+# identical log lines and a summary that says only that a deployment happened;
+# the single variable is what the commit changed. A model that reads a
+# deployment and guesses which kind it was gets one of these right half the
+# time, which is what the pair exists to catch.
+MUST_IDENTIFY_THE_MOVED_PORT = 9  # UNMEASURED - no pooled samples yet
+MUST_IDENTIFY_THE_REWRITTEN_SUM = 9  # UNMEASURED - no pooled samples yet
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
@@ -206,11 +220,55 @@ A_PRICING_SERVICE_THE_ORGANISATION_RUNS = ServiceDependency(
 )
 
 A_PRICING_REWRITE = "checkout: replace the cached pricing lookup with a per-item query"
+
+# The matched pair's two revisions, and what each one shipped. The summaries
+# are what the deploy adapter actually writes - a revision and the directory
+# the application syncs from - rather than prose describing the change, because
+# a real deployment does not come with a description and the cases either side
+# of this pair are generous in a way production is not.
+THE_REVISION_THAT_MOVED_A_PORT = "0d8e826"
+THE_REVISION_THAT_REWROTE_A_SUM = "5e07d73"
+
+# What the deployment channel answers for each, as the read tier renders it.
+# One changes a value in the file the deployment carried and no source at all;
+# the other changes the function on the request path. Nothing else about the
+# two incidents differs.
+WHAT_THE_MOVED_PORT_SHIPPED = [
+    f"Deployment of revision {THE_REVISION_THAT_MOVED_A_PORT} to io-shop, "
+    f"compared against 544cef3 - the revision deployed before it.",
+    "modified deploy/values-production.yaml",
+    "  @@ -24,4 +24,4 @@ cache:",
+    "     host: cache.io-shop.svc.cluster.local",
+    "  -  port: 6379",
+    "  +  port: 6380"
+]
+WHAT_THE_REWRITTEN_SUM_SHIPPED = [
+    f"Deployment of revision {THE_REVISION_THAT_REWROTE_A_SUM} to io-shop, "
+    f"compared against 70dbcfd - the revision deployed before it.",
+    "modified src/io_shop/spend_summary.py",
+    "  @@ -18,7 +18,13 @@ def lifetime_total(shopper, purchases):",
+    "  -    return shopper.summary.lifetime_total",
+    "  +    return sum(",
+    "  +        purchase.amount for purchase in purchases_of(shopper)",
+    "  +    )"
+]
 A_LOG_LEVEL_BUMP = "checkout: raise the structured-log level from info to debug"
 
 # The deploy that explains nothing, named once so the fixture that stages it and
 # the assertion that refuses it cannot come to mean different deploys.
 AN_UNRELATED_DEPLOY = "4d1b90c"
+
+# What that deploy shipped. One value in the file the deployment carried, no
+# source file at all, and a value nothing on the request path reads - so it
+# cannot produce an error-rate spike, and the diff is what says so.
+WHAT_THE_LOG_LEVEL_BUMP_SHIPPED = [
+    f"Deployment of revision {AN_UNRELATED_DEPLOY} to io-shop, compared against "
+    f"c77ab41 - the revision deployed before it.",
+    "modified deploy/values-production.yaml",
+    "  @@ -9,3 +9,3 @@ logging:",
+    "  -  level: info",
+    "  +  level: debug"
+]
 
 # Where the toggle sits in the widening fixture: far enough before the onset
 # that the default log window - which reaches back `log_initial_lookback_minutes`
@@ -377,6 +435,78 @@ def test_a_deploy_before_a_latency_departure_is_identified() -> None:
 
 @pytest.mark.eval
 @needs_the_real_api
+def test_a_deployment_that_changed_only_configuration_is_told_from_bad_code()\
+        -> None:
+    # The second matched pair in this suite, and the only one whose single
+    # variable is a diff. Same alert, same buckets, same log lines, same one
+    # deployment six minutes before the onset, and a summary that says only that
+    # a deployment happened and which directory it synced from - which is all a
+    # deployment record carries. Everything readable from the telemetry is
+    # identical to the twin below, so the two causes are separable by exactly
+    # one fact: whether the commit touched source code or the values it shipped
+    # with.
+    #
+    # It decides what is left owed rather than only what is written down. A
+    # rollback answers both, and afterwards one team has a values file to fix
+    # and the other has a function - so an incident filed under the wrong one
+    # sends the work to the wrong people.
+    #
+    # The answer is asserted and the reasoning is not. A model can reach the
+    # right cause by an argument this fixture does not stage, and scoring the
+    # argument would measure how it writes rather than what it concluded.
+    some_incident = an_incident_where_a_deployment_moved_a_port()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_MOVED_PORT,
+                MUST_IDENTIFY_THE_MOVED_PORT,
+                _a_run_where(
+                    the_cause_was_identified_as(
+                        FailureMode.CONFIG_INDUCED_FAILURE
+                    )
+                )
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
+def test_a_deployment_that_changed_source_code_is_told_from_configuration()\
+        -> None:
+    # The twin. Its value is entirely in being scored beside the case above: a
+    # model that answers `bad-deployment` to every deployment passes this one
+    # and fails that one, and a model that answers `config-induced-failure` to
+    # every deployment does the reverse. Only a model that reads the diff passes
+    # both, which is the claim the channel was added to support.
+    some_incident = an_incident_where_a_deployment_rewrote_a_sum()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_REWRITTEN_SUM,
+                MUST_IDENTIFY_THE_REWRITTEN_SUM,
+                _a_run_where(
+                    the_cause_was_identified_as(FailureMode.BAD_DEPLOYMENT)
+                )
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
 def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
     # The cost of the third channel, measured. This is the undetermined case
     # above with one deploy added and nothing else touched, so a drop here
@@ -452,6 +582,12 @@ class Incident:
     than scenery: two of the causes Argus can name differ only in who owns the
     failing dependency, so which of them is correct for a set of log lines is
     decided here and nowhere else. Empty for every case that stages none.
+
+    `what_each_deployment_changed` is the same kind of fact for the other pair
+    that arrives identically - a deployment that shipped bad code and one that
+    shipped a broken configuration value - keyed by the revision a case would be
+    asked about. Empty for every case where no deployment's contents decide
+    anything.
     """
 
     alert: Alert
@@ -459,6 +595,7 @@ class Incident:
     log_lines: list[str]
     changes: list[ChangeEvent]
     dependencies: list[ServiceDependency]
+    what_each_deployment_changed: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -558,7 +695,20 @@ def an_incident_with_an_unrelated_change() -> Incident:
         alert=an_error_rate_alert(),
         buckets=_a_calm_stretch_then_a_spike(),
         log_lines=_a_spike_nothing_explains(),
-        changes=[a_deploy_at(DEPLOYED_LONG_BEFORE_THE_ONSET, AN_UNRELATED_DEPLOY, A_LOG_LEVEL_BUMP)]
+        changes=[
+            a_deploy_at(
+                DEPLOYED_LONG_BEFORE_THE_ONSET, AN_UNRELATED_DEPLOY, A_LOG_LEVEL_BUMP
+            )
+        ],
+        # Its diff, beside the forty calm minutes rather than instead of them.
+        # The gap is still what makes the deploy unrelated in the evidence; this
+        # is the second, independent reason - a log level in a values file, no
+        # source at all, and nothing a request passes through. A model that
+        # declines to blame it can now say why from something it read, where
+        # before it could only decline to blame a deploy it knew nothing about.
+        what_each_deployment_changed={
+            AN_UNRELATED_DEPLOY: WHAT_THE_LOG_LEVEL_BUMP_SHIPPED
+        }
     )
 
 
@@ -574,8 +724,84 @@ def an_incident_where_a_deploy_slowed_the_service() -> Incident:
         # Six minutes before the onset and in no log line at all: the change
         # channel is the only place this exists, whatever window the model
         # reads the logs over.
-        changes=[a_deploy_at(-6, "a3f9c21", A_PRICING_REWRITE)]
+        changes=[a_deploy_at(-6, "a3f9c21", A_PRICING_REWRITE)],
+        # Given its own diff, so that a model reaching for the deployment
+        # channel here learns what this one shipped rather than that the
+        # fixture records nothing about it.
+        what_each_deployment_changed={"a3f9c21": WHAT_THE_REWRITTEN_SUM_SHIPPED}
     )
+
+
+def an_incident_where_a_deployment_moved_a_port() -> Incident:
+    """A deployment whose commit changed one configuration value.
+
+    Half of a matched pair. Everything a model can read apart from the diff is
+    the same here as in the twin below: the same alert, the same latency
+    departure, the same log lines, and a deployment six minutes before the
+    onset whose summary says only that it happened and where it synced from.
+    """
+    return _an_incident(
+        alert=a_latency_alert(),
+        buckets=_a_calm_stretch_then_a_latency_departure(),
+        log_lines=[
+            a_log_line_at(-1, A_SUCCESS),
+            a_log_line_at(1, A_SLOW_SUCCESS),
+            a_log_line_at(2, A_SLOW_SUCCESS)
+        ],
+        changes=[
+            a_deploy_at(
+                -6,
+                THE_REVISION_THAT_MOVED_A_PORT,
+                _as_a_deploy_is_actually_summarised(
+                    THE_REVISION_THAT_MOVED_A_PORT
+                )
+            )
+        ],
+        what_each_deployment_changed={
+            THE_REVISION_THAT_MOVED_A_PORT: WHAT_THE_MOVED_PORT_SHIPPED
+        }
+    )
+
+
+def an_incident_where_a_deployment_rewrote_a_sum() -> Incident:
+    """A deployment whose commit changed the code on the request path.
+
+    The other half. Identical to the case above in every channel but one, so a
+    verdict that differs between the two differs on the diff and on nothing
+    else - and a verdict that does not differ was reached without reading it.
+    """
+    return _an_incident(
+        alert=a_latency_alert(),
+        buckets=_a_calm_stretch_then_a_latency_departure(),
+        log_lines=[
+            a_log_line_at(-1, A_SUCCESS),
+            a_log_line_at(1, A_SLOW_SUCCESS),
+            a_log_line_at(2, A_SLOW_SUCCESS)
+        ],
+        changes=[
+            a_deploy_at(
+                -6,
+                THE_REVISION_THAT_REWROTE_A_SUM,
+                _as_a_deploy_is_actually_summarised(
+                    THE_REVISION_THAT_REWROTE_A_SUM
+                )
+            )
+        ],
+        what_each_deployment_changed={
+            THE_REVISION_THAT_REWROTE_A_SUM: WHAT_THE_REWRITTEN_SUM_SHIPPED
+        }
+    )
+
+
+def _as_a_deploy_is_actually_summarised(revision: str) -> str:
+    """One deployment said the way the deploy adapter says it.
+
+    A revision and the directory the application synced from, and nothing about
+    what changed - because that is all a deployment record carries. The path is
+    the same for every deployment of this service, which is exactly why it
+    cannot separate the pair and why the diff has to be read.
+    """
+    return f"deployed revision {revision}, from deploy"
 
 
 def an_incident_underway_before_the_window_opens() -> Incident:
@@ -756,9 +982,14 @@ def _an_incident(alert: Alert,
                  buckets: list[MetricBucket],
                  log_lines: list[str],
                  changes: list[ChangeEvent],
-                 dependencies: list[ServiceDependency] | None = None) -> Incident:
+                 dependencies: list[ServiceDependency] | None = None,
+                 what_each_deployment_changed: dict[str, list[str]] | None = None
+                 ) -> Incident:
     return Incident(alert=alert, buckets=buckets, log_lines=log_lines,
-                    changes=changes, dependencies=dependencies or [])
+                    changes=changes, dependencies=dependencies or [],
+                    what_each_deployment_changed=(
+                        what_each_deployment_changed or {}
+                    ))
 
 
 def _the_register_for(incident: Incident
@@ -777,6 +1008,28 @@ def _the_register_for(incident: Incident
     """
     def fetch(dont_care_service: str) -> list[ServiceDependency]:
         return list(incident.dependencies)
+
+    return fetch
+
+
+def _what_a_deployment_changed_for(incident: Incident
+                                  ) -> Callable[[str, str], list[str]]:
+    """What the fixture records a deployment as having changed.
+
+    Per incident like the register, and evidence for the same reason: two causes
+    differ only in whether a deployment shipped source code or the values it
+    shipped with, so which is correct for a set of metrics is decided here.
+
+    A revision the fixture records nothing for is said to be unrecorded rather
+    than answered emptily. "This deployment changed nothing" rules a deployment
+    out, and a case that simply has no diff staged would otherwise rule out the
+    deployment it staged.
+    """
+    def fetch(dont_care_service: str, revision: str) -> list[str]:
+        return incident.what_each_deployment_changed.get(revision) or [
+            f"This evaluation records nothing about what the deployment of "
+            f"[{revision}] changed, so take it as unread rather than as empty."
+        ]
 
     return fetch
 
@@ -826,6 +1079,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_logs=_the_logs_of(incident),
             fetch_change_events=_the_changes_of(incident),
             fetch_dependencies=_the_register_for(incident),
+            fetch_what_a_deployment_changed=_what_a_deployment_changed_for(incident),
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
             converse=speak,

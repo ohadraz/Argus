@@ -17,6 +17,7 @@ _CHANGE_EVENTS: Final = TypeAdapter(list[ChangeEvent])
 _FLAG_NAMES: Final = TypeAdapter(list[str])
 _SERVICE_DEPENDENCIES: Final = TypeAdapter(list[ServiceDependency])
 _FILE_PATHS: Final = TypeAdapter(list[str])
+_WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
@@ -101,6 +102,40 @@ def get_change_events(service: str,
         service=service,
         window_start=window_start,
         window_end=window_end,
+    )
+
+
+def get_what_a_deployment_changed(service: str,
+                                  revision: str,
+                                  *,
+                                  client: McpClient) -> list[str]:
+    """Reads what one deployment of a service changed - the files that differ
+    from the revision deployed before it, and the change made to each.
+
+    The evidence that separates a bad deployment from a broken configuration, and
+    the only evidence that does. Both arrive as a deployment and are put right the
+    same way; what differs is whether the commit touched source code or the values
+    it shipped with, and that is inside the commit. A deploy's own summary cannot
+    say - an application syncs from one directory for its whole life, so the path
+    is the same whatever the commit changed.
+
+    `revision` is the deploy's reference as the change channel reported it. What
+    it is compared against is not passed: the revision deployed before it lives in
+    the deployment history, which the caller cannot see, so naming it would be
+    naming a guess - and a diff against a guessed base describes the wrong change
+    in the shape a right one has.
+
+    A revision no deployment has, a deployment with nothing before it, and a
+    deployment that changed nothing all come back as answers, because each is a
+    fact about the deployment history and each calls for something different.
+    Raises when the repository could not be compared: "it changed nothing" rules a
+    deployment out as a cause, and an outage is not evidence for that.
+    """
+    return client.call(
+        "get_what_a_deployment_changed",
+        _WHAT_A_DEPLOYMENT_CHANGED.validate_python,
+        service=service,
+        revision=revision,
     )
 
 

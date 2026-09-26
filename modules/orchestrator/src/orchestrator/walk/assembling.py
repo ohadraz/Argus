@@ -23,6 +23,7 @@ from agent_codefix import FixSettings, fixes_over
 from agent_investigator import (
     changes_over,
     dependencies_over,
+    deployment_diffs_over,
     logs_over,
     metrics_over,
 )
@@ -259,13 +260,14 @@ def against(connections: Connections,
             _investigate,
             settings=InvestigationSettings.of(settings),
             thresholds=thresholds,
-            # The three channels, each over the tier that answers it. The change
+            # The five channels, each over the tier that answers it. The change
             # channel takes both, because a deploy and a flag flip are recorded
             # by two systems and the Investigator reads one history.
             fetch_metrics=metrics_over(read),
             fetch_logs=logs_over(read),
             fetch_change_events=changes_over(read, write),
-            fetch_dependencies=register
+            fetch_dependencies=register,
+            fetch_what_a_deployment_changed=deployment_diffs_over(read)
         ),
         record_hypothesis=records.hypothesis,
         # The same channel the investigation reads, asked again by the walk -

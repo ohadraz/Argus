@@ -133,6 +133,10 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "Choose this over bad-deployment whenever the change that landed was "
         "to configuration rather than to code, even though it arrived as a "
         "deployment and is put right the same way: what differs is the fix "
-        "somebody is left with, a values file rather than the source"
+        "somebody is left with, a values file rather than the source. Which of "
+        "the two landed is what the deployment changed, which is retrievable - "
+        "read it rather than inferring it. The path a deployment shipped from is "
+        "not the answer: that is where its manifests live, and it is the same "
+        "directory whatever the commit touched"
     )
 }

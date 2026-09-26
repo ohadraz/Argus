@@ -16,6 +16,7 @@ from read_mcp_client import (
     get_log_lines,
     get_metrics_summary,
     get_service_dependencies,
+    get_what_a_deployment_changed,
 )
 from write_mcp_client import get_recent_flag_changes
 
@@ -54,6 +55,23 @@ class DependencyFetcher(Protocol):
     def __call__(self, service: str, /) -> list[ServiceDependency]: ...
 
 
+class DeploymentDiffFetcher(Protocol):
+    """One deployment, asked what it changed.
+
+    The second channel with no window, and the only one with a subject. What a
+    deployment changed is a fact about one commit, so there is nothing to date;
+    but there is more than one deployment, and which one is being asked about is
+    the model's to name - so a revision goes in where the others take nothing.
+
+    Answers in lines rather than in a shape of its own. What comes back is a diff
+    and the two revisions it is between, which is prose by nature: a model reads
+    it, and a type with a `patch` field in it would be a shape three modules had
+    to agree on to carry text that is already text.
+    """
+
+    def __call__(self, service: str, revision: str, /) -> list[str]: ...
+
+
 # The two systems that record a change, as this module reaches them. Named types
 # for the reason the three above are, and told apart by name rather than by
 # position: a deploy history and a flag history are two three-argument callables
@@ -89,6 +107,34 @@ def dependencies_over(client: McpClient) -> DependencyFetcher:
     handed a channel rather than the means to build one.
     """
     return partial(fetch_dependencies, client=client)
+
+
+def deployment_diffs_over(client: McpClient) -> DeploymentDiffFetcher:
+    """The deployment channel, asked over one connection to the read tier.
+
+    Bound where a process starts, as every other channel is, so the loop is
+    handed a channel rather than the means to build one.
+    """
+    return partial(fetch_what_a_deployment_changed, client=client)
+
+
+def fetch_what_a_deployment_changed(service: str,
+                                    revision: str,
+                                    *,
+                                    client: McpClient) -> list[str]:
+    """What one deployment of this service changed, as lines a model reads.
+
+    A named function rather than the client's own passed directly, for the reason
+    `fetch_metrics` is one: what the loop needs is the one calling shape it uses,
+    and a seam is only useful if a test can spec against that.
+
+    The revision this is compared against is not passed and could not be. It is
+    the revision deployed before this one, which lives in the deployment history
+    the read tier holds and which nothing on this side of the port can see - so a
+    caller supplying it would be supplying a guess, and a diff against a guessed
+    base describes the wrong change in the shape a right one has.
+    """
+    return get_what_a_deployment_changed(service, revision, client=client)
 
 
 def fetch_dependencies(service: str,

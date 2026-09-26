@@ -159,6 +159,21 @@ values file still names the port that broke it, the platform's own
 reconciliation is suspended so that nothing re-applies it, and both are what a
 withdrawal puts back.
 
+**FM-09 and FM-10 are the pair no telemetry separates, and a fifth retrieval
+channel is what separates them.** Both arrive as a deployment before the onset,
+both move latency, both are answered by returning the deployment, and every
+channel that describes the service describes the two identically. The deployment
+history does not help either: an application syncs from one directory for its
+whole life, so both scenarios report `deploy` as the path they shipped from, and
+a model told to read code-or-configuration off that path reads it off a constant.
+What does separate them is inside the commit - one changes
+`deploy/values-production.yaml` and nothing else, the other changes
+`src/io_shop/spend_summary.py` - so the Investigator reads what a deployment
+changed, comparing its revision against the one deployed before it. The fixture
+was built for this: `ScenarioDeploy` carries `previous_revision` because "the
+entry before this one has to be a real commit whose diff against this one is the
+diagnosis".
+
 **FM-09 Deploy-induced regression is built.** `bad-deployment` stages the other
 half of the pair: a revision that derives a shopper's lifetime average from the
 purchases once per purchase - the same figure, quadratic cost, on the path every

@@ -79,6 +79,7 @@ from agent_investigator.budget import (
 from agent_investigator.retrieval import (
     ChangeFetcher,
     DependencyFetcher,
+    DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
 )
@@ -98,10 +99,19 @@ BRIEF: Final = """\
 You are the Investigator in an autonomous incident-response system. One \
 production incident is described below. Find what caused it.
 
-You have three ways to read evidence and one way to finish. Ask for whatever \
+You have five ways to read evidence and one way to finish. Ask for whatever \
 you need, in whatever order, over whatever windows look worth reading - that \
 judgement is the reason you are here rather than a fixed sequence of reads. \
 When you have seen enough, call final_answer.
+
+Two of the five answer about something other than a stretch of time, and are \
+easy to leave unread for that reason. One says what this service calls and whose \
+each of those is. The other says what a deployment changed, and it is the answer \
+to a question the rest of the evidence cannot settle: a deployment that shipped \
+bad code and a deployment that shipped a broken configuration value arrive \
+identically and are fixed differently, so where a deployment is your best \
+explanation, read what was in it before naming which of the two it was. It takes \
+the revision the change channel gave you.
 
 Judge only from the evidence you actually retrieved. Saying the cause is \
 undetermined is a correct and expected answer, not a failure: every window is \
@@ -167,6 +177,7 @@ def investigate(
     fetch_logs: LogFetcher,
     fetch_change_events: ChangeFetcher,
     fetch_dependencies: DependencyFetcher,
+    fetch_what_a_deployment_changed: DeploymentDiffFetcher,
     *,
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
@@ -292,7 +303,8 @@ def investigate(
         fetch_metrics=fetch_metrics,
         fetch_logs=fetch_logs,
         fetch_change_events=fetch_change_events,
-        fetch_dependencies=fetch_dependencies
+        fetch_dependencies=fetch_dependencies,
+        fetch_what_a_deployment_changed=fetch_what_a_deployment_changed
     )
     spend = budget if budget is not None else a_budget_for(settings)
     tools = investigator_tools()
