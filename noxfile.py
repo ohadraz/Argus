@@ -1065,6 +1065,77 @@ def _stop_service(process: subprocess.Popen[bytes], timeout: float = 10.0) -> No
         process.wait()
 
 
+# The Target Service's own checkout, beside this one, and the branch a
+# deployment runs. Named here because two things read them - the guard below and
+# the message it raises - and a path spelled twice is a path that comes to
+# disagree with itself.
+_THE_TARGET_SERVICE_REPOSITORY: Final = "Argus-Demo-Target-App"
+_THE_DEPLOYED_BRANCH: Final = "main"
+
+
+def _refuse_a_target_service_the_model_cannot_see() -> None:
+    """Refuses a paid run whose Target Service is not the one Code-Fix will read.
+
+    The scenario is staged from the sibling checkout on this machine; the source
+    Code-Fix reads comes from GitHub, over the read tier's repository channel.
+    Those are two different copies, and when they differ the run is asking a
+    model to fix a world nobody is running. What comes back is not nonsense,
+    which is what makes it expensive: the model searches correctly for the
+    module the incident is about, does not find it, and bounds the nearest thing
+    that looks like the same fault. The answer reads perfectly and is about a
+    dependency the incident was never about.
+
+    Checked here rather than remembered, because remembering is what failed:
+    this cost two paid recordings, and the preflight checklist it should have
+    been on was read both times.
+
+    Two conditions, and both are the same question - is what is on disk what is
+    on the branch. A dirty tree is a scenario staged from source nobody pushed;
+    a HEAD that is not the remote tip is source the model cannot fetch. Asked of
+    the remote directly rather than of `origin/main`, which is only as fresh as
+    the last fetch and would pass while the push was still missing.
+
+    Only for runs against the real repository. Under the double the repository
+    is a fixture the double holds, and nothing about this checkout reaches it.
+    """
+    shop = Path(__file__).parent.parent / _THE_TARGET_SERVICE_REPOSITORY
+
+    if not (shop / ".git").exists():
+        raise RuntimeError(
+            f"[{shop}] is not a checkout, so there is no way to tell whether "
+            f"what Code-Fix will read is what this run stages. Clone the Target "
+            f"Service beside this repository."
+        )
+
+    def git(*arguments: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(shop), *arguments],
+            capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    if git("status", "--porcelain"):
+        raise RuntimeError(
+            f"[{shop}] has uncommitted changes, so the scenario this run stages "
+            f"is not the source Code-Fix will be given. Commit and push them "
+            f"first - a paid run against a stale Target Service spends money to "
+            f"watch a model fix the wrong file."
+        )
+
+    branch = os.environ.get("GITHUB_BASE_BRANCH", _THE_DEPLOYED_BRANCH)
+    here = git("rev-parse", "HEAD")
+    there = git("ls-remote", "origin", f"refs/heads/{branch}").split("\t")[0]
+
+    if here != there:
+        raise RuntimeError(
+            f"[{shop}] is at [{here[:8]}] and origin/{branch} is at "
+            f"[{there[:8] or 'nothing'}], so Code-Fix would read a different "
+            f"Target Service from the one this run stages. Push first: the "
+            f"module an incident is about is invisible to the model until it is "
+            f"on the branch, and what comes back is a confident fix to whatever "
+            f"else looked similar."
+        )
+
+
 def _refuse_a_stack_that_is_already_up() -> None:
     """Fails before anything is started if a previous stack still holds a port.
 
@@ -1613,6 +1684,12 @@ def _run_against_the_stack(
     # Before docker, before anything: a stack left running by a killed run does
     # not announce itself, and every symptom it causes points elsewhere.
     _refuse_a_stack_that_is_already_up()
+
+    # And before anything that costs money: what Code-Fix reads has to be what
+    # the scenario stages. Only where the real repository answers - against the
+    # double there is nothing to be behind.
+    if not github_stands_in:
+        _refuse_a_target_service_the_model_cannot_see()
     started: list[subprocess.Popen[bytes]] = []
     # Set on the session's own environment rather than passed to each call:
     # every child here inherits it - the services that do the waiting and the

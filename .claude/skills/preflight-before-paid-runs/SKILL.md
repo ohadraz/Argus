@@ -36,6 +36,21 @@ unknown.
 A recording run (`nox -s "record(mode='both')" -- <name>`) touches all of this,
 and only the last item needs a model:
 
+0. **The Target Service the model reads is the one the scenario stages.** The
+   scenario comes from the sibling checkout on this machine; the source Code-Fix
+   reads comes from GitHub. A commit that was never pushed makes those two
+   different worlds, and the answer that comes back is not nonsense - which is
+   what makes it expensive. The model searches correctly for the module the
+   incident is about, cannot find it, and bounds the nearest thing with the same
+   shape; the fix reads perfectly and is about a dependency the incident was
+   never about.
+
+   `_refuse_a_target_service_the_model_cannot_see` in `noxfile.py` enforces this
+   for every run that reads the real repository, because remembering it did not
+   work: it cost two paid recordings while this checklist was being followed.
+   Listed here anyway, so the reason the guard exists is written down where
+   somebody reading it would look.
+
 1. **The recording has somewhere to go.** Its name exists in the e2e framework
    *and* has an entry in `scripts/record_incident.py`. A name the script does
    not know is a run that records nothing; a name nothing replays is a
