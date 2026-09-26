@@ -529,6 +529,10 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         ))
     ]
     spend = a_budget_for(settings)
+    # Whether the model has already been asked to attach what it described.
+    # One retry and no more, so a considered "nothing to change" stays an
+    # answer rather than becoming a loop.
+    asked_for_the_patch = False
 
     while not spend.bounds_reached():
         try:
@@ -554,8 +558,29 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
 
         submitted = _the_submission_in(turn)
 
-        if submitted is not None:
+        if submitted is not None and (submitted.files or asked_for_the_patch):
             return submitted
+
+        if submitted is not None:
+            # An empty patch put back, once. "I read the code and there is
+            # nothing to change" and "here is the change - " with nothing
+            # attached are the same call, and prose cannot separate them: a
+            # verdict carries an explanation too. A live run submitted one
+            # naming the file and describing the bound it wanted, and the
+            # incident was recorded as Argus having looked and found nothing -
+            # the opposite of what the model said, reaching a human as a
+            # verdict nobody reached.
+            #
+            # Once, because a model that meant it says so again and is
+            # believed. Asking forever would turn a real answer into a budget
+            # nobody spent on reading.
+            asked_for_the_patch = True
+            transcript.append(_what_it_is_told_next(
+                [_no_patch_was_attached(turn)],
+                one_call_left=spend.is_on_its_last_call()
+            ))
+
+            continue
 
         transcript.append(_what_it_is_told_next(
             [
@@ -605,6 +630,35 @@ def _what_it_is_told_next(results: list[ToolResult],
             failed=last.failed
         )
     ])
+
+
+def _no_patch_was_attached(turn: Turn) -> ToolResult:
+    """The submission put back, addressed to the call that made it.
+
+    A failure rather than a remark, because `failed` is what tells the model
+    this is something to recover from rather than evidence about the incident -
+    and recovering is the whole point: it has already decided what to write.
+
+    Both readings are named, because only the model knows which it meant. Told
+    only that files were missing, a model that had found nothing to change
+    would invent a change to satisfy the complaint, which is the worse of the
+    two failures this is guarding.
+    """
+    submitting = next(
+        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
+    )
+
+    return ToolResult(
+        call_id=submitting.id if submitting is not None else "",
+        content=(
+            "That submission carried no files. If you meant that the code needs "
+            "no change, submit again with no files and say so in the "
+            "explanation - that is a complete answer and it will be taken as "
+            "one. If you meant to propose the change you described, submit "
+            "again with the whole content of every file it touches."
+        ),
+        failed=True
+    )
 
 
 def _the_submission_in(turn: Turn) -> SubmittedFix | None:

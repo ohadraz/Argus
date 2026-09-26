@@ -44,7 +44,8 @@ from typing import Any
 
 import httpx
 import pytest
-from argus_core.events import ActionTaken
+from argus_core import get_settings
+from argus_core.events import ActionTaken, FixAttempted
 from argus_core.models import RESTART_SERVICE, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
@@ -69,6 +70,12 @@ A_LATENCY_ALERT = "HighLatency"
 # because no other case knows it exists - which is the point of the scenario.
 THE_FAILING_DEPENDENCY = "io-pricing"
 
+# The module holding the unbounded call this incident is about. The account page
+# has two dependencies on it, and the other one - a summary cache - belongs to a
+# different scenario, so a bound written there would read perfectly and change
+# nothing about this incident.
+THE_PRICING_MODULE = "src/io_shop/pricing_service.py"
+
 
 @pytest.mark.e2e
 def test_a_failing_dependency_is_restarted_rather_than_the_service_that_alerted() -> None:
@@ -92,7 +99,8 @@ def test_a_failing_dependency_is_restarted_rather_than_the_service_that_alerted(
                     _the_action_taken_was_a_restart_of(THE_FAILING_DEPENDENCY),
                     _the_service_that_alerted_was_not_restarted(),
                     _the_latency_climbed_and_then_came_back_down(),
-                    _the_error_rate_never_moved()
+                    _the_error_rate_never_moved(),
+                    _the_fix_proposed_bounds_the_pricing_call()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
             )
@@ -255,3 +263,73 @@ def _the_pricing_service_was_left_slow() -> Callable[[], bool]:
         return response.status_code == HttpStatus.OK
 
     return seed_scenario
+
+
+def _the_fix_proposed_bounds_the_pricing_call() -> Assertion[httpx.Response]:
+    """The incident is mitigated and the cause is still in another repository.
+
+    So there *is* something to propose here, and it is not a repair: the shop
+    waits on a dependency with no deadline, which is a defect in the caller
+    however well the dependency behaves. What Argus can offer is a bound.
+
+    Asserted on the file the change touches rather than on the sentence
+    explaining it. A model asked to bound a wait will find some wait to bound,
+    and the account page has two dependencies on it - the pricing service, which
+    this incident is about, and a summary cache, which another scenario is. A
+    proposal that bounded the cache would read perfectly and do nothing, which
+    is exactly what happens when the repository Code-Fix is given does not hold
+    the module the incident is about.
+    """
+    def assertion(response: httpx.Response) -> bool:
+        incident_id = incident_id_from(response)
+        attempts = [
+            event for event in the_incidents_events(incident_id)
+            if isinstance(event, FixAttempted)
+        ]
+
+        if not attempts:
+            raise AssertionError(
+                f"Incident [{incident_id}] was mitigated and then stopped: there "
+                f"is no account of Code-Fix having been asked at all, so the "
+                f"unbounded wait is still in the shop with nobody told."
+            )
+
+        proposal = attempts[-1].pull_request
+
+        if proposal is None:
+            raise AssertionError(
+                f"Incident [{incident_id}] reports a fix attempt that names no "
+                f"pull request, so there is nothing a person can open."
+            )
+
+        changed = _what_the_branch_changed(proposal.branch)
+
+        if THE_PRICING_MODULE not in changed:
+            raise AssertionError(
+                f"Expected the proposal to bound the pricing call in "
+                f"[{THE_PRICING_MODULE}], and branch [{proposal.branch}] changed "
+                f"{sorted(changed)} - a bound on anything else leaves this "
+                f"incident's own dependency unbounded."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_the_branch_changed(branch: str) -> set[str]:
+    """Which files a proposal's branch changed against the deployed branch.
+
+    The platform's own comparison rather than a listing of the branch: a listing
+    says what the branch holds, which is the whole repository, and every file on
+    it is present whether the fix touched it or not.
+    """
+    deployed = get_settings().github_base_branch
+    response = httpx.get(
+        f"{get_settings().github_api_url}/repos/"
+        f"{get_settings().github_repository}/compare/{deployed}...{branch}",
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+
+    return {file["filename"] for file in response.json()["files"]}

@@ -932,7 +932,9 @@ def test_a_fix_proposing_no_files_writes_nothing_and_proposes_nothing() -> None:
     # scenarios are caused by code that is working as written. An empty pull
     # request would send a human to read a diff with nothing in it.
     repository = a_repository()
-    model = a_model_that(submits_a_fix_touching())
+    # Twice: an empty patch is put back once, and a model that meant it repeats
+    # it. See `_no_patch_was_attached`.
+    model = a_model_that(submits_a_fix_touching(), submits_a_fix_touching())
 
     Scenario() \
         .when(
@@ -1117,7 +1119,10 @@ def test_a_model_that_submits_no_files_has_answered() -> None:
     # was read and there is nothing in it to change. No branch, no proposal,
     # and no failure either - a human acts on this.
     repository = a_repository()
-    model = a_model_that(submits_a_fix_touching())
+    # Twice, because an empty patch is put back once: "there is nothing to
+    # change" and "here is the change" with nothing attached are the same call,
+    # and a model that meant the first says it again.
+    model = a_model_that(submits_a_fix_touching(), submits_a_fix_touching())
 
     Scenario() \
         .when(
@@ -1226,6 +1231,38 @@ def test_a_scripted_conversation_never_reaches_the_real_client() -> None:
             )
         ) \
         .then(_no_conversation_was_built(conversations))
+
+
+@pytest.mark.unit
+def test_a_submission_with_no_files_is_put_back_before_it_counts_as_a_verdict() -> None:
+    # An empty patch means "I read the code and there is nothing to change",
+    # and the walk reports it as exactly that. A live run submitted one
+    # alongside an explanation naming the file, describing the bound it wanted
+    # and why - and the incident was recorded as Argus having looked and found
+    # nothing. That is not a smaller answer than the truth; it is the opposite
+    # of it, and it reaches a human as a verdict nobody reached.
+    #
+    # Prose cannot tell the two apart - "there is nothing to change" is an
+    # explanation too - so the empty submission is put back once rather than
+    # judged. A model that meant it submits empty again and is believed; one
+    # that forgot the patch gets the turn it needed.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_touching(),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_branch_written_mentions(repository, DONT_CARE_INCIDENT))
 
 
 def _the_conversation_was_recorded_for(

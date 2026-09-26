@@ -161,6 +161,12 @@ class SubmittedFix(BaseModel):
     different from a submission that could not be read. Whoever reads this has
     to be able to tell those apart, so both parse.
 
+    It parses, and it is put back once before it is believed. The same call
+    also arrives from a model that described the change it wanted and attached
+    nothing, and no amount of reading the prose separates the two - a verdict
+    carries an explanation as readily as a proposal does. So the loop asks, and
+    a model that meant the conclusion submits it again.
+
     The attribute names are the wire names above, and have to be: the call's
     arguments are validated into this as they stand.
     """
