@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from agent_investigator import Findings, investigate
+from agent_investigator import BRIEF, Findings, investigate, investigator_tools
 from agent_investigator.budget import Bound, Budget, InvestigationSettings
 from argus_core import get_settings, new_id, parse_iso
 from argus_core.llm import build_llm_client
@@ -17,7 +18,9 @@ from argus_core.models import (
     FailureMode,
     Hypothesis,
     MetricBucket,
+    Ownership,
     RetrievalChannel,
+    ServiceDependency,
     ToolDefinition,
     Transcript,
     Turn,
@@ -26,7 +29,7 @@ from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 
 from tests.framework.assertions import the_cause_was_identified_as
-from tests.framework.investigating import no_dependencies, the_configured_thresholds
+from tests.framework.investigating import the_configured_thresholds
 from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
@@ -75,6 +78,7 @@ CASE_THE_BAD_DEPLOYMENT = "deploy-before-latency-is-identified"
 CASE_THE_UNRELATED_CHANGE = "unrelated-change-is-not-blamed"
 CASE_THE_LOWER_BOUND = "lower-bound-onset-is-read-past"
 CASE_THE_UPSTREAM_FAILURE = "upstream-dependency-failure-is-identified"
+CASE_THE_INTERNAL_FAILURE = "internal-dependency-failure-is-told-from-upstream"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -99,6 +103,14 @@ MUST_IDENTIFY_THE_UPSTREAM_FAILURE = 9  # 50/50 on every arm
 # above it. A bar at 8 would fail one run in five with nothing wrong; 7 is what
 # 82% supports. Raising it means improving the model's judgement, not the number.
 MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 7  # 41/50 on the configured model
+# The one bar in this file that is not derived from anything, because the case it
+# scores did not exist when the pools were taken and cannot be measured before it
+# does. It is written at its siblings' figure as a starting point and is not
+# evidence of anything until the first pooled run either confirms it or moves it -
+# so a failure here reads as "unmeasured", not as a regression. It is also the
+# hardest claim in the suite: the evidence for the two dependency causes is
+# identical by construction, and only the register separates them.
+MUST_IDENTIFY_THE_INTERNAL_FAILURE = 9  # UNMEASURED - no pooled samples yet
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
@@ -158,6 +170,40 @@ A_FAILURE_FROM_UPSTREAM = "ERROR checkout: request failed - upstream returned 50
 # act on: a model reading those lines now identifies a real failure mode, and is
 # right to. Measured - twenty runs out of twenty named it.
 A_FAILURE_THAT_NAMES_NOTHING = "ERROR checkout: request failed"
+
+# The register entry that makes the upstream case answerable. The log lines say a
+# dependency returned 503; they cannot say whose it is, and a host name is not
+# evidence of ownership - so without this the case asks for a cause the model is
+# told to reach only from a register it was handed empty.
+#
+# A payment provider, because that is the shop's one genuinely external call, and
+# `THIRD_PARTY` verbatim rather than a word of the test's own: `is_ours` tests for
+# the word that means ours, so an invented spelling would read as not-ours by
+# accident and pass for the wrong reason.
+A_PAYMENT_PROVIDER_ANOTHER_COMPANY_RUNS = ServiceDependency(
+    name="acquirer-gateway",
+    purpose="authorises the card on the account page",
+    host="api.acquirer.example.com",
+    owner="Acquirer Inc.",
+    ownership=Ownership.THIRD_PARTY
+)
+
+# Its pair, and the entry the whole discrimination turns on. Everything a model
+# can read about the failure is identical between the two cases; only this
+# differs, and only this decides whether Argus restarts something or hands the
+# incident to a person.
+#
+# Deliberately the same shape of dependency as its pair - a service on the
+# request path, failing the same way - so that nothing but `ownership` separates
+# them. A more obviously internal-sounding name would let a model reach the right
+# answer from the name, which is the reading this exists to rule out.
+A_PRICING_SERVICE_THE_ORGANISATION_RUNS = ServiceDependency(
+    name="io-pricing",
+    purpose="prices the basket on the account page",
+    host="io-pricing.internal",
+    owner="Payments Platform",
+    ownership=Ownership.INTERNAL
+)
 
 A_PRICING_REWRITE = "checkout: replace the cached pricing lookup with a per-item query"
 A_LOG_LEVEL_BUMP = "checkout: raise the structured-log level from info to debug"
@@ -241,7 +287,61 @@ def test_a_dependency_failing_outside_the_service_is_identified() -> None:
                 CASE_THE_UPSTREAM_FAILURE,
                 MUST_IDENTIFY_THE_UPSTREAM_FAILURE,
                 _a_run_where(
-                    the_cause_was_identified_as(FailureMode.UPSTREAM_DEPENDENCY_FAILURE)
+                    all_of(
+                        the_cause_was_identified_as(
+                            FailureMode.UPSTREAM_DEPENDENCY_FAILURE
+                        ),
+                        # Null, and asserted: the field belongs to the cause that
+                        # is acted on, and a name here would be a service Argus
+                        # cannot reach offered as one it can.
+                        _the_faulting_service_was_named_as(None)
+                    )
+                ),
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
+def test_a_dependency_failing_inside_the_organisation_is_told_from_one_outside() -> None:
+    # The pair, and the only case here whose single variable is the register.
+    # Same alert, same buckets, same log lines, same empty change list as the
+    # case above - a dependency returning 503 while this service's own latency,
+    # traffic and memory never move. Everything a model could read from the
+    # telemetry is identical, so the two causes are separable by exactly one
+    # fact: whether the register says the failing dependency is the
+    # organisation's own.
+    #
+    # That is the discrimination the whole internal-dependency cause rests on,
+    # and it decides what happens next rather than only what is written down: a
+    # service of the organisation's own gets restarted, and somebody else's gets
+    # escalated to a human. A model that reads a 503 and guesses gets one of
+    # those right half the time.
+    #
+    # `faulting_service` is asserted here and nowhere else in the suite, because
+    # this is the one cause that carries it. It is what the restart is aimed at.
+    some_incident = an_incident_where_an_internal_dependency_failed()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_INTERNAL_FAILURE,
+                MUST_IDENTIFY_THE_INTERNAL_FAILURE,
+                _a_run_where(
+                    all_of(
+                        the_cause_was_identified_as(
+                            FailureMode.INTERNAL_DEPENDENCY_FAILURE
+                        ),
+                        _the_faulting_service_was_named_as(
+                            A_PRICING_SERVICE_THE_ORGANISATION_RUNS.name
+                        )
+                    )
                 ),
             )
         )
@@ -341,18 +441,24 @@ def test_an_onset_that_is_only_a_lower_bound_is_read_past() -> None:
 
 @dataclass(frozen=True)
 class Incident:
-    """One pinned incident, as the three retrieval channels would serve it.
+    """One pinned incident, as the four retrieval channels would serve it.
 
     The alert and the metrics are what the loop reads before the model's first
     turn. The log lines and the changes are what is *available* to be read -
     which is not the same as what the model will see, and the difference is
     most of what these evals measure.
+
+    `dependencies` is what the register would answer, and it is evidence rather
+    than scenery: two of the causes Argus can name differ only in who owns the
+    failing dependency, so which of them is correct for a set of log lines is
+    decided here and nowhere else. Empty for every case that stages none.
     """
 
     alert: Alert
     buckets: list[MetricBucket]
     log_lines: list[str]
     changes: list[ChangeEvent]
+    dependencies: list[ServiceDependency]
 
 
 @dataclass(frozen=True)
@@ -401,11 +507,38 @@ def an_incident_where_an_upstream_dependency_failed() -> Incident:
     # the failure arrived through a dependency, the log lines say which, and
     # the service's own latency and traffic never move. Naming that is right,
     # and this is where it is now asked for rather than penalised.
+    #
+    # The register is part of that evidence and was not, which made this case
+    # unanswerable the day the two dependency causes were told apart: upstream
+    # is reachable only once the register says another company owns the failing
+    # dependency, and a 503 in a log line is not evidence of who owns anything.
+    # Handed an empty register, the correct reading of these lines is
+    # internal-dependency-failure or nothing at all.
     return _an_incident(
         alert=an_error_rate_alert(),
         buckets=_a_calm_stretch_then_a_spike(),
         log_lines=_an_upstream_outage(),
-        changes=[]
+        changes=[],
+        dependencies=[A_PAYMENT_PROVIDER_ANOTHER_COMPANY_RUNS]
+    )
+
+
+def an_incident_where_an_internal_dependency_failed() -> Incident:
+    # Deliberately the fixture above with one field changed, the way
+    # `an_incident_with_an_unrelated_change` is `an_incident_with_no_change_event`
+    # plus a deploy. Same alert, same buckets, same log lines, same empty change
+    # list; the register says the failing dependency is the organisation's own.
+    #
+    # That single difference is the only thing either score may be attributed to,
+    # which is what makes the pair a measurement of the discrimination rather
+    # than of two unrelated readings. If the two fixtures ever diverge in
+    # anything else, they stop measuring it.
+    return _an_incident(
+        alert=an_error_rate_alert(),
+        buckets=_a_calm_stretch_then_a_spike(),
+        log_lines=_an_upstream_outage(),
+        changes=[],
+        dependencies=[A_PRICING_SERVICE_THE_ORGANISATION_RUNS]
     )
 
 
@@ -622,8 +755,30 @@ def _minute(offset_minutes: int) -> str:
 def _an_incident(alert: Alert,
                  buckets: list[MetricBucket],
                  log_lines: list[str],
-                 changes: list[ChangeEvent]) -> Incident:
-    return Incident(alert=alert, buckets=buckets, log_lines=log_lines, changes=changes)
+                 changes: list[ChangeEvent],
+                 dependencies: list[ServiceDependency] | None = None) -> Incident:
+    return Incident(alert=alert, buckets=buckets, log_lines=log_lines,
+                    changes=changes, dependencies=dependencies or [])
+
+
+def _the_register_for(incident: Incident
+                      ) -> Callable[[str], list[ServiceDependency]]:
+    """What the register says this service calls, as the real channel answers it.
+
+    Per incident rather than one `no_dependencies` for every case, because
+    ownership is now evidence the answer depends on: `UPSTREAM_DEPENDENCY_FAILURE`
+    is only reachable once the register says another company owns the failing
+    dependency, so a case asked for that cause while handed an empty register is
+    asked for an answer its own evidence forbids.
+
+    Empty for every case that stages nothing, which is still most of them - a
+    register volunteering a dependency would put a suspect in front of the model
+    that the scenario never staged.
+    """
+    def fetch(dont_care_service: str) -> list[ServiceDependency]:
+        return list(incident.dependencies)
+
+    return fetch
 
 
 def _the_default_log_window_opens_at() -> str:
@@ -670,7 +825,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_metrics=_the_metrics_of(incident),
             fetch_logs=_the_logs_of(incident),
             fetch_change_events=_the_changes_of(incident),
-            fetch_dependencies=no_dependencies,
+            fetch_dependencies=_the_register_for(incident),
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
             converse=speak,
@@ -781,7 +936,28 @@ def the_configuration_under_test() -> Configuration:
             "log_initial_lookahead_minutes": settings.log_initial_lookahead_minutes,
             "log_max_window_minutes": settings.log_max_window_minutes,
             "change_lookback_minutes": settings.change_lookback_minutes,
-            "thresholds": the_configured_thresholds()
+            "thresholds": the_configured_thresholds(),
+            # The prompt, digested alongside the bounds, because it is the thing
+            # these rates are actually about. Left out, the two changes this file
+            # asks to be re-measured after - the brief, and a tool description -
+            # were the two that could not move the digest, so a re-measure pooled
+            # its samples with the old prompt's and reported the average as a rate
+            # for a configuration nothing ever ran. `since` exists to be told that
+            # boundary by hand; this is the boundary telling itself.
+            #
+            # The cost is deliberate: rewording one line of the brief abandons a
+            # pool that cost real money. A pool spanning two prompts is worth
+            # less than no pool, because it reads as evidence.
+            "brief": BRIEF,
+            # As the model is offered them, not as they are written: a tool's
+            # description is part of the prompt, and `to_wire` is the only
+            # rendering that carries every field the model actually sees. Sorted
+            # so the digest is about the content rather than about dictionary
+            # order.
+            "tools": json.dumps(
+                [offered.to_wire() for offered in investigator_tools()],
+                sort_keys=True
+            )
         })
     )
 
@@ -855,6 +1031,31 @@ def _the_deploy_was_not_blamed() -> Assertion[Run]:
                 f"Expected the unrelated deploy [{AN_UNRELATED_DEPLOY}] not to be "
                 f"blamed; it was named as the subject, as [{best.failure_mode}] at "
                 f"[{best.confidence}]. Model said: {best.summary}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_faulting_service_was_named_as(name: str | None) -> Assertion[Hypothesis]:
+    """The service at fault, as the register spells it - or nothing, correctly.
+
+    Verbatim rather than merely non-empty, and that is the whole assertion:
+    something acts on this field, so a host name, a log component or the model's
+    own paraphrase of either is an answer nothing can restart. The register is
+    the only place the name exists, so matching it exactly is the evidence that
+    the register is where the model read it.
+
+    `None` is asserted just as hard. The field is carried only by the cause that
+    needs it, and a model naming a service alongside every other cause has
+    stopped reporting where the fault is and started decorating.
+    """
+    def assertion(best: Hypothesis) -> bool:
+        if best.faulting_service != name:
+            raise AssertionError(
+                f"Expected the faulting service [{name!r}], got "
+                f"[{best.faulting_service!r}]. Model said: {best.summary}"
             )
 
         return True

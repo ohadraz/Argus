@@ -36,6 +36,7 @@ from argus_core.models import (  # noqa: E402
     ChangeEvent,
     Effort,
     MetricBucket,
+    ServiceDependency,
     ToolDefinition,
     Transcript,
     Turn,
@@ -50,10 +51,7 @@ from tests.eval.test_investigator_eval import (  # noqa: E402
     an_incident_with_an_unrelated_change,
     an_incident_with_no_change_event,
 )
-from tests.framework.investigating import (  # noqa: E402
-    no_dependencies,
-    the_configured_thresholds,
-)
+from tests.framework.investigating import the_configured_thresholds  # noqa: E402
 from tests.framework.measuring import the_measurement_of  # noqa: E402
 
 # The file these rows go to, named for the question rather than the run.
@@ -147,6 +145,21 @@ def _the_changes_of(incident: Incident) -> Callable[[str, str, str], list[Change
     return fetch
 
 
+def _the_register_of(incident: Incident) -> Callable[[str], list[ServiceDependency]]:
+    """What the register says this service calls - no window, as the real one has none.
+
+    Read off the incident rather than answered empty, because ownership decides
+    which of the two dependency causes is correct, and a measurement taken
+    against a register the eval does not use is a measurement of a different
+    conversation. Written here rather than borrowed: the eval's own version of
+    this is private to it.
+    """
+    def fetch(_: str) -> list[ServiceDependency]:
+        return list(incident.dependencies)
+
+    return fetch
+
+
 def _what_one_investigation_spent(incident: Incident,
                                   model: str,
                                   effort: Effort) -> Counter[str]:
@@ -180,7 +193,7 @@ def _what_one_investigation_spent(incident: Incident,
         fetch_metrics=_the_metrics_of(incident),
         fetch_logs=_the_logs_of(incident),
         fetch_change_events=_the_changes_of(incident),
-        fetch_dependencies=no_dependencies,
+        fetch_dependencies=_the_register_of(incident),
         settings=settings,
         thresholds=the_configured_thresholds(),
         converse=speak,
