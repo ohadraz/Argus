@@ -171,5 +171,5 @@ confirmed once.
       and any note claiming the distinction is unreachable is no longer true.
 - [x] 8.1 Fold the change into `docs/spec-and-architecture.md` as though the design
       had always had five channels.
-- [ ] 8.2 Commit in subjects, one line each, approved before each commit.
-- [ ] 8.3 Archive the change as its own separate commit.
+- [x] 8.2 Commit in subjects, one line each, approved before each commit.
+- [x] 8.3 Archive the change as its own separate commit.
