@@ -48,3 +48,18 @@ repos:
         entry: uv run python -m nox -s guard_written_columns  # fails if a column the schema declares is set by no INSERT, UPDATE or DEFAULT
         language: system
         pass_filenames: false  # no filenames - the schema and its writers are read together or not at all.
+
+      # At push rather than at commit, alone among these. Every hook above reads
+      # this repo and nothing else; this one grades recorded patches against the
+      # Target Service checked out beside it, so it fails whenever that tree is
+      # mid-edit - which is most of the time somebody is working on the fixture,
+      # and has nothing to do with the commit being made. Push is where that
+      # objection goes away: CI is about to grade the same pair, so the sibling
+      # checkout has to be right anyway, and finding out here costs seconds
+      # instead of a red job on a branch already pushed.
+      - id: grade-fixes
+        name: recorded fixes still hold up (via nox)
+        entry: uv run python -m nox -s grade_fixes  # fails if a recorded patch no longer leaves the Target Service green
+        language: system
+        pass_filenames: false  # no filenames - it grades every corpus that proposed a fix.
+        stages: [pre-push]
