@@ -252,6 +252,57 @@ def test_a_budget_with_room_to_spare_is_not_on_its_last_turn() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_budget_the_next_turn_would_spend_past_is_on_its_last_turn() -> None:
+    # The bound that actually binds Code-Fix, and the one nothing warned about.
+    # It reads whole files, so tokens run out long before calls do - and a run
+    # that reaches the token bound unwarned throws away everything it read,
+    # which reaches a human as a verdict on code nobody finished looking at.
+    #
+    # Measured rather than guessed, which is what the docstring's objection to
+    # warning on tokens was about: how much the *next* turn will cost is
+    # unknowable, but how much the most expensive turn so far cost is a figure
+    # this budget already has. A turn of that size not fitting in what is left
+    # is the last honest moment to say so.
+    some_token_bound = 1000
+
+    Scenario() \
+        .given(
+            some_budget := _a_budget(max_tokens=some_token_bound),
+            calling(lambda: some_budget.record(
+                _a_turn_asking_for(1, costing_each_way=300)
+            ))
+        ) \
+        .when(
+            lambda: some_budget
+        ) \
+        .then(
+            _it_is_the_last_turn_available()
+        )
+
+
+@pytest.mark.unit
+def test_a_budget_with_tokens_to_spare_is_not_on_its_last_turn() -> None:
+    # The other side of it, for the reason the call-bound pair has one: a
+    # warning on every turn is a warning the model learns to read past. Two
+    # turns of the size charged so far still fit in what is left here.
+    some_token_bound = 1000
+
+    Scenario() \
+        .given(
+            some_budget := _a_budget(max_tokens=some_token_bound),
+            calling(lambda: some_budget.record(
+                _a_turn_asking_for(1, costing_each_way=50)
+            ))
+        ) \
+        .when(
+            lambda: some_budget
+        ) \
+        .then(
+            _it_is_not_the_last_turn_available()
+        )
+
+
 def _no_bound_was_reached() -> Assertion[Budget]:
     """An investigation the loop may carry on with - nothing has run out."""
     def assertion(budget: Budget) -> bool:

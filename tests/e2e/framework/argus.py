@@ -83,6 +83,7 @@ RECORDED_CACHE_MISCONFIGURED = "cache-misconfigured"
 RECORDED_SLOW_CANARY_ROLLOUT = "slow-canary-rollout"
 RECORDED_LARGE_CODE_FIX = "monthly-statement-panel"
 RECORDED_PRICING_SERVICE_DEGRADED = "pricing-service-degraded"
+RECORDED_CPU_SATURATION = "cpu-saturation"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,

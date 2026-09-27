@@ -44,12 +44,14 @@ from agent_mitigation.strategies import (
     MitigationStrategy,
     RestartDependencyStrategy,
     RestartServiceStrategy,
+    ScaleOutStrategy,
     Strategies,
     a_mitigation_answers,
 )
 from agent_mitigation.tools import (
     FlagChangesSince,
     MitigationSettings,
+    PerformingWrites,
     ServiceRestarter,
     StillWanted,
     argus_changed_flag_since,
@@ -58,9 +60,8 @@ from agent_mitigation.tools import (
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
+    performing_writes_over,
     recent_metrics_over,
-    service_restarter_over,
-    somebody_else_changed_flag_since,
 )
 from agent_mitigation.trying import UndoChange, take_action
 from agent_mitigation.undoing import undo_change
@@ -75,9 +76,11 @@ __all__ = [
     "MitigationSettings",
     "MitigationStrategy",
     "Outcome",
+    "PerformingWrites",
     "RestartDependencyStrategy",
     "RestartServiceStrategy",
     "RevertFeatureFlag",
+    "ScaleOutStrategy",
     "ServiceRestarter",
     "StillWanted",
     "Strategies",
@@ -96,10 +99,9 @@ __all__ = [
     "is_a_generic_mitigation",
     "is_within_reach",
     "mitigate",
+    "performing_writes_over",
     "recent_metrics_over",
-    "service_restarter_over",
     "propose_action",
-    "somebody_else_changed_flag_since",
     "take_action",
     "undo_change",
 ]

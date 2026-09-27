@@ -19,7 +19,9 @@ def a_metric_at(minute: datetime,
                 p99_ms: int = 350,
                 requests_per_minute: int = 1000,
                 memory_used_bytes: int = 440 * 1024**2,
-                memory_limit_bytes: int = 2 * 1024**3,) -> dict[str, object]:
+                memory_limit_bytes: int = 2 * 1024**3,
+                cpu_used_cores: float = 0.77,
+                cpu_limit_cores: float = 3.0) -> dict[str, object]:
     return {
         "bucket_id": an_iso_minute(minute),
         "error_rate": error_rate,
@@ -30,6 +32,8 @@ def a_metric_at(minute: datetime,
         "memory_used_bytes": memory_used_bytes,
         "memory_limit_bytes": memory_limit_bytes,
         "process_start_time_seconds": DONT_CARE_STARTED_AT,
+        "cpu_used_cores": cpu_used_cores,
+        "cpu_limit_cores": cpu_limit_cores,
     }
 
 

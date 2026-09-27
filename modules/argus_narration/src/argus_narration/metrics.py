@@ -58,6 +58,12 @@ class BucketRow(BaseModel):
     # for a climb: nine digits changing in their middle is a column nobody can
     # see a trend in.
     memory: str
+    # What the service's CPU was doing, in cores and against the capacity it had.
+    # Rendered rather than reported for the reason memory is, and with one thing
+    # memory does not need: usage clamps at capacity, so a saturated minute is two
+    # equal figures - and a reader scanning a column of pairs for equality is being
+    # asked to do arithmetic the column can do for them.
+    cpu: str
     elevated: bool
 
 
@@ -72,6 +78,7 @@ def a_bucket_row(bucket: MetricBucket) -> BucketRow:
         p99_ms=bucket.p99_ms,
         request_volume=bucket.request_volume,
         memory=_memory_said(bucket.memory_used_bytes, bucket.memory_limit_bytes),
+        cpu=_cpu_said(bucket.cpu_used_cores, bucket.cpu_limit_cores),
         elevated=bucket.error_rate >= _ELEVATED_ERROR_RATE
     )
 
@@ -89,6 +96,43 @@ def _memory_said(used_bytes: int, limit_bytes: int | None) -> str:
         return _a_size(used_bytes)
 
     return f"{_a_size(used_bytes)} of {_a_size(limit_bytes)}"
+
+
+def _cpu_said(used_cores: float, limit_cores: float | None) -> str:
+    """What the service was using, against what it had between its replicas.
+
+    The capacity is said beside the usage for the reason the memory limit is: a
+    figure in cores means nothing alone, and 0.8 is a quiet afternoon across three
+    replicas and an emergency on one. A deployment with no limit configured has no
+    ceiling to be near, and the usage is said alone - not against a zero that would
+    read as a service already over.
+
+    Saturation is named rather than left to be inferred, which is the one thing
+    this says and the memory column does not. Usage cannot exceed capacity, so a
+    saturated minute is two equal figures and nothing more - and a reader scanning
+    a column of pairs for equality is doing work the column can do for them. It is
+    also the whole signal of the one incident this series exists to show.
+    """
+    if limit_cores is None:
+        return f"{_cores(used_cores)} cores"
+
+    said = f"{_cores(used_cores)} of {_cores(limit_cores)} cores"
+
+    if used_cores < limit_cores:
+        return said
+
+    return f"{said}, saturated"
+
+
+def _cores(cores: float) -> str:
+    """A core count at the precision a reader can act on.
+
+    One decimal, which is the precision a utilisation figure is quoted at
+    everywhere a reader has seen one. Three would be the measurement's own
+    precision and nobody's question: the difference between 0.774 and 0.776 cores
+    is not a difference anybody scans a column for.
+    """
+    return f"{cores:.1f}"
 
 
 def _a_size(byte_count: int) -> str:

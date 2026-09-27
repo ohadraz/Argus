@@ -47,7 +47,9 @@ def metrics_that_show_an_onset(dont_care_window_start: str | None) -> list[Metri
             p99_ms=200,
             request_volume=A_MINUTES_SAMPLE,
             memory_used_bytes=A_STEADY_HEAP_BYTES,
-            process_start_time_seconds=A_STEADY_START_TIME
+            process_start_time_seconds=A_STEADY_START_TIME,
+            cpu_used_cores=0.77,
+            cpu_limit_cores=3.0
         ),
         MetricBucket(
             bucket_id=SOME_ONSET,
@@ -57,7 +59,9 @@ def metrics_that_show_an_onset(dont_care_window_start: str | None) -> list[Metri
             p99_ms=1600,
             request_volume=A_MINUTES_SAMPLE,
             memory_used_bytes=A_STEADY_HEAP_BYTES,
-            process_start_time_seconds=A_STEADY_START_TIME
+            process_start_time_seconds=A_STEADY_START_TIME,
+            cpu_used_cores=0.77,
+            cpu_limit_cores=3.0
         )
     ]
 

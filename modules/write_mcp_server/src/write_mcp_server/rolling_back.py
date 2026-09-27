@@ -43,19 +43,23 @@ import httpx
 from argus_core import SettingsSlice
 from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
 
-# Argo CD's own wire vocabulary for the parts of an application this reads.
-# Named once here rather than spelled at each lookup: they are another
+from write_mcp_server.argocd import (
+    REQUEST_TIMEOUT_SECONDS,
+    a_sync_policy,
+    headers_for,
+    is_reconciling_itself,
+    the_url_of,
+)
+
+# Argo CD's own wire vocabulary for the parts of an application only a rollback
+# reads. Named once here rather than spelled at each lookup: they are another
 # project's field names, and a typo in one is a silent `None` rather than an
-# error.
+# error. What both actions against the platform read - the sync policy, and how
+# it is spelled - lives in `argocd` beside them.
 _STATUS: Final = "status"
 _HISTORY: Final = "history"
 _HISTORY_ID: Final = "id"
 _REVISION: Final = "revision"
-_SPEC: Final = "spec"
-_SYNC_POLICY: Final = "syncPolicy"
-_AUTOMATED: Final = "automated"
-
-REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 class RollbackSettings(SettingsSlice):
@@ -125,7 +129,7 @@ def roll_back_deployment(
         )
 
     running, previous = history[-1], history[-2]
-    was_syncing_itself = _is_reconciling_itself(state)
+    was_syncing_itself = is_reconciling_itself(state)
 
     if was_syncing_itself:
         _stop_reconciling(application, settings, put)
@@ -192,14 +196,14 @@ def _tried(call: Callable[[], None]) -> bool:
 def _the_application(application: str,
                      settings: RollbackSettings,
                      get: HttpGet) -> dict[str, Any]:
-    url = f"{settings.argocd_base_url}" + settings.argocd_application_path.format(
-        application=application
+    url = the_url_of(
+        settings.argocd_base_url, settings.argocd_application_path, application
     )
 
     try:
         response = get(
             url,
-            headers=_headers_for(settings.argocd_auth_token),
+            headers=headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
@@ -212,44 +216,31 @@ def _the_application(application: str,
     return state
 
 
-def _is_reconciling_itself(state: dict[str, Any]) -> bool:
-    """Whether the platform syncs this application on its own.
-
-    Argo CD spells it as the *presence* of an `automated` object rather than
-    as a boolean, so this is a lookup for a key and not a truthiness test - an
-    `automated` of `{}` means automated, and reading it as false would leave a
-    rollback to be refused by a server this had just called compliant.
-    """
-    policy = state.get(_SPEC, {}).get(_SYNC_POLICY, {})
-
-    return policy.get(_AUTOMATED) is not None
-
-
 def _stop_reconciling(application: str,
                       settings: RollbackSettings,
                       put: HttpPut) -> None:
-    _set_sync_policy(application, {}, settings, put)
+    _set_sync_policy(application, reconciling=False, settings=settings, put=put)
 
 
 def _start_reconciling(application: str,
                        settings: RollbackSettings,
                        put: HttpPut) -> None:
-    _set_sync_policy(application, {_AUTOMATED: {}}, settings, put)
+    _set_sync_policy(application, reconciling=True, settings=settings, put=put)
 
 
 def _set_sync_policy(application: str,
-                     policy: dict[str, Any],
+                     reconciling: bool,
                      settings: RollbackSettings,
                      put: HttpPut) -> None:
-    url = f"{settings.argocd_base_url}" + settings.argocd_spec_path.format(
-        application=application
+    url = the_url_of(
+        settings.argocd_base_url, settings.argocd_spec_path, application
     )
 
     try:
         response = put(
             url,
-            json={_SYNC_POLICY: policy},
-            headers=_headers_for(settings.argocd_auth_token),
+            json=a_sync_policy(reconciling),
+            headers=headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
@@ -264,15 +255,15 @@ def _ask_for_the_rollback(application: str,
                           to_history_id: int,
                           settings: RollbackSettings,
                           post: HttpPost) -> None:
-    url = f"{settings.argocd_base_url}" + settings.argocd_rollback_path.format(
-        application=application
+    url = the_url_of(
+        settings.argocd_base_url, settings.argocd_rollback_path, application
     )
 
     try:
         response = post(
             url,
             json={"name": application, "id": to_history_id},
-            headers=_headers_for(settings.argocd_auth_token),
+            headers=headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
@@ -283,6 +274,3 @@ def _ask_for_the_rollback(application: str,
         ) from error
 
 
-def _headers_for(auth_token: str) -> dict[str, str]:
-    """No token means no header at all, as the other Argo CD adapters do."""
-    return {"Authorization": f"Bearer {auth_token}"} if auth_token else {}

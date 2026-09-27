@@ -33,15 +33,11 @@ from agent_mitigation import (
     MitigationSettings,
     an_undo_over,
     argus_changed_flag_since,
-    deployment_restorer_over,
-    deployment_roller_over,
     fetch_recent_flag_changes,
     flag_changes_over,
-    flag_setter_over,
     is_a_generic_mitigation,
+    performing_writes_over,
     recent_metrics_over,
-    service_restarter_over,
-    somebody_else_changed_flag_since,
     take_action,
 )
 from argus_core import Connections, SettingsSlice, get_settings
@@ -229,12 +225,6 @@ def against(connections: Connections,
     # the failure that produces is the model defending a service the gate has
     # never heard of.
     register = dependencies_over(read)
-    # Whether anybody but Argus has been in since it wrote. Bound once because
-    # both the action and the undo it may need consult the same question of the
-    # same provider with the same notion of who Argus is.
-    outside = partial(
-        somebody_else_changed_flag_since, settings=mitigation, fetch=flag_history
-    )
     # Where the algorithm draws its lines, read from the deployment and
     # handed to both agents that measure against them. A domain value
     # rather than a slice: `argus_core.anomaly` decides what counts as an
@@ -292,12 +282,12 @@ def against(connections: Connections,
             take_action,
             settings=mitigation,
             thresholds=thresholds,
-            set_state=flag_setter_over(write),
-            restart=service_restarter_over(write),
-            roll_back=deployment_roller_over(write),
-            restore_deployment=deployment_restorer_over(write),
+            # Every write that performs a mitigation, assembled once over the
+            # one connection they all use. Separately was a value taken apart for
+            # the journey and put back together by the callee, and it grew by a
+            # parameter every time Argus learned a new thing to do.
+            writes=performing_writes_over(write),
             fetch_metrics=recent_metrics_over(read),
-            changed_from_outside=outside,
             # The agent's own binding rather than one assembled here, because
             # the worker wants the same one for a withdrawal - and two copies
             # of it is how one came to be missing a collaborator the other had.

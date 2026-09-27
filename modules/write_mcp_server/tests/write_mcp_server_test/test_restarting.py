@@ -752,7 +752,7 @@ def some_settings(namespace: str = "dont-care-namespace",
     """
     return RestartSettings(
         argocd_base_url=base_url,
-        argocd_restart_action_path=SOME_ACTION_PATH,
+        argocd_resource_action_path=SOME_ACTION_PATH,
         argocd_auth_token=auth_token,
         restart_namespace=namespace,
         argocd_resource_tree_path=SOME_RESOURCE_TREE_PATH

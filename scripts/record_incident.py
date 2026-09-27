@@ -57,11 +57,13 @@ from argus_core.events import (
 )
 from argus_core.models import FixOutcome, IncidentStatus
 from pydantic import BaseModel
+from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_CACHE_MISCONFIGURED,
+    RECORDED_CPU_SATURATION,
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
@@ -278,6 +280,24 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         # restart is a recording of an incident left to climb again.
         (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED)
     ),
+    # The leak's pair, and the only walk whose mitigation adds something rather
+    # than putting something back. Its alert is latency: nothing fails here and
+    # the heap never stirs, so an error-rate or a memory alert would be answering
+    # a question this scenario never asks - and what separates it from the leak
+    # is that the consumption moved with the traffic.
+    _Recording(
+        RECORDED_CPU_SATURATION,
+        "cpu-saturation",
+        "HighLatency",
+        IncidentStatus.MITIGATED,
+        # The action and the verdict it earned. The action because the claim is
+        # that capacity was added rather than a process restarted, and the verdict
+        # because a scale-out the shop never answered for would be a recording of
+        # a walk that stopped before finding out whether capacity was the answer.
+        # No fix: the shop's source is correct, and a `must_have` demanding one
+        # would refuse the walk this recording is of.
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
     # The one incident nothing Argus may do can touch. Its alert is the error
     # rate, because that is what a dependency's outage does to the shop that
     # depends on it - every account page waits on the provider and then fails.
@@ -474,19 +494,45 @@ def _a_world_this_recording_can_be_captured_in() -> None:
     The e2e suite's own teardown, step for step and in its order: the service's
     scenario reset, both boot flags put back where the stack starts them, every
     flag the environment did not boot with deleted, the provider's record of
-    what changed erased. Reused rather than restated, because a recording
-    captured in a world the replaying case never arranges is a recording of a
-    different incident.
+    what changed erased, and what Argus remembers of earlier incidents dropped.
+    Reused rather than restated, because a recording captured in a world the
+    replaying case never arranges is a recording of a different incident.
 
     This is what one shared stack costs. Running the session per recording got
     a virgin world from `compose down -v`; here the previous recording's
     mitigations are still on the flags, and its toggles are still in the
     history the next investigation reads as evidence.
+
+    Memory is the step that outlives Postgres, and leaving it out cost a
+    recording. Every walk files what it tried, and a later walk demotes any
+    candidate whose action a similar incident already refuted - so the red
+    herring's refuted flag revert, eleven walks earlier in the same run,
+    demoted the *correct* leading candidate of a flag incident recorded after
+    it. That walk then acted on a runner-up naming a deployment, asked the
+    platform to roll back a scenario that stages no deploy, and escalated. The
+    model had ranked it right; what changed the answer was a store neither
+    recording mentions.
     """
     httpx.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=30.0)
     the_boot_flags_were_put_back()
     only_the_boot_flags_were_left_in_the_provider()
     the_flag_provider_forgot_every_change()
+    _long_term_memory_was_forgotten()
+
+
+def _long_term_memory_was_forgotten() -> None:
+    """Drops the collection this stack remembers incidents in.
+
+    Dropped rather than emptied, as the suite that replays these does it: an
+    absent collection reads as an empty corpus everywhere above the store, and
+    the first write makes it again.
+    """
+    store = QdrantClient(url=get_settings().qdrant_url)
+
+    try:
+        store.delete_collection(get_settings().incident_memory_collection)
+    finally:
+        store.close()
 
 
 def _stage(scenario_id: str) -> str | None:

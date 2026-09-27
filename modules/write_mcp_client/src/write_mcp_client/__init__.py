@@ -12,7 +12,9 @@ from write_mcp_client.client import (
     open_pull_request,
     restart_service,
     restore_deployment,
+    restore_replica_count,
     roll_back_deployment,
+    scale_out,
     set_feature_flag,
     write_mcp,
 )
@@ -23,7 +25,9 @@ __all__ = [
     "open_pull_request",
     "restart_service",
     "restore_deployment",
+    "restore_replica_count",
     "roll_back_deployment",
+    "scale_out",
     "set_feature_flag",
     "write_mcp",
 ]

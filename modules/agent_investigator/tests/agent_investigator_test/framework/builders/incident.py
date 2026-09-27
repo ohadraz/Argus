@@ -25,6 +25,12 @@ DONT_CARE_REQUEST_VOLUME = 1000
 # a leak is the one shape none of them stages.
 CALM_MEMORY_BYTES = 440 * 1024**2
 DONT_CARE_STARTED_AT = 1_756_000_000.0
+# What the shop's cores are doing when nothing is wrong: a quarter of the three
+# replicas it is sized for. Named beside the heap's calm figure because it is the
+# same kind of fact, and because a case that pins the row the model reads has to
+# name these columns without repeating their values.
+CALM_CPU_CORES = 0.77
+CALM_CPU_CAPACITY_CORES = 3.0
 
 WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 AN_ALERT_TIME = datetime(2026, 8, 20, 11, 8, tzinfo=UTC)
@@ -80,6 +86,8 @@ def a_window_of(error_rates: list[float],
             request_volume=DONT_CARE_REQUEST_VOLUME,
             memory_used_bytes=CALM_MEMORY_BYTES,
             process_start_time_seconds=DONT_CARE_STARTED_AT,
+            cpu_used_cores=CALM_CPU_CORES,
+            cpu_limit_cores=CALM_CPU_CAPACITY_CORES,
             cache_hit_ratio=ratio
         )
         for offset, (error_rate, ratio) in enumerate(zip(error_rates, ratios, strict=True))

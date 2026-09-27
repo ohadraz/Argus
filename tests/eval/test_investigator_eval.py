@@ -81,6 +81,8 @@ CASE_THE_UPSTREAM_FAILURE = "upstream-dependency-failure-is-identified"
 CASE_THE_INTERNAL_FAILURE = "internal-dependency-failure-is-told-from-upstream"
 CASE_THE_MOVED_PORT = "config-induced-failure-is-told-from-a-bad-deployment"
 CASE_THE_REWRITTEN_SUM = "bad-deployment-is-told-from-a-config-change"
+CASE_THE_SATURATION = "demand-saturation-is-identified"
+CASE_THE_LEAK = "resource-leak-is-told-from-demand-saturation"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -125,6 +127,16 @@ MUST_IDENTIFY_THE_INTERNAL_FAILURE = 9  # UNMEASURED - no pooled samples yet
 # time, which is what the pair exists to catch.
 MUST_IDENTIFY_THE_MOVED_PORT = 9  # UNMEASURED - no pooled samples yet
 MUST_IDENTIFY_THE_REWRITTEN_SUM = 9  # UNMEASURED - no pooled samples yet
+# The third matched pair, and unmeasured for the reason the others are. Both
+# members stage a service that got slower with no change behind it, identical log
+# lines and a heap that never spilled; the single variable is whether the
+# consumption moved *with* the traffic. A model that reads a latency climb and
+# reaches for the nearest resource story gets one of these right, and the wrong
+# one costs a walk its mitigation - a restart buys a saturated shop a moment
+# before the load returns it, and capacity added to a leaking one is capacity
+# that leaks too.
+MUST_IDENTIFY_THE_SATURATION = 9  # UNMEASURED - no pooled samples yet
+MUST_IDENTIFY_THE_LEAK = 9  # UNMEASURED - no pooled samples yet
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
@@ -170,6 +182,31 @@ MEMORY_LIMIT_BYTES = 2 * 1024**3
 DONT_CARE_STARTED_AT = 1_756_000_000.0
 SLOW_P50_MS = 900
 SLOW_P95_MS = 4800
+SLOW_P99_MS = 6200
+
+# What the shop serves and what it has to serve it with when nothing is wrong.
+# Named rather than spelled at each bucket, because the saturation pair is the
+# first thing here to vary either of them and a literal that varies is a literal
+# somebody will read as arbitrary.
+CALM_REQUEST_VOLUME = 1200
+CALM_CPU_CORES = 0.77
+CPU_LIMIT_CORES = 3.0
+
+# The surge, as the volume the shop reports rather than as a rate somebody chose:
+# four times the traffic against capacity sized for one - which is what makes the
+# deployment too small rather than broken.
+SURGED_REQUEST_VOLUME = CALM_REQUEST_VOLUME * 4
+
+# Usage pinned at the ceiling, because a service cannot use more CPU than it has.
+# That is the whole signature: the gauge stops climbing while the latency does
+# not, where a number growing past its own limit is not a thing a real gauge
+# does.
+SATURATED_CPU_CORES = CPU_LIMIT_CORES
+
+# Where a heap that has been filling for an hour sits: close enough to the limit
+# to be the story, and not spilled - nothing has failed here, which is what keeps
+# the pair's two members the same shape.
+LEAKING_MEMORY_BYTES = int(MEMORY_LIMIT_BYTES * 0.94)
 
 A_SUCCESS = "INFO checkout: request succeeded"
 A_SLOW_SUCCESS = "INFO checkout: request succeeded in 4820ms"
@@ -507,6 +544,73 @@ def test_a_deployment_that_changed_source_code_is_told_from_configuration()\
 
 @pytest.mark.eval
 @needs_the_real_api
+def test_a_service_that_outgrew_its_capacity_is_told_from_one_that_is_leaking()\
+        -> None:
+    # The third matched pair, and the only one whose variable is a resource.
+    # Same alert, same latency climb, same log lines, and nothing changed in
+    # either: no deployment, no toggle, no dependency at fault. What differs is
+    # which reading moved with the other - here the traffic quadruples, CPU pins
+    # against a ceiling it cannot exceed, and the heap never stirs.
+    #
+    # It decides what Argus does next and not only what is written down. A
+    # saturated deployment is answered by adding capacity and a leak by
+    # reclaiming what accumulated, so an incident filed under the wrong half of
+    # resource exhaustion gets the one mitigation that cannot work: a restart
+    # buys a saturated shop the minutes until the load returns it.
+    some_incident = an_incident_where_demand_outgrew_the_capacity()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_SATURATION,
+                MUST_IDENTIFY_THE_SATURATION,
+                _a_run_where(
+                    the_cause_was_identified_as(FailureMode.DEMAND_SATURATION)
+                )
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
+def test_a_heap_that_filled_while_the_traffic_stood_still_is_told_from_saturation()\
+        -> None:
+    # The twin, and its value is entirely in being scored beside the case above:
+    # a model that answers `resource-leak` to every resource story passes this
+    # one and fails that one, and a model that answers `demand-saturation` to
+    # both does the reverse. Only a model that reads whether the consumption
+    # tracked the traffic passes both.
+    #
+    # The traffic is flat to the minute and the heap climbs to within a few
+    # percent of its limit. CPU stays where it was, which is the reading that
+    # rules the other half out: a shop using a quarter of its cores is not a shop
+    # that has run out of room to serve.
+    some_incident = an_incident_where_a_heap_filled_without_the_traffic()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_LEAK,
+                MUST_IDENTIFY_THE_LEAK,
+                _a_run_where(the_cause_was_identified_as(FailureMode.RESOURCE_LEAK))
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
 def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
     # The cost of the third channel, measured. This is the undetermined case
     # above with one deploy added and nothing else touched, so a drop here
@@ -793,6 +897,48 @@ def an_incident_where_a_deployment_rewrote_a_sum() -> Incident:
     )
 
 
+def an_incident_where_demand_outgrew_the_capacity() -> Incident:
+    """Load that grew past the size somebody deployed for.
+
+    Half of a matched pair. Nothing changed and nothing is at fault: the shop is
+    running the code it was reviewed with, serving four times the traffic it was
+    sized for, and every quantile has climbed with the gauge pinned against a
+    ceiling it cannot exceed.
+
+    No change events and no register, because the absence is part of the evidence
+    - the three causes a model might otherwise reach for are each ruled out by
+    something it can read rather than by something it is told.
+    """
+    return _an_incident(
+        alert=a_latency_alert(),
+        buckets=_a_calm_stretch_then_a_surge(),
+        log_lines=_a_service_that_only_got_slower(),
+        changes=[]
+    )
+
+
+def an_incident_where_a_heap_filled_without_the_traffic() -> Incident:
+    """The other half: consumption that climbed on its own.
+
+    Identical to the case above in every channel but the readings - the same
+    alert, the same slowing, the same log lines, the same empty change list - so
+    a verdict that differs between the two differs on whether the consumption
+    moved with the traffic, and a verdict that does not differ was reached
+    without looking.
+
+    CPU stays at its baseline throughout. A real heap under pressure does spend
+    time collecting, and borrowing that here would blur the one distinction the
+    pair exists to draw: what a reader has to be able to see is a service with
+    room to serve and nowhere left to put anything.
+    """
+    return _an_incident(
+        alert=a_latency_alert(),
+        buckets=_a_calm_stretch_then_a_filling_heap(),
+        log_lines=_a_service_that_only_got_slower(),
+        changes=[]
+    )
+
+
 def _as_a_deploy_is_actually_summarised(revision: str) -> str:
     """One deployment said the way the deploy adapter says it.
 
@@ -856,17 +1002,30 @@ def a_bucket_at(offset_minutes: int,
                 p50_ms: int = CALM_P50_MS,
                 p95_ms: int = CALM_P95_MS,
                 p99_ms: int = CALM_P99_MS,
-                memory_used_bytes: int = CALM_MEMORY_BYTES) -> MetricBucket:
+                memory_used_bytes: int = CALM_MEMORY_BYTES,
+                request_volume: int = CALM_REQUEST_VOLUME,
+                cpu_used_cores: float = CALM_CPU_CORES) -> MetricBucket:
+    """One minute as the metrics channel would serve it.
+
+    The traffic and the CPU are parameters rather than fixtures of the shop,
+    because one pair of cases turns on them: what separates the two halves of
+    resource exhaustion is whether the consumption moved with the load, and a
+    bucket holding both flat could not state either half. Every other case leaves
+    them where they were - a quarter-loaded shop serving steady traffic - which is
+    what keeps them evidence about those two cases rather than scenery in nine.
+    """
     return MetricBucket(
         bucket_id=_minute(offset_minutes),
         error_rate=error_rate,
         p50_ms=p50_ms,
         p95_ms=p95_ms,
         p99_ms=p99_ms,
-        request_volume=1200,
+        request_volume=request_volume,
         memory_used_bytes=memory_used_bytes,
         memory_limit_bytes=MEMORY_LIMIT_BYTES,
-        process_start_time_seconds=DONT_CARE_STARTED_AT
+        process_start_time_seconds=DONT_CARE_STARTED_AT,
+        cpu_used_cores=cpu_used_cores,
+        cpu_limit_cores=CPU_LIMIT_CORES
     )
 
 
@@ -918,6 +1077,82 @@ def _a_calm_stretch_then_a_latency_departure() -> list[MetricBucket]:
         a_bucket_at(0, CALM_ERROR_RATE),
         a_bucket_at(1, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS),
         a_bucket_at(2, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS)
+    ]
+
+
+def _a_calm_stretch_then_a_surge() -> list[MetricBucket]:
+    """Traffic that ramps to four times the baseline, and a gauge that stops.
+
+    The ramp is what makes this a growth in demand rather than a step somebody
+    caused: three quarters of an hour of steady traffic, then a climb over five
+    minutes that does not come back down. Usage rises with it until it reaches
+    capacity and then stays there, because a service cannot use more CPU than it
+    has - while the latency goes on rising, which is the demand the gauge can no
+    longer show.
+
+    The calm stretch reaches back as far as the other fixtures' does, and for the
+    same reason: a reader can only see that the traffic changed if the minutes
+    before it are there to be read.
+    """
+    return [
+        *(a_bucket_at(minute, CALM_ERROR_RATE) for minute in range(-45, 1)),
+        a_bucket_at(1, CALM_ERROR_RATE, 120, 600, 900,
+                    request_volume=int(CALM_REQUEST_VOLUME * 1.8),
+                    cpu_used_cores=1.39),
+        a_bucket_at(2, CALM_ERROR_RATE, 380, 2200, 3100,
+                    request_volume=int(CALM_REQUEST_VOLUME * 2.9),
+                    cpu_used_cores=2.24),
+        a_bucket_at(3, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES),
+        a_bucket_at(4, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES),
+        a_bucket_at(5, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES)
+    ]
+
+
+def _a_calm_stretch_then_a_filling_heap() -> list[MetricBucket]:
+    """The same slowing, from a heap that filled while the traffic stood still.
+
+    Every other reading is its twin's: the same calm stretch, the same quantiles
+    over the same five minutes, the same error rate that never stirs. The traffic
+    is flat to the minute and CPU is where it always was, and what climbs instead
+    is the heap - to within a few percent of a limit it never spills.
+    """
+    filling = [0.61, 0.72, 0.83, 0.90, 0.94]
+
+    return [
+        *(a_bucket_at(minute, CALM_ERROR_RATE) for minute in range(-45, 1)),
+        a_bucket_at(1, CALM_ERROR_RATE, 120, 600, 900,
+                    memory_used_bytes=int(MEMORY_LIMIT_BYTES * filling[0])),
+        a_bucket_at(2, CALM_ERROR_RATE, 380, 2200, 3100,
+                    memory_used_bytes=int(MEMORY_LIMIT_BYTES * filling[1])),
+        a_bucket_at(3, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    memory_used_bytes=int(MEMORY_LIMIT_BYTES * filling[2])),
+        a_bucket_at(4, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    memory_used_bytes=int(MEMORY_LIMIT_BYTES * filling[3])),
+        a_bucket_at(5, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    memory_used_bytes=LEAKING_MEMORY_BYTES)
+    ]
+
+
+def _a_service_that_only_got_slower() -> list[str]:
+    """Lines that say the shop is slow and nothing about why.
+
+    Shared by the saturation pair so the two cannot drift apart in some second
+    way, the way the two "nothing explains this" fixtures share theirs. Neither
+    half of resource exhaustion is visible in a log line here: no collection
+    pause, no rejected request, no queue depth - because a line naming either
+    would decide the case the fixture exists to ask.
+    """
+    return [
+        a_log_line_at(-1, A_SUCCESS),
+        a_log_line_at(3, A_SLOW_SUCCESS),
+        a_log_line_at(4, A_SLOW_SUCCESS),
+        a_log_line_at(5, A_SLOW_SUCCESS)
     ]
 
 

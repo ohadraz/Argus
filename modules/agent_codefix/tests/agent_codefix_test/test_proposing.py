@@ -1119,6 +1119,48 @@ def test_a_model_on_its_last_call_is_told_so_before_it_spends_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_model_whose_tokens_are_nearly_gone_is_told_so_as_well() -> None:
+    # The bound that actually binds this agent, and the one the warning used to
+    # miss. Reading whole files spends tokens far faster than calls, so a run
+    # with calls to spare reaches the token bound first - and reached it
+    # unwarned, which threw away everything it had read.
+    #
+    # What the warning is timed from is the dearest turn already charged: one
+    # read of this size no longer fits in what is left, so this is the last
+    # moment the model can be told to answer from what it has. Measured rather
+    # than guessed, which is why it can be said at all.
+    a_generous_number_of_calls = 99
+    a_costly_read = 3_000
+    barely_two_reads = a_costly_read * 2
+
+    repository = a_repository()
+    model = a_model_that(
+        asks_to_read(SOME_PATH, costing=a_costly_read),
+        asks_to_read(SOME_PATH, costing=a_costly_read),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(
+                        max_tool_calls=a_generous_number_of_calls,
+                        max_tokens=barely_two_reads
+                    ),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            _the_model_was_told(model, THE_LAST_CALL_WARNING)
+        )
+
+
+@pytest.mark.unit
 def test_an_empty_patch_sent_twice_is_never_read_as_a_verdict() -> None:
     # The behaviour this replaces: an empty patch repeated used to be believed
     # as "there is nothing to change". It cannot be any longer, because the
@@ -1493,8 +1535,8 @@ def asks_to_search_for(query: str) -> Turn:
     return _a_turn_calling("search_repository", {"query": query})
 
 
-def asks_to_read(path: str) -> Turn:
-    return _a_turn_calling("read_repository_file", {"path": path})
+def asks_to_read(path: str, costing: int = NO_TOKENS) -> Turn:
+    return _a_turn_calling("read_repository_file", {"path": path}, costing)
 
 
 def asks_to_search_by_meaning_for(description: str) -> Turn:

@@ -11,10 +11,16 @@ from __future__ import annotations
 
 from typing import assert_never
 
-from argus_core.models import DeploymentRollbackUndo, FlagUndo, UndoDescriptor
+from argus_core.models import (
+    DeploymentRollbackUndo,
+    FlagUndo,
+    ReplicaUndo,
+    UndoDescriptor,
+)
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
 from agent_mitigation.tools import (
+    CapacityRestorer,
     ChangedFromOutside,
     DeploymentRestorer,
     FlagSetter,
@@ -26,7 +32,8 @@ __all__ = ["undo_change"]
 def undo_change(undo_descriptor: UndoDescriptor,
                 changed_from_outside: ChangedFromOutside,
                 set_state: FlagSetter,
-                restore_deployment: DeploymentRestorer) -> UndoAttempt:
+                restore_deployment: DeploymentRestorer,
+                restore_capacity: CapacityRestorer) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,
@@ -48,10 +55,13 @@ def undo_change(undo_descriptor: UndoDescriptor,
     Nothing raises. An unwind runs over every change an incident made, and one
     flag nobody can read must not stop the others being put back.
 
-    Which of the two kinds of change this is decides everything below, and
-    the tag is what decides it. A rollback sent to something that writes flags
-    would be an undo writing to the wrong system entirely - which is what a
-    single untagged shape made possible, and what the union exists to prevent.
+    Which kind of change this is decides everything below, and the tag is what
+    decides it. A rollback sent to something that writes flags would be an undo
+    writing to the wrong system entirely - which is what a single untagged shape
+    made possible, and what the union exists to prevent. One restorer per kind
+    that has one, beside the branch that calls it: a further kind of change is a
+    seam on this signature and a branch here, rather than two parameters on
+    whoever performs an action.
     """
     match undo_descriptor:
         case FlagUndo():
@@ -60,6 +70,8 @@ def undo_change(undo_descriptor: UndoDescriptor,
             )
         case DeploymentRollbackUndo():
             return _put_a_deployment_back(undo_descriptor, restore_deployment)
+        case ReplicaUndo():
+            return _put_a_size_back(undo_descriptor, restore_capacity)
         case _:
             assert_never(undo_descriptor)
 
@@ -106,6 +118,63 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
     still_changed = ", ".join(
         what for what, put_back in (
             ("the revision it was running", restored.revision_put_back),
+            ("automated sync", restored.automated_sync_put_back)
+        ) if not put_back
+    )
+
+    return UndoAttempt(
+        subject=application,
+        outcome=Undone.NOT_ESTABLISHED,
+        detail=(
+            f"[{application}] was only partly put back - {still_changed} "
+            f"remains as Argus left it"
+        ),
+    )
+
+
+def _put_a_size_back(undo_descriptor: ReplicaUndo,
+                     restore: CapacityRestorer) -> UndoAttempt:
+    """Puts a scaled-out deployment back to the count it was running, and
+    restores the reconciliation the scale-out had to suspend.
+
+    Both, or it is not undone, for the reason a rollback's undo needs both: the
+    count alone leaves a deployment that looks correct and receives nothing, which
+    is worse than the state Argus found - so a half-restore is reported as not
+    established, and escalates.
+
+    No "changed from outside" check, as with a rollback and unlike a flag. What
+    this writes is a replica count through the platform's own action, and a count
+    somebody else changed meanwhile is a count this is about to set to the figure
+    Argus found - which is the restore, not an overwrite of somebody's decision.
+    """
+    application = undo_descriptor.application
+
+    try:
+        restored = restore(undo_descriptor)
+    except Exception as error:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.NOT_ESTABLISHED,
+            detail=(
+                f"[{application}] could not be put back to "
+                f"[{undo_descriptor.was_replicas}] replicas: {error}"
+            ),
+        )
+
+    if restored.count_put_back and restored.automated_sync_put_back:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.RESTORED,
+            detail=(
+                f"[{application}] was put back to "
+                f"[{undo_descriptor.was_replicas}] replicas, and its automated "
+                f"sync was restored"
+            ),
+        )
+
+    still_changed = ", ".join(
+        what for what, put_back in (
+            ("the number of replicas it was running", restored.count_put_back),
             ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )

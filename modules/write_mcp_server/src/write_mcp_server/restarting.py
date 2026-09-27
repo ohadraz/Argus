@@ -83,7 +83,7 @@ class RestartSettings(SettingsSlice):
     """
 
     argocd_base_url: str
-    argocd_restart_action_path: str
+    argocd_resource_action_path: str
     argocd_auth_token: str
     restart_namespace: str
     # Where the platform says what is actually running. The write tier reads it
@@ -308,7 +308,7 @@ def _wait_until_a_new_process_serves(service: str,
 
 
 def _restart_path(settings: RestartSettings, service: str) -> str:
-    return settings.argocd_restart_action_path.format(application=service)
+    return settings.argocd_resource_action_path.format(application=service)
 
 
 def _headers_for(token: str) -> dict[str, str]:

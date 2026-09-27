@@ -70,6 +70,27 @@ def test_the_two_ways_a_neighbour_can_fail_say_what_separates_them() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_the_two_halves_of_resource_exhaustion_say_what_separates_them() -> None:
+    # One resource, two responses, and a latency graph on which they are the same
+    # shape. A leak is answered by reclaiming what accumulated and this by adding
+    # capacity, so a model that reads saturation as a leak gets a restart that
+    # makes the service briefly better before it returns - which is the mistake
+    # the taxonomy says a system without the distinction makes.
+    #
+    # Both directions, as with the dependency pair: neither is the obvious
+    # reading, so whichever the model considers first has to mention the other.
+    Scenario() \
+        .given(the_two_halves := (
+            FailureMode.RESOURCE_LEAK, FailureMode.DEMAND_SATURATION
+        )) \
+        .when(lambda: the_two_halves) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_the_traffic()
+        ))
+
+
 def _what_it_means(cause: FailureMode) -> str:
     """The meaning, or the empty string where asking for one fails.
 
@@ -202,6 +223,36 @@ def _the_pair_is_told_apart_by_ownership() -> Assertion[tuple[FailureMode, Failu
                 f"without saying that what separates them is who owns the "
                 f"failing service - so the model is told there is a "
                 f"distinction and not how to make it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_the_traffic() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to say that the traffic is the question.
+
+    Naming the other mode is not enough, for the reason it is not enough of the
+    dependency pair: a model told these two are different still has to be told
+    how to decide. What it has in front of it is a resource running out, which
+    both are - and the only thing that separates them is whether the traffic moved
+    with the consumption.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "traffic" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without saying that what separates them is whether the "
+                f"traffic moved with the consumption - so the model is told "
+                f"there is a distinction and not how to make it."
             )
 
         return True

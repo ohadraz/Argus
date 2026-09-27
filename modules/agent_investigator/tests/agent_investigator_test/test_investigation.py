@@ -37,6 +37,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     ActionIdentity,
     Ask,
     Attempt,
@@ -57,6 +58,8 @@ from agent_investigator_test.framework.builders.configuration import (
     some_thresholds,
 )
 from agent_investigator_test.framework.builders.incident import (
+    CALM_CPU_CAPACITY_CORES,
+    CALM_CPU_CORES,
     CALM_ERROR_RATE,
     DONT_CARE_STARTED_AT,
     a_steady_window,
@@ -731,8 +734,10 @@ def test_a_reading_the_service_does_not_have_is_not_a_reading_of_zero() -> None:
         .then(
             _what_was_asked_first_mentions(
                 investigation.model,
-                f",{DONT_CARE_STARTED_AT},\n",
-                f",{DONT_CARE_STARTED_AT},{a_cache_answering_nothing}"
+                f",{DONT_CARE_STARTED_AT},{CALM_CPU_CORES},"
+                f"{CALM_CPU_CAPACITY_CORES},\n",
+                f",{DONT_CARE_STARTED_AT},{CALM_CPU_CORES},"
+                f"{CALM_CPU_CAPACITY_CORES},{a_cache_answering_nothing}"
             )
         )
 
@@ -902,6 +907,46 @@ def test_a_rollback_already_tried_is_described_as_a_rollback() -> None:
             ),
             _what_was_asked_first_avoids(
                 investigation.model, f"set {some_rolled_back_application}"
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_already_tried_is_described_as_a_scale_out() -> None:
+    # Same reason a rollback is. A model told "set io-shop on" reasons about a
+    # switch nobody threw - and here the evidence being withheld is the one that
+    # matters most: capacity was already added and the service is still unwell,
+    # which argues against demand saturation rather than for it.
+    some_application_scaled_out = "io-shop"
+    some_time_it_was_scaled_out = "2026-08-20T11:12:00Z"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(),
+                already_refuted=[
+                    Attempt(
+                        identity=ActionIdentity(
+                            action_type=SCALE_OUT,
+                            subject=some_application_scaled_out
+                        ),
+                        occurred_at=some_time_it_was_scaled_out
+                    )
+                ]
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                f"scaled {some_application_scaled_out} out",
+                some_time_it_was_scaled_out
+            ),
+            _what_was_asked_first_avoids(
+                investigation.model, f"set {some_application_scaled_out}"
             )
         ))
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import time
 from datetime import timedelta
-from functools import partial
 from typing import NamedTuple, Protocol, assert_never
 
 from argus_core import to_iso_minute, utc_now
@@ -24,9 +23,11 @@ from argus_core.events import (
 from argus_core.models import (
     DeploymentRollbackUndo,
     FlagUndo,
+    ReplicaUndo,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
+    ScaleOut,
     UndoDescriptor,
 )
 
@@ -39,18 +40,13 @@ from agent_mitigation.actions import (
     state_name,
 )
 from agent_mitigation.tools import (
-    ChangedFromOutside,
     Clock,
-    DeploymentRestorer,
-    DeploymentRoller,
-    FlagSetter,
     MetricsFetcher,
     MitigationSettings,
-    ServiceRestarter,
+    PerformingWrites,
     Sleeper,
     StillWanted,
 )
-from agent_mitigation.undoing import undo_change
 
 __all__ = ["UndoChange", "take_action"]
 
@@ -118,7 +114,6 @@ def _nobody_stopped_this_walk() -> bool:
 def take_action(action: Action,
                 settings: MitigationSettings,
                 thresholds: AnomalyThresholds,
-                set_state: FlagSetter,
                 fetch_metrics: MetricsFetcher,
                 now: Clock = utc_now,
                 sleep: Sleeper = time.sleep,
@@ -126,11 +121,8 @@ def take_action(action: Action,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody,
                 *,
-                restart: ServiceRestarter,
-                roll_back: DeploymentRoller,
-                restore_deployment: DeploymentRestorer,
-                changed_from_outside: ChangedFromOutside,
-                undo: UndoChange | None = None) -> Outcome:
+                writes: PerformingWrites,
+                undo: UndoChange) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
     Three things happen in order, and the order is the point. The action is
@@ -158,26 +150,27 @@ def take_action(action: Action,
     neither is this call - a caller with no incident to attribute the wait to
     narrates nothing, which is better than an event hung on an incident that
     was invented to hold it.
+
+    `writes` are the writes that *perform* an action, one per kind, and `undo` is
+    what puts one back. Two collaborations rather than one list, because they
+    happen at different moments and because the alternative grew by a parameter
+    per action kind: the restorers and the check that guards them live on
+    `undo_change`, which is where the production binding already assembles them.
+
+    `undo` is required. It used to be optional, composed here from a flag setter
+    and a restorer when a caller supplied none - and no caller ever did: the
+    Orchestrator has always passed the binding its withdrawal path shares. What
+    the default bought was three parameters on this signature that production
+    never read, and a second assembly of an undo for a test to exercise instead
+    of the one that runs.
     """
     try:
-        performed = _perform(action, set_state, restart, roll_back)
+        performed = _perform(action, writes)
     except Exception as error:
         return Outcome(
             verdict=Verdict.ESCALATED,
             detail=f"could not {_what_it_would_have_done(action)}: {error}",
         )
-
-    # The undo is composed from the check rather than defaulted beside it: a
-    # caller supplying its own undo has already bound whatever check it trusts,
-    # and one that supplies none gets `undo_change` bound to the check this call
-    # was given. Neither is reached without a caller having said who asks the
-    # provider - which is a connection, and not this module's to open.
-    putting_back = undo if undo is not None else partial(
-        undo_change,
-        changed_from_outside=changed_from_outside,
-        set_state=set_state,
-        restore_deployment=restore_deployment
-    )
 
     settled = _what_watching_the_service_settled(
         fetch_metrics, now, sleep, still_wanted, settings, thresholds,
@@ -205,13 +198,10 @@ def take_action(action: Action,
             undo_descriptor=performed.undo_descriptor,
         )
 
-    return _undone(performed, putting_back)
+    return _undone(performed, undo)
 
 
-def _perform(action: Action,
-             set_state: FlagSetter,
-             restart: ServiceRestarter,
-             roll_back: DeploymentRoller) -> Performed:
+def _perform(action: Action, writes: PerformingWrites) -> Performed:
     """Does the one thing this action is, and says what it did.
 
     The only place the kinds part company. Each branch names its own write and
@@ -226,10 +216,10 @@ def _perform(action: Action,
         case RevertFeatureFlag():
             return Performed(
                 said=f"set flag [{action.flag}] {state_name(action.enabled)}",
-                undo_descriptor=set_state(action.flag, action.enabled)
+                undo_descriptor=writes.set_state(action.flag, action.enabled)
             )
         case RestartService():
-            restarted = restart(action.service)
+            restarted = writes.restart(action.service)
 
             return Performed(
                 said=f"restarted [{restarted.service}]",
@@ -239,7 +229,7 @@ def _perform(action: Action,
                 undo_descriptor=None
             )
         case RollBackDeployment():
-            rolled_back = roll_back(action.application)
+            rolled_back = writes.roll_back(action.application)
 
             return Performed(
                 said=(
@@ -250,6 +240,20 @@ def _perform(action: Action,
                     f"history entry [{rolled_back.was_on_history_id}]"
                 ),
                 undo_descriptor=rolled_back
+            )
+        case ScaleOut():
+            scaled = writes.scale_out(action.application)
+
+            return Performed(
+                said=(
+                    # The count it came *from*, which is what the descriptor
+                    # records and what a reader needs to know was undone. Where
+                    # it went is the tier's to have decided, and it reports that
+                    # figure nowhere a verdict can quote it.
+                    f"scaled [{action.application}] out from "
+                    f"[{scaled.was_replicas}] replicas"
+                ),
+                undo_descriptor=scaled
             )
         case _:
             assert_never(action)
@@ -270,6 +274,8 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
                 f"to the revision at history entry "
                 f"[{undo_descriptor.was_on_history_id}]"
             )
+        case ReplicaUndo():
+            return f"to [{undo_descriptor.was_replicas}] replicas"
         case _:
             assert_never(undo_descriptor)
 
@@ -289,6 +295,8 @@ def _what_it_would_have_done(action: Action) -> str:
             return f"restart [{action.service}]"
         case RollBackDeployment():
             return f"roll [{action.application}] back to its previous revision"
+        case ScaleOut():
+            return f"scale [{action.application}] out"
         case _:
             assert_never(action)
 

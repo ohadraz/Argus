@@ -2,15 +2,23 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from unittest.mock import MagicMock, create_autospec
 
 from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
 from agent_mitigation.tools import (
+    CapacityRestorer,
     ChangedFromOutside,
     DeploymentRestorer,
+    DeploymentRoller,
+    DeploymentScaler,
+    FlagSetter,
+    PerformingWrites,
     ServiceRestarter,
     StillWanted,
 )
+from agent_mitigation.trying import UndoChange
+from agent_mitigation.undoing import undo_change
 from argus_core import to_iso_minute
 from argus_core.models import (
     FailureMode,
@@ -217,7 +225,9 @@ def a_window_of(error_rates: list[float],
             p99_ms=CALM_P99_MS,
             request_volume=dont_care_volume,
             memory_used_bytes=memory_used,
-            process_start_time_seconds=dont_care_started_at
+            process_start_time_seconds=dont_care_started_at,
+            cpu_used_cores=0.77,
+            cpu_limit_cores=3.0
         )
         for offset, (error_rate, memory_used) in enumerate(
             zip(error_rates, memory, strict=True)
@@ -272,3 +282,81 @@ def a_restorer_nobody_calls() -> MagicMock:
     restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
 
     return restore
+
+
+def a_capacity_restorer_nobody_calls() -> MagicMock:
+    """The way back from a scale-out, wired but not exercised.
+
+    Required for the reason the deployment restorer is: an undo that could be
+    built without a way back from every kind of change Argus makes is one that
+    finds out at the worst moment, with a refuted change waiting to be put back.
+    """
+    restore: MagicMock = create_autospec(CapacityRestorer, instance=True)
+
+    return restore
+
+
+def the_writes(set_state: FlagSetter | None = None,
+               restart: ServiceRestarter | None = None,
+               roll_back: DeploymentRoller | None = None,
+               scale_out: DeploymentScaler | None = None) -> PerformingWrites:
+    """The writes that perform a mitigation, with stand-ins for the unnamed ones.
+
+    Every member is required of the real bundle, because an agent that could be
+    built without a way to do one of the things it may do is one that finds out at
+    the worst moment. A case about one kind of action still has to supply the other
+    three, and naming them at every call site said nothing about the case - so what
+    is not named here is a spy nobody calls, and a case that quietly performed the
+    wrong kind of action fails on a call to a mock it never wired.
+    """
+    return PerformingWrites(
+        set_state=set_state if set_state is not None else create_autospec(
+            FlagSetter, instance=True
+        ),
+        restart=restart if restart is not None else create_autospec(
+            ServiceRestarter, instance=True
+        ),
+        roll_back=roll_back if roll_back is not None else create_autospec(
+            DeploymentRoller, instance=True
+        ),
+        scale_out=scale_out if scale_out is not None else create_autospec(
+            DeploymentScaler, instance=True
+        )
+    )
+
+
+def an_undo_nobody_calls() -> MagicMock:
+    """The way back, wired but not exercised.
+
+    For the cases about an action that was confirmed, withdrawn, or never taken at
+    all - none of which put anything back. Required rather than defaulted on
+    `take_action`, because the caller that has one always has one: the Orchestrator
+    passes the binding its withdrawal path shares, and a default composed here
+    would be a second assembly of an undo for a case to exercise instead of the one
+    that runs.
+    """
+    undo: MagicMock = create_autospec(UndoChange, instance=True)
+
+    return undo
+
+
+def an_undo_putting_flags_back(
+    set_state: FlagSetter,
+    changed_from_outside: ChangedFromOutside
+) -> UndoChange:
+    """The undo a flag's case needs: the real one, over the setter under test.
+
+    `undo_change` itself rather than a mock of it, because what these cases are
+    about is the conditional write it performs - that a flag nobody touched is put
+    back and one somebody changed is left as found. A stand-in would assert only
+    that something was called.
+
+    The restorers are spies: no flag case reaches a deployment.
+    """
+    return partial(
+        undo_change,
+        changed_from_outside=changed_from_outside,
+        set_state=set_state,
+        restore_deployment=a_restorer_nobody_calls(),
+        restore_capacity=a_capacity_restorer_nobody_calls()
+    )

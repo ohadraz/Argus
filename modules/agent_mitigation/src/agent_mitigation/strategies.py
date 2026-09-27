@@ -31,6 +31,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     Action,
     ActionType,
     FailureMode,
@@ -40,6 +41,7 @@ from argus_core.models import (
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
+    ScaleOut,
 )
 
 __all__ = [
@@ -49,6 +51,7 @@ __all__ = [
     "RestartServiceStrategy",
     "RollBackDeploymentStrategy",
     "RevertFeatureFlagStrategy",
+    "ScaleOutStrategy",
     "Strategies",
     "a_mitigation_answers"
 ]
@@ -272,6 +275,57 @@ class RestartDependencyStrategy:
         return RestartService(service=hypothesis.faulting_service)
 
 
+class ScaleOutStrategy:
+    """Answering load that outgrew its capacity by adding capacity.
+
+    The fourth generic mitigation, and the only one that adds something rather
+    than restoring something. That is not a weaker kind of answer: Google SRE's
+    own list of generic mitigations names adding capacity beside draining,
+    rolling back and restarting, and what admits any of them unasked is
+    membership of the declared set rather than what they leave behind.
+
+    It answers the other half of resource exhaustion. A leak is answered by
+    reclaiming what accumulated, which a restart does without knowing what
+    accumulated it; a deployment meeting load it was never sized for has nothing
+    to reclaim, and a restart of it buys a moment before the traffic returns it
+    to where it was. Two modes, because what dispatches on a mode is the choice
+    of mitigation.
+
+    Like a restart and a rollback, the deployment comes from the alert and from
+    nowhere else. Not from Argus's configuration, which would hardcode one
+    estate's answer into the agent - and not from the hypothesis, whose subject
+    is the model's description of what ran out of room rather than the name of
+    anything a platform can be asked about.
+
+    How many replicas to ask for is named nowhere here, for a stronger version
+    of the reason a rollback names no revision. A target count is meaningless
+    without the count it replaces, that count is live state only the write tier
+    can read, and a strategy asserting "six" would be asserting the deployment
+    is running three - a fact no evidence in front of it carries, and one that
+    stops being true the moment anybody has scaled anything.
+    """
+
+    action_type: ActionType = SCALE_OUT
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None:
+        """The deployment to make larger - the one the incident is about.
+
+        Neither the hypothesis nor the recorded flag changes are read. Traffic
+        arriving is not something a toggle did, and a flag that happened to move
+        while the load climbed is a coincidence this must not act on. Both
+        parameters are still spelled as the protocol spells them, for the reason
+        the restart strategy's unread ones are.
+
+        Always an action. A shortfall the model found no words for is still a
+        shortfall in a deployment the alert names, and there is nothing left for
+        this to fail to identify.
+        """
+        return ScaleOut(application=service)
+
+
 Strategies = Mapping[FailureMode, MitigationStrategy]
 
 # Which mitigation answers which cause. A mode absent from this is one Argus
@@ -296,12 +350,19 @@ Strategies = Mapping[FailureMode, MitigationStrategy]
 # never mentioned, so that one reads the address the investigation wrote down.
 # Both produce the same kind of action, which is why `GENERIC_MITIGATIONS` is
 # unaffected by this mode arriving.
+#
+# The two halves of resource exhaustion are the one place the mapping's own
+# distinctions are load-bearing in the other direction: a leak and a saturated
+# deployment look alike on a latency graph and are answered by opposite things,
+# so they map to different strategies and a reader who cannot tell them apart
+# gets the wrong one. That is what the mode is for.
 DEFAULT_STRATEGIES: Strategies = {
     FailureMode.BAD_DEPLOYMENT: RollBackDeploymentStrategy(),
     FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
     FailureMode.RESOURCE_LEAK: RestartServiceStrategy(),
     FailureMode.CONFIG_INDUCED_FAILURE: RollBackDeploymentStrategy(),
-    FailureMode.INTERNAL_DEPENDENCY_FAILURE: RestartDependencyStrategy()
+    FailureMode.INTERNAL_DEPENDENCY_FAILURE: RestartDependencyStrategy(),
+    FailureMode.DEMAND_SATURATION: ScaleOutStrategy()
 }
 
 

@@ -1899,6 +1899,19 @@ def e2e(session: nox.Session) -> None:
 # end; it is what this session leaves out.
 _THE_LARGE_FIX_CASE: Final = "tests/e2e/test_proposing_a_large_code_fix.py"
 
+# The scale-out case, left to `both` for the large-fix case's reason rather than
+# for the index cases': this stack has the mechanism, and the claim simply does
+# not vary by which tool found a file. What it proves is a mode reaching the
+# fourth strategy, the gate admitting it, the tier reading what is running before
+# it doubles it, and the shop answering for the capacity - none of which a search
+# tool touches.
+#
+# The cost of not excluding it is recurring, which is what decides this. A corpus
+# goes stale whenever the prompt moves, so a recording per mode is a walk per mode
+# on every re-record, for ever. Measured once: a `grep` capture of this scenario
+# read to its token bound and never answered, so it bought nothing at all.
+_THE_SCALE_OUT_CASE: Final = "tests/e2e/test_a_saturated_deployment_is_scaled_out.py"
+
 _THE_CASES_WORTH_PAYING_FOR: Final = ["tests/e2e", f"--ignore={_THE_LARGE_FIX_CASE}"]
 
 
@@ -1999,18 +2012,21 @@ def _the_cases_for(mode: str) -> list[str]:
     store, no watermark and no push to move one - those cases are not pending
     against this stack, they are about a mechanism it does not have.
 
-    The large-fix case is left out of the other two modes for a different
-    reason, and it is a decision rather than an absence. Its claim is that an
-    answer the size of a whole large file survives the round trip - streamed,
-    reassembled, parsed and written - and nothing in that claim varies by which
-    tool the model found the file with. The walks that differ per mode are
-    already covered by its sibling, so recording it three times would buy three
-    recordings of one assertion, at a real investigation each.
+    The large-fix and scale-out cases are left out of the other two modes for a
+    different reason, and it is a decision rather than an absence. One claims
+    that an answer the size of a whole large file survives the round trip -
+    streamed, reassembled, parsed and written - and the other that a mode reaches
+    the fourth mitigation and the platform answers for the capacity. Nothing in
+    either claim varies by which tool the model found a file with, and the walks
+    that do differ per mode are covered by their siblings - so recording these
+    three times would buy three recordings of one assertion, at a real
+    investigation each, on every re-record for ever.
     """
     left_out = []
 
     if mode != _SEARCHING_BOTH_WAYS:
         left_out.append(f"--ignore={_THE_LARGE_FIX_CASE}")
+        left_out.append(f"--ignore={_THE_SCALE_OUT_CASE}")
 
     if mode == _SEARCHING_BY_GREP_ALONE:
         left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")

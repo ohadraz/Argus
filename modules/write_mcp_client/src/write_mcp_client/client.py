@@ -6,10 +6,12 @@ from typing import Final
 from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     OpenedPullRequest,
+    ReplicaUndo,
     RestartedService,
     UndoDescriptor,
     parse_undo_descriptor,
@@ -28,6 +30,8 @@ _OPENED_PULL_REQUEST: Final = TypeAdapter(OpenedPullRequest)
 _RESTARTED_SERVICE: Final = TypeAdapter(RestartedService)
 
 _DEPLOYMENT_RESTORED: Final = TypeAdapter(DeploymentRestored)
+
+_CAPACITY_RESTORED: Final = TypeAdapter(CapacityRestored)
 
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
@@ -168,6 +172,71 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     return client.call(
         "restore_deployment",
         _DEPLOYMENT_RESTORED.validate_python,
+        descriptor=descriptor.model_dump(mode="json"),
+    )
+
+
+def scale_out(application: str,
+              *,
+              client: McpClient) -> ReplicaUndo:
+    """Gives a deployment more replicas than it is running.
+
+    A generic mitigation of spec §7.3: Mitigation's response to demand
+    saturation, and the only one that adds capacity rather than restoring state.
+    Taken unasked because its kind is in the declared set (§13) - what admits an
+    action is membership, never whether the change can be put back, though this
+    one can be.
+
+    How many is not a parameter, for a stronger version of the reason a rollback
+    names no revision: a target count is meaningless without the count it
+    replaces, and nothing on this side of the port can read what the deployment
+    is running. The tier reads it, doubles it, and bounds the result by a ceiling
+    of its own.
+
+    The descriptor records *two* things, as a rollback's does: the count that was
+    running, and whether the platform was reconciling the application itself -
+    which a scale-out has to suspend, because a reconciling platform puts a live
+    count straight back. Both are what a withdrawal puts back, and only the tier
+    that did the work ever knew either.
+
+    Parsed through `parse_undo_descriptor` rather than a local adapter, for the
+    reason the two above are: the union decides which member a stored object is,
+    and that decision has one door.
+    """
+    descriptor = client.call(
+        "scale_out",
+        parse_undo_descriptor,
+        application=application,
+    )
+
+    if not isinstance(descriptor, ReplicaUndo):
+        raise ValueError(
+            f"scaling [{application}] out answered with a "
+            f"[{descriptor.kind}] descriptor, which is not a record of a "
+            f"deployment being resized"
+        )
+
+    return descriptor
+
+
+def restore_replica_count(descriptor: ReplicaUndo,
+                          *,
+                          client: McpClient) -> CapacityRestored:
+    """Puts back both of the things a scale-out changed.
+
+    What a withdrawal does to a scale-out, and what a refuted one does to
+    itself. The descriptor goes back over the wire whole rather than as its
+    parts, for the reason a rollback's does: it is one record of one change, and
+    a caller assembling it from fields could assemble one that never happened.
+
+    Answers with which halves were managed rather than raising, because a restore
+    can half-succeed and the half that fails is the quiet one - a deployment back
+    at its declared size while reconciliation is still suspended looks right and
+    receives nothing.
+    """
+    return client.call(
+        "restore_replica_count",
+        _CAPACITY_RESTORED.validate_python,
         descriptor=descriptor.model_dump(mode="json"),
     )
 

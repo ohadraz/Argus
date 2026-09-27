@@ -23,11 +23,13 @@ from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.models import (
+    CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     FlagUndo,
     OpenedPullRequest,
+    ReplicaUndo,
     RestartedService,
 )
 from mcp.server.fastmcp import FastMCP
@@ -39,25 +41,28 @@ from write_mcp_server import (
     pull_requests,
     restarting,
     rolling_back,
+    scaling,
 )
 from write_mcp_server.flag_state import FlagWriteSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 from write_mcp_server.restarting import RestartSettings
 from write_mcp_server.rolling_back import RollbackSettings
+from write_mcp_server.scaling import ScaleSettings
 
 
 def build_server(endpoint: WriteMcpEndpoint,
                  flag_settings: FlagWriteSettings,
                  repository_settings: RepositoryWriteSettings,
                  restart_settings: RestartSettings,
-                 rollback_settings: RollbackSettings) -> FastMCP:
+                 rollback_settings: RollbackSettings,
+                 scale_settings: ScaleSettings) -> FastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Four slices, not one. The flag tools speak to the provider, the code tool
-    speaks to the repository, and the restart and the rollback each speak to
-    the deployment platform - separately, because they are different routes
-    under different paths and a single slice would make one tool's
-    misconfiguration look like the other's. Every credential named belongs to
+    Five slices, not one. The flag tools speak to the provider, the code tool
+    speaks to the repository, and the restart, the rollback and the scale-out
+    each speak to the deployment platform - separately, because they are
+    different routes under different paths and a single slice would make one
+    tool's misconfiguration look like another's. Every credential named belongs to
     this tier, and none of them belongs in another's calls. What keeps the *tiers* apart is that
     the read server is handed a slice with no field any of these could arrive
     in - not a check made here.
@@ -175,6 +180,57 @@ def build_server(endpoint: WriteMcpEndpoint,
         return rolling_back.restore_deployment(descriptor, rollback_settings)
 
     @mcp.tool()
+    def scale_out(application: str) -> ReplicaUndo:
+        """Gives a deployment more replicas than it is running, and reports
+        what that cost.
+
+        A generic mitigation (§13), and the only one that adds capacity rather
+        than restoring state - which changes nothing about what admits it: an
+        action is taken unasked because its kind is in the declared set, never
+        because it can be put back. Google SRE's own list of generic mitigations
+        names adding capacity beside draining, rolling back and restarting.
+
+        How many is not a parameter. The platform is asked what the deployment
+        is running, that count is doubled, and the result is bounded by a
+        ceiling this tier holds - because a target is meaningless without the
+        count it replaces, and nothing above this port can read that count. What
+        the repository asks for is a different number as soon as anybody has
+        scaled. Both figures are reported back.
+
+        There is no tool for the reverse, and there should not be. Being wrong
+        about adding capacity costs money; being wrong about removing it costs an
+        outage.
+
+        Mitigates without resolving. The repository still asks for the size that
+        was too small, the platform's own reconciliation has been suspended so
+        that nothing re-applies it, and the traffic that outgrew the deployment
+        is still arriving; the first two are recorded in the descriptor returned
+        and are what a withdrawal puts back. The behavior lives in
+        `scaling.scale_out`; this is registration only."""
+        return scaling.scale_out(application, scale_settings)
+
+    @mcp.tool()
+    def restore_replica_count(descriptor: ReplicaUndo) -> CapacityRestored:
+        """Puts back both of the things a scale-out changed, and reports which
+        of them it managed.
+
+        The count the deployment was running, and the reconciliation that had to
+        be suspended to leave it. Both, or it is not undone: a deployment back at
+        its declared size while the platform is still not reconciling it looks
+        correct from every angle a reader has, and silently receives nothing
+        anybody ships to it.
+
+        Answers with which halves it managed rather than raising, for the reason
+        the rollback's restore does: a restore can half-succeed, and the caller
+        has to be able to say which half is still changed.
+
+        The count is put back before reconciliation is re-enabled. The other
+        order would have the platform set the count itself, unverifiably, at a
+        moment nothing here chose. The behavior lives in
+        `scaling.restore_replica_count`; this is registration only."""
+        return scaling.restore_replica_count(descriptor, scale_settings)
+
+    @mcp.tool()
     def get_recent_flag_changes(since: str) -> list[FlagChange]:
         """Returns the flag toggles the provider recorded since `since`, oldest
         first - for each, the flag, the state it was changed to, when, and who
@@ -258,7 +314,8 @@ def main() -> None:
         FlagWriteSettings.of(settings),
         RepositoryWriteSettings.of(settings),
         RestartSettings.of(settings),
-        RollbackSettings.of(settings)
+        RollbackSettings.of(settings),
+        ScaleSettings.of(settings)
     ).run(transport="streamable-http")
 
 

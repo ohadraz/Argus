@@ -10,11 +10,12 @@ is the reviewable artefact: a test that asked the module what it contained would
 agree with it whatever it contained, and the day a kind nobody argued for
 appears in it, nothing would go red.
 
-Three kinds are declared, and they are unalike in the way that matters. One
-leaves a value behind to put back, one leaves nothing at all, and one leaves
-two things behind - a deployment on an earlier revision and a platform no
-longer reconciling it. That all three are in the set is the clearest statement
-that membership, and not reversibility, is what is being asked.
+Four kinds are declared, and they are unalike in the way that matters. One
+leaves a value behind to put back, one leaves nothing at all, one leaves two
+things behind - a deployment on an earlier revision and a platform no longer
+reconciling it - and one restores nothing at all, because what it does is add
+capacity the deployment never had. That all four are in the set is the clearest
+statement that membership, and not reversibility, is what is being asked.
 """
 
 from __future__ import annotations
@@ -30,10 +31,12 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     ActionType,
     Ownership,
     RestartService,
     RollBackDeployment,
+    ScaleOut,
     ServiceDependency,
 )
 from argus_testkit import Assertion, Scenario
@@ -77,7 +80,7 @@ def test_the_declared_set_is_exactly_what_it_is_written_down_as() -> None:
     # and this is where the defending gets noticed: a change to the set that
     # nobody meant fails here, naming both what it was and what it became.
     the_kinds_argus_may_take_unasked: set[ActionType] = {
-        REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT
+        REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT
     }
 
     Scenario() \
@@ -281,6 +284,39 @@ def test_rolling_back_an_application_the_register_never_named_is_out_of_reach() 
         .when(
             lambda: is_within_reach(
                 RollBackDeployment(application="io-billing"),
+                alerting_service="io-shop",
+                dependencies=[ours]
+            )
+        ) \
+        .then(_it_is_out_of_reach())
+
+
+@pytest.mark.unit
+def test_scaling_a_deployment_out_may_be_taken_unasked() -> None:
+    # The first member of the set that adds something rather than restoring
+    # something, and the clearest statement that the criterion is membership:
+    # nothing about this action is admitted by it being reversible, which it
+    # happens to be. Google SRE's own list of generic mitigations names adding
+    # capacity beside draining, rolling back and restarting, and what makes it
+    # applicable before the cause is understood is that it is routine.
+    Scenario() \
+        .given(a_scale_out := ScaleOut(application="io-shop")) \
+        .when(lambda: is_a_generic_mitigation(a_scale_out)) \
+        .then(_it_is_admitted())
+
+
+@pytest.mark.unit
+def test_scaling_out_an_application_the_register_never_named_is_out_of_reach() -> None:
+    # The address rule again, over the kind that arrived last. Worth its own
+    # case for the reason the rollback's is: a scale-out names an Argo CD
+    # application, which is a service under the platform's word for it, and a
+    # reach question that only understood restarts would put the whole platform
+    # within reach the day a fourth kind of action appeared.
+    Scenario() \
+        .given(ours := a_dependency("io-pricing", Ownership.INTERNAL)) \
+        .when(
+            lambda: is_within_reach(
+                ScaleOut(application="io-billing"),
                 alerting_service="io-shop",
                 dependencies=[ours]
             )

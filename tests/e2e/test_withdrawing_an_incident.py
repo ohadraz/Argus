@@ -11,14 +11,18 @@ state it found, which is the broken one, because the person who took the
 incident back is the one holding it now; and no postmortem is written, because
 there is no response to write up.
 
-Both kinds of change are here, and they are unalike in the way that matters. A
+Three kinds of change are here, and they are unalike in the way that matters. A
 flag is one value written twice. A rollback is two things - a deployment on an
 earlier revision and a platform no longer reconciling it - and a withdrawal that
-managed one of them has left the shop somewhere nobody chose.
+managed one of them has left the shop somewhere nobody chose. A scale-out is two
+things as well, and it is the one whose first half a reader can actually see: a
+revision is nowhere in the platform's answers, where a replica count is in the
+manifest it holds.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
@@ -37,6 +41,7 @@ from tests.e2e.framework.argus import (
     DATABASE_URL,
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_BAD_DEPLOYMENT,
+    RECORDED_CPU_SATURATION,
     RECORDED_FLAG_TOGGLE,
     REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
@@ -51,6 +56,12 @@ from tests.e2e.framework.flags import THE_DEMO_FLAG, flags_evaluating_true, swit
 from tests.e2e.framework.world import a_scenario_was_seeded
 
 _A_POLL = 0.5
+
+# The size the shop is declared with, in `deploy/values-production.yaml`. It is
+# both what a withdrawal has to put the deployment back to and the count that was
+# too few - which is the point of a withdrawal: it restores what Argus changed,
+# not what a healthy shop looks like.
+THE_SIZE_THE_SHOP_IS_DECLARED_WITH = 3
 
 
 @pytest.mark.e2e
@@ -131,13 +142,52 @@ def test_a_withdrawn_rollback_puts_the_deployment_back_and_resumes_reconciliatio
             calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT))
         ) \
         .when(
-            _argus_is_withdrawn_once_it_has_rolled_the_deployment_back(some_alert)
+            _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(some_alert)
         ) \
         .then(
             eventually(
                 all_of(
                     argus_ended_with_status(IncidentStatus.WITHDRAWN),
                     _the_deployment_was_put_back(),
+                    _the_shop_reconciles_itself_again(),
+                    _nothing_was_written_up()
+                ),
+                timeout=MITIGATION_TIMEOUT_SECONDS
+            )
+        )
+
+
+@pytest.mark.e2e
+def test_a_withdrawn_scale_out_puts_the_count_back_and_resumes_reconciliation() -> None:
+    # The third kind, and the only one whose change a reader can observe
+    # directly: the platform's manifest carries the count in force, where it
+    # names no current revision at all. So this case asserts the count itself
+    # rather than the incident's account of it - and what it asserts is that the
+    # shop is back to the three replicas that were too few, which is the honest
+    # end of a withdrawal and not a state anybody would call fixed.
+    #
+    # Both halves again, and the quiet one is the same quiet one: a deployment at
+    # its declared size that the platform is no longer reconciling looks correct
+    # from every angle a reader has, and receives nothing anybody ships to it.
+    some_alert_name = "HighLatency"
+    some_severity = "critical"
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
+                                            alert_name=some_alert_name,
+                                            severity=some_severity)
+
+    Scenario() \
+        .given(
+            calling(a_scenario_was_seeded("cpu-saturation")),
+            calling(the_model_answers_from(RECORDED_CPU_SATURATION))
+        ) \
+        .when(
+            _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(some_alert)
+        ) \
+        .then(
+            eventually(
+                all_of(
+                    argus_ended_with_status(IncidentStatus.WITHDRAWN),
+                    _the_shop_is_running_the_size_it_is_declared_with(),
                     _the_shop_reconciles_itself_again(),
                     _nothing_was_written_up()
                 ),
@@ -324,17 +374,23 @@ def _the_incident_left_the_flag_as_found() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _argus_is_withdrawn_once_it_has_rolled_the_deployment_back(
+def _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(
     alert: dict[str, object]
 ) -> Callable[[], httpx.Response]:
-    """Fires the alert, waits for the rollback, and takes the incident back.
+    """Fires the alert, waits for Argus to suspend the sync, and takes the
+    incident back.
 
-    The wait is read as the sync policy rather than as the revision, because the
-    revision is not a thing the platform lets anybody observe directly - what a
-    rollback leaves behind is an application that has stopped reconciling itself,
-    and it is the half a withdrawal has to put back. It is also the half that
-    would be invisible if it went wrong: a deployment back on the newer revision
-    and still not reconciling looks right from every angle a reader has, while
+    Named for what it waits on rather than for either action, because it serves
+    both: suspending the platform's own reconciliation is the first half of a
+    rollback *and* of a scale-out, and for one reason in both cases - Argo CD
+    would otherwise re-apply what the repository holds at its next pass, which is
+    the revision being rolled away from or the count that was too few.
+
+    That makes it the first moment there is anything for a withdrawal to put
+    back, which is what keeps this a withdrawal mid-walk rather than a withdrawal
+    of an incident nothing had happened to yet. It is also the half that would be
+    invisible if it went wrong: a deployment correct in every other respect and
+    still not reconciling looks right from every angle a reader has, while
     receiving nothing anybody ships to it.
     """
     def step() -> httpx.Response:
@@ -361,12 +417,11 @@ def _argus_is_withdrawn_once_it_has_rolled_the_deployment_back(
 
 
 def _wait_until_the_shop_stops_reconciling_itself() -> None:
-    """Blocks until Argus has rolled back, or says that it never did.
+    """Blocks until Argus has suspended the sync, or says that it never did.
 
     Read from the platform the way the flag wait is read from the provider: what
     is waited on is the change the world can actually see, and not a row Argus
-    wrote about intending it. Suspending the sync is the first half of a
-    rollback and therefore the first moment there is anything to put back.
+    wrote about intending it.
     """
     deadline = time.monotonic() + MITIGATION_TIMEOUT_SECONDS
 
@@ -374,8 +429,9 @@ def _wait_until_the_shop_stops_reconciling_itself() -> None:
         if time.monotonic() >= deadline:
             raise AssertionError(
                 f"Argus never suspended the shop's automated sync within "
-                f"[{MITIGATION_TIMEOUT_SECONDS}s], so it never rolled anything "
-                f"back and there was no change for a withdrawal to put back."
+                f"[{MITIGATION_TIMEOUT_SECONDS}s], so it never changed the "
+                f"deployment at all and there was no change for a withdrawal to "
+                f"put back."
             )
 
         time.sleep(_A_POLL)
@@ -435,21 +491,56 @@ def _the_deployment_was_put_back() -> Assertion[httpx.Response]:
     return assertion
 
 
+def _the_shop_is_running_the_size_it_is_declared_with() -> Assertion[httpx.Response]:
+    """The count in force, read from the platform rather than from the record.
+
+    The one restore in this file that can be checked against the world instead of
+    against Argus's account of it: a replica count is in the manifest the
+    platform holds, where a revision is nowhere in its answers. So this asserts
+    the thing itself - and asserts that it is back to the size that was too few,
+    because a withdrawal restores what Argus changed and hands the incident to
+    the person who took it.
+
+    The manifest arrives as text, which is Argo CD's own shape for it, so this
+    parses it the way the write tier has to.
+    """
+    def assertion(dont_care_response: httpx.Response) -> bool:
+        response = httpx.get(
+            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
+            timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        running: int = json.loads(response.json()["manifest"])["spec"]["replicas"]
+
+        if running != THE_SIZE_THE_SHOP_IS_DECLARED_WITH:
+            raise AssertionError(
+                f"Expected the shop to be back at the "
+                f"[{THE_SIZE_THE_SHOP_IS_DECLARED_WITH}] replicas it is declared "
+                f"with once the incident was withdrawn, and the platform reports "
+                f"[{running}] - so capacity Argus added under an incident that has "
+                f"ended is being paid for by nobody who chose it."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_shop_reconciles_itself_again() -> Assertion[httpx.Response]:
     """The other half of the restore, read from the platform.
 
     Both halves or it is not undone, and this is the one the record alone cannot
     be trusted for: it is the half that leaves a deployment looking correct and
-    receiving nothing. A withdrawal that put the revision back and left the sync
-    suspended would hand somebody an application quietly out of the delivery
-    path, which is worse than the state Argus found.
+    receiving nothing. A withdrawal that put the revision or the count back and
+    left the sync suspended would hand somebody an application quietly out of the
+    delivery path, which is worse than the state Argus found.
     """
     def assertion(dont_care_response: httpx.Response) -> bool:
         if not _the_shop_reconciles_itself():
             raise AssertionError(
                 f"Expected [{THE_SERVICE_NAME}] to be reconciling itself again "
                 f"once the incident was withdrawn, and its sync policy is still "
-                f"the suspended one Argus left to take the rollback."
+                f"the suspended one Argus left to change the deployment."
             )
 
         return True

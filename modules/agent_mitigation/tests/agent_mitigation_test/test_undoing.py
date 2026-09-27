@@ -19,16 +19,19 @@ from agent_mitigation import (
     Undone,
     undo_change,
 )
-from agent_mitigation.tools import DeploymentRestorer, FlagSetter
+from agent_mitigation.tools import CapacityRestorer, DeploymentRestorer, FlagSetter
 from argus_core.models import (
+    CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagUndo,
+    ReplicaUndo,
 )
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
+    a_capacity_restorer_nobody_calls,
     a_restorer_nobody_calls,
     an_undo_descriptor_for,
     nobody_can_say,
@@ -42,6 +45,8 @@ DONT_CARE_MOMENT = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
 
 SOME_APPLICATION = "io-shop"
 THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
+# The size the deployment was running before Argus made it larger.
+THE_COUNT_IT_WAS_RUNNING = 3
 
 
 @pytest.mark.unit
@@ -57,7 +62,8 @@ def test_a_flag_nobody_touched_is_put_back() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_deployment=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -83,7 +89,8 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=somebody_changed_it(),
-                restore_deployment=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -113,7 +120,8 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
                 a_descriptor_from_before,
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_deployment=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -137,7 +145,8 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                 set_state=set_state,
                 changed_from_outside=nobody_can_say(),
-                restore_deployment=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -164,7 +173,8 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
                 descriptor,
                 set_state=_a_flag_setter(),
                 changed_from_outside=asked.record,
-                restore_deployment=a_restorer_nobody_calls()
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
         .then(
@@ -291,7 +301,8 @@ def test_a_rollback_is_put_back_by_the_restorer_rather_than_the_flag_setter() ->
                 a_rollback_descriptor_for(SOME_APPLICATION),
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
-                restore_deployment=restore
+                restore_deployment=restore,
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -313,7 +324,8 @@ def test_a_rollback_put_back_reports_the_application_as_its_subject() -> None:
                 a_rollback_descriptor_for(SOME_APPLICATION),
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
-                restore_deployment=_a_restorer_that_puts_back()
+                restore_deployment=_a_restorer_that_puts_back(),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
             .then(
@@ -338,7 +350,8 @@ def test_a_rollback_whose_sync_could_not_be_restored_is_not_counted_as_undone() 
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=_a_restorer_that_puts_back(
                     revision=True, automated_sync=False
-                )
+                ),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -363,10 +376,135 @@ def test_a_restorer_that_raises_leaves_the_rollback_not_established() -> None:
                 a_rollback_descriptor_for(SOME_APPLICATION),
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
-                restore_deployment=_a_restorer_that_cannot(some_failure)
+                restore_deployment=_a_restorer_that_cannot(some_failure),
+                restore_capacity=a_capacity_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed(some_failure)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_is_put_back_by_the_capacity_restorer_and_nothing_else() -> None:
+    # The dispatch, for the third kind. A resize sent to something that writes
+    # flags would be an undo writing to the wrong system, and one sent to the
+    # deployment restorer would put a *revision* back on a deployment whose
+    # revision nobody touched.
+    set_state = _a_flag_setter()
+    restore_deployment = a_restorer_nobody_calls()
+    restore_capacity = _a_capacity_restorer_that_puts_back()
+
+    Scenario() \
+        .given(
+            a_resize_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_resize_descriptor_for(SOME_APPLICATION),
+                set_state=set_state,
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=restore_deployment,
+                restore_capacity=restore_capacity
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _nothing_was_written(set_state)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_put_back_reports_the_application_as_its_subject() -> None:
+    Scenario() \
+        .given(
+            a_resize_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_resize_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=_a_capacity_restorer_that_puts_back()
+            )
+        ) \
+        .then(_it_is_about(SOME_APPLICATION))
+
+
+@pytest.mark.unit
+def test_a_scale_out_put_back_says_the_count_and_the_reconciliation_both_went() -> None:
+    # Both halves in the sentence, because both were changed and a reader has
+    # only this line. A withdrawal that said "the deployment was put back" would
+    # leave the one silently damaging outcome unreadable: a deployment at its
+    # declared size that the platform is no longer reconciling looks right from
+    # every angle and receives nothing anybody ships to it.
+    Scenario() \
+        .given(
+            a_resize_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_resize_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=_a_capacity_restorer_that_puts_back()
+            )
+        ) \
+        .then(all_of(
+            _it_says_what_is_still_changed(f"[{THE_COUNT_IT_WAS_RUNNING}] replicas"),
+            _it_says_what_is_still_changed("automated sync was restored")
+        ))
+
+
+@pytest.mark.unit
+def test_a_resize_whose_sync_could_not_be_restored_is_not_counted_as_undone() -> None:
+    # The quiet half. A deployment back at its declared size while the platform
+    # is still not reconciling it looks right from every angle a reader has, and
+    # receives nothing anybody ships to it.
+    Scenario() \
+        .given(
+            a_resize_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_resize_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=_a_capacity_restorer_that_puts_back(
+                    count=True, automated_sync=False
+                )
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed("automated sync")
+        ))
+
+
+@pytest.mark.unit
+def test_a_capacity_restorer_that_raises_leaves_the_resize_not_established() -> None:
+    some_failure = "the platform would not answer"
+    restore: MagicMock = create_autospec(CapacityRestorer, instance=True)
+    restore.side_effect = RuntimeError(some_failure)
+
+    Scenario() \
+        .given(
+            a_resize_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_resize_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=restore
+            )
+        ) \
+        .then(all_of(
             _it_reports(Undone.NOT_ESTABLISHED),
             _it_says_what_is_still_changed(some_failure)
         ))
@@ -396,3 +534,22 @@ def _it_says_what_is_still_changed(mentioned: str) -> Assertion[UndoAttempt]:
         return True
 
     return assertion
+
+
+def a_resize_descriptor_for(application: str,
+                            was_syncing_itself: bool = True) -> ReplicaUndo:
+    return ReplicaUndo(
+        application=application,
+        was_replicas=THE_COUNT_IT_WAS_RUNNING,
+        was_syncing_itself=was_syncing_itself
+    )
+
+
+def _a_capacity_restorer_that_puts_back(count: bool = True,
+                                        automated_sync: bool = True) -> MagicMock:
+    restore: MagicMock = create_autospec(CapacityRestorer, instance=True)
+    restore.return_value = CapacityRestored(
+        count_put_back=count, automated_sync_put_back=automated_sync
+    )
+
+    return restore

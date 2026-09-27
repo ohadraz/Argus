@@ -46,6 +46,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     Alert,
     Ask,
     Attempt,
@@ -754,5 +755,8 @@ def _what_was_done_in(attempt: Attempt) -> str:
 
     if kind == ROLL_BACK_DEPLOYMENT:
         return f"rolled {subject} back to the revision it ran before"
+
+    if kind == SCALE_OUT:
+        return f"scaled {subject} out"
 
     assert_never(kind)

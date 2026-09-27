@@ -70,6 +70,9 @@ class Budget:
         self._started_at = now()
         self._tool_calls = 0
         self._tokens = 0
+        # What the most expensive turn so far cost, which is the only honest
+        # estimate of what the next one will. See `is_on_its_last_call`.
+        self._dearest_turn = 0
 
     def record(self, turn: Turn) -> None:
         """Charges one turn against the budget.
@@ -101,12 +104,14 @@ class Budget:
         wrote, and every one of these four is some of that.
         """
         self._tool_calls += len(turn.tool_calls)
-        self._tokens += (
+        charged = (
             turn.input_tokens
             + turn.output_tokens
             + turn.cache_read_tokens
             + turn.cache_write_tokens
         )
+        self._tokens += charged
+        self._dearest_turn = max(self._dearest_turn, charged)
 
     def tokens_spent(self) -> int:
         """Every token charged so far, as a figure rather than as a verdict.
@@ -156,18 +161,38 @@ class Budget:
         "no cause determined" by the investigator, and as "no fix proposed"
         by Code-Fix, which reads as a verdict on code nobody finished.
 
-        Calls rather than turns, and named for what it measures. It is the one
-        bound whose remaining room is *known*: how many tokens the next turn
-        will cost, and how long it will take, are not knowable until it
-        happens. A warning guessed from those would fire early or not at all,
-        and a warning that fires every turn teaches the model to ignore it.
+        Two bounds are seen coming rather than one, and the second is the one
+        that actually binds an agent whose answers are whole files. The call
+        count's remaining room is exact. The token bound's is not - what the
+        next turn will cost is unknowable until it happens - but the most
+        expensive turn *so far* is a figure already charged, and a turn of that
+        size not fitting in what is left is the last honest moment to say so.
+        Measured from this run rather than guessed at, which is what separates
+        it from a warning that would fire early or not at all.
+
+        Unwarned, the token bound is the expensive way to lose a run: reading
+        whole files spends tokens far faster than calls, so Code-Fix reached it
+        with everything it had read thrown away - which reaches a human as a
+        verdict on code nobody finished looking at. The time bound stays
+        unwatched, because nothing here knows how long a turn will take and
+        no figure already charged stands in for it.
+
+        Erring early rather than late, deliberately. A turn smaller than the
+        dearest one means the warning came a turn too soon and the model
+        answered from slightly less; a turn larger means the bound would have
+        bound anyway.
 
         What each agent calls it when it says it is each agent's own. A turn
         of an investigation is usually one call and is told it is on its last
         turn; Code-Fix reads several files in one and is told it is on its
         last call. Both are true of the same arithmetic.
         """
-        return self._tool_calls >= self._max_tool_calls - 1
+        one_call_left = self._tool_calls >= self._max_tool_calls - 1
+        another_turn_would_not_fit = (
+            self._tokens + self._dearest_turn >= self._max_tokens
+        )
+
+        return one_call_left or another_turn_would_not_fit
 
     def _elapsed(self) -> float:
         return self._now() - self._started_at

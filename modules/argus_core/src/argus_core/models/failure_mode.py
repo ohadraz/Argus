@@ -41,6 +41,14 @@ class FailureMode(StrEnum):
     # graph; `memory-leak` would be one value per resource, each mapping to the
     # same restart.
     RESOURCE_LEAK = "resource-leak"
+    # The other half of resource exhaustion: the resource was sized correctly and
+    # the load outgrew it. One mode and not one with the leak above, because the
+    # split is by what the correct response is - reclaim what accumulated, or add
+    # capacity that was never there - and that is exactly the level a mode is
+    # named at. It is also the pair a system without the distinction gets wrong:
+    # the two are the same shape on a latency graph, and a restart makes this one
+    # briefly better before it returns.
+    DEMAND_SATURATION = "demand-saturation"
     # A service this one depends on and does not own stopped answering, and the
     # failure arrived here. The one mode in the set that no mitigation answers,
     # which is not an omission: everything Argus may do reaches its own
@@ -105,7 +113,23 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
     FailureMode.RESOURCE_LEAK: (
         "consumption climbs while traffic does not - a heap never released, a "
         "pool never returned, a disk filling - so the service degrades the "
-        "longer the process runs"
+        "longer the process runs. Choose this over demand-saturation when the "
+        "traffic is where it always was: both are a resource running out and "
+        "they look alike in the latency, and what separates them is whether "
+        "the consumption moved with the traffic or on its own"
+    ),
+    FailureMode.DEMAND_SATURATION: (
+        "the resource was sized correctly and the load outgrew it - the "
+        "requests arriving are several times what the deployment was built "
+        "for, so every one of them queues for capacity that is already busy. "
+        "Choose this over resource-leak when the traffic climbed with the "
+        "consumption rather than the consumption climbing on its own, which is "
+        "the whole of what separates the pair - restarting answers a leak and "
+        "does nothing here, because demand and capacity are both left where "
+        "they were. Choose it over bad-deployment and over the two dependency "
+        "modes when nothing changed and nothing was deployed, and the time is "
+        "spent in this service's own work rather than waiting on somebody "
+        "else's"
     ),
     FailureMode.UPSTREAM_DEPENDENCY_FAILURE: (
         "a service this one depends on stopped answering and the failure "

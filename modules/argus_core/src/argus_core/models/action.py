@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Final, Literal, assert_never
 
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, ValidationError
+from pydantic import BaseModel, Field, GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 
 from argus_core.models.undo_descriptor import FlagUndo, UndoDescriptor
@@ -188,12 +188,46 @@ class RollBackDeployment(BaseModel):
     application: str
 
 
+class ScaleOut(BaseModel):
+    """Giving a deployment more replicas than it was sized for.
+
+    The fourth generic mitigation, and the only one that adds something rather
+    than restoring something. That is not a weakening of the criterion: what
+    admits an action unasked is membership of the declared set (spec §13), never
+    whether the change can be put back - and this one happens to be reversible
+    anyway. Google SRE's own list of generic mitigations names adding capacity
+    beside draining, rolling back and restarting.
+
+    The application, and no count. Which count to scale to is named nowhere here
+    for a stronger version of the reason a rollback names no revision: a target
+    is meaningless without the count it replaces, that count is live state the
+    platform holds, and a strategy asserting "six" would be asserting the
+    deployment is running three - a fact no evidence in front of it carries, and
+    one that stops being true the moment anybody scales. The tier that performs
+    the action reads what is running, derives the target, and reports both.
+
+    It carries **no undo descriptor, and no field for one**, which is the
+    rollback's shape and for the rollback's reason: what it leaves behind - the
+    count that was running, and whether the platform was reconciling the
+    application itself - is known only to the tier that did the work. What says a
+    row with no descriptor against it is a change nobody accounted for is the
+    kind, through `leaves_something_to_put_back`.
+
+    There is no matching action for reducing capacity, and there should not be.
+    Being wrong about adding it costs money; being wrong about removing it costs
+    an outage.
+    """
+
+    action_type: Literal["scale-out"] = "scale-out"
+    application: str
+
+
 # `action_type` is Argus's own word for what was done - it is a column on the
 # `action` table and a field on the event a reader sees - so it tags the union,
 # where the descriptor's `tool` is the write tier's wire vocabulary and does
 # not.
 type Action = Annotated[
-    RevertFeatureFlag | RestartService | RollBackDeployment,
+    RevertFeatureFlag | RestartService | RollBackDeployment | ScaleOut,
     Field(discriminator="action_type")
 ]
 
@@ -201,7 +235,7 @@ type Action = Annotated[
 # things that render or store an action carry the tag alone: the event says
 # what was done without carrying the proposal, and the row keeps a column.
 type ActionType = Literal[
-    "revert-feature-flag", "restart-service", "roll-back-deployment"
+    "revert-feature-flag", "restart-service", "roll-back-deployment", "scale-out"
 ]
 
 # The tags as values, for the row and the event that carry them without
@@ -219,6 +253,7 @@ type ActionType = Literal[
 REVERT_FEATURE_FLAG: Final = "revert-feature-flag"
 RESTART_SERVICE: Final = "restart-service"
 ROLL_BACK_DEPLOYMENT: Final = "roll-back-deployment"
+SCALE_OUT: Final = "scale-out"
 
 
 class RestartedService(BaseModel):
@@ -262,16 +297,36 @@ class DeploymentRestored(BaseModel):
     automated_sync_put_back: bool
 
 
+class CapacityRestored(BaseModel):
+    """Which of the two things a scale-out changed were put back.
+
+    `DeploymentRestored`'s shape for the other action that changes live state
+    under a GitOps controller, and two flags rather than one answer for the same
+    reason: a restore can half-succeed and the half that fails is the quiet one. A
+    deployment back at its declared size looks right from every angle a reader
+    has, and is silently receiving nothing anybody ships to it, because the
+    reconciliation Argus suspended is still suspended.
+
+    A type of its own rather than that one reused, because the first field is a
+    different claim: a revision put back and a replica count put back are not the
+    same fact, and a reader of `revision_put_back` on a resize would be told
+    something nobody established.
+    """
+
+    count_put_back: bool
+    automated_sync_put_back: bool
+
+
 # The kinds of action that leave a change behind somebody could put back. A
 # frozen set rather than a `match` over the union, because the question is
 # asked of the *tag* - the row records a kind, and the walk that reads it back
 # hours later has the column and not the action it came from.
 _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
-    {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT}
+    {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT}
 )
 
 
-class ActionIdentity(BaseModel):
+class ActionIdentity(BaseModel, frozen=True):
     """What an action *is*, for the purpose of asking whether it was done before.
 
     The kind and the thing it was done to, together and as one value. Two
@@ -290,14 +345,20 @@ class ActionIdentity(BaseModel):
     whether one is in it, and a value that could be edited after it was filed
     under itself would be found under a name it no longer has.
 
+    Said as a class argument rather than in a `model_config`, which is the same
+    thing at runtime and not the same thing to a reader's editor: a type checker
+    reads `frozen` where the class is declared and synthesises the `__hash__`
+    that follows from it, where a configuration assigned in the body is a dict it
+    does not interpret. Spelled the other way, every file that uses one of these
+    as a key is underlined as using an unhashable key - correct code, reported as
+    broken, in the one place the design says to look.
+
     Its existence is the point as much as its shape. While this was two loose
     strings, memory compared the subject half of a pair the gate compared
     whole, and a model's prose about a symptom was stored where the name of a
     service belonged - both of which type it as `str` and neither of which any
     checker could see.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     action_type: ActionType
     subject: str
@@ -353,7 +414,7 @@ def the_subject_of(action: Action) -> str:
             return action.flag
         case RestartService():
             return action.service
-        case RollBackDeployment():
+        case RollBackDeployment() | ScaleOut():
             return action.application
         case _:
             assert_never(action)
@@ -392,7 +453,7 @@ def the_service_addressed_by(action: Action) -> str | None:
             return None
         case RestartService():
             return action.service
-        case RollBackDeployment():
+        case RollBackDeployment() | ScaleOut():
             return action.application
         case _:
             assert_never(action)
@@ -410,7 +471,7 @@ def the_direction_of(action: Action) -> bool | None:
     match action:
         case RevertFeatureFlag():
             return action.enabled
-        case RestartService() | RollBackDeployment():
+        case RestartService() | RollBackDeployment() | ScaleOut():
             return None
         case _:
             assert_never(action)

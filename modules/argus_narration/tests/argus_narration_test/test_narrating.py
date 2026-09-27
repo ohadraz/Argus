@@ -52,6 +52,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     ActionIdentity,
     Actor,
     Alert,
@@ -887,6 +888,97 @@ def test_a_restart_of_the_service_that_alerted_says_nothing_about_dependencies()
             _the_only_line_does_not_mention("dependency")))
 
 
+@pytest.mark.unit
+def test_a_failure_nothing_answers_says_so_rather_than_saying_nothing_was_proposed() -> None:
+    # The line a person reads when Argus knew exactly what happened and could
+    # do nothing about it. "No mitigation was proposed" would read as an
+    # investigation that came up short, which is the opposite of this: the
+    # cause is named, and what it needs is somebody who can reach the thing
+    # that is broken.
+    some_refusal = ActionRefused(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        refusal=Refusal.NOTHING_ANSWERS_THIS_MODE
+    )
+
+    Scenario() \
+        .given(some_refusal) \
+        .when(lambda: build_narration([some_refusal])) \
+        .then(all_of(
+            _the_only_line_marks(
+                "nothing Argus can do answers this kind of failure"),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_every_refusal_reaches_a_reader_in_words() -> None:
+    # The lookup that renders a refusal is a subscript, not a `get`, so a value
+    # with no sentence does not degrade - it raises, while an incident is being
+    # narrated, in the one path that exists to tell somebody what happened.
+    #
+    # Asserted over the whole enum rather than per member for the reason the
+    # taxonomy's meanings are: what must hold is that no refusal reaches a page
+    # as a value nobody wrote a sentence for, and a test naming the three that
+    # exist today would say nothing about the fourth.
+    Scenario() \
+        .given(every_reason_to_refuse := list(Refusal)) \
+        .when(lambda: {
+            refusal: _what_a_reader_is_told_about(refusal)
+            for refusal in every_reason_to_refuse
+        }) \
+        .then(_every_refusal_was_put_into_words())
+
+
+@pytest.mark.unit
+def test_a_scale_out_is_said_as_a_scale_out_when_it_is_taken() -> None:
+    # Words for the fourth kind of action. Without them the line rendered as the
+    # tag's own identifier - "scale-out" - which reads as a bug in the page and
+    # compiles perfectly. Said as adding capacity rather than as a change to a
+    # setting: what a reader has to take from the line is that the deployment is
+    # now larger than the one anybody declared.
+    an_application_scaled_out = "io-shop"
+
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=SCALE_OUT,
+        subject=an_application_scaled_out,
+        enabled=None
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(all_of(
+            _the_only_line_marks(an_application_scaled_out),
+            _the_only_line_mentions("Scaled out")
+        ))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_names_a_scale_out_as_a_scale_out() -> None:
+    # The gerund form, for the two lines that talk about an action without it
+    # having happened here: what memory demoted, and what was filed. A
+    # deployment already scaled out on an earlier incident is the one case where
+    # this line matters most - the reader is being told why Argus is not
+    # reaching for capacity again.
+    the_application_that_was_moved_down = "io-shop"
+
+    what_memory_did = CandidatesReordered(
+        incident_id=new_id(),
+        action_type=SCALE_OUT,
+        subject=the_application_that_was_moved_down,
+        on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+    )
+
+    Scenario() \
+        .given(what_memory_did) \
+        .when(lambda: build_narration([what_memory_did])) \
+        .then(_the_only_line_marks(
+            f"scaling {the_application_that_was_moved_down} out"
+        ))
+
+
 def _an_alert() -> Alert:
     return Alert(service="io-shop", alert_name="HighErrorRate")
 
@@ -901,7 +993,9 @@ def _a_bucket(bucket_id: str) -> MetricBucket:
         p99_ms=420,
         request_volume=200,
         memory_used_bytes=440 * 1024**2,
-        process_start_time_seconds=1_756_000_000.0
+        process_start_time_seconds=1_756_000_000.0,
+        cpu_used_cores=0.77,
+        cpu_limit_cores=3.0
     )
 
 
@@ -1185,46 +1279,6 @@ def _the_only_candidate_moved(was: str, now: str) -> Assertion[list[NarrationLin
         return True
 
     return assertion
-
-@pytest.mark.unit
-def test_a_failure_nothing_answers_says_so_rather_than_saying_nothing_was_proposed() -> None:
-    # The line a person reads when Argus knew exactly what happened and could
-    # do nothing about it. "No mitigation was proposed" would read as an
-    # investigation that came up short, which is the opposite of this: the
-    # cause is named, and what it needs is somebody who can reach the thing
-    # that is broken.
-    some_refusal = ActionRefused(
-        incident_id=new_id(),
-        hypothesis_id=new_id(),
-        refusal=Refusal.NOTHING_ANSWERS_THIS_MODE
-    )
-
-    Scenario() \
-        .given(some_refusal) \
-        .when(lambda: build_narration([some_refusal])) \
-        .then(all_of(
-            _the_only_line_marks(
-                "nothing Argus can do answers this kind of failure"),
-            _the_lines_are_credited_to(["Argus"])))
-
-
-@pytest.mark.unit
-def test_every_refusal_reaches_a_reader_in_words() -> None:
-    # The lookup that renders a refusal is a subscript, not a `get`, so a value
-    # with no sentence does not degrade - it raises, while an incident is being
-    # narrated, in the one path that exists to tell somebody what happened.
-    #
-    # Asserted over the whole enum rather than per member for the reason the
-    # taxonomy's meanings are: what must hold is that no refusal reaches a page
-    # as a value nobody wrote a sentence for, and a test naming the three that
-    # exist today would say nothing about the fourth.
-    Scenario() \
-        .given(every_reason_to_refuse := list(Refusal)) \
-        .when(lambda: {
-            refusal: _what_a_reader_is_told_about(refusal)
-            for refusal in every_reason_to_refuse
-        }) \
-        .then(_every_refusal_was_put_into_words())
 
 
 def _what_a_reader_is_told_about(refusal: Refusal) -> str:

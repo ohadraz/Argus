@@ -295,6 +295,101 @@ def _a_failing_internal_dependency(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+def _a_deployment_that_is_too_small(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by a conclusion about capacity.
+
+    Borrowed from the dependency walk rather than from the leak's, which is the
+    choice that makes the set replayable: that walk is a latency incident with an
+    empty deploy history, no flag staged and no patch proposed - the same world in
+    every channel the answers were given over, and the same shape of ending, since
+    capacity is no more a defect to patch than a neighbour's slowness is.
+
+    One hypothesis, for the reason the dependency rewrite states: what this
+    exercises is the mode reaching the scale-out strategy, past the gate, into the
+    platform call and back out as a confirmed verdict. A runner-up would buy a
+    second walk through that plumbing only if the first were refuted.
+
+    No `faulting_service`. The fault is the deployment's own size, and the field
+    belongs to the one cause that carries an address somebody else's service is
+    reached at - naming the shop there would be offering a dependency that does
+    not exist.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.78,
+                            "failure_mode": "demand-saturation",
+                            "subject": "io-shop CPU (cpu_used_cores at a 3.0 core limit)",
+                            "summary": (
+                                "Request volume climbed from 1200 to 5400 a "
+                                "minute and stayed there, and CPU rose with it "
+                                "until it reached the deployment's 3.0 cores and "
+                                "stopped - a gauge pinned at its ceiling while "
+                                "every quantile went on climbing. The heap is "
+                                "flat, the error rate never stirred, and neither "
+                                "the deploy history nor the flag provider records "
+                                "a change. Nothing is wrong with the shop: the "
+                                "load has outgrown the capacity it was sized for."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "cpu_used_cores 0.74 -> 3.00 against a "
+                                        "cpu_limit_cores of 3.00, flat at the "
+                                        "ceiling for the last nine minutes"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "request_volume 1200 -> 5400 over the "
+                                        "same minutes, so the consumption moved "
+                                        "with the traffic rather than "
+                                        "independently of it"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "memory_used_bytes unchanged at ~440MiB "
+                                        "and the error rate at baseline, which "
+                                        "rules out a leak"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "the deploy history is empty over the "
+                                        "whole window and no flag changed, so "
+                                        "nothing was released or toggled"
+                                    )
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answer has to be rewritten, by the set being fabricated, and which tool
 # call marks it. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -317,7 +412,9 @@ _THE_ANSWER_THAT_HAS_TO_DIFFER: Final[
     "grep-pricing-service-degraded": (THE_TOOL_THAT_ANSWERS,
                                       _a_failing_internal_dependency),
     "both-pricing-service-degraded": (THE_TOOL_THAT_ANSWERS,
-                                      _a_failing_internal_dependency)
+                                      _a_failing_internal_dependency),
+    "grep-cpu-saturation": (THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),
+    "both-cpu-saturation": (THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small)
 }
 
 

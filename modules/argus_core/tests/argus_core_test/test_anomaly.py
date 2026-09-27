@@ -16,6 +16,7 @@ from argus_testkit import Assertion, Scenario
 
 from argus_core_test.framework.windows import (
     a_quiet_window_of,
+    with_the_cpu_saturated,
     with_the_error_rate_raised,
 )
 
@@ -888,6 +889,59 @@ def test_a_single_minute_falling_back_mid_incident_is_not_the_recovery() -> None
         .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
 
 
+@pytest.mark.unit
+def test_a_busy_stretch_with_nothing_else_moved_is_no_onset() -> None:
+    # Utilisation tracks traffic, and traffic has a shape. A departure test over
+    # this series would date the onset at the minute the load arrived - minutes
+    # before anything was wrong, and in a busy stretch where nothing ever was.
+    a_quiet_window = a_quiet_window_of(90, seed=1)
+    some_busy_window = with_the_cpu_saturated(a_quiet_window, over=range(40, 90))
+
+    Scenario() \
+        .given(some_busy_window) \
+        .when(lambda: find_onset(some_busy_window, SOME_THRESHOLDS)) \
+        .then(_no_onset_was_found())
+
+
+@pytest.mark.unit
+def test_a_saturated_service_is_dated_from_the_series_that_are_judged() -> None:
+    # The minute customers were hurt, not the minute the resource ran out. The
+    # two differ by however long the service absorbed the load, and only the
+    # first is an incident.
+    some_incident_rate = 0.30
+    a_quiet_window = a_quiet_window_of(90, seed=1)
+    a_saturated_window = with_the_cpu_saturated(a_quiet_window, over=range(40, 90))
+    some_window = with_the_error_rate_raised(
+        a_saturated_window, to=some_incident_rate, over=range(45, 90)
+    )
+
+    first_minute_that_failed = some_window[45]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_onset(some_window, SOME_THRESHOLDS)) \
+        .then(_the_onset_is(first_minute_that_failed.bucket_id))
+
+
+@pytest.mark.unit
+def test_recovery_is_not_held_open_by_utilisation_that_stayed_high() -> None:
+    # A scaled-out service can be well while its cores are still busy, and a
+    # recovery rule reading this series would refuse to call that recovered.
+    some_incident_rate = 0.30
+    a_quiet_window = a_quiet_window_of(90, seed=1)
+    a_saturated_window = with_the_cpu_saturated(a_quiet_window, over=range(0, 90))
+    some_window = with_the_error_rate_raised(
+        a_saturated_window, to=some_incident_rate, over=range(40, 60)
+    )
+
+    first_calm_minute_after_it = some_window[60]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
+
+
 def _the_minute_after(bucket_id: str) -> str:
     return to_iso_minute(parse_iso(bucket_id) + timedelta(minutes=1))
 
@@ -924,6 +978,8 @@ def a_window_of(error_rates: list[float],
             memory_used_bytes=memory_used,
             memory_limit_bytes=MEMORY_LIMIT_BYTES,
             process_start_time_seconds=dont_care_started_at,
+            cpu_used_cores=0.77,
+            cpu_limit_cores=3.0,
         )
         for offset, (error_rate, p50_ms, p95_ms, p99_ms, memory_used) in enumerate(
             zip(error_rates, medians, latencies, tails, memory, strict=True)

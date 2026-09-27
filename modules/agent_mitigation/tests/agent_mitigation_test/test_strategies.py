@@ -16,6 +16,7 @@ from agent_mitigation import (
     MitigationStrategy,
     RestartDependencyStrategy,
     RestartServiceStrategy,
+    ScaleOutStrategy,
     Strategies,
     a_mitigation_answers,
     propose_action,
@@ -29,6 +30,7 @@ from argus_core.models import (
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
+    ScaleOut,
 )
 from argus_testkit import Assertion, Scenario
 
@@ -491,6 +493,164 @@ def test_the_registry_argus_ships_answers_an_internal_dependency_failure() -> No
             lambda: propose_action(a_slow_neighbour, NO_FLAGS_CHANGED, "io-shop")
         ) \
         .then(_the_service_to_restart_is("io-pricing"))
+
+
+@pytest.mark.unit
+def test_demand_saturation_is_answered_by_scaling_the_deployment_out() -> None:
+    # The fourth generic mitigation, and the first that adds something rather
+    # than restoring something. What a saturated deployment needs is headroom it
+    # never had, which none of the three that put something back can buy.
+    Scenario() \
+        .given(
+            a_deployment_that_outgrew_its_size := a_hypothesis_blaming(
+                FailureMode.DEMAND_SATURATION
+            )
+        ) \
+        .when(
+            lambda: ScaleOutStrategy().propose(
+                a_deployment_that_outgrew_its_size,
+                NO_FLAGS_CHANGED,
+                service=SOME_APPLICATION_THE_ALERT_NAMES
+            )
+        ) \
+        .then(_it_scales_out(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_a_leak_and_a_saturated_service_reach_different_mitigations() -> None:
+    # The pair, asked of the registry Argus ships, because the pair is the whole
+    # claim: these are the two halves of resource exhaustion and they are
+    # separated by what is done about them. Either mode asked alone would pass
+    # with both of them mapped to the same strategy, which is exactly the
+    # mistake the mode exists to prevent - a restart makes a saturated shop
+    # briefly better before the load returns it.
+    Scenario() \
+        .given(
+            the_two_halves_of_resource_exhaustion := [
+                a_hypothesis_blaming(FailureMode.RESOURCE_LEAK),
+                a_hypothesis_blaming(FailureMode.DEMAND_SATURATION)
+            ]
+        ) \
+        .when(
+            lambda: [
+                propose_action(
+                    hypothesis, NO_FLAGS_CHANGED, SOME_APPLICATION_THE_ALERT_NAMES
+                )
+                for hypothesis in the_two_halves_of_resource_exhaustion
+            ]
+        ) \
+        .then(
+            _the_leak_restarts_and_the_saturation_scales(
+                SOME_APPLICATION_THE_ALERT_NAMES
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_deployment_scaled_out_is_the_one_the_alert_names() -> None:
+    # Not the hypothesis, whose subject is the model's description of what ran
+    # out of room rather than the name of anything a platform can be asked
+    # about - and not a flag that happened to move while the load was climbing,
+    # because no toggle causes traffic to arrive.
+    describing_what_ran_out = a_hypothesis_blaming(
+        FailureMode.DEMAND_SATURATION,
+        subject="io-shop CPU (cpu_used_cores pinned at a 3.0 core limit)"
+    )
+
+    Scenario() \
+        .given(
+            a_flag_that_moved_meanwhile := [an_enabling_of(DONT_CARE_FLAG)]
+        ) \
+        .when(
+            lambda: ScaleOutStrategy().propose(
+                describing_what_ran_out,
+                a_flag_that_moved_meanwhile,
+                service=SOME_APPLICATION_THE_ALERT_NAMES
+            )
+        ) \
+        .then(_it_scales_out(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_a_scale_out_names_no_count_to_scale_to() -> None:
+    # A stronger version of the reason a rollback names no revision. A target
+    # count is meaningless without the count it replaces, that count is live
+    # state only the write tier can read, and a strategy asserting six would be
+    # asserting the deployment is running three - a fact no evidence in front of
+    # it carries, and one that stops being true the moment anybody scales.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.DEMAND_SATURATION)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.DEMAND_SATURATION),
+            NO_FLAGS_CHANGED,
+            SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+            .then(_the_scale_out_carries_nothing_but_the_application())
+
+
+def _it_scales_out(application: str) -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, ScaleOut):
+            raise AssertionError(f"Expected a scale-out, got [{action}].")
+
+        if action.application != application:
+            raise AssertionError(
+                f"Expected [{application}] to be scaled out, and "
+                f"[{action.application}] was."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_leak_restarts_and_the_saturation_scales(
+    service: str
+) -> Assertion[Sequence[Action | None]]:
+    """Both halves reported, whichever of them the registry got wrong."""
+    def assertion(proposed: Sequence[Action | None]) -> bool:
+        for_the_leak, for_the_saturation = proposed
+        wrong: list[str] = []
+
+        if not isinstance(for_the_leak, RestartService):
+            wrong.append(
+                f"a leak should be answered by a restart of [{service}], and it "
+                f"was answered with [{for_the_leak}]"
+            )
+
+        if not isinstance(for_the_saturation, ScaleOut):
+            wrong.append(
+                f"demand saturation should be answered by a scale-out of "
+                f"[{service}], and it was answered with [{for_the_saturation}]"
+            )
+
+        if wrong:
+            raise AssertionError(
+                "Expected the two halves of resource exhaustion to reach "
+                f"different mitigations: {'; '.join(wrong)}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_scale_out_carries_nothing_but_the_application() -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, ScaleOut):
+            raise AssertionError(f"Expected a scale-out, got [{action}].")
+
+        carried = set(action.model_dump()) - {"action_type", "application"}
+
+        if carried:
+            raise AssertionError(
+                f"Expected a scale-out naming only the application, and it also "
+                f"carried {sorted(carried)}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_is_not_a_restart_of(service: str) -> Assertion[Action | None]:

@@ -660,6 +660,11 @@ def _an_action_said(action_type: ActionType) -> str:
             return "Restarted"
         case "roll-back-deployment":
             return "Rolled back the deployment of"
+        case "scale-out":
+            # Said of the deployment, as the rollback's is. What a reader has to
+            # take from the line is that the deployment is now larger than the
+            # one anybody declared - which is also what a withdrawal puts back.
+            return "Scaled out the deployment of"
 
     assert_never(action_type)
 
@@ -689,6 +694,8 @@ def _what_the_action_does(action_type: ActionType, subject: str) -> str:
             return f"restarting {subject}"
         case "roll-back-deployment":
             return f"rolling {subject} back"
+        case "scale-out":
+            return f"scaling {subject} out"
 
     assert_never(action_type)
 

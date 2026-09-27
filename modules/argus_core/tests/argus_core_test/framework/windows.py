@@ -106,7 +106,9 @@ def a_quiet_minute_at(bucket_id: str, entropy: random.Random) -> MetricBucket:
             -THE_HEAP_WOBBLES_BY_BYTES, THE_HEAP_WOBBLES_BY_BYTES
         ),
         memory_limit_bytes=THE_HEAP_LIMIT_BYTES,
-        process_start_time_seconds=_WINDOW_STARTS_AT.timestamp()
+        process_start_time_seconds=_WINDOW_STARTS_AT.timestamp(),
+        cpu_used_cores=0.77,
+        cpu_limit_cores=3.0
     )
 
 
@@ -122,6 +124,23 @@ def with_the_error_rate_raised(window: Sequence[MetricBucket],
     """
     return [
         bucket.model_copy(update={"error_rate": round(to + bucket.error_rate, 4)})
+        if offset in over
+        else bucket
+        for offset, bucket in enumerate(window)
+    ]
+
+
+def with_the_cpu_saturated(window: Sequence[MetricBucket],
+                           over: range) -> list[MetricBucket]:
+    """The same window with `over`'s minutes using every core they have.
+
+    Saturation rather than a figure, because that is the condition itself and
+    there is no number to choose: usage clamps at capacity, so a saturated minute
+    is one where the two are equal. Nothing else about the minute moves, which is
+    what makes it a window that departs in this series and in no other.
+    """
+    return [
+        bucket.model_copy(update={"cpu_used_cores": bucket.cpu_limit_cores})
         if offset in over
         else bucket
         for offset, bucket in enumerate(window)

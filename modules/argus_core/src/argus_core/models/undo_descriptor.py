@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 # same tool would be two tools as far as either could tell.
 SET_FEATURE_FLAG_TOOL: Final = "set_feature_flag"
 ROLL_BACK_DEPLOYMENT_TOOL: Final = "roll_back_deployment"
+SCALE_OUT_TOOL: Final = "scale_out"
 
 
 class FlagUndo(BaseModel):
@@ -92,11 +93,43 @@ class DeploymentRollbackUndo(BaseModel):
     written_at: datetime | None = None
 
 
-# Two members, and the tag is what chooses between them. Everything that
+class ReplicaUndo(BaseModel):
+    """The record of a deployment made larger, in the shape that puts it back.
+
+    Two pieces of prior state, as the rollback's descriptor has and for the same
+    reason: a platform that reconciles the application itself sets the replica
+    count back to whatever the repository holds at its next sync, so the action
+    suspended that first and an undo restoring only the count would leave the
+    deployment silently receiving nothing anybody ships to it.
+
+    `was_replicas` is the count that was running, read from the platform's live
+    resource rather than from the repository. The two are the same number until
+    somebody scales and different afterwards, and it is the running one a
+    withdrawal has to put back.
+
+    `was_syncing_itself` is the setting as it was found, never a default - an
+    application somebody had already stopped reconciling must be left stopped, for
+    the reason the rollback's is left as found.
+
+    One thing it does *not* record is what the count was raised to. An undo puts
+    back what was there; where the deployment got to in between is what the action
+    reported when it was taken, and a descriptor carrying it would be a second
+    record of one fact for a reader to find disagreeing with the first.
+    """
+
+    kind: Literal["replica-count"] = "replica-count"
+    application: str
+    was_replicas: int
+    was_syncing_itself: bool
+    tool: str = SCALE_OUT_TOOL
+    written_at: datetime | None = None
+
+
+# Three members, and the tag is what chooses between them. Everything that
 # matches on `kind` carries a branch for each, which is what this was a tagged
 # union for while it still had only one.
 type UndoDescriptor = Annotated[
-    FlagUndo | DeploymentRollbackUndo, Field(discriminator="kind")
+    FlagUndo | DeploymentRollbackUndo | ReplicaUndo, Field(discriminator="kind")
 ]
 
 _descriptors = TypeAdapter[UndoDescriptor](UndoDescriptor)

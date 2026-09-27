@@ -23,7 +23,7 @@ pattern. See "A note on the name" below.
 |---|---|---|---|
 | Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Yes.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here, all diagnosed and all mitigated. FM-09 and FM-10 share one action: a revision carries the code and the configuration it shipped with, so the platform's rollback answers both |
 | Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Yes.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage. `pricing-service-degraded` is FM-23: diagnosed and mitigated by restarting a service the alert never named. What tells the pair apart is ownership, which the organisation's service register answers and no telemetry does |
-| Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** `resource-leak` is the leak half of FM-13; demand saturation is not built |
+| Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** FM-13 is built in both halves: `resource-leak` is the leak and `demand-saturation` is the saturation, told apart by whether the consumption moved with the traffic and answered by opposite things - reclaiming what accumulated, or adding capacity the deployment never had. FM-25 is not built, and is no longer blocked: a replica count now exists, is visible in telemetry and can be changed |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
 | Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Partly.** `slow-canary-rollout` is FM-06: diagnosed and mitigated by putting the flag back. In-flight compatibility is not built |
@@ -59,8 +59,9 @@ exactly the level `FailureMode` has to name:
 - **Resource leak / runaway consumption** - growth uncorrelated with traffic.
   Response: **restart, then fix.**
 
-`resource-leak` is the value, and `resource-exhaustion` would be too coarse:
-it maps to two different mitigations.
+`resource-leak` and `demand-saturation` are the two values, and
+`resource-exhaustion` would be too coarse: it maps to two different mitigations,
+and a reader who cannot choose between them gets the one that cannot work.
 
 ### Scenarios to stage under resource leak
 
@@ -81,24 +82,60 @@ and none is a new `FailureMode`:
 
 ### Scenarios to stage under demand saturation
 
-A different mitigation, so a different `FailureMode` when it is built:
+A different mitigation, so a different `FailureMode`:
 
-- **CPU saturation** - traffic grew, the service is correctly sized for
-  yesterday. Restarting does nothing; scaling does.
+- **CPU saturation** - built. Traffic grew, the service is correctly sized for
+  yesterday. Restarting does nothing; scaling does. Metric: `cpu_used_cores`
+  against `cpu_limit_cores`, where capacity is the deployment's total across its
+  replicas - so scaling out moves the denominator and the recovery is visible in
+  the series the incident was.
 - **Traffic spike beyond capacity** - the honest version of the above, where
-  the correct response may be to shed load rather than to scale.
+  the correct response may be to shed load rather than to scale. Not built, and
+  a different way of reaching the same mode: shedding load is a mitigation
+  somebody has to build and defend.
 
 Worth noting that CPU saturation is the scenario that proves the split is real:
 it looks like a leak on a latency graph and a restart makes it briefly better
 before it returns, which is the mistake a system without the distinction makes.
+That is why the two are staged as a matched pair everywhere they are measured -
+the same alert, the same latency climb, the same empty change list, and one
+variable.
 
 ## What is worth building next
 
 In order of share, minus what is out of scope for a demo:
 
-1. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
+1. **FM-25 Autoscaling pathology** (the other half of capacity's 13%). An
+   autoscaler that makes things worse - flapping, or scaling on the wrong signal,
+   or scaling into a dependency that cannot take the load. It is first because it
+   is newly reachable rather than because it is newly interesting: staging it
+   needs a replica count that exists, is visible and can be changed, and demand
+   saturation is what built all three.
+2. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
    3%). A deploy that is correct on both sides of itself and wrong for the
    requests that span it.
+
+## Measurements owed, and what each would buy
+
+Neither is a scenario, and both cost real money - a walk is about five dollars -
+so they are written down rather than run. What is here is what the spend would
+buy, so that a decision to buy it is a decision rather than a habit.
+
+- **The saturation pair's eval bars.** `demand-saturation-is-identified` and
+  `resource-leak-is-told-from-demand-saturation` are in the Investigator eval at
+  `UNMEASURED`, which is honest and says nothing. Ten runs of each would give a
+  rate for the claim the sixth mode rests on: that a reader of the evidence can
+  tell load that outgrew its capacity from consumption that climbed on its own.
+  One real walk has named it correctly, which is an anecdote rather than a rate.
+  Every other bar in that suite is stale for the same reason - the prompt moved -
+  so this pool is owed a pass whenever one is bought at all.
+- **A rate for Code-Fix answering inside its budget.** There is no eval for
+  Code-Fix; `grade_fixes` scores the patches it did produce, and nothing measures
+  how often it produces one at all. Two walks have now ended with the agent
+  reading to a bound and submitting nothing - and the arithmetic that warns it is
+  fixed, which makes this the question worth a rate rather than a fix. What the
+  spend would buy: how often a conclusion that names no file leaves the agent
+  roaming until a bound binds.
 
 **FM-06 Aggregate-masked tail degradation is built.** `slow-canary-rollout`
 stages the account page's newest figure going out to three percent of traffic,
@@ -222,6 +259,56 @@ It is also the first mode whose permanent fix is out of Code-Fix's reach. The
 shop's source is correct; what is wrong is in a service whose repository Argus
 was never pointed at, and a timeout or a fallback on the calling side is a
 design decision rather than a defect to patch.
+
+**FM-13's other half is built.** `cpu-saturation` stages demand saturation: the
+shop's reported volume ramps to several times its baseline and holds, CPU pins
+against a ceiling it cannot exceed, every quantile climbs together, and the heap,
+the error rate and every change channel stay exactly where they were. Nothing
+is wrong with the service. It is too small.
+
+Three things it added beyond the scenario, and the first is the one that matters
+most. **A fourth generic mitigation, and the first that adds something rather
+than restoring something.** Every mitigation before it put something back - a
+flag to the state it was in, a process to a fresh start, a deployment to the
+revision before it - and scaling out returns to nothing. That is not a weakening
+of what admits an action unasked: the criterion is membership of the declared set,
+never whether the change can be put back, and this is the member that makes that
+legible. Google SRE's own list of generic mitigations names adding capacity beside
+draining, rolling back and restarting.
+
+**The first bound on how far one mitigation may go.** The gate's cap bounds how
+many times a repeatable mitigation may be attempted within an incident; the write
+tier's ceiling bounds how large any one attempt may make the deployment. Either
+alone leaves the other's failure available - a cap of two with no ceiling permits
+an unbounded second attempt, and a ceiling with no cap permits attempts without
+end below it. The ceiling is the tier's rather than the strategy's, for the reason
+the mapping from a service to a workload is: it is a fact about the estate.
+
+**A signal that is retrieved and not judged.** The pair on the bucket is
+`cpu_used_cores` against `cpu_limit_cores`, and the detector goes on dating an
+onset from five series without it. Utilisation tracks traffic, so judging it would
+move the anchor back to the minute the load arrived - minutes before anything was
+wrong, and sometimes a busy stretch in which nothing ever was. The incident is the
+latency the saturation caused, which the five already see.
+
+It is mitigated and never resolved. The repository still asks for the size that
+was too small, reconciliation is suspended so nothing re-applies it, and the load
+that outgrew the capacity is still arriving - so a withdrawal returns the shop to
+saturation, which is the honest ending. Capacity is also the one shortfall no
+patch closes, and what that costs is worth writing down rather than assuming:
+the walk asks the code tier like any other mode, and the agent answers from the
+repository in front of it. Measured against the fixture, it proposes a patch -
+correctly, because the shop's main branch carries a real fault for other
+scenarios to stage, and a reader sent looking without a file named finds it. So
+what the record holds for this mode is a mitigation that ended the incident and
+a proposal that is beside the point, and the incident is `mitigated` either way.
+The claim that a capacity shortfall gets no patch is a claim about a model's
+reading rather than about Argus, and nothing here asserts it.
+
+**FM-25 is unblocked by it, and is the next thing rather than the thing behind
+it.** Nothing could stage an autoscaler misbehaving until a replica count
+existed, was visible in telemetry, and could be changed. All three are now true,
+and none of them was before.
 
 ## Why they are called modes
 

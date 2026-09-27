@@ -99,7 +99,9 @@ def test_a_minutes_numbers_are_the_ones_that_were_measured() -> None:
         p99_ms=420,
         request_volume=200,
         memory_used_bytes=440 * A_MEGABYTE,
-        process_start_time_seconds=DONT_CARE_STARTED_AT
+        process_start_time_seconds=DONT_CARE_STARTED_AT,
+        cpu_used_cores=0.77,
+        cpu_limit_cores=3.0
     )
 
     Scenario() \
@@ -154,10 +156,48 @@ def test_a_service_with_no_limit_says_what_it_used_and_nothing_more() -> None:
         .then(_it_says_the_memory_is("440 MB"))
 
 
+@pytest.mark.unit
+def test_cpu_is_said_against_the_capacity_it_is_measured_against() -> None:
+    # A figure in cores means nothing alone: 0.8 is a quiet afternoon across three
+    # replicas and an emergency on one.
+    Scenario() \
+        .given(a_minute_with_headroom := _a_bucket(
+            cpu_used_cores=0.77, cpu_limit_cores=3.0
+        )) \
+        .when(lambda: a_bucket_row(a_minute_with_headroom)) \
+        .then(_it_says_the_cpu_is("0.8 of 3.0 cores"))
+
+
+@pytest.mark.unit
+def test_a_minute_at_its_capacity_is_said_to_be_saturated() -> None:
+    # The one reading a reader must not have to divide. Usage clamps at capacity,
+    # so two equal figures are the whole signal - and a reader scanning a column
+    # of pairs is being asked to spot equality rather than read a word.
+    Scenario() \
+        .given(a_saturated_minute := _a_bucket(
+            cpu_used_cores=3.0, cpu_limit_cores=3.0
+        )) \
+        .when(lambda: a_bucket_row(a_saturated_minute)) \
+        .then(_it_says_the_cpu_is("3.0 of 3.0 cores, saturated"))
+
+
+@pytest.mark.unit
+def test_a_deployment_with_no_cpu_limit_says_what_it_used_and_nothing_more() -> None:
+    # The memory column's rule, for the other resource: a deployment that imposes
+    # no limit has no ceiling to be near, and `of 0.0 cores` would read as a
+    # service already over one.
+    Scenario() \
+        .given(a_minute_with_no_ceiling := _a_bucket(cpu_limit_cores=None)) \
+        .when(lambda: a_bucket_row(a_minute_with_no_ceiling)) \
+        .then(_it_says_the_cpu_is("0.8 cores"))
+
+
 def _a_bucket(error_rate: float = 0.01,
               bucket_id: str = SOME_MINUTE,
               memory_used_bytes: int = 440 * A_MEGABYTE,
-              memory_limit_bytes: int | None = 2 * A_GIGABYTE) -> MetricBucket:
+              memory_limit_bytes: int | None = 2 * A_GIGABYTE,
+              cpu_used_cores: float = 0.77,
+              cpu_limit_cores: float | None = 3.0) -> MetricBucket:
     """One minute of metrics, with the latencies nothing here reads."""
     return MetricBucket(
         bucket_id=bucket_id,
@@ -168,7 +208,9 @@ def _a_bucket(error_rate: float = 0.01,
         request_volume=200,
         memory_used_bytes=memory_used_bytes,
         memory_limit_bytes=memory_limit_bytes,
-        process_start_time_seconds=DONT_CARE_STARTED_AT
+        process_start_time_seconds=DONT_CARE_STARTED_AT,
+        cpu_used_cores=cpu_used_cores,
+        cpu_limit_cores=cpu_limit_cores
     )
 
 
@@ -239,6 +281,18 @@ def _it_reports_what_was_measured(measured: MetricBucket) -> Assertion[BucketRow
         if reported != expected:
             raise AssertionError(
                 f"Expected the figures {expected} as measured, got {reported}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_cpu_is(expected: str) -> Assertion[BucketRow]:
+    def assertion(row: BucketRow) -> bool:
+        if row.cpu != expected:
+            raise AssertionError(
+                f"Expected the CPU said as [{expected}], got [{row.cpu}]."
             )
 
         return True

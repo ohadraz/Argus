@@ -9,6 +9,7 @@ import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
     DeploymentRoller,
+    DeploymentScaler,
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
@@ -21,8 +22,10 @@ from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
 from argus_core.models import (
     DeploymentRollbackUndo,
     MetricBucket,
+    ReplicaUndo,
     RestartedService,
     RollBackDeployment,
+    ScaleOut,
     UndoDescriptor,
 )
 from argus_testkit import Assertion, Scenario, all_of, dont_care_sleep
@@ -34,7 +37,6 @@ from agent_mitigation_test.framework.builders import (
     a_clock_frozen_at,
     a_clock_that_runs_out_after_one_look,
     a_recovered_window,
-    a_restorer_nobody_calls,
     a_still_failing_window,
     a_window_ending_at_the_action,
     a_window_where_memory_never_fell,
@@ -42,18 +44,40 @@ from agent_mitigation_test.framework.builders import (
     an_action_restarting,
     an_action_setting,
     an_undo_descriptor_for,
-    dont_care_restart,
+    an_undo_nobody_calls,
+    an_undo_putting_flags_back,
     metrics_reading,
     nobody_can_say,
     nobody_changed_it,
     nobody_wants_it_any_more,
     somebody_changed_it,
+    the_writes,
 )
 
 _SOME_INCIDENT_ID = new_id()
 # ACTION_TIME falls at 11:10:30, so the first minute that wholly follows it is
 # 11:11 - the earliest one a verdict may be read off.
 _THE_FIRST_WHOLE_MINUTE_AFTER = "2026-08-20T11:11:00Z"
+
+SOME_COUNT_IT_WAS_RUNNING = 3
+SOME_APPLICATION = "io-shop"
+THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
+
+# The ceiling's refusal, in the words the write tier raises it with. Quoted
+# rather than paraphrased, because what these cases are about is that those
+# words reach the walk: a test inventing its own sentence would go on passing
+# while the reason was being dropped somewhere between the tier and the record,
+# and an escalation with no reason on it is indistinguishable from a platform
+# that fell over.
+THE_CEILING_REFUSED = (
+    f"[{SOME_APPLICATION}] is running [12] replicas, which is as large as Argus "
+    f"may make it ([12])"
+)
+
+# How long the verification waits. Short, because every test here would
+# otherwise sit through it - the clock and the sleeper are injected, so what
+# this bounds is the arithmetic rather than any real wait.
+A_SHORT_WAIT_IN_SECONDS = 180.0
 
 
 @pytest.mark.unit
@@ -70,14 +94,11 @@ def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
                 an_action_setting(some_flag, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(
@@ -97,15 +118,15 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(
-                    DONT_CARE_FLAG, was_enabled=some_old_state),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
                 fetch_metrics=metrics_reading(the_service_recovers),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(
@@ -128,15 +149,15 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(
-                    DONT_CARE_FLAG, was_enabled=some_old_state),
+                writes=the_writes(
+                    set_state=(set_state := _a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    ))
+                ),
                 fetch_metrics=metrics_reading(the_service_never_recovers),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
             )
         ) \
         .then(
@@ -159,16 +180,16 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(
-                    DONT_CARE_FLAG, was_enabled=some_old_state),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                restart=dont_care_restart(),
                 still_wanted=nobody_still_wants_it,
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(
@@ -191,16 +212,16 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(
-                    DONT_CARE_FLAG, was_enabled=some_old_state),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(
@@ -226,15 +247,12 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
                 an_action_setting(some_flag, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                restart=dont_care_restart(),
                 still_wanted=nobody_wants_it_any_more(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -258,15 +276,15 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(
-                    DONT_CARE_FLAG, was_enabled=some_old_state),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -294,14 +312,11 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
                 an_action_setting(some_flag, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
             )
         ) \
         .then(
@@ -322,14 +337,11 @@ def test_a_confirmed_action_is_left_in_place() -> None:
                 an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -355,14 +367,11 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
                 an_action_setting(some_flag, enabled=False),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
             )
         ) \
         .then(all_of(
@@ -389,14 +398,11 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
                 an_action_setting(some_flag, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=somebody_changed_it()
+                undo=an_undo_putting_flags_back(set_state, somebody_changed_it())
             )
         ) \
         .then(all_of(
@@ -420,15 +426,15 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
                 an_action_setting(some_flag, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(
-                    some_flag, was_enabled=some_old_state),
+                writes=the_writes(
+                    set_state=(set_state := _a_flag_setter_changing_from(
+                        some_flag, was_enabled=some_old_state
+                    ))
+                ),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=somebody_changed_it()
+                undo=an_undo_putting_flags_back(set_state, somebody_changed_it())
             )
         ) \
         .then(all_of(
@@ -454,14 +460,11 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 an_action_setting(some_flag, enabled=(not some_old_state)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_can_say()
+                undo=an_undo_putting_flags_back(set_state, nobody_can_say())
             )
         ) \
         .then(all_of(
@@ -483,14 +486,11 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 an_action_setting(DONT_CARE_FLAG, enabled=False),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=set_state,
+                writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=dont_care_restart(),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -511,22 +511,21 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
     Scenario() \
         .given(
             some_old_state := False,
-            dont_care_outside := nobody_changed_it(),
             undo := _an_undo_that_restores(some_flag)
         ) \
         .when(lambda: take_action(
             an_action_setting(some_flag, enabled=(not some_old_state)),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
-            set_state=_a_flag_setter_changing_from(some_flag, was_enabled=some_old_state),
+            writes=the_writes(
+                set_state=_a_flag_setter_changing_from(
+                    some_flag, was_enabled=some_old_state
+                )
+            ),
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
             sleep=dont_care_sleep,
-            restart=dont_care_restart(),
-            undo=undo,
-            restore_deployment=a_restorer_nobody_calls(),
-            roll_back=_a_roller_nobody_calls(),
-            changed_from_outside=dont_care_outside
+            undo=undo
         )) \
         .then(all_of(
             _the_change_was_put_back_through(undo),
@@ -662,14 +661,11 @@ def test_taking_a_restart_asks_for_the_service_the_action_names() -> None:
                 an_action_restarting(some_leaking_service),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                writes=the_writes(restart=restart),
                 fetch_metrics=metrics_reading(a_window_where_memory_was_reclaimed()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=restart,
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(
@@ -693,14 +689,13 @@ def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
                 an_action_restarting(some_leaking_service),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up(some_leaking_service)
+                ),
                 fetch_metrics=metrics_reading(the_heap_came_back_down),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -726,14 +721,13 @@ def test_a_restart_whose_memory_never_fell_is_refuted_though_the_symptoms_eased(
                 an_action_restarting(some_leaking_service),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up(some_leaking_service)
+                ),
                 fetch_metrics=metrics_reading(the_heap_stayed_up),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(
@@ -758,14 +752,11 @@ def test_a_restart_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 an_action_restarting(some_leaking_service),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                writes=the_writes(restart=restart_could_not_be_taken),
                 fetch_metrics=metrics_reading(a_window_where_memory_was_reclaimed()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=restart_could_not_be_taken,
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -792,14 +783,14 @@ def test_a_refuted_restart_puts_nothing_back_and_says_so() -> None:
                 an_action_restarting(some_leaking_service),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=nothing_was_ever_written,
+                writes=the_writes(
+                    set_state=nothing_was_ever_written,
+                    restart=_a_restarter_bringing_up(some_leaking_service)
+                ),
                 fetch_metrics=metrics_reading(a_window_where_memory_never_fell()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -826,19 +817,209 @@ def test_a_confirmed_restart_carries_no_way_back_either() -> None:
                 an_action_restarting(some_leaking_service),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up(some_leaking_service)
+                ),
                 fetch_metrics=metrics_reading(the_heap_came_back_down),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                restart=_a_restarter_bringing_up(some_leaking_service),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_nobody_calls(),
-                changed_from_outside=nobody_changed_it()
+                undo=an_undo_nobody_calls()
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.CONFIRMED),
             _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_taking_a_rollback_asks_for_the_application_and_the_entry() -> None:
+    # The entry rather than a commit. A commit found in a diff is not
+    # necessarily a revision this application ever ran, and rolling onto one
+    # would be shipping an untested state under the name of a rollback.
+    Scenario() \
+        .given(roll_back := _a_roller_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up("dont-care-service"),
+                    roll_back=roll_back
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+            .then(
+            _the_rollback_asked_for(roll_back, SOME_APPLICATION)
+        )
+
+
+@pytest.mark.unit
+def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
+    Scenario() \
+        .given(_a_roller_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up("dont-care-service"),
+                    roll_back=_a_roller_returning(SOME_APPLICATION)
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+            .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rollback_carries_a_way_back_where_a_restart_carries_none() -> None:
+    # The difference the record has to keep. A restart leaves nothing behind
+    # and says so by carrying no descriptor; a rollback changed two things,
+    # and a withdrawal hours later has to be able to put both of them back.
+    Scenario() \
+        .given(_a_roller_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up("dont-care-service"),
+                    roll_back=_a_roller_returning(SOME_APPLICATION)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=_an_undo_that_restores(SOME_APPLICATION)
+            )
+        ) \
+            .then(
+            _it_carries_a_way_back()
+        )
+
+
+@pytest.mark.unit
+def test_taking_a_scale_out_asks_the_platform_for_the_application_alone() -> None:
+    # No count goes with it. What to scale to is the tier's to resolve from what
+    # is actually running, and a figure named here would be this layer asserting
+    # a fact about live state it has no way to read.
+    Scenario() \
+        .given(scale_out := _a_scaler_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_scale_out_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(scale_out=scale_out),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            _the_scale_out_asked_for(scale_out, SOME_APPLICATION)
+        )
+
+
+@pytest.mark.unit
+def test_a_deployment_that_recovered_after_a_scale_out_confirms_it() -> None:
+    # Judged by the same rule every other kind is: the service returned to its
+    # baseline in the minutes after the action. Nothing about capacity is
+    # special here, which is the point - a fourth kind of action does not bring
+    # a fourth way of being right.
+    Scenario() \
+        .given(the_latency_came_back_down := a_recovered_window()) \
+        .when(
+            lambda: take_action(
+                _a_scale_out_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(scale_out=_a_scaler_returning(SOME_APPLICATION)),
+                fetch_metrics=metrics_reading(the_latency_came_back_down),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_mentions(f"[{SOME_COUNT_IT_WAS_RUNNING}] replicas"),
+            _it_carries_the_count_to_put_back(SOME_COUNT_IT_WAS_RUNNING)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_at_the_ceiling_reaches_the_walk_as_the_refusal_it_is() -> None:
+    # An escalation with the bound's own sentence on it. Nothing was changed, so
+    # there is no verdict to reach - but the reason matters more here than for
+    # any other failure to act: "Argus has run out of room to grow this
+    # deployment" is a sentence somebody can do something about, where a bare
+    # escalation reads as a platform that could not be reached.
+    Scenario() \
+        .given(
+            the_deployment_is_as_large_as_it_may_get := _a_scaler_that_cannot(
+                THE_CEILING_REFUSED
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_scale_out_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    scale_out=the_deployment_is_as_large_as_it_may_get
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions(f"scale [{SOME_APPLICATION}] out"),
+            _the_detail_mentions(THE_CEILING_REFUSED),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_scale_out_says_which_count_it_was_put_back_to() -> None:
+    # The count, not "the previous size". A reader picking the incident up has to
+    # be able to tell what the deployment is running now without going to the
+    # platform to ask, and the figure the tier read is the only honest one -
+    # nothing else here ever knew it.
+    Scenario() \
+        .given(undo := _an_undo_that_puts_the_count_back(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_scale_out_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(scale_out=_a_scaler_returning(SOME_APPLICATION)),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions(f"to [{SOME_COUNT_IT_WAS_RUNNING}] replicas"),
+            _it_carries_the_count_to_put_back(SOME_COUNT_IT_WAS_RUNNING)
         ))
 
 
@@ -858,14 +1039,13 @@ def _an_action_is_taken(metrics: list[MetricBucket],
         settings=_some_mitigation_settings(),
         thresholds=_some_thresholds(),
         incident_id=incident_id,
-        set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
+        writes=the_writes(
+            set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+        ),
         fetch_metrics=metrics_reading(metrics),
         now=clock or a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
-        restart=dont_care_restart(),
-        restore_deployment=a_restorer_nobody_calls(),
-        roll_back=_a_roller_nobody_calls(),
-        changed_from_outside=nobody_changed_it(),
+        undo=an_undo_nobody_calls(),
         **keywords
     )
 
@@ -1134,12 +1314,6 @@ def _nothing_was_narrated(published: list[IncidentEvent]) -> Assertion[Outcome]:
     return assertion
 
 
-# How long the verification waits. Short, because every test here would
-# otherwise sit through it - the clock and the sleeper are injected, so what
-# this bounds is the arithmetic rather than any real wait.
-A_SHORT_WAIT_IN_SECONDS = 180.0
-
-
 def _some_mitigation_settings() -> MitigationSettings:
     """How Mitigation behaves, as this suite sets it.
 
@@ -1163,10 +1337,6 @@ def _some_thresholds() -> AnomalyThresholds:
         persistence_minutes=2,
         recovery_fraction_of_the_rise=0.8
     )
-
-
-SOME_APPLICATION = "io-shop"
-THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 
 
 def _a_rollback_of(application: str) -> RollBackDeployment:
@@ -1210,83 +1380,88 @@ def _a_roller_returning(application: str) -> MagicMock:
     return roll_back
 
 
-@pytest.mark.unit
-def test_taking_a_rollback_asks_for_the_application_and_the_entry() -> None:
-    # The entry rather than a commit. A commit found in a diff is not
-    # necessarily a revision this application ever ran, and rolling onto one
-    # would be shipping an untested state under the name of a rollback.
-    Scenario() \
-        .given(roll_back := _a_roller_returning(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                restart=_a_restarter_bringing_up("dont-care-service"),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=roll_back,
-                changed_from_outside=nobody_changed_it()
+def _the_scale_out_asked_for(scale_out: MagicMock,
+                             application: str) -> Assertion[Outcome]:
+    def assertion(dont_care_outcome: Outcome) -> bool:
+        asked = scale_out.call_args.args if scale_out.call_args else ()
+
+        if asked != (application,):
+            raise AssertionError(
+                f"Expected a scale-out of [{application}] and nothing else, and "
+                f"it asked for {asked}."
             )
-        ) \
-            .then(
-            _the_rollback_asked_for(roll_back, SOME_APPLICATION)
-        )
+
+        return True
+
+    return assertion
 
 
-@pytest.mark.unit
-def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
-    Scenario() \
-        .given(_a_roller_returning(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                restart=_a_restarter_bringing_up("dont-care-service"),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_returning(SOME_APPLICATION),
-                changed_from_outside=nobody_changed_it()
+def _it_carries_the_count_to_put_back(replicas: int) -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        descriptor = outcome.undo_descriptor
+
+        if not isinstance(descriptor, ReplicaUndo):
+            raise AssertionError(
+                f"Expected the outcome to carry the count a withdrawal would put "
+                f"back, and it carried [{descriptor}]."
             )
-        ) \
-            .then(
-            the_verdict_is(Verdict.CONFIRMED)
-        )
 
-
-@pytest.mark.unit
-def test_a_rollback_carries_a_way_back_where_a_restart_carries_none() -> None:
-    # The difference the record has to keep. A restart leaves nothing behind
-    # and says so by carrying no descriptor; a rollback changed two things,
-    # and a withdrawal hours later has to be able to put both of them back.
-    Scenario() \
-        .given(_a_roller_returning(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True),
-                fetch_metrics=metrics_reading(a_still_failing_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                restart=_a_restarter_bringing_up("dont-care-service"),
-                restore_deployment=a_restorer_nobody_calls(),
-                roll_back=_a_roller_returning(SOME_APPLICATION),
-                changed_from_outside=nobody_changed_it(),
-                undo=_an_undo_that_restores(SOME_APPLICATION)
+        if descriptor.was_replicas != replicas:
+            raise AssertionError(
+                f"Expected the way back to name [{replicas}] replicas, and it "
+                f"named [{descriptor.was_replicas}]."
             )
-        ) \
-            .then(
-            _it_carries_a_way_back()
-        )
+
+        return True
+
+    return assertion
+
+
+def _a_scale_out_of(application: str) -> ScaleOut:
+    return ScaleOut(application=application)
+
+
+def _a_replica_descriptor_for(
+    application: str,
+    was_replicas: int = SOME_COUNT_IT_WAS_RUNNING
+) -> ReplicaUndo:
+    return ReplicaUndo(
+        application=application,
+        was_replicas=was_replicas,
+        was_syncing_itself=True
+    )
+
+
+def _a_scaler_returning(application: str) -> MagicMock:
+    """Answers as the real scaler does - with the descriptor recording both
+    things it changed.
+
+    Both, because making a deployment larger means suspending the platform's own
+    reconciliation first: it would otherwise put the count back to whatever the
+    repository holds at its next sync, which is the size that was too small.
+    """
+    scale_out: MagicMock = create_autospec(DeploymentScaler, instance=True)
+    scale_out.return_value = _a_replica_descriptor_for(application)
+
+    return scale_out
+
+
+def _a_scaler_that_cannot(failure: str) -> MagicMock:
+    scale_out: MagicMock = create_autospec(DeploymentScaler, instance=True)
+    scale_out.side_effect = RuntimeError(failure)
+
+    return scale_out
+
+
+def _an_undo_that_puts_the_count_back(application: str) -> MagicMock:
+    undo: MagicMock = create_autospec(UndoChange, instance=True)
+    undo.return_value = UndoAttempt(
+        subject=application,
+        outcome=Undone.RESTORED,
+        detail=f"[{application}] was put back to its size and its sync policy"
+    )
+
+    return undo
 
 
 def _the_rollback_asked_for(roll_back: MagicMock,

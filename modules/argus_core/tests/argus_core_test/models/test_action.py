@@ -31,11 +31,13 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     ActionIdentity,
     FlagUndo,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
+    ScaleOut,
     UnreadVerdict,
     Verdict,
     leaves_something_to_put_back,
@@ -245,6 +247,83 @@ def test_a_restart_leaves_nothing_to_put_back() -> None:
         .then(_it_leaves_something_to_put_back(False))
 
 
+@pytest.mark.unit
+def test_the_identity_of_a_scale_out_is_its_kind_and_its_application() -> None:
+    Scenario() \
+        .given(
+            a_scale_out := _a_scale_out_of(SOME_APPLICATION)
+        ) \
+        .when(lambda: the_identity_of(a_scale_out)) \
+        .then(_it_identifies(SCALE_OUT, SOME_APPLICATION))
+
+
+@pytest.mark.unit
+def test_a_scale_out_carries_the_application_and_no_count() -> None:
+    # The count it replaces is live state only the write tier can read, so an
+    # action naming an absolute figure would be asserting what the deployment is
+    # running now - a fact nothing that proposes one has in front of it.
+    Scenario() \
+        .given(
+            a_scale_out := _a_scale_out_of(SOME_APPLICATION)
+        ) \
+        .when(lambda: set(a_scale_out.model_dump())) \
+        .then(_it_carries_no_replica_count())
+
+
+@pytest.mark.unit
+def test_a_scale_out_and_a_rollback_on_one_name_are_different_identities() -> None:
+    # Both act on the same deployment and neither is evidence about the other: a
+    # rollback that did not help says nothing about whether the shop is too small
+    # for its traffic, and the gate counts them separately for that reason.
+    Scenario() \
+        .given([
+            _a_scale_out_of(SOME_APPLICATION),
+            _a_rollback_of(SOME_APPLICATION)
+        ]) \
+        .when(lambda: [
+            the_identity_of(_a_scale_out_of(SOME_APPLICATION)),
+            the_identity_of(_a_rollback_of(SOME_APPLICATION))
+        ]) \
+        .then(_they_are_different_identities())
+
+
+@pytest.mark.unit
+def test_a_scale_out_has_no_direction_to_report() -> None:
+    Scenario() \
+        .given(
+            a_scale_out := _a_scale_out_of(SOME_APPLICATION)
+        ) \
+        .when(lambda: the_direction_of(a_scale_out)) \
+        .then(_it_has_no_direction())
+
+
+@pytest.mark.unit
+def test_a_scale_out_leaves_something_a_withdrawal_has_to_put_back() -> None:
+    # Two things, in fact - the count and the platform's own reconciliation - and
+    # the kind is what says a row with no descriptor against it is a change
+    # nobody accounted for.
+    Scenario() \
+        .given(SCALE_OUT) \
+        .when(lambda: leaves_something_to_put_back(SCALE_OUT)) \
+        .then(_it_leaves_something_to_put_back(True))
+
+
+def _it_carries_no_replica_count() -> Assertion[set[str]]:
+    def assertion(fields: set[str]) -> bool:
+        counts = {field for field in fields if "replica" in field}
+
+        if counts:
+            raise AssertionError(
+                f"Expected a scale-out to name the application alone, and it "
+                f"carries {sorted(counts)} - a figure whatever proposed it "
+                f"could not have known."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_revert_of(flag: str) -> RevertFeatureFlag:
     return RevertFeatureFlag(
         flag=flag,
@@ -371,6 +450,10 @@ def _it_complains_about(spelling: str) -> Assertion[Exception | None]:
 
 def _a_rollback_of(application: str) -> RollBackDeployment:
     return RollBackDeployment(application=application)
+
+
+def _a_scale_out_of(application: str) -> ScaleOut:
+    return ScaleOut(application=application)
 
 
 def _it_has_no_direction() -> Assertion[bool | None]:

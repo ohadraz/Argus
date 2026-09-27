@@ -31,6 +31,30 @@ class MetricBucket(BaseModel):
     hundred moves it and moves neither of them, which is the only reason to
     report a third quantile at all.
 
+    `cpu_used_cores` and `cpu_limit_cores` are the other resource pair, and the
+    capacity is the *deployment's* - the total across the replicas serving it,
+    rather than one replica's limit. That is the level every other field here is
+    already at, and it is what lets one series carry both the incident and its
+    mitigation: scaling the deployment out moves the denominator, so the recovery
+    appears where the departure was.
+
+    Their aggregation rules differ from memory's, and deliberately.
+    `cpu_used_cores` is the minute's **mean** where `memory_used_bytes` is its
+    maximum: a heap's peak is what breaches a limit, and a breach is not undone by
+    the heap falling back, where a second at full CPU is absorbed by requests
+    queueing and is what an ordinary busy minute contains. A maximum here would
+    report every minute as saturated and so make saturation undetectable.
+    `cpu_limit_cores` is the minute's **last observed** value, as the memory limit
+    is, because it describes a capacity in force rather than a quantity
+    accumulated - so a minute during which the deployment was scaled reports the
+    capacity it ended with.
+
+    `cpu_used_cores` is required and `cpu_limit_cores` is not, which is the tail's
+    distinction and the memory limit's respectively: every process uses CPU, so an
+    absent figure would be a measurement that went astray rather than a fact about
+    the service, while a deployment imposing no CPU limit is ordinary and zero
+    would be indistinguishable from having no CPU at all.
+
     `cache_hit_ratio` is the share of the minute's lookups a cache answered,
     and it is a ratio where memory is a pair - unlike a limit there is no
     threshold whose crossing anybody forecasts, so what a reader asks of it is
@@ -56,4 +80,6 @@ class MetricBucket(BaseModel):
     memory_used_bytes: int
     memory_limit_bytes: int | None = None
     process_start_time_seconds: float
+    cpu_used_cores: float
+    cpu_limit_cores: float | None = None
     cache_hit_ratio: float | None = None

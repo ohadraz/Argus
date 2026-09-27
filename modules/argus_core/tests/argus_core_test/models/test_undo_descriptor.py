@@ -26,9 +26,11 @@ from typing import Any
 import pytest
 from argus_core.models.undo_descriptor import (
     ROLL_BACK_DEPLOYMENT_TOOL,
+    SCALE_OUT_TOOL,
     SET_FEATURE_FLAG_TOOL,
     DeploymentRollbackUndo,
     FlagUndo,
+    ReplicaUndo,
     UndoDescriptor,
     parse_undo_descriptor,
 )
@@ -37,11 +39,14 @@ from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, atte
 from pydantic import ValidationError
 
 SOME_FLAG = "monthly-spend-feature"
-SOME_ENVIRONMENT = "production"
-THE_MOMENT_ARGUS_WROTE = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
 A_FLAG_CHANGE = "feature-flag"
 A_CONFIG_ROLLBACK = "deployment-revision"
 SOME_APPLICATION = "io-shop"
+SOME_ENVIRONMENT = "production"
+A_RESIZE = "replica-count"
+THE_MOMENT_ARGUS_WROTE = datetime(2026, 9, 20, 12, 15, tzinfo=UTC)
+# The count the deployment was running before Argus made it larger.
+THE_COUNT_IT_WAS_RUNNING = 3
 THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 
 
@@ -278,6 +283,91 @@ def test_a_rollback_descriptor_goes_back_to_the_wire_as_it_came_off_it() -> None
         )
 
 
+@pytest.mark.unit
+def test_a_scale_out_descriptor_records_both_things_it_changed() -> None:
+    # The rollback's shape, for the same reason: a platform that reconciles the
+    # application itself puts the replica count back at its next sync, so the
+    # action changed two things and an undo restoring only the count would leave
+    # the deployment silently receiving nothing anybody ships to it.
+    Scenario() \
+        .given(
+            a_scale_out := _the_wire_shape_of_a_scale_out(was_syncing_itself=True)
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_scale_out)
+        ) \
+        .then(all_of(
+            _it_restores_the_count(THE_COUNT_IT_WAS_RUNNING),
+            _it_restores_automated_sync_to(True),
+            _the_tool_that_undoes_it_is(SCALE_OUT_TOOL)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_descriptor_keeps_sync_off_where_it_was_found_off() -> None:
+    Scenario() \
+        .given(
+            a_scale_out := _the_wire_shape_of_a_scale_out(was_syncing_itself=False)
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_scale_out)
+        ) \
+        .then(
+            _it_restores_automated_sync_to(False)
+        )
+
+
+@pytest.mark.unit
+def test_a_scale_out_descriptor_that_does_not_say_the_count_is_rejected() -> None:
+    # No default, for the reason the sync policy has none: a count guessed here
+    # would be recorded as the size the deployment had, and a withdrawal would
+    # leave the shop at a size nobody chose.
+    incomplete = _the_wire_shape_of_a_scale_out(was_syncing_itself=True)
+    del incomplete["was_replicas"]
+
+    Scenario() \
+        .given(
+            incomplete
+        ) \
+        .when(
+            attempting(lambda: parse_undo_descriptor(incomplete))
+        ) \
+        .then(all_of(
+            an_error_was_raised(ValidationError),
+            _it_complains_about("was_replicas")
+        ))
+
+
+@pytest.mark.unit
+def test_the_kind_chooses_a_resize_from_among_the_three() -> None:
+    Scenario() \
+        .given(
+            a_scale_out := _the_wire_shape_of_a_scale_out(was_syncing_itself=True)
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_scale_out)
+        ) \
+        .then(
+            _it_is_a(ReplicaUndo)
+        )
+
+
+@pytest.mark.unit
+def test_a_scale_out_descriptor_goes_back_to_the_wire_as_it_came_off_it() -> None:
+    a_scale_out = _the_wire_shape_of_a_scale_out(was_syncing_itself=True)
+
+    Scenario() \
+        .given(
+            a_scale_out
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_scale_out).model_dump(mode="json")
+        ) \
+        .then(
+            _it_is_the_wire_shape(a_scale_out)
+        )
+
+
 def _the_wire_shape_of_a_rollback(was_syncing_itself: bool) -> dict[str, Any]:
     """One rollback as the write tier reports it, before anything has read it."""
     return {
@@ -286,6 +376,18 @@ def _the_wire_shape_of_a_rollback(was_syncing_itself: bool) -> dict[str, Any]:
         "application": SOME_APPLICATION,
         "was_on_history_id": 2,
         "was_on_revision": THE_REVISION_IT_WAS_ON,
+        "was_syncing_itself": was_syncing_itself,
+        "written_at": to_iso(THE_MOMENT_ARGUS_WROTE)
+    }
+
+
+def _the_wire_shape_of_a_scale_out(was_syncing_itself: bool) -> dict[str, Any]:
+    """One scale-out as the write tier reports it, before anything has read it."""
+    return {
+        "kind": A_RESIZE,
+        "tool": SCALE_OUT_TOOL,
+        "application": SOME_APPLICATION,
+        "was_replicas": THE_COUNT_IT_WAS_RUNNING,
         "was_syncing_itself": was_syncing_itself,
         "written_at": to_iso(THE_MOMENT_ARGUS_WROTE)
     }
@@ -396,11 +498,19 @@ def _it_returns_to(revision: str, history_id: int) -> Assertion[UndoDescriptor]:
 
 
 def _it_restores_automated_sync_to(syncing: bool) -> Assertion[UndoDescriptor]:
+    """Whichever kind of change suspended the platform's own reconciliation.
+
+    Two of the three do - a rollback and a resize both change live state a
+    reconciling platform would put straight back - so the claim is about the field
+    rather than about either class. A flag has no such half, which is what the
+    refusal below says.
+    """
     def assertion(descriptor: UndoDescriptor) -> bool:
-        if not isinstance(descriptor, DeploymentRollbackUndo):
+        if isinstance(descriptor, FlagUndo):
             raise AssertionError(
-                f"Expected a descriptor returning a deployment, got a "
-                f"[{descriptor.kind}] one."
+                f"Expected a descriptor that suspended the platform's own "
+                f"reconciliation, got a [{descriptor.kind}] one, which has no "
+                f"sync policy to put back."
             )
 
         if descriptor.was_syncing_itself != syncing:
@@ -420,6 +530,25 @@ def _it_is_a(kind: type) -> Assertion[UndoDescriptor]:
             raise AssertionError(
                 f"Expected the tag to select a {kind.__name__}, and it selected "
                 f"a {type(descriptor).__name__}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_restores_the_count(replicas: int) -> Assertion[UndoDescriptor]:
+    def assertion(descriptor: UndoDescriptor) -> bool:
+        if not isinstance(descriptor, ReplicaUndo):
+            raise AssertionError(
+                f"Expected a descriptor that puts a replica count back, got "
+                f"[{type(descriptor).__name__}]."
+            )
+
+        if descriptor.was_replicas != replicas:
+            raise AssertionError(
+                f"Expected the count restored to [{replicas}], and the "
+                f"descriptor says [{descriptor.was_replicas}]."
             )
 
         return True

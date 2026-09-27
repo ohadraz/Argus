@@ -18,6 +18,13 @@ response behind a human gate while flipping a production flag stayed automatic -
 backwards on any reading of blast radius. The undo descriptor goes back to being
 what it always was: how a refuted mitigation is put back, not what admits it.
 
+Adding capacity is the member that shows the criterion is what it says it is. It
+restores nothing - what it leaves behind is a deployment larger than the one
+anybody declared - and it is admitted on the same ground the other three are,
+that it is a routine, well-understood procedure applied before the cause is
+understood. A set that asked what an action puts back would have had to argue
+about this one, and the argument would have been about the wrong thing.
+
 The set is declared here as a literal rather than derived from the registered
 strategies. A strategy answers "what should be done about this cause"; this
 answers "may Argus do that unasked", and deriving the second from the first
@@ -35,6 +42,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     Action,
     ActionType,
     ServiceDependency,
@@ -53,7 +61,7 @@ __all__ = [
 type AdmittedMitigations = AbstractSet[ActionType]
 
 GENERIC_MITIGATIONS: Final[AdmittedMitigations] = frozenset(
-    {REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT}
+    {REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT}
 )
 
 

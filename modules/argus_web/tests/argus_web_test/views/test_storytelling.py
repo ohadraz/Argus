@@ -266,7 +266,9 @@ def _metrics_showing(bucket_id: str, error_rate: float) -> MetricsRetrieved:
             p99_ms=420,
             request_volume=200,
             memory_used_bytes=440 * 1024**2,
-            process_start_time_seconds=1_756_000_000.0
+            process_start_time_seconds=1_756_000_000.0,
+            cpu_used_cores=0.77,
+            cpu_limit_cores=3.0
         )]
     )
 

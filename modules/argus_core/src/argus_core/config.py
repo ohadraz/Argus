@@ -554,18 +554,34 @@ class Settings(BaseSettings):
     # Empty means no credential is sent at all, rather than an invented one -
     # the stand-in needs none, and a real Argo CD issues these to operators.
     argocd_auth_token: str = Field(default="")
-    # Where a restart is asked for, as the same template. A real Argo CD's is
+    # Where a resource action is run, as the same template. A real Argo CD's is
     # `/api/v1/applications/{application}/resource/actions/v2` - v2 rather
     # than the original, which takes the same fields as query parameters and
     # is deprecated since Argo CD 3.1.
-    argocd_restart_action_path: str = Field(
+    #
+    # One setting for every action rather than one per action, because it is one
+    # endpoint: `restart` and `scale` are both built-in resource actions for a
+    # Deployment, dispatched by the name in the body. A second setting holding the
+    # same value would be a second place to correct when a platform moves.
+    argocd_resource_action_path: str = Field(
         default="/argocd/{application}/resource/actions/v2"
+    )
+    # Where the platform says what is actually running, which is the only place a
+    # live replica count can be read - the values file says what git asks for, and
+    # the two differ the moment anybody scales.
+    argocd_resource_path: str = Field(
+        default="/argocd/{application}/resource"
     )
     # Which namespace the deployment being restarted lives in. The resource
     # itself is not configured: it is the service being restarted, because a
     # fixed name would carry the alerting service's deployment into a request
     # addressed at one of its dependencies.
     restart_namespace: str = Field(default="production")
+    # And which namespace the one being scaled lives in. Its own setting rather
+    # than the restart's reused: a restart may be addressed at a dependency in
+    # somebody else's namespace, where a scale-out only ever reaches the
+    # deployment Argus was paged about.
+    scale_namespace: str = Field(default="production")
     # Where a rollback is asked for, and where the sync policy is written.
     # Two more templates rather than one: the platform's rollback and its
     # spec are different routes, and a real Argo CD's are

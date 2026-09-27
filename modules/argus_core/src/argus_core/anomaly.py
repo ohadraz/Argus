@@ -7,6 +7,21 @@ from typing import NamedTuple
 
 from argus_core.models.metrics import MetricBucket
 
+# Five of a bucket's series are judged here - the error rate, the median, the
+# 95th, the 99th and the memory in use - and the rest are retrieved without being
+# judged. That is a decision rather than an omission, and utilisation is the case
+# that makes it worth writing down: CPU tracks traffic, so a departure test over
+# it dates an onset at the minute the load arrived, which is minutes before
+# anything was wrong and sometimes a busy stretch where nothing ever was. A heap
+# that departs its baseline departs it for a reason no traffic pattern explains,
+# which is why that gauge is judged and this one is not.
+#
+# What a saturated service does to its customers is latency, and the five below
+# already see that. So `cpu_used_cores`, `cpu_limit_cores`, `request_volume` and
+# `cache_hit_ratio` are read by whoever is diagnosing and are no part of the
+# judgement that there is an incident at all - see `_departure_threshold`, which
+# refuses to derive a floor from the reported volume for a related reason.
+
 # The smallest wobble a baseline is credited with, as a fraction of the
 # baseline itself. A window of identical minutes has zero measured spread, so
 # without this floor every minute after it would sit infinitely many

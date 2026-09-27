@@ -2,15 +2,15 @@
   "container": null,
   "content": [
     {
-      "signature": "EuwGCpABCBIYAipAsN9pS2rzVVm+gn3OWgThgLChDamUMtwTldPNszqer9mqkQ3yO+iq3/Pxx25+73lEmV92nYN41XxBxUjPTx79PDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAZGI4NUGEgzMlfgam8yt4ulD0HwaDOAyOczX7WV+r4gD4SIw3LA9iuHipnGzX6TaOdoWnk4oUraSHXjgr2/F7o9fhZT57ZQCweI442V6zmhEneqoKogF+g5Jclp/tHBo1GEf5PV1BrfHlTu9mJFrTEPsGU/KWc63wrVN5Q8shvc3iNb9Ko1cacLRoyfcLzyD7LkzmJDL9rsVDNFDO9V91GpBiRooR1CgXipq8FDJG5VudPoLHLYnomUHSty4icsal8N/DJRaaAF5FpbnyyDX04Mf8OMbrXNinnyhOqf/XDlgbCwMLhnNxIUukFWO04e3pGE4RQRc1hpf2BIIGI44+7oHWmdt3ftj2msz/6V1rpdwytqL8zT5ie7rh3xKYgpp+6bNAvGXAtIuqxmIkzlzZAuEq/HKsStXFdhAQ8TM4I92KtpAlmtjDM5mgbVmdg/lMJO3zopZ9qammu6jDtSVgEP+7yj7RzPt9KS9ZFVwB2IBFbhdsWN96equWBMNxjpNwZOMg629wzFP1FQ/O4A2aJhMpSNTihUHithpXK2bj62uzQysyiBwLCOqGx6hpQCwkNsSUnE7T2f75m2k+AD9suYVN/3E0uikehQ1uplf1Qd07tDfrwPYH9rfdroIACW3PvRiJj+uIAbmNzpaz4NH2QNdSMuTVJqtbL+LPPQnrbonPgCE9xzy3KrIVMuAN+vOI8UVjsfwdeEzjipLaCpQhwIu/0HKyBa64pQxbFAw1FLJeb4ndbf1h1cBryu6WsaXbMNaNaUdS7bsgZ05Vn83i/PP3qfc2Halm5hwPe+mco8+MYR1nIZKXr9ykGFKuGsrbiW7exi0ZTANfrOMjwVYSsYNret///fskIP3a1b4M/5aO5X11vOYQbCYL2Cb+dPVbMv4EdRY+CjO3H+PBxPNP8G3LmYUrVIE5zq9gJ2Fy1ZIFPSflgtMz1VEnEk8Z/xEgfGMUd5ZQPY7a0i41lZEGAE=",
-      "thinking": "The ClientDisconnected errors are a red herring\u2014they appear consistently every minute even before 17:37, so they're unrelated to the deploy. The real signal is the p50/p95/p99 latency spike hitting exactly at 17:37:00, matching the deploy time precisely.\n\n",
+      "signature": "EpEFCpABCBIYAipAROdVpnWESNGJjOWM//N/ZMZ3nW2Go8gEVUQmqj/EYJOjtdEID3d2La/FYWbSytJD+Kd6Wdm2T4q425gjociMWzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAb3x5NUGEgxly/GJ+p10JPMHhioaDFMYcUf1ln2pUzpLNyIwmHuUlA3iv8DiW4Z4DZZUbgZlLXg3dAP//+ADVGAoiv1dN6dInU+M0BApAifM6P+bKq0DcEdSEZfFM1lCJP24ceoVsyJnizNv1Qci/iU073KpGBBES8yZupkVxfENoxLiO0UsuiVHaNeLYof39XeY0fF04RkM6Ebtnp6zR0ZXlk+/YwCasDklzzmzEiT5zXoZa19ktjZkU/1JpxyrXXsl4e/L/AQb4ingHs9Y5+s0pgCI0DvfGu/QO7qDGZVqDPnAVJv0+VLV2YHX+U0PrpzRgldg0DKJAVNf/Wv2oXj/nEoN3QxXRcj7NjudbqR/PumQe7ttntaDdOwmTLt8lyINWCJHeNly/aZAITQ6ZGxafcwYuDrRa0UUgQJeD/yhrKxuuPdYHa5HPxkJiZG1+0pCDUrtB0LFYH7WkcZjRq0hdEXryShyyCRgW7Wa4pjpt0NHYpkEunetC7yi/ZDTr4Vo7b/TfZpyi78uGh9cRlcY7r67/+5E/olVw9g4rQsolssPHR4jXtnDjyE07WwC/jP8FFfNWgWH4z5zmZ2d10f+oaVoBSPoqCuS7IJT0Qu5+1VYmEKS4wQ2hUWVa+j9XaE1hPmnaYSsJGsUHe6xS4RFvWW+9h9bP4uQYy0STEiHQZUtGAE=",
+      "thinking": "There's a deploy right at 15:34:00Z, the exact onset time. Error rates stay roughly stable, but latency explodes - p50 jumps from a 44-46ms baseline to 277ms, p95 from ~210-220ms to 1387ms, and p99 from ~370-390ms to 2370ms. This massive latency spike lines up precisely with that deploy.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01PRaxCBFnhZHFD4nowc2Wgr",
+      "id": "toolu_01CM66NEkmRDqHowxVXmkk4J",
       "input": {
         "revision": "5e07d73148d0a704b8fefe5f379bc652bb773655"
       },
@@ -19,7 +19,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfSTsD5fQbJfYhmD7kDrE",
+  "id": "msg_011CfUCJEbnfAZ1ykoZXKRE1",
   "model": "claude-sonnet-5",
   "role": "assistant",
   "stop_details": null,
@@ -29,15 +29,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2343
+      "ephemeral_5m_input_tokens": 1564
     },
-    "cache_creation_input_tokens": 2343,
-    "cache_read_input_tokens": 21270,
+    "cache_creation_input_tokens": 1564,
+    "cache_read_input_tokens": 24439,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 295,
+    "output_tokens": 255,
     "output_tokens_details": {
-      "thinking_tokens": 212
+      "thinking_tokens": 172
     },
     "service_tier": "standard"
   }

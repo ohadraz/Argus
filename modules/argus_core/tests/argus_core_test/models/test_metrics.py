@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 from argus_core.models import MetricBucket
 from argus_testkit import Assertion, Scenario, all_of
+from pydantic import ValidationError
 
 SOME_MINUTE = "2026-09-20T12:10:00Z"
 
@@ -26,6 +27,8 @@ def a_bucket(**overrides: object) -> MetricBucket:
         "request_volume": 1200,
         "memory_used_bytes": 461_373_440,
         "memory_limit_bytes": 2_147_483_648,
+        "cpu_used_cores": 0.77,
+        "cpu_limit_cores": 3.0,
         "process_start_time_seconds": 1_756_000_000.0,
     }
     fields.update(overrides)
@@ -63,6 +66,44 @@ def test_a_cache_answering_nothing_is_a_ratio_of_zero_not_an_absence() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_a_bucket_carries_the_cpu_it_used_against_the_capacity_it_had() -> None:
+    Scenario() \
+        .given(a_minute_with_headroom := a_bucket(
+            cpu_used_cores=0.77, cpu_limit_cores=3.0
+        )) \
+        .when(lambda: a_minute_with_headroom) \
+        .then(all_of(
+            _the_cpu_used_is(0.77),
+            _the_cpu_capacity_is(3.0)
+        ))
+
+
+@pytest.mark.unit
+def test_a_deployment_with_no_cpu_limit_reports_no_capacity_rather_than_zero() -> None:
+    # The memory limit's reason, for the same field in a different resource: a
+    # deployment that imposes no limit is ordinary, and zero would say the
+    # service has no CPU at all - which is a claim a reader would act on.
+    Scenario() \
+        .given(a_minute_from_an_unlimited_deployment := a_bucket(
+            cpu_limit_cores=None
+        )) \
+        .when(lambda: a_minute_from_an_unlimited_deployment) \
+        .then(all_of(
+            _the_cpu_used_is(0.77),
+            _the_cpu_capacity_is(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_bucket_reporting_no_cpu_at_all_is_refused() -> None:
+    # Unlike the capacity beside it, and unlike the hit ratio: every process uses
+    # CPU, so an absent figure is a measurement that went astray rather than a
+    # fact about the service - and nothing should be invited to read it as one.
+    with pytest.raises(ValidationError):
+        MetricBucket.model_validate(_a_minute_without_its_cpu())
+
+
 def _the_hit_ratio_is(expected: float | None) -> Assertion[MetricBucket]:
     def assertion(bucket: MetricBucket) -> bool:
         if bucket.cache_hit_ratio != expected:
@@ -82,6 +123,39 @@ def _it_reports_a_ratio() -> Assertion[MetricBucket]:
             raise AssertionError(
                 "Expected a cache that answered nothing to report a ratio of "
                 "zero, and the bucket reported no ratio at all."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_minute_without_its_cpu() -> dict[str, object]:
+    fields = dict(a_bucket().model_dump())
+    del fields["cpu_used_cores"]
+
+    return fields
+
+
+def _the_cpu_used_is(expected: float) -> Assertion[MetricBucket]:
+    def assertion(bucket: MetricBucket) -> bool:
+        if bucket.cpu_used_cores != expected:
+            raise AssertionError(
+                f"Expected [{expected}] cores in use, and the bucket reported "
+                f"[{bucket.cpu_used_cores}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_cpu_capacity_is(expected: float | None) -> Assertion[MetricBucket]:
+    def assertion(bucket: MetricBucket) -> bool:
+        if bucket.cpu_limit_cores != expected:
+            raise AssertionError(
+                f"Expected a capacity of [{expected}] cores, and the bucket "
+                f"reported [{bucket.cpu_limit_cores}]."
             )
 
         return True

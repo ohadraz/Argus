@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Protocol
@@ -8,10 +9,12 @@ from typing import Protocol
 from argus_core import SettingsSlice, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     MetricBucket,
+    ReplicaUndo,
     RestartedService,
     UndoDescriptor,
 )
@@ -20,7 +23,9 @@ from write_mcp_client import (
     get_recent_flag_changes,
     restart_service,
     restore_deployment,
+    restore_replica_count,
     roll_back_deployment,
+    scale_out,
     set_feature_flag,
 )
 
@@ -90,6 +95,35 @@ class DeploymentRoller(Protocol):
     def __call__(self, application: str, /) -> DeploymentRollbackUndo: ...
 
 
+class DeploymentScaler(Protocol):
+    """The tier's fourth write: giving a deployment more replicas than it has.
+
+    The application, and nothing else. How many is the tier's to resolve - it
+    reads what is running, doubles it, and bounds the result by a ceiling of its
+    own - because a target count is meaningless without the count it replaces, and
+    nothing above the port can read that.
+
+    It answers with the descriptor recording what it changed, and the descriptor
+    records *two* things for the reason a rollback's does: a platform reconciling
+    the application itself puts a live replica count straight back, so suspending
+    that is part of performing this rather than a separate concern.
+    """
+
+    def __call__(self, application: str, /) -> ReplicaUndo: ...
+
+
+class CapacityRestorer(Protocol):
+    """Putting a scaled-out deployment back to the size Argus found it at.
+
+    Both of the things the scale-out changed, and it answers with which of them
+    it managed rather than with nothing - for the reason the deployment restorer
+    below does: a restore that half-succeeded is not a restore, and the caller has
+    to be able to say which half is still changed.
+    """
+
+    def __call__(self, descriptor: ReplicaUndo, /) -> CapacityRestored: ...
+
+
 class DeploymentRestorer(Protocol):
     """Putting a rolled-back deployment back the way Argus found it.
 
@@ -102,6 +136,29 @@ class DeploymentRestorer(Protocol):
 
     def __call__(self,
                  descriptor: DeploymentRollbackUndo, /) -> DeploymentRestored: ...
+
+
+@dataclass(frozen=True)
+class PerformingWrites:
+    """The writes that perform a mitigation - one per kind of action there is.
+
+    A bundle because the alternative grows by one parameter per action kind at
+    every caller, and because in production these are assembled from one
+    connection and then taken apart again at the call site: each member is
+    `*_over(client)`, so passing them separately is a value disassembled for the
+    journey and reassembled by the callee's `match`.
+
+    Named for the role and not for the tier. A tier-shaped name would invite
+    `changed_from_outside` in, which is a *read*, and the restorers with it - and
+    those belong to putting a change back rather than to making one, which is a
+    different moment with a different caller. What performs an action and what
+    undoes one are two collaborations, and `undo_change` holds the second.
+    """
+
+    set_state: FlagSetter
+    restart: ServiceRestarter
+    roll_back: DeploymentRoller
+    scale_out: DeploymentScaler
 
 
 Clock = Callable[[], datetime]
@@ -165,6 +222,34 @@ def service_restarter_over(client: McpClient) -> ServiceRestarter:
 def deployment_roller_over(client: McpClient) -> DeploymentRoller:
     """The third, over the same connection."""
     return partial(roll_back_a_deployment, client=client)
+
+
+def deployment_scaler_over(client: McpClient) -> DeploymentScaler:
+    """The fourth, over the same connection."""
+    return partial(scale_out_a_deployment, client=client)
+
+
+def capacity_restorer_over(client: McpClient) -> CapacityRestorer:
+    """Putting the fourth back, which is a tool of its own for the reason the
+    third's is: two pieces of prior state and a platform that refuses one order of
+    them, so the tier performs it as its own operation and answers with which
+    halves it managed."""
+    return partial(restore_a_replica_count, client=client)
+
+
+def performing_writes_over(client: McpClient) -> PerformingWrites:
+    """Every write that performs a mitigation, over one connection.
+
+    Here rather than at the one caller that assembles it, because the bundle and
+    the connection are the same fact said twice: a caller building three of these
+    over one client and the fourth over another would be a caller nothing stopped.
+    """
+    return PerformingWrites(
+        set_state=flag_setter_over(client),
+        restart=service_restarter_over(client),
+        roll_back=deployment_roller_over(client),
+        scale_out=deployment_scaler_over(client)
+    )
 
 
 def deployment_restorer_over(client: McpClient) -> DeploymentRestorer:
@@ -334,6 +419,28 @@ def restore_a_deployment(descriptor: DeploymentRollbackUndo,
     """Puts back both of the things a rollback changed, reporting which it
     managed."""
     return restore_deployment(descriptor, client=client)
+
+
+def scale_out_a_deployment(application: str,
+                           *,
+                           client: McpClient) -> ReplicaUndo:
+    """Gives a deployment more replicas than it is running, answering with what
+    that cost.
+
+    A named function rather than `scale_out` itself, for the reason
+    `restart_a_service` is one: the agent needs one of that tool's calling shapes,
+    and a seam is only useful if a test can spec against the shape the caller
+    actually uses.
+    """
+    return scale_out(application, client=client)
+
+
+def restore_a_replica_count(descriptor: ReplicaUndo,
+                            *,
+                            client: McpClient) -> CapacityRestored:
+    """Puts back both of the things a scale-out changed, reporting which it
+    managed."""
+    return restore_replica_count(descriptor, client=client)
 
 
 def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:

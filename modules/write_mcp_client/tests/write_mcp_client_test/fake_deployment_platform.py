@@ -14,7 +14,8 @@ from argus_core import get_settings
 
 FAKE_PLATFORM_PORT = 8184
 
-RESTART_ACTION_PATH = "/argocd/{application}/resource/actions/v2"
+RESOURCE_ACTION_PATH = "/argocd/{application}/resource/actions/v2"
+RESOURCE_PATH = "/argocd/{application}/resource"
 APPLICATION_PATH = "/argocd/{application}"
 RESOURCE_TREE_PATH = "/argocd/{application}/resource-tree"
 ROLLBACK_PATH = "/argocd/{application}/rollback"
@@ -42,6 +43,12 @@ THE_REVISION_RUNNING_NOW = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 THE_REVISION_BEFORE_IT = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 THE_HISTORY_RUNNING_NOW = 2
 THE_HISTORY_BEFORE_IT = 1
+
+# What the deployment is running when anybody looks, which is the size the
+# fixture's own values file asks for. A scale-out reads it, doubles it, and the
+# resource then reports what it was set to - so the round trip shows the count
+# came from the platform rather than from a number the caller invented.
+THE_COUNT_RUNNING = 3
 
 _APPLICATION_IN = re.compile(r"^/argocd/(?P<application>[^/]+)")
 
@@ -83,15 +90,43 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     syncs_itself: bool = True
     rolled_back_to: list[int] = []
     sync_policies_written: list[dict[str, Any]] = []
+    replicas: int = THE_COUNT_RUNNING
 
     def do_GET(self) -> None:
         if self.path.endswith("/resource-tree"):
             self._respond_with(self._the_resource_tree())
+        elif self.path.endswith("/resource"):
+            self._respond_with(self._the_managed_deployment())
         elif self._names_an_application() and self.path.count("/") == 2:
             self._respond_with(self._the_application())
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _the_managed_deployment(self) -> dict[str, Any]:
+        """The live Deployment, as Argo CD reports one: a manifest carried as text.
+
+        A string and not an object, because that is the vendor's shape - the
+        caller parses it - and a stand-in answering a parsed object would be an
+        easier endpoint to write against than the one the adapter meets.
+
+        This is where the count to double is read from, and the only place it can
+        be: the repository says what the platform is asked to converge on, which
+        is a different number as soon as anybody has scaled.
+        """
+        return {
+            "manifest": json.dumps(
+                {
+                    "apiVersion": "apps/v1",
+                    "kind": "Deployment",
+                    "metadata": {
+                        "name": self._the_application_named(),
+                        "namespace": "production"
+                    },
+                    "spec": {"replicas": self.replicas}
+                }
+            )
+        }
 
     def do_PUT(self) -> None:
         if not self.path.endswith("/spec"):
@@ -118,14 +153,48 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        asked_for = self._the_body()
         type(self).actions_run = self.actions_run + [
-            {"path": self.path, "asked_for": self._the_body()}
+            {"path": self.path, "asked_for": asked_for}
         ]
+
+        if asked_for.get("action") == "scale":
+            self._scale(asked_for)
+            return
+
         # A restart is a new process, and the pod's creation time moving is the
         # only way anything outside can tell that it happened.
         type(self).process_start_time_seconds = (
             self.process_start_time_seconds + A_NEW_PROCESS_LATER
         )
+
+        self._respond_with({})
+
+    def _scale(self, asked_for: dict[str, Any]) -> None:
+        """Remembers the size it was asked for, which the resource then reports.
+
+        The write is real, for the reason the restart's is: a fake whose action
+        changed nothing would answer the same to a caller that read the running
+        count and doubled it as to one that sent a number it invented, and the
+        round trip would prove neither.
+
+        The pod's creation time does *not* move. Scaling out starts another
+        replica and leaves the one already serving where it was, and a fake that
+        moved it would let a scale-out be confirmed by the evidence a restart is
+        confirmed by.
+        """
+        parameters = asked_for.get("resourceActionParameters", [])
+        counts = [
+            parameter["value"] for parameter in parameters
+            if parameter["name"] == "replicas"
+        ]
+
+        if not counts:
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        type(self).replicas = int(counts[-1])
 
         self._respond_with({})
 
@@ -252,7 +321,8 @@ def a_running_platform() -> Iterator[type[FakeDeploymentPlatformHandler]]:
 
     address = f"http://127.0.0.1:{FAKE_PLATFORM_PORT}"
     os.environ["ARGOCD_BASE_URL"] = address
-    os.environ["ARGOCD_RESTART_ACTION_PATH"] = RESTART_ACTION_PATH
+    os.environ["ARGOCD_RESOURCE_ACTION_PATH"] = RESOURCE_ACTION_PATH
+    os.environ["ARGOCD_RESOURCE_PATH"] = RESOURCE_PATH
     os.environ["ARGOCD_APPLICATION_PATH"] = APPLICATION_PATH
     os.environ["ARGOCD_RESOURCE_TREE_PATH"] = RESOURCE_TREE_PATH
     os.environ["ARGOCD_ROLLBACK_PATH"] = ROLLBACK_PATH
@@ -273,8 +343,10 @@ def a_running_platform() -> Iterator[type[FakeDeploymentPlatformHandler]]:
         FakeDeploymentPlatformHandler.syncs_itself = True
         FakeDeploymentPlatformHandler.rolled_back_to = []
         FakeDeploymentPlatformHandler.sync_policies_written = []
+        FakeDeploymentPlatformHandler.replicas = THE_COUNT_RUNNING
         del os.environ["ARGOCD_BASE_URL"]
-        del os.environ["ARGOCD_RESTART_ACTION_PATH"]
+        del os.environ["ARGOCD_RESOURCE_ACTION_PATH"]
+        del os.environ["ARGOCD_RESOURCE_PATH"]
         del os.environ["ARGOCD_APPLICATION_PATH"]
         del os.environ["ARGOCD_RESOURCE_TREE_PATH"]
         del os.environ["ARGOCD_ROLLBACK_PATH"]
