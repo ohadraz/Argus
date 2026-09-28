@@ -53,6 +53,7 @@ from argus_core.events import (
     ActionTaken,
     FixAttempted,
     HypothesisFormed,
+    SimilarIncidentsRecalled,
     VerdictReached,
 )
 from argus_core.models import FixOutcome, IncidentStatus
@@ -61,6 +62,7 @@ from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
+    RECORDED_AUTOSCALER_FLAPPING,
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_CACHE_MISCONFIGURED,
     RECORDED_CPU_SATURATION,
@@ -83,6 +85,7 @@ from tests.e2e.framework.flags import (
     the_boot_flags_were_put_back,
     the_flag_provider_forgot_every_change,
 )
+from tests.e2e.framework.memory import that_flag_was_tried_before_and_did_not_help
 from tests.e2e.framework.world import the_incidents_events
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
@@ -156,6 +159,12 @@ _A_HYPOTHESIS_WAS_FORMED: Final = _Published(HypothesisFormed)
 _AN_ACTION_WAS_TAKEN: Final = _Published(ActionTaken)
 _AN_ACTION_WAS_REFUSED: Final = _Published(ActionRefused)
 _A_VERDICT_WAS_REACHED: Final = _Published(VerdictReached)
+# Memory was searched during the walk and found the incident the staging filed.
+# The search rather than the demotion it may lead to: whether anything moves needs
+# a round that offered a candidate to move the flag behind, and how many
+# candidates a round offers is the model's to decide - so a recording held to the
+# demotion is a recording refused for the model having been concise.
+_MEMORY_WAS_READ: Final = _Published(SimilarIncidentsRecalled)
 # The proposal, not the attempt. See `_Published.saying`.
 _A_FIX_WAS_PROPOSED: Final = _Published(
     FixAttempted, {"outcome": FixOutcome.PROPOSED}
@@ -247,7 +256,13 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         # go back, but a refuted action is put back inside the mitigation loop
         # and recorded as the measurement that refuted it. `ChangeUndone` is
         # what a *withdrawal* publishes, which is a different case entirely.
-        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+        #
+        # And the memory read, because the case replaying this one stages a record
+        # and asserts the walk found it. Held here so that a capture in which the
+        # search found nothing is refused at record time rather than replayed for
+        # weeks as a walk that never reached memory.
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED, _MEMORY_WAS_READ),
+        that_flag_was_tried_before_and_did_not_help
     ),
     # The same scenario as the first, in a world where the provider has no
     # record of the flag having changed - so Mitigation refuses to write to a
@@ -296,6 +311,25 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         # a walk that stopped before finding out whether capacity was the answer.
         # No fix: the shop's source is correct, and a `must_have` demanding one
         # would refuse the walk this recording is of.
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The saturation pair's near neighbour, and the longest walk in this list.
+    # Its alert is latency for the reason the surge's is - nothing fails and the
+    # heap never stirs - and what separates the two is that the capacity itself
+    # keeps moving.
+    _Recording(
+        RECORDED_AUTOSCALER_FLAPPING,
+        "autoscaler-flapping",
+        "HighLatency",
+        IncidentStatus.MITIGATED,
+        # The action and the verdict it earned, exactly as the surge's are, and
+        # no more than that. A walk here may reach for capacity first and be
+        # refuted by the controller before it pins - that is the near-miss this
+        # scenario was built to demonstrate - so a `must_have` naming the pin
+        # specifically would refuse a recording of the very behaviour worth
+        # capturing, and one demanding a refutation would refuse a walk that read
+        # the capacity series correctly first time. What the corpus holds is what
+        # happened.
         (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
     ),
     # The one incident nothing Argus may do can touch. Its alert is the error

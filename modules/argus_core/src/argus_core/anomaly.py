@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from itertools import groupby
 from math import inf
 from statistics import median
 from typing import NamedTuple
@@ -275,18 +276,22 @@ def has_recovered_since(buckets: Sequence[MetricBucket],
     service has not answered yet. That is what keeps the paragraph above from
     reading the single minute since an action as the lone noisy one it is
     entitled to disregard.
+
+    The whole window is passed down rather than the minutes since `moment`,
+    because how long a recovery has to hold for is read off the incident - see
+    `_clear_minutes_a_recovery_has_to_show` - and the minutes since an action
+    are the one stretch that cannot say.
     """
     still_the_incident = _minutes_still_at_the_incidents_level(buckets, thresholds)
-    since_moment = [
-        elevated
-        for bucket, elevated in zip(buckets, still_the_incident, strict=True)
-        if bucket.bucket_id >= moment
-    ]
+    from_index = next(
+        (index for index, bucket in enumerate(buckets) if bucket.bucket_id >= moment),
+        None
+    )
 
-    if not since_moment:
+    if from_index is None:
         return False
 
-    return _stays_clear_of_the_incident(since_moment, thresholds)
+    return _stays_clear_of_the_incident(still_the_incident, from_index, thresholds)
 
 
 def find_recovery(buckets: Sequence[MetricBucket],
@@ -312,10 +317,10 @@ def find_recovery(buckets: Sequence[MetricBucket],
     window: a minute counts as the incident while it is still up at the
     incident's own level - `_minutes_still_at_the_incidents_level`, the
     hysteresis bar that sits above the departure bar - and the incident is over
-    at the first minute that falls below it and stays below it for as long as
-    an onset has to persist. A single minute dipping and climbing back is not
-    the end of an incident, for the reason a single minute departing is not the
-    start of one.
+    at the first minute that falls below it and stays below it for longer than
+    this incident has ever paused. A single minute dipping and climbing back is
+    not the end of an incident, for the reason a single minute departing is not
+    the start of one.
 
     `None` where no minute was ever at the incident's level, because a window
     with no incident in it has no recovery to report and dating one at its
@@ -336,15 +341,17 @@ def find_recovery(buckets: Sequence[MetricBucket],
         if still_the_incident[index]:
             continue
 
-        if _stays_clear_of_the_incident(still_the_incident[index:], thresholds):
+        if _stays_clear_of_the_incident(still_the_incident, index, thresholds):
             return buckets[index].bucket_id
 
     return None
 
 
 def _stays_clear_of_the_incident(still_the_incident: Sequence[bool],
+                                 from_index: int,
                                  thresholds: AnomalyThresholds) -> bool:
-    """Whether these minutes are the incident being over rather than pausing.
+    """Whether the window's minutes from `from_index` on are the incident being
+    over rather than pausing.
 
     The one sentence both questions about recovery are asked through -
     Mitigation's "has it recovered since I acted" and the postmortem's "which
@@ -353,17 +360,153 @@ def _stays_clear_of_the_incident(still_the_incident: Sequence[bool],
     postmortem would then date recovery at a minute Mitigation had refused to
     confirm a mitigation on.
 
-    A stretch with no clear minute in it at all is the service not having
-    answered yet, and that is not the same as a stretch that came back and
-    caught one noisy sample. The distinction is what lets a lone departed minute
-    be disregarded without also disregarding the first minute after an action,
-    which is a lone departed minute too and is the only reading there is.
-    """
-    if all(still_the_incident):
-        return False
+    The whole window comes in and the stretch is cut from it here, because the two
+    halves of this read different things. What a run of clear minutes has to prove
+    is a fact about *this incident* - how long it has been known to pause - and
+    only the minutes before the action can say. What the stretch has to show is
+    then read off the minutes since it.
 
-    return not _departs_for_long_enough_to_be_the_incident(
+    How long is not a number this module owns, and that is the correction. It
+    asked for `anomaly_persistence_minutes` clear minutes, on the reasoning that
+    an incident takes that many departed minutes to begin so leaving one is
+    staying out for as long. The symmetry is decorative: the onset's number is
+    there to stop a single noisy minute in a calm window anchoring an
+    investigation, and recovery has the hysteresis bar for that job already. What
+    the number was actually standing in for is whether the signal oscillates - and
+    applied flat it is wrong in both directions. A service that dropped from a
+    third of its requests failing to half a percent and stayed there is recovered
+    on the first minute, and waiting a second spends a minute of the verification
+    window on a question already answered. A service clear four minutes in every
+    six is recovered on none of them, and two minutes confirms a mitigation in the
+    middle of a lull.
+
+    So the number is measured instead - `_clear_minutes_a_recovery_has_to_show`.
+
+    The departed side keeps the allowance it has, and must. A lone departed minute
+    is not a relapse, for the reason a lone departed minute is not an onset - and
+    the argument is stronger here, because the window Mitigation reads only grows:
+    its last minute is always the freshest sample and always the end of whatever
+    run it is in, so one noisy minute would deny a verdict for as long as anybody
+    waited.
+    """
+    stretch = still_the_incident[from_index:]
+
+    return (
+        _stays_clear_for_long_enough_to_be_a_recovery(
+            stretch,
+            _clear_minutes_a_recovery_has_to_show(still_the_incident, thresholds)
+        )
+        and not _departs_for_long_enough_to_be_the_incident(stretch, thresholds)
+    )
+
+
+def _clear_minutes_a_recovery_has_to_show(still_the_incident: Sequence[bool],
+                                          thresholds: AnomalyThresholds) -> int:
+    """How many clear minutes in a row this incident has to be held off for
+    before it counts as over.
+
+    One more than the longest lull the incident has already come back from. That
+    is the whole rule, and it is a measurement rather than a setting: a lull of
+    the length this incident is known to take is the one length that proves
+    nothing, because the service has twice now been exactly that well and
+    returned. One minute past it is the shortest stretch the window has no
+    counterexample to.
+
+    So a step - departed, acted on, back - asks for one minute, which is every
+    minute of evidence there is. A capacity that will not settle asks for one more
+    than its own cycle, whatever that cycle happens to be. No number is picked,
+    which is what makes this hold for a shape nobody staged: a rule fitted to two
+    bad minutes for one good confirms a useless action on a service that is clear
+    four minutes in six, and a rule fitted to that one is wrong about the next
+    ratio.
+
+    Reading it off the window is what makes it available at all. The minutes since
+    an action cannot say how long this incident pauses for - if they could, the
+    question would already be answered.
+    """
+    return 1 + _the_longest_lull_the_incident_came_back_from(
         still_the_incident, thresholds
+    )
+
+
+def _the_longest_lull_the_incident_came_back_from(
+    still_the_incident: Sequence[bool],
+    thresholds: AnomalyThresholds
+) -> int:
+    """The longest stretch of clear minutes inside this incident that the
+    incident then returned from, or zero where it never returned.
+
+    Inside the incident, so the calm the window opens with is not a lull: those
+    minutes are followed by the onset, which would make every window ask for more
+    clear minutes than it holds calm ones.
+
+    Returned, and returned properly - the departed run after the lull has to reach
+    `anomaly_persistence_minutes`, the same bar `_departs_for_long_enough_to_be_the_incident`
+    holds a relapse to. Without that the lone noisy minute this module deliberately
+    disregards would count as the incident coming back, and a recovery followed by
+    one jittery sample would demand a longer run than the recovery it just
+    invalidated - which is the allowance destroying itself.
+
+    Zero where no lull was ever returned from, which is the ordinary case and the
+    important one: nothing in such a window says the service bounces, so nothing
+    in it justifies waiting to find out.
+    """
+    runs = _the_runs_from_the_first_departure(still_the_incident)
+
+    return max(
+        (
+            lull
+            for (clear, lull), (_, back) in zip(runs, runs[1:], strict=False)
+            if not clear and back >= thresholds.persistence_minutes
+        ),
+        default=0
+    )
+
+
+def _the_runs_from_the_first_departure(
+    still_the_incident: Sequence[bool]
+) -> list[tuple[bool, int]]:
+    """The window's alternating runs of elevated and clear minutes, with the calm
+    it opens with dropped.
+
+    Runs rather than indices because what is being read is a shape - a lull and
+    the return after it are adjacent runs, and `zip(runs, runs[1:])` is that
+    sentence. Alternating by construction, so the run after a clear one is the
+    departed one without having to check.
+    """
+    runs = [
+        (elevated, len(list(group)))
+        for elevated, group in groupby(still_the_incident)
+    ]
+
+    return runs[1:] if runs and not runs[0][0] else runs
+
+
+def _stays_clear_for_long_enough_to_be_a_recovery(
+    still_the_incident: Sequence[bool],
+    clear_minutes_required: int
+) -> bool:
+    """Whether any run of clear minutes reaches `clear_minutes_required`.
+
+    Takes the number rather than the thresholds, because it is not one of them -
+    it is measured from the incident by `_clear_minutes_a_recovery_has_to_show`,
+    and a function that read it off `AnomalyThresholds` here would be the fixed
+    number this stopped being.
+
+    Any run in the stretch rather than the run it ends on. The stretch is
+    everything measured since an action, and a service that came back and then
+    caught one noisy sample has recovered - what denies recovery is the *departed*
+    side reaching persistence, which is the other half of the expression this sits
+    in. Requiring the stretch to end clear would hand that decision to whichever
+    minute happened to be freshest.
+
+    A stretch with no clear minute at all fails this for the same reason a calm
+    window has no onset: there is nothing here to have lasted.
+    """
+    return any(
+        _run_length_from([not elevated for elevated in still_the_incident], index)
+        >= clear_minutes_required
+        for index in range(len(still_the_incident))
     )
 
 

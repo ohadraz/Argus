@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import assert_never
 
 from argus_core.models import (
+    AutoscalerUndo,
     DeploymentRollbackUndo,
     FlagUndo,
     ReplicaUndo,
@@ -20,6 +21,7 @@ from argus_core.models import (
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
 from agent_mitigation.tools import (
+    AutoscalingRestorer,
     CapacityRestorer,
     ChangedFromOutside,
     DeploymentRestorer,
@@ -33,7 +35,8 @@ def undo_change(undo_descriptor: UndoDescriptor,
                 changed_from_outside: ChangedFromOutside,
                 set_state: FlagSetter,
                 restore_deployment: DeploymentRestorer,
-                restore_capacity: CapacityRestorer) -> UndoAttempt:
+                restore_capacity: CapacityRestorer,
+                restore_autoscaling: AutoscalingRestorer) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,
@@ -72,6 +75,8 @@ def undo_change(undo_descriptor: UndoDescriptor,
             return _put_a_deployment_back(undo_descriptor, restore_deployment)
         case ReplicaUndo():
             return _put_a_size_back(undo_descriptor, restore_capacity)
+        case AutoscalerUndo():
+            return _put_a_floor_back(undo_descriptor, restore_autoscaling)
         case _:
             assert_never(undo_descriptor)
 
@@ -175,6 +180,71 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
     still_changed = ", ".join(
         what for what, put_back in (
             ("the number of replicas it was running", restored.count_put_back),
+            ("automated sync", restored.automated_sync_put_back)
+        ) if not put_back
+    )
+
+    return UndoAttempt(
+        subject=application,
+        outcome=Undone.NOT_ESTABLISHED,
+        detail=(
+            f"[{application}] was only partly put back - {still_changed} "
+            f"remains as Argus left it"
+        ),
+    )
+
+
+def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
+                      restore: AutoscalingRestorer) -> UndoAttempt:
+    """Lets a pinned autoscaler move again, and restores the reconciliation the
+    pin had to suspend.
+
+    Both, or it is not undone, for the reason a scale-out's undo needs both: the
+    floor alone leaves a deployment that looks correct and receives nothing, which
+    is worse than the state Argus found - so a half-restore is reported as not
+    established, and escalates.
+
+    No "changed from outside" check, as with a rollback and a scale-out and unlike
+    a flag. What this writes is one field of the autoscaler through the platform's
+    own patch, and a floor somebody else moved meanwhile is a floor this is about
+    to set to the figure Argus found - which is the restore, not an overwrite of
+    somebody's decision.
+
+    Worth reading twice, because this is the one undo that starts something moving
+    again rather than putting a value back: the count will begin oscillating within
+    a cycle of this returning. That is the honest ending and not a failure - the
+    repository still declares the autoscaler that flaps, so a withdrawal returns
+    the shop to the incident, exactly as a withdrawn scale-out returns it to
+    saturation.
+    """
+    application = undo_descriptor.application
+
+    try:
+        restored = restore(undo_descriptor)
+    except Exception as error:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.NOT_ESTABLISHED,
+            detail=(
+                f"[{application}]'s autoscaler floor could not be put back to "
+                f"[{undo_descriptor.was_min_replicas}]: {error}"
+            ),
+        )
+
+    if restored.floor_put_back and restored.automated_sync_put_back:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.RESTORED,
+            detail=(
+                f"[{application}]'s autoscaler floor was put back to "
+                f"[{undo_descriptor.was_min_replicas}], and its automated sync "
+                f"was restored"
+            ),
+        )
+
+    still_changed = ", ".join(
+        what for what, put_back in (
+            ("the floor its autoscaler was holding", restored.floor_put_back),
             ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )

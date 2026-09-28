@@ -27,6 +27,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
+from argus_core.mcp_transport import an_exhausted_action
 from mcp.server.fastmcp import FastMCP
 
 TRANSPORT_DOUBLE_PORT = 8194
@@ -59,6 +60,21 @@ def build_double(port: int) -> FastMCP:
     @server.tool()
     def times_refused() -> int:
         return _times_refused
+
+    @server.tool()
+    def refuse_as_exhausted() -> list[str]:
+        """Refuses the way a tier refuses an action it has no room left to take.
+
+        Marked with the transport's own marker rather than said in words that
+        sound exhausted, because the marker is what a client recognises: a
+        refusal a caller had to read prose to classify would be one that
+        classified differently the day somebody rephrased it.
+
+        Raised through the server's own helper, so this double refuses exactly
+        the way `argus-write-mcp` refuses rather than the way a test imagines it
+        does.
+        """
+        raise RuntimeError(an_exhausted_action("this tool has nothing left to do"))
 
     @server.tool()
     async def dawdle(seconds: float) -> list[str]:

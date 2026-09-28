@@ -5,10 +5,10 @@ record is composed from rows the walk wrote, embedded by a model that runs in
 Argus's own process, and put in a collection nothing else here touches - which
 is four pieces that a unit test can only assert separately.
 
-The seeding is deliberately done **through the same writer the walk uses**. A
-`given` that reached into the store and put a document there would be a test
-asserting that the reader understands a shape the test itself invented, and the
-writer could then drift from it forever with every case still green.
+The seeding is deliberately done **through the same writer the walk uses**, and
+it lives in the framework rather than here: `scripts/record_incident.py` has to
+stage the same world when it captures the corpus these cases replay. See
+`tests.e2e.framework.memory`.
 """
 
 from __future__ import annotations
@@ -20,17 +20,10 @@ import psycopg
 import pytest
 from argus_core import get_settings
 from argus_core.embedding import an_embedder
-from argus_core.events import CandidatesReordered
-from argus_core.models import (
-    REVERT_FEATURE_FLAG,
-    ActionIdentity,
-    IncidentStatus,
-    Verdict,
-)
+from argus_core.events import SimilarIncidentsRecalled
+from argus_core.models import IncidentStatus, Verdict
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
-from incident_memory.keeping import kept_in
-from incident_memory.records import RememberedIncident, WhatWasTried
 from incident_memory.store import recalled
 from qdrant_client import QdrantClient
 
@@ -48,20 +41,12 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG
-from tests.e2e.framework.world import a_scenario_was_seeded
-
-# An incident that is over, from long enough ago that nothing else here is
-# about it. Its id is arbitrary and never looked up: what a later walk reads is
-# the list of what was tried.
-AN_EARLIER_INCIDENT = "9c1d4e7a-0000-4000-8000-00000000fee1"
-
-# What that earlier incident was described as. Close to what this one will look
-# like - the same service, the same kind of failure, different words - because
-# a search by similarity is exactly what has to bridge the difference.
-AS_IT_WAS_DESCRIBED = (
-    "HighErrorRate on io-shop: checkout failures climbed sharply after a "
-    "feature flag was switched on, and stayed up"
+from tests.e2e.framework.memory import (
+    AN_EARLIER_INCIDENT,
+    AS_IT_WAS_DESCRIBED,
+    that_flag_was_tried_before_and_did_not_help,
 )
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 
 @pytest.mark.e2e
@@ -94,23 +79,24 @@ def test_an_incident_that_ends_is_remembered_by_what_it_tried() -> None:
 
 
 @pytest.mark.e2e
-def test_a_subject_an_earlier_incident_refuted_is_moved_down_the_list() -> None:
-    # The read half, and the only thing memory is allowed to do to a walk. An
-    # earlier incident changed this flag and the service stayed broken; this
-    # incident's evidence points at it again, and it is still tried - but after
-    # whatever the walk has no reason to doubt.
+def test_an_earlier_incident_like_this_one_is_found_and_said() -> None:
+    # The read half: an earlier incident on this service changed this flag and
+    # the service stayed broken, and this walk has to find it. What is asserted
+    # is the search, not what came of it. Whether the order then *changes* needs
+    # a round that offered a second candidate to move the flag behind, and how
+    # many candidates a round offers is the model's to decide - so an assertion
+    # on the reordering is an assertion about the corpus's generosity, which is
+    # how this case came to fail on a re-record that changed nothing here.
     #
-    # The red-herring scenario is the one to run it against, because there the
-    # flag really was toggled and really is not the cause: the reordering is
-    # then the difference between reaching the actual explanation on the second
-    # attempt and reaching it on the first.
+    # The demotion itself is covered where it is deterministic: the walk's own
+    # suite, and `incident_memory`'s.
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name="HighErrorRate",
                                             severity="critical")
 
     Scenario() \
         .given(
-            calling(_that_flag_was_tried_before_and_did_not_help()),
+            calling(that_flag_was_tried_before_and_did_not_help),
             calling(a_scenario_was_seeded("flag-toggle-red-herring")),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
         ) \
@@ -119,50 +105,10 @@ def test_a_subject_an_earlier_incident_refuted_is_moved_down_the_list() -> None:
         ) \
         .then(
             eventually(
-                _the_order_was_changed_on(AN_EARLIER_INCIDENT),
+                _the_walk_said_it_recalled(AN_EARLIER_INCIDENT),
                 timeout=WALK_TIMEOUT_SECONDS
             )
         )
-
-
-def _that_flag_was_tried_before_and_did_not_help() -> Callable[[], bool]:
-    """Puts one finished incident into memory, through the walk's own writer.
-
-    Not by writing a document into the collection. The shape a record is stored
-    in belongs to `incident_memory`, and a `given` that invented its own would
-    let the writer drift from the reader with every case still passing.
-    """
-    def seed_memory() -> bool:
-        settings = get_settings()
-        store = QdrantClient(url=settings.qdrant_url)
-
-        try:
-            kept_in(
-                store,
-                settings.incident_memory_collection,
-                an_embedder(settings.incident_memory_embedding_model)
-            )(
-                RememberedIncident(
-                    incident_id=AN_EARLIER_INCIDENT,
-                    described_as=AS_IT_WAS_DESCRIBED,
-                    service=THE_SERVICE_NAME,
-                    alert_name="HighErrorRate",
-                    tried=[
-                        WhatWasTried(
-                            identity=ActionIdentity(
-                                action_type=REVERT_FEATURE_FLAG, subject=THE_DEMO_FLAG
-                            ),
-                            verdict=Verdict.REFUTED
-                        )
-                    ]
-                )
-            )
-        finally:
-            store.close()
-
-        return True
-
-    return seed_memory
 
 
 def _a_flag_was_toggled() -> Callable[[], bool]:
@@ -217,31 +163,36 @@ def _it_was_remembered_as_having_tried(
     return assertion
 
 
-def _the_order_was_changed_on(incident_id: str) -> Assertion[httpx.Response]:
-    """That the walk said, on its own timeline, why it changed its order.
+def _the_walk_said_it_recalled(incident_id: str) -> Assertion[httpx.Response]:
+    """That the walk searched memory and, on its own timeline, named what it
+    found.
 
-    Read from the account rather than from the order itself: which candidate
-    the model offered second is the model's business, and what this is about is
-    that memory moved one and said so.
+    Read from the account rather than from the store, for the reason the write
+    half reads from the store rather than the account: what is under test here is
+    that the walk reached memory during the incident and said so, and a record
+    sitting in a collection proves only that this test put it there.
     """
     def assertion(response: httpx.Response) -> bool:
         with psycopg.connect(DATABASE_URL) as conn:
             recorded = events.get_by_incident(conn, incident_id_from(response))
 
         said = [
-            event for event in recorded if isinstance(event, CandidatesReordered)
+            event for event in recorded
+            if isinstance(event, SimilarIncidentsRecalled)
         ]
 
         if not said:
             raise AssertionError(
-                "Expected the walk to say it changed its candidate order, "
+                "Expected the walk to say what it recalled from memory, "
                 f"it said {sorted({event.kind for event in recorded})}"
             )
 
-        if said[0].on_the_strength_of != incident_id:
+        found = [one for event in said for one in event.incident_ids]
+
+        if incident_id not in found:
             raise AssertionError(
-                f"Expected the order changed on [{incident_id}], "
-                f"got [{said[0].on_the_strength_of}]."
+                f"Expected incident [{incident_id}] among what was recalled, "
+                f"got {found}."
             )
 
         return True

@@ -42,6 +42,11 @@ TITLE_FIELD = "title"
 BODY_FIELD = "body"
 NUMBER_FIELD = "number"
 READABLE_AT_FIELD = "html_url"
+# What a refusal says, in the two places GitHub puts it. `message` is the
+# headline and is often only "Validation Failed"; `errors` is where the sentence
+# a person can act on lives - which field was wrong and why.
+MESSAGE_FIELD = "message"
+ERRORS_FIELD = "errors"
 
 ACCEPT_HEADER = "application/vnd.github+json"
 
@@ -115,9 +120,51 @@ def open_pull_request(head_branch: str,
         raise PullRequestNotOpened(
             f"could not open a pull request from [{head_branch}] onto "
             f"[{base_branch}] at [{url}]: {error}"
+            f"{_what_the_repository_said(error)}"
         ) from error
 
     return _as_an_opened_pull_request(response, head_branch, url)
+
+
+def _what_the_repository_said(error: Exception) -> str:
+    """The refusal in the repository's own words, or nothing to add.
+
+    A status line is not a diagnosis. GitHub answers 422 to a body past its
+    length limit, a head branch that does not exist and a diff with nothing in
+    it alike, and says which in the response it sends - so a message carrying
+    only the code leaves an operator with a number and a walk nobody can
+    explain. It cost exactly that once: a fix was refused for a reason that took
+    reading the model's own recorded answer to find.
+
+    Both places it puts one. `message` is often just "Validation Failed", and
+    the sentence worth reading is inside `errors`.
+
+    Nothing to add where there is nothing to read - a transport error that never
+    reached a response, a body that is not JSON, a refusal with no words in it.
+    This runs while an exception is already being raised, so it may not raise
+    one of its own: a diagnostic that fails takes the original failure with it.
+    """
+    response = getattr(error, "response", None)
+
+    if response is None:
+        return ""
+
+    try:
+        said = response.json()
+    except Exception:
+        return ""
+
+    if not isinstance(said, dict):
+        return ""
+
+    words = [str(said[MESSAGE_FIELD])] if said.get(MESSAGE_FIELD) else []
+    words += [
+        str(problem[MESSAGE_FIELD])
+        for problem in said.get(ERRORS_FIELD) or []
+        if isinstance(problem, dict) and problem.get(MESSAGE_FIELD)
+    ]
+
+    return f" - the repository said: {'; '.join(words)}" if words else ""
 
 
 def _as_an_opened_pull_request(response: httpx.Response,

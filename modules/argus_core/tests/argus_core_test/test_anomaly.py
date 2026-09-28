@@ -452,22 +452,22 @@ def test_a_signal_whose_worst_minute_lands_on_its_own_bar_is_not_an_incident() -
     # escalated an incident it had already ended.
     an_error_rate_that_only_jitters = [
         0.005, 0.005, 0.005, 0.01, 0.005, 0.01, 0.005, 0.01,
-        0.01, 0.015, 0.015, 0.015, 0.01, 0.005, 0.01, 7 / 200
+        0.01, 0.015, 0.015, 0.015, 0.01, 0.005, 0.01, 7 / 200, 0.01
     ]
     a_tail_that_departed_and_came_back = (
-        [CALM_P99_MS] * 8 + [CALM_P99_MS * 10] * 4 + [CALM_P99_MS] * 4
+        [CALM_P99_MS] * 8 + [CALM_P99_MS * 10] * 4 + [CALM_P99_MS] * 5
     )
     some_window = a_window_of(
         an_error_rate_that_only_jitters,
         p99_ms_values=a_tail_that_departed_and_came_back
     )
 
-    the_only_minute_since_the_revert = some_window[-1].bucket_id
+    the_first_minute_since_the_revert = some_window[-2].bucket_id
 
     Scenario() \
         .given(some_window) \
         .when(lambda: has_recovered_since(
-            some_window, the_only_minute_since_the_revert, SOME_THRESHOLDS
+                some_window, the_first_minute_since_the_revert, SOME_THRESHOLDS
         )) \
         .then(_the_answer_is(True))
 
@@ -628,6 +628,118 @@ def test_recovery_is_not_claimed_before_a_minute_has_been_measured() -> None:
 
 
 @pytest.mark.unit
+def test_one_noisy_minute_after_a_recovery_does_not_take_it_back() -> None:
+    # The allowance the module already makes, and which must survive: a lone
+    # departed minute is not a relapse, for the reason a lone departed minute is
+    # not an onset. The window Mitigation reads only grows, so a minute that
+    # denied the verdict would deny it for as long as anybody waited.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_degradation_rate, some_degradation_rate]
+        + [some_steady_rate, some_steady_rate,
+           some_degradation_rate,
+           some_steady_rate]
+    )
+
+    the_first_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(
+            lambda: has_recovered_since(
+                some_window, the_first_minute_after_the_action, SOME_THRESHOLDS
+            )
+        ) \
+        .then(_the_answer_is(True))
+
+
+@pytest.mark.unit
+def test_a_service_clear_one_minute_in_three_has_recovered_from_none_of_them() -> None:
+    # A capacity that will not settle, which is the shape that found all of this:
+    # two minutes at the incident's level, one below it, repeating. Every minute
+    # of it is a moment somebody could have acted at, and none of them is a
+    # recovery - the service is not better, it is between cycles. Asked from
+    # every minute rather than from one, because which minute an action lands on
+    # is not something a walk chooses.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    a_flapping_stretch = [
+        some_degradation_rate, some_degradation_rate, some_steady_rate
+    ] * 4
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + a_flapping_stretch
+    )
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: {
+            bucket.bucket_id: has_recovered_since(
+                some_window, bucket.bucket_id, SOME_THRESHOLDS
+            )
+            for bucket in some_window[CALM_MINUTES:]
+        }) \
+        .then(_no_minute_read_as_a_recovery())
+
+
+@pytest.mark.unit
+def test_a_step_incident_is_recovered_from_on_one_clear_minute() -> None:
+    # How long a recovery has to hold for is read off the incident rather than
+    # set by a number. Nothing in this window says the service bounces: it
+    # departed, it came back, and it never once returned. One minute below the
+    # incident's own level is then the whole of the available evidence, and
+    # waiting a second one buys nothing - it spends a minute of the verification
+    # window on a question already answered.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [some_degradation_rate, some_degradation_rate]
+        + [some_steady_rate]
+    )
+
+    the_one_minute_measured_since = some_window[-1].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(
+            lambda: has_recovered_since(
+                some_window, the_one_minute_measured_since, SOME_THRESHOLDS
+            )
+        ) \
+        .then(_the_answer_is(True))
+
+
+@pytest.mark.unit
+def test_a_cycle_of_four_clear_minutes_is_not_recovered_from_in_four() -> None:
+    # The case that defeats any fixed number, and so the reason the number is
+    # measured. This service is clear for four minutes of every six, so a rule
+    # asking for `persistence_minutes` - or for any figure read off a cycle of two
+    # bad minutes to one good - confirms a mitigation in the middle of a lull the
+    # incident has already come back from twice.
+    #
+    # Four clear minutes is exactly what this incident recovered from before, so
+    # four is the one length that proves nothing. Asked from the start of the last
+    # lull, which is the most favourable minute the window has.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    a_cycle = [some_degradation_rate] * 2 + [some_steady_rate] * 4
+    some_window = a_window_of([some_steady_rate] * CALM_MINUTES + a_cycle * 3)
+
+    the_start_of_the_last_lull = some_window[-4].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(
+            lambda: has_recovered_since(
+                some_window, the_start_of_the_last_lull, SOME_THRESHOLDS
+            )
+        ) \
+        .then(_the_answer_is(False))
+
+
+@pytest.mark.unit
 def test_a_single_noisy_minute_after_the_action_is_not_a_relapse() -> None:
     # The same rule `find_onset` already applies, asked of the other end: a lone
     # departed minute is sampling noise that had already recovered by the next
@@ -734,7 +846,7 @@ def test_a_minute_that_has_fallen_back_from_the_incident_is_recovery() -> None:
     some_window = a_window_of(
         [some_steady_rate] * CALM_MINUTES
         + [some_incident_rate, some_incident_rate]
-        + [a_rate_most_of_the_way_back]
+        + [a_rate_most_of_the_way_back, a_rate_most_of_the_way_back]
     )
 
     the_minute_after_the_action = some_window[CALM_MINUTES + 2].bucket_id
@@ -940,6 +1052,27 @@ def test_recovery_is_not_held_open_by_utilisation_that_stayed_high() -> None:
         .given(some_window) \
         .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
         .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
+
+
+def _no_minute_read_as_a_recovery() -> Assertion[dict[str, bool]]:
+    """No minute of a running cycle is one the incident has recovered from.
+
+    Named minutes in the message rather than a count: which of them read as a
+    recovery says whether the rule is wrong about the clear minute, about the
+    minute after it, or about the whole stretch, and a count says none of that.
+    """
+    def assertion(answers: dict[str, bool]) -> bool:
+        recovered = sorted(minute for minute, yes in answers.items() if yes)
+
+        if recovered:
+            raise AssertionError(
+                f"Expected no minute of a service that is clear one minute in "
+                f"three to read as a recovery, and {recovered} did."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_minute_after(bucket_id: str) -> str:

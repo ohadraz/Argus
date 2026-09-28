@@ -75,3 +75,4 @@ dist/
 # it to decide which e2e case goes to which runner, so a measurement nobody
 # committed leaves the shares split by test count instead of by time.
 !.test_durations
+.claude/logs/

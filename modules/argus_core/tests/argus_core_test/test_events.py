@@ -24,6 +24,7 @@ from argus_core.events import (
     MitigationResumed,
     Publisher,
     RetrievalRequested,
+    SimilarIncidentsRecalled,
     VerdictReached,
     parse_event,
     publish,
@@ -168,6 +169,25 @@ def test_a_refusal_is_one_of_the_reasons_the_gate_gives() -> None:
             "incident_id": new_id(),
             "hypothesis_id": new_id(),
             "refusal": some_word_that_is_not_a_refusal
+        }))) \
+        .then(_it_was_refused())
+
+
+@pytest.mark.unit
+def test_a_recall_that_names_no_incident_is_refused() -> None:
+    # The event exists to say memory found something, so a recall naming nothing
+    # is not a quieter version of it - it is the case the publisher stays silent
+    # on. Refused in the type rather than left to that one caller's guard,
+    # because the narrator reads the nearest incident off the front of the list:
+    # a row read back through `parse_event` with an empty one raises on the
+    # incident page and in the postmortem, a long way from whoever wrote it.
+    no_incidents_at_all: list[str] = []
+
+    Scenario() \
+        .given(no_incidents_at_all) \
+        .when(attempting(lambda: SimilarIncidentsRecalled.model_validate({
+            "incident_id": new_id(),
+            "incident_ids": no_incidents_at_all
         }))) \
         .then(_it_was_refused())
 
@@ -455,15 +475,22 @@ def _its_verdict_is(expected: Verdict) -> Assertion[object]:
 
 
 def _it_was_refused() -> Assertion[Exception | None]:
-    """An unknown verdict does not become an event.
+    """A value the event cannot carry does not become an event.
 
-    Refused where it is built rather than where it is read: an event that
-    reached the log carrying a word nothing recognises is one every reader
-    afterwards has to decide what to do about.
+    Said of the event rather than of any one field, because three cases ask it: a
+    verdict nothing defines, a refusal nothing defines, and a recall naming no
+    incident. A message naming one of those would be wrong about the other two,
+    and a reader chasing the failure would start at the wrong field.
+
+    Refused where it is built rather than where it is read: an event that reached
+    the log carrying something nothing recognises is one every reader afterwards
+    has to decide what to do about.
     """
     def assertion(raised: Exception | None) -> bool:
         if not isinstance(raised, ValidationError):
-            raise AssertionError(f"Expected the verdict refused, got [{raised}].")
+            raise AssertionError(
+                f"Expected the event refused where it was built, got [{raised}]."
+            )
 
         return True
 

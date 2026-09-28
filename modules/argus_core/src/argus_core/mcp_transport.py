@@ -53,6 +53,14 @@ STRUCTURED_RESULT_KEY: Final = "result"
 SHUTDOWN_SECONDS: Final = 5.0
 
 
+# What a server puts at the front of a refusal it wants recognised as an answer
+# rather than as a fault - see `an_exhausted_action`. A token rather than a
+# phrasing, because the alternative is every caller matching on the words of a
+# sentence somebody will rewrite; and prefixed with the project's own name so that
+# nothing a tool says by accident can be read as saying this.
+EXHAUSTED_ACTION_MARKER: Final = "argus:action-exhausted"
+
+
 class McpToolError(RuntimeError):
     """A tool was reached, and it reported a failure.
 
@@ -62,8 +70,46 @@ class McpToolError(RuntimeError):
     """
 
 
+class ActionExhausted(McpToolError):
+    """A tool was reached, and what it reported is that there is nothing to do.
+
+    The refusal that is an answer. A deployment already as large as Argus may
+    make it, an autoscaler already held as still as it can be held - in both the
+    tool worked, the estate was read correctly, and the honest report is that the
+    action this tier has for the cause is spent. Nothing was changed, so there is
+    nothing to undo and nothing to judge, and a caller's next move is to try
+    something else rather than to wake somebody.
+
+    A subclass, so that every existing `except McpToolError` keeps catching it and
+    the retry reasoning above is unchanged: this is still a server that said no,
+    and asking again would still carry the same answer back. What it adds is that
+    a caller which cares can tell an exhausted action from a broken platform
+    without reading the words of the refusal.
+
+    Recognised here rather than in the tier's own client, because this is the
+    point where `isError` becomes an exception, and a distinction drawn anywhere
+    later would be a second reading of the same field.
+    """
+
+
 class McpUnreachable(RuntimeError):
     """No session to the server could be had at all."""
+
+
+def an_exhausted_action(said: str) -> str:
+    """`said`, marked so a caller recognises a refusal that is an answer.
+
+    For a server to wrap the words of a refusal it raises *before changing
+    anything*, when what it is reporting is that the action is spent. Only then:
+    a failure that arrives after something was written has left the estate
+    changed, and a caller told the action was merely unavailable would be told
+    nothing about the state it is now in.
+
+    Here rather than in the server that uses it, because the marker it applies and
+    the exception it becomes are two halves of one convention, and two packages
+    holding a copy each is how a wire word comes to be spelled two ways.
+    """
+    return f"{EXHAUSTED_ACTION_MARKER} {said}"
 
 
 class McpClient:
@@ -343,7 +389,12 @@ class McpClient:
 def _answered(name: str, result: CallToolResult) -> object:
     """What the tool said, unwrapped, or the error it reported instead."""
     if result.isError:
-        raise McpToolError(f"MCP tool call [{name}] failed: {result.content!r}")
+        said = f"MCP tool call [{name}] failed: {result.content!r}"
+
+        if EXHAUSTED_ACTION_MARKER in said:
+            raise ActionExhausted(said)
+
+        raise McpToolError(said)
 
     structured = result.structuredContent
 

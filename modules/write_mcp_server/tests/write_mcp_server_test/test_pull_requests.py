@@ -14,7 +14,12 @@ from unittest.mock import create_autospec
 
 import httpx
 import pytest
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.assertions import (
+    Assertion,
+    all_of,
+    an_error_was_raised,
+    the_error_mentioned,
+)
 from argus_testkit.scenario import Scenario, attempting
 from write_mcp_server.pull_requests import (
     PullRequestNotOpened,
@@ -209,6 +214,38 @@ def test_a_repository_that_refuses_is_not_reported_as_a_pull_request_opened() ->
         .then(
             all_of(
                 an_error_was_raised(PullRequestNotOpened)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_refusal_carries_what_the_repository_said_was_wrong() -> None:
+    # The status alone is not a diagnosis. GitHub answers 422 to a dozen
+    # different mistakes - a body past its length limit, a head branch that does
+    # not exist, a diff with nothing in it - and says which in the response it
+    # sends. Dropping that leaves an operator with "422" and a walk nobody can
+    # explain, which is what happened: a fix was refused for a reason that took
+    # reading the model's own recorded answer to find.
+    #
+    # The message rather than the whole body, because a body is a JSON document
+    # and this sentence is read in a timeline.
+    said_what_was_wrong = "body is too long (maximum is 65536 characters)"
+    repository = a_repository_that_opens_pull_requests()
+    repository.post.return_value = httpx.Response(
+        status_code=422,
+        json={"message": "Validation Failed", "errors": [
+            {"resource": "PullRequest", "field": "body",
+             "message": said_what_was_wrong}
+        ]},
+        request=httpx.Request("POST", "http://github.invalid/")
+    )
+
+    Scenario() \
+        .when(attempting(lambda: _opening_against(repository))) \
+        .then(
+            all_of(
+                an_error_was_raised(PullRequestNotOpened),
+                the_error_mentioned(said_what_was_wrong)
             )
         )
 

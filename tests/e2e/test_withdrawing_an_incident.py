@@ -40,6 +40,7 @@ from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
     DATABASE_URL,
     MITIGATION_TIMEOUT_SECONDS,
+    RECORDED_AUTOSCALER_FLAPPING,
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_CPU_SATURATION,
     RECORDED_FLAG_TOGGLE,
@@ -62,6 +63,19 @@ _A_POLL = 0.5
 # too few - which is the point of a withdrawal: it restores what Argus changed,
 # not what a healthy shop looks like.
 THE_SIZE_THE_SHOP_IS_DECLARED_WITH = 3
+# The floor its autoscaler is declared with, in the same file. What a withdrawn
+# pin has to put back, and the floor the controller thrashes down to - so
+# restoring it returns the shop to flapping.
+THE_FLOOR_THE_AUTOSCALER_IS_DECLARED_WITH = 3
+
+# How the platform addresses the autoscaler, in Kubernetes' own vocabulary. The
+# resource route answers about the Deployment unless it is told which kind, and a
+# deployment whose size a controller decides has two resources worth asking about.
+AN_AUTOSCALER = {
+    "kind": "HorizontalPodAutoscaler",
+    "group": "autoscaling",
+    "version": "v2",
+}
 
 
 @pytest.mark.e2e
@@ -188,6 +202,44 @@ def test_a_withdrawn_scale_out_puts_the_count_back_and_resumes_reconciliation() 
                 all_of(
                     argus_ended_with_status(IncidentStatus.WITHDRAWN),
                     _the_shop_is_running_the_size_it_is_declared_with(),
+                    _the_shop_reconciles_itself_again(),
+                    _nothing_was_written_up()
+                ),
+                timeout=MITIGATION_TIMEOUT_SECONDS
+            )
+        )
+
+
+@pytest.mark.e2e
+def test_a_withdrawn_pin_puts_the_floor_back_and_resumes_reconciliation() -> None:
+    # The fourth kind, and the pair to the case above rather than a repeat of it.
+    # Both act on how many replicas run and they undo different numbers: a
+    # scale-out puts back the count the deployment had, a pin puts back the floor
+    # the controller was allowed to fall to. A withdrawal that could not tell them
+    # apart would restore one of them and report the other.
+    #
+    # What it restores the shop to is flapping, which is the point. Argus is not
+    # putting the world right; it is removing what it did, and the incident goes to
+    # whoever took it back.
+    some_alert_name = "HighLatency"
+    some_severity = "critical"
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
+                                            alert_name=some_alert_name,
+                                            severity=some_severity)
+
+    Scenario() \
+        .given(
+            calling(a_scenario_was_seeded("autoscaler-flapping")),
+            calling(the_model_answers_from(RECORDED_AUTOSCALER_FLAPPING))
+        ) \
+        .when(
+            _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(some_alert)
+        ) \
+        .then(
+            eventually(
+                all_of(
+                    argus_ended_with_status(IncidentStatus.WITHDRAWN),
+                    _the_autoscaler_may_fall_as_far_as_it_could_before(),
                     _the_shop_reconciles_itself_again(),
                     _nothing_was_written_up()
                 ),
@@ -541,6 +593,40 @@ def _the_shop_reconciles_itself_again() -> Assertion[httpx.Response]:
                 f"Expected [{THE_SERVICE_NAME}] to be reconciling itself again "
                 f"once the incident was withdrawn, and its sync policy is still "
                 f"the suspended one Argus left to change the deployment."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_autoscaler_may_fall_as_far_as_it_could_before(
+) -> Assertion[httpx.Response]:
+    """The floor in force, read from the platform rather than from the record.
+
+    The second restore in this file that can be checked against the world, and it
+    asserts the shop is back to *flapping* - which is the honest end of a
+    withdrawal and not a state anybody would call fixed. A withdrawal restores what
+    Argus changed and hands the incident to whoever took it back; a run that left
+    the count held still would be keeping a mitigation alive under an incident that
+    has ended, and nobody would be watching it.
+    """
+    def assertion(dont_care_response: httpx.Response) -> bool:
+        response = httpx.get(
+            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
+            params=AN_AUTOSCALER,
+            timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        floor: int = json.loads(response.json()["manifest"])["spec"]["minReplicas"]
+
+        if floor != THE_FLOOR_THE_AUTOSCALER_IS_DECLARED_WITH:
+            raise AssertionError(
+                f"Expected the autoscaler to be back at the floor of "
+                f"[{THE_FLOOR_THE_AUTOSCALER_IS_DECLARED_WITH}] it is declared "
+                f"with once the incident was withdrawn, and the platform reports "
+                f"[{floor}] - so a controller Argus held still under an incident "
+                f"that has ended is still being held, by nobody who chose it."
             )
 
         return True

@@ -376,6 +376,43 @@ def test_a_module_that_is_only_its_docstring_is_kept() -> None:
         .then(_the_patch_is({"src/io_shop/__init__.py": an_init}))
 
 
+@pytest.mark.unit
+def test_a_patch_written_as_parameter_tags_inside_the_explanation_is_read() -> None:
+    # Measured on two paid runs, five submissions, every one the same. The model
+    # closes the prose with `</explanation>`, opens `<parameter name="files">`,
+    # and writes the whole patch as JSON inside the explanation string - while
+    # the `files` argument that arrives properly holds a phrase pointing at it.
+    #
+    # Nothing was lost and nothing was wrong with the fix: the patches recovered
+    # this way are 67-68KB of `monthly_statement.py` plus its tests, which is the
+    # shape of every recording that ever worked. What it cost was the run - four
+    # rejections, a whole wall clock spent resubmitting, and a walk reported as
+    # having read until it ran out.
+    #
+    # Repaired rather than refused, for the reason the stray closing tag above is
+    # and the array inside a string before it: the wrapping was wrong and the
+    # answer was not.
+    prose = "The month with no purchases raises from `max`."
+    patch = json.dumps([{"path": SOME_PATH, "content": SOME_CONTENT}])
+
+    Scenario() \
+        .when(
+            lambda: SubmittedFix.model_validate({
+                "summary": "dont care",
+                "explanation": (
+                    f"{prose}</explanation>\n<parameter name=\"files\">{patch}"
+                ),
+                "files": [{"path": SOME_PATH, "content": "(see explanation)"}]
+            })
+        ) \
+        .then(
+            all_of(
+                _the_patch_is({SOME_PATH: SOME_CONTENT}),
+                _the_explanation_is(prose)
+            )
+        )
+
+
 def _the_tool_is_called(name: str) -> Assertion[dict[str, Any]]:
     def assertion(offered: dict[str, Any]) -> bool:
         if offered["name"] != name:

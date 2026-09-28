@@ -25,12 +25,31 @@ class Verdict(StrEnum):
     recording evidence against a hypothesis nobody finished testing is the one
     thing a stopped experiment must not leave behind. The change it made is
     still out there, which is why the outcome carries its undo descriptor.
+
+    `NOT_ATTEMPTED` is the fourth way no verdict is reached, and it is the one
+    that keeps the walk moving. The action was admitted and then refused by the
+    tier that performs it, because the action itself is exhausted: a deployment
+    already at the most replicas Argus may ask for, an autoscaler whose floor
+    already meets its ceiling. Nothing is broken and nothing was changed.
+
+    It is neither of the two it would otherwise collapse into, and both
+    collapses cost something real. `ESCALATED` stops the walk, so an incident
+    whose second candidate is a flag toggle Argus could revert in seconds
+    reaches a human because its first candidate had no capacity left to add.
+    `REFUTED` would be worse: it means "this explanation was tested and did not
+    hold", so recording it for an action that never ran puts a measurement in
+    the record that never happened, and the postmortem then says the evidence
+    ruled a cause out when nothing ruled it out.
+
+    So it says what is true - the action could not be taken, and the cause is
+    still open - and the walk moves to its next candidate on those terms.
     """
 
     CONFIRMED = "confirmed"
     REFUTED = "refuted"
     ESCALATED = "escalated"
     WITHDRAWN = "withdrawn"
+    NOT_ATTEMPTED = "not-attempted"
 
 
 class UnreadVerdict(str):
@@ -222,12 +241,52 @@ class ScaleOut(BaseModel):
     application: str
 
 
+class PinAutoscaler(BaseModel):
+    """Holding a deployment's size still by raising its autoscaler's floor.
+
+    The fifth generic mitigation, and the first that stops something rather than
+    adding or restoring something. The criterion is unchanged by that, as it was
+    unchanged by a mitigation that adds: what admits an action unasked is
+    membership of the declared set (spec §13), never what kind of change it makes.
+
+    It answers a control loop rather than a change or a state, which is what
+    separates it from every action above. A flag was moved once, a revision shipped
+    once, a heap filled and load arrived; an autoscaler goes on deciding, and the
+    count Argus sets through the deployment is re-derived within a sync period. So
+    this is aimed at the controller - raising the floor it may fall to until it
+    meets the ceiling it was already allowed to reach - and the deployment's own
+    replica count is not written at all.
+
+    The application, and no count, for a stronger version of the reason a
+    scale-out carries none. A floor is meaningless without the ceiling it is
+    raised to meet, that ceiling is on a live resource only the write tier can
+    read, and it is a bound somebody declared for this deployment rather than a
+    figure an agent could assert. Which also makes the count not Argus's to choose
+    even in principle.
+
+    It carries **no undo descriptor, and no field for one**, which is the
+    rollback's and the scale-out's shape and for their reason: what it leaves
+    behind - the floor the autoscaler had, and whether the platform was
+    reconciling the application itself - is known only to the tier that did the
+    work.
+
+    There is no matching action for lowering a floor or a ceiling, and there
+    should not be. Either reduces capacity, and the judgement there is the one the
+    scale-out already rests on: being wrong about adding capacity costs money and
+    being wrong about removing it costs an outage.
+    """
+
+    action_type: Literal["pin-autoscaler"] = "pin-autoscaler"
+    application: str
+
+
 # `action_type` is Argus's own word for what was done - it is a column on the
 # `action` table and a field on the event a reader sees - so it tags the union,
 # where the descriptor's `tool` is the write tier's wire vocabulary and does
 # not.
 type Action = Annotated[
-    RevertFeatureFlag | RestartService | RollBackDeployment | ScaleOut,
+    RevertFeatureFlag | RestartService | RollBackDeployment | ScaleOut
+    | PinAutoscaler,
     Field(discriminator="action_type")
 ]
 
@@ -235,7 +294,8 @@ type Action = Annotated[
 # things that render or store an action carry the tag alone: the event says
 # what was done without carrying the proposal, and the row keeps a column.
 type ActionType = Literal[
-    "revert-feature-flag", "restart-service", "roll-back-deployment", "scale-out"
+    "revert-feature-flag", "restart-service", "roll-back-deployment", "scale-out",
+    "pin-autoscaler"
 ]
 
 # The tags as values, for the row and the event that carry them without
@@ -254,6 +314,7 @@ REVERT_FEATURE_FLAG: Final = "revert-feature-flag"
 RESTART_SERVICE: Final = "restart-service"
 ROLL_BACK_DEPLOYMENT: Final = "roll-back-deployment"
 SCALE_OUT: Final = "scale-out"
+PIN_AUTOSCALER: Final = "pin-autoscaler"
 
 
 class RestartedService(BaseModel):
@@ -317,12 +378,31 @@ class CapacityRestored(BaseModel):
     automated_sync_put_back: bool
 
 
+class AutoscalingRestored(BaseModel):
+    """Which of the two things a pin changed were put back.
+
+    `CapacityRestored`'s shape for the other action that changes live state under
+    a GitOps controller, and two flags rather than one for the reason that one has
+    two: a restore can half-succeed and the half that fails is the quiet one. An
+    autoscaler back at the floor it was declared with looks right from every angle
+    a reader has, and is silently receiving nothing anybody ships to it, because
+    the reconciliation Argus suspended is still suspended.
+
+    A type of its own rather than that one reused, because the first field is a
+    different claim - a replica count put back and an autoscaler's floor put back
+    are not the same fact, for the reason their descriptors are two descriptors.
+    """
+
+    floor_put_back: bool
+    automated_sync_put_back: bool
+
+
 # The kinds of action that leave a change behind somebody could put back. A
 # frozen set rather than a `match` over the union, because the question is
 # asked of the *tag* - the row records a kind, and the walk that reads it back
 # hours later has the column and not the action it came from.
 _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
-    {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT}
+    {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER}
 )
 
 
@@ -414,7 +494,7 @@ def the_subject_of(action: Action) -> str:
             return action.flag
         case RestartService():
             return action.service
-        case RollBackDeployment() | ScaleOut():
+        case RollBackDeployment() | ScaleOut() | PinAutoscaler():
             return action.application
         case _:
             assert_never(action)
@@ -453,7 +533,7 @@ def the_service_addressed_by(action: Action) -> str | None:
             return None
         case RestartService():
             return action.service
-        case RollBackDeployment() | ScaleOut():
+        case RollBackDeployment() | ScaleOut() | PinAutoscaler():
             return action.application
         case _:
             assert_never(action)
@@ -471,7 +551,9 @@ def the_direction_of(action: Action) -> bool | None:
     match action:
         case RevertFeatureFlag():
             return action.enabled
-        case RestartService() | RollBackDeployment() | ScaleOut():
+        case (
+            RestartService() | RollBackDeployment() | ScaleOut() | PinAutoscaler()
+        ):
             return None
         case _:
             assert_never(action)

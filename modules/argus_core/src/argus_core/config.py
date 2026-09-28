@@ -582,6 +582,12 @@ class Settings(BaseSettings):
     # somebody else's namespace, where a scale-out only ever reaches the
     # deployment Argus was paged about.
     scale_namespace: str = Field(default="production")
+    # There is deliberately no namespace for the pin beside these two. Both of
+    # them address a resource the caller can already name, where an autoscaler is
+    # named by whoever wrote the chart and need not be named after the deployment
+    # it scales - so a pin reads the application's resource tree, which publishes
+    # every resource's own name and namespace, rather than being told. A setting
+    # here would be a second copy of a fact the cluster owns.
     # Where a rollback is asked for, and where the sync policy is written.
     # Two more templates rather than one: the platform's rollback and its
     # spec are different routes, and a real Argo CD's are

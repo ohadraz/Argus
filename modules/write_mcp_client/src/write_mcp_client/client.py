@@ -6,6 +6,8 @@ from typing import Final
 from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    AutoscalerUndo,
+    AutoscalingRestored,
     CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
@@ -32,6 +34,8 @@ _RESTARTED_SERVICE: Final = TypeAdapter(RestartedService)
 _DEPLOYMENT_RESTORED: Final = TypeAdapter(DeploymentRestored)
 
 _CAPACITY_RESTORED: Final = TypeAdapter(CapacityRestored)
+
+_AUTOSCALING_RESTORED: Final = TypeAdapter(AutoscalingRestored)
 
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
@@ -237,6 +241,70 @@ def restore_replica_count(descriptor: ReplicaUndo,
     return client.call(
         "restore_replica_count",
         _CAPACITY_RESTORED.validate_python,
+        descriptor=descriptor.model_dump(mode="json"),
+    )
+
+
+def pin_autoscaler(application: str,
+                   *,
+                   client: McpClient) -> AutoscalerUndo:
+    """Stops a deployment's autoscaler moving the replica count about.
+
+    A generic mitigation of spec §7.3: Mitigation's response to an autoscaling
+    pathology, and the first that stops something rather than adding or restoring
+    something. What admits it is membership of the declared set (§13), which is
+    unchanged by the kind of change it makes.
+
+    No count, for a stronger version of the reason a scale-out carries none. There
+    a target is meaningless without the count it replaces; here the count is not
+    Argus's to choose even in principle, because the ceiling is a bound a human
+    declared and the floor is raised to meet it. What is being chosen is that the
+    count should stop moving.
+
+    The descriptor records *two* things, as a scale-out's does: the floor the
+    autoscaler had, and whether the platform was reconciling the application itself
+    - which a pin has to suspend, because a reconciling platform re-applies the
+    autoscaler's manifest, floor included. Both are what a withdrawal puts back,
+    and only the tier that did the work ever knew either.
+
+    Parsed through `parse_undo_descriptor` rather than a local adapter, for the
+    reason every descriptor here is: the union decides which member a stored object
+    is, and that decision has one door.
+    """
+    descriptor = client.call(
+        "pin_autoscaler",
+        parse_undo_descriptor,
+        application=application,
+    )
+
+    if not isinstance(descriptor, AutoscalerUndo):
+        raise ValueError(
+            f"pinning [{application}]'s autoscaler answered with a "
+            f"[{descriptor.kind}] descriptor, which is not a record of an "
+            f"autoscaler being held still"
+        )
+
+    return descriptor
+
+
+def restore_autoscaler_floor(descriptor: AutoscalerUndo,
+                             *,
+                             client: McpClient) -> AutoscalingRestored:
+    """Puts back both of the things a pin changed.
+
+    What a withdrawal does to a pin, and what a refuted one does to itself. The
+    descriptor goes back over the wire whole rather than as its parts, for the
+    reason a scale-out's does: it is one record of one change, and a caller
+    assembling it from fields could assemble one that never happened.
+
+    Answers with which halves were managed rather than raising, because a restore
+    can half-succeed and the half that fails is the quiet one - an autoscaler back
+    at its declared floor while reconciliation is still suspended looks right and
+    receives nothing.
+    """
+    return client.call(
+        "restore_autoscaler_floor",
+        _AUTOSCALING_RESTORED.validate_python,
         descriptor=descriptor.model_dump(mode="json"),
     )
 

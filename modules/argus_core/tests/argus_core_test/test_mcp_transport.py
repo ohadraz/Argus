@@ -20,7 +20,12 @@ from queue import Empty
 from typing import NamedTuple
 
 import pytest
-from argus_core.mcp_transport import McpClient, McpToolError, McpUnreachable
+from argus_core.mcp_transport import (
+    ActionExhausted,
+    McpClient,
+    McpToolError,
+    McpUnreachable,
+)
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from pydantic import TypeAdapter
@@ -92,6 +97,43 @@ def test_a_tool_that_refused_is_raised_rather_than_asked_again(
         .then(all_of(
             _what_was_raised_was(McpToolError),
             _the_tool_was_asked(times=1)
+        ))
+
+
+@pytest.mark.component
+def test_a_refusal_the_server_marked_as_exhausted_says_so_to_the_caller() -> None:
+    """A tool refusing because there is nothing left to do is its own answer.
+
+    The distinction a walk acts on. A tier that cannot make a deployment larger
+    than it already is has not failed - it has answered - and a caller that read
+    that as a failure would wake a human while the explanation that actually
+    caused the incident sat untried further down the list. So the marker crosses
+    the wire and arrives as a type, because the alternative is matching on the
+    words of a sentence somebody will rewrite.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_as_exhausted)) \
+            .then(_what_was_raised_was(ActionExhausted))
+
+
+@pytest.mark.component
+def test_an_ordinary_refusal_is_not_read_as_an_exhausted_action(
+    running_double: RunningDouble
+) -> None:
+    """A broken tool is still a broken tool.
+
+    The other half, and the one that decides whether the first is worth having: a
+    transport that read every refusal as exhausted would satisfy the test above
+    and quietly turn every platform outage into a candidate being skipped.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(_asking(running_double, _refusing_once_and_counting)) \
+        .then(all_of(
+            _what_was_raised_was(McpToolError),
+            _what_was_raised_was_not(ActionExhausted)
         ))
 
 
@@ -310,6 +352,29 @@ def _what_was_raised_was(expected: type[BaseException]) -> Assertion[_Attempt]:
     return assertion
 
 
+def _what_was_raised_was_not(
+    excluded: type[BaseException]
+) -> Assertion[_Attempt]:
+    """The failure was of the general kind and not the particular one.
+
+    Needed because the particular kind is a subclass of the general one, so
+    asserting the general kind alone cannot catch the failure that matters here:
+    a transport reading every refusal as exhausted would pass every test above
+    and would have the walk skip a candidate whenever a server was merely
+    broken.
+    """
+    def assertion(attempt: _Attempt) -> bool:
+        if isinstance(attempt.raised, excluded):
+            raise AssertionError(
+                f"Expected the failure not to be a {excluded.__name__}, and it "
+                f"was: {attempt.raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_tool_was_asked(times: int) -> Assertion[_Attempt]:
     def assertion(attempt: _Attempt) -> bool:
         if attempt.asked != times:
@@ -361,3 +426,12 @@ def _closing_while_a_call_is_in_flight(
             ) from None
 
     return step
+
+
+def _refusing_as_exhausted(client: McpClient) -> _Attempt:
+    try:
+        client.call("refuse_as_exhausted", SOMETHING.validate_python)
+    except Exception as refusal:
+        return _Attempt(raised=refusal)
+
+    return _Attempt()

@@ -17,6 +17,7 @@ from argus_core.events import (
     CandidatesReordered,
     FlagChangesRetrieved,
     Publisher,
+    SimilarIncidentsRecalled,
     nobody,
     publish,
 )
@@ -111,12 +112,28 @@ def investigator_node(
     # The description is built from this round's best answer, because that is
     # what this incident looks like as far as anyone knows yet - the alert's own
     # words plus what the investigation just concluded.
+    recalled = recall_similar(
+        what_it_looked_like(state.alert, findings.candidates[0]),
+        state.alert.service
+    )
+
+    # Said before anything is done with it, and said whether or not anything is.
+    # A reordering needs a candidate to move something behind, and how many
+    # candidates a round offers is the model's to decide - so a timeline carrying
+    # only the reordering is silent about memory on the walks where memory was
+    # read and did find something.
+    if recalled:
+        publish(
+            SimilarIncidentsRecalled(
+                incident_id=state.incident_id,
+                incident_ids=[remembered.incident_id for remembered in recalled]
+            ),
+            publisher
+        )
+
     reordered = demoting_what_was_refuted(
         what_each_would_do(findings.candidates, flag_changes, state.alert.service),
-        recall_similar(
-            what_it_looked_like(state.alert, findings.candidates[0]),
-            state.alert.service
-        )
+        recalled
     )
     candidates = [entry.candidate for entry in reordered.candidates]
 

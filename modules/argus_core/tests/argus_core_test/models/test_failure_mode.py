@@ -91,6 +91,32 @@ def test_the_two_halves_of_resource_exhaustion_say_what_separates_them() -> None
         ))
 
 
+@pytest.mark.unit
+def test_the_two_ways_capacity_can_be_wrong_say_what_separates_them() -> None:
+    # The third capacity mode, and the pair where the evidence decides least. At
+    # the bottom of every cycle a capacity that will not settle is saturation
+    # exactly: the same alert, the same latency climb, the same traffic several
+    # times the baseline, the same empty change channels. One field differs - the
+    # capacity the deployment had, which takes more than one value across the
+    # window - so this distinction has to be somewhere to look rather than a
+    # judgement to make.
+    #
+    # Both directions, as with the two pairs above. The cost of getting it wrong
+    # is the sharpest of the three: the two are answered by opposite actions, so a
+    # model that reads a flap as saturation gets the mitigation the controller
+    # undoes, and a model that reads saturation as a flap stops a controller that
+    # was never running.
+    Scenario() \
+        .given(the_two_ways := (
+            FailureMode.DEMAND_SATURATION, FailureMode.AUTOSCALING_PATHOLOGY
+        )) \
+        .when(lambda: the_two_ways) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_the_capacity()
+        ))
+
+
 def _what_it_means(cause: FailureMode) -> str:
     """The meaning, or the empty string where asking for one fails.
 
@@ -253,6 +279,38 @@ def _the_pair_is_told_apart_by_the_traffic() -> Assertion[
                 f"without saying that what separates them is whether the "
                 f"traffic moved with the consumption - so the model is told "
                 f"there is a distinction and not how to make it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_the_capacity() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to name the series that decides it.
+
+    Naming the other mode is not enough, for the reason it is not enough of
+    either pair above - and here it is less enough than anywhere else, because
+    there is no judgement left to fall back on. At the bottom of every cycle a
+    capacity that will not settle *is* a capacity that was outgrown, in the
+    alert, in the latency, in the traffic and in the empty change channels. So a
+    meaning that does not send the model to one field sends it nowhere.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "cpu_limit_cores" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without naming the series that separates them - the capacity "
+                f"the deployment had, which moves in one of the pair and holds "
+                f"still in the other - so the model is left to judge where it "
+                f"could have looked."
             )
 
         return True

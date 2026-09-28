@@ -1,0 +1,79 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Hs46LUHchjMzxmGjy5BSc4",
+      "input": {
+        "hypotheses": [
+          {
+            "confidence": 0.78,
+            "failure_mode": "autoscaling-pathology",
+            "faulting_service": null,
+            "from_state": "3.0",
+            "subject": "io-shop cpu_limit_cores / replica capacity",
+            "summary": "Traffic climbed steadily from 1200 to 5400 req/min while the autoscaler\\u2019s cpu_limit_cores flapped between 3.0 and 6.0 every few minutes instead of settling at a higher steady capacity; each time the limit fell back to 3.0, cpu_used_cores met or exceeded it (e.g. 3.185, 3.307, 3.552 against a 3.0 limit) and p50/p95/p99 latency spiked into the hundreds/thousands of ms in those exact minutes, then recovered when capacity briefly rose to 6.0. This oscillation pattern - not a single fixed capacity ceiling - is what drove the HighLatency alert.",
+            "supporting_evidence": [
+              {
+                "at": "2026-09-28T07:13:00Z",
+                "claim": "cpu_limit_cores,3.0"
+              },
+              {
+                "at": "2026-09-28T07:14:00Z",
+                "claim": "cpu_limit_cores,6.0"
+              },
+              {
+                "at": "2026-09-28T07:24:00Z",
+                "claim": "cpu_limit_cores,3.0 with cpu_used_cores,3.185 (over limit) and p50_ms,372"
+              },
+              {
+                "at": "2026-09-28T07:26:00Z",
+                "claim": "cpu_limit_cores,6.0"
+              },
+              {
+                "at": "2026-09-28T07:29:00Z",
+                "claim": "cpu_limit_cores,3.0 with cpu_used_cores,3.552 and p50_ms,356"
+              },
+              {
+                "at": "2026-09-28T07:13:00Z",
+                "claim": "request_volume climbing continuously from 1200 to a plateau of 5400 across the same window"
+              },
+              {
+                "at": null,
+                "claim": "(nothing changed in this window)"
+              }
+            ],
+            "to_state": "6.0"
+          }
+        ]
+      },
+      "name": "final_answer",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CfVT2L2X5qpcAM6ENvvxU",
+  "model": "claude-sonnet-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1266
+    },
+    "cache_creation_input_tokens": 1266,
+    "cache_read_input_tokens": 28131,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 719,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard"
+  }
+}

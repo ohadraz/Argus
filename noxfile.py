@@ -1912,6 +1912,19 @@ _THE_LARGE_FIX_CASE: Final = "tests/e2e/test_proposing_a_large_code_fix.py"
 # read to its token bound and never answered, so it bought nothing at all.
 _THE_SCALE_OUT_CASE: Final = "tests/e2e/test_a_saturated_deployment_is_scaled_out.py"
 
+# The pin case, left to `both` for the scale-out's reason and with one addition of
+# its own: its walk is the dearest in the suite. The near-miss it exists to
+# demonstrate is a whole mitigation attempt - scale out, wait the verification
+# timeout, be refuted, put it back, try again - so a capture bills for two
+# attempts where every other case bills for one. Nothing in "a controller re-derives
+# a count Argus set" varies by which tool found a file.
+#
+# Its sibling in the same scenario - the gradeable case - is not listed here and
+# must not be: it asks no model anything, needs no corpus, and is the one thing
+# that reads the fixture's arithmetic against the real detector. Excluding it per
+# mode would remove a free check for the cost of nothing.
+_THE_PIN_CASE: Final = "tests/e2e/test_a_flapping_autoscaler_is_pinned.py"
+
 _THE_CASES_WORTH_PAYING_FOR: Final = ["tests/e2e", f"--ignore={_THE_LARGE_FIX_CASE}"]
 
 
@@ -2012,21 +2025,25 @@ def _the_cases_for(mode: str) -> list[str]:
     store, no watermark and no push to move one - those cases are not pending
     against this stack, they are about a mechanism it does not have.
 
-    The large-fix and scale-out cases are left out of the other two modes for a
-    different reason, and it is a decision rather than an absence. One claims
+    The large-fix, scale-out and pin cases are left out of the other two modes for
+    a different reason, and it is a decision rather than an absence. One claims
     that an answer the size of a whole large file survives the round trip -
-    streamed, reassembled, parsed and written - and the other that a mode reaches
-    the fourth mitigation and the platform answers for the capacity. Nothing in
-    either claim varies by which tool the model found a file with, and the walks
-    that do differ per mode are covered by their siblings - so recording these
-    three times would buy three recordings of one assertion, at a real
-    investigation each, on every re-record for ever.
+    streamed, reassembled, parsed and written; another that a mode reaches the
+    fourth mitigation and the platform answers for the capacity; the third that a
+    controller re-derives a count Argus set, and that the fifth mitigation is what
+    holds. Nothing in any of those varies by which tool the model found a file
+    with, and the walks that do differ per mode are covered by their siblings - so
+    recording them three times would buy three recordings of one assertion, at a
+    real investigation each, on every re-record for ever. The pin's is the dearest
+    of the three: its near-miss is a whole mitigation attempt, so one capture bills
+    for two.
     """
     left_out = []
 
     if mode != _SEARCHING_BOTH_WAYS:
         left_out.append(f"--ignore={_THE_LARGE_FIX_CASE}")
         left_out.append(f"--ignore={_THE_SCALE_OUT_CASE}")
+        left_out.append(f"--ignore={_THE_PIN_CASE}")
 
     if mode == _SEARCHING_BY_GREP_ALONE:
         left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")

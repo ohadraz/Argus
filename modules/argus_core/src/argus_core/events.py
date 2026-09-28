@@ -414,6 +414,45 @@ class PostmortemWritten(_Event):
     engineer_minutes: int | None = None
 
 
+class SimilarIncidentsRecalled(_Event):
+    """Memory was searched for incidents like this one, and these were found.
+
+    The search rather than what came of it, and the two are different facts. A
+    reordering is visible only where a round offered a candidate to move
+    something behind, and how many candidates a round offers is the model's to
+    decide - so on a walk where memory was read and did find something, a
+    timeline carrying `CandidatesReordered` alone says memory was never
+    consulted. This is the line that says it was.
+
+    Nearest first, as the search returned them, because the order is the only
+    thing here a reader could act on: the incident at the front is the one whose
+    record most resembles this one, and a set would throw that away.
+
+    Every match rather than one, which is the opposite of the choice
+    `CandidatesReordered` makes, and for a reason that survives both: that line
+    names the record a walk *acted on*, where this one accounts for what was
+    available to act on. A reader asking why a candidate was spared wants one
+    incident; a reader asking whether memory had anything to say wants all of
+    them.
+
+    Silent on an empty search, for the reason a reordering that moved nothing is
+    silent: a line on every walk saying memory held nothing is a timeline nobody
+    reads.
+    """
+
+    kind: Literal["similar-incidents-recalled"] = "similar-incidents-recalled"
+    # The ids alone. What each of those incidents tried is in the record this was
+    # read from, and a copy of it here would be a second version of the same
+    # fact - one that goes stale the moment the record is written to again.
+    #
+    # At least one, in the type rather than in the caller that publishes this. The
+    # silence on an empty search is a decision one publisher makes, and a row is
+    # read back by everything that renders a timeline - which reads the nearest
+    # incident off the front of this list, and would raise on a page and in a
+    # postmortem a long way from whoever wrote the row.
+    incident_ids: list[str] = Field(min_length=1)
+
+
 class CandidatesReordered(_Event):
     """Long-term memory moved this incident's candidates, and what moved them.
 
@@ -521,6 +560,7 @@ type IncidentEvent = Annotated[
         | ChangeUndone
         | FixAttempted
         | PostmortemWritten
+        | SimilarIncidentsRecalled
         | CandidatesReordered
         | IncidentRemembered
         | RememberingFailed

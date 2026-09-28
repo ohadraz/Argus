@@ -35,6 +35,7 @@ from argus_core.events import (
     CandidatesReordered,
     FlagChangesRetrieved,
     IncidentEvent,
+    SimilarIncidentsRecalled,
 )
 from argus_core.models import (
     ActionIdentity,
@@ -553,6 +554,76 @@ def test_an_order_memory_left_alone_is_not_said(
 
 
 @pytest.mark.unit
+def test_what_memory_recalled_is_said_on_the_timeline(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Said whether or not anything moved, which is the whole reason it is a line
+    # of its own. A reordering is visible only where a round offered something to
+    # move a candidate behind, and how many candidates a round offers is the
+    # model's to decide - so a timeline carrying only `CandidatesReordered` is
+    # silent about memory on every walk where memory was read and did find
+    # something. One candidate here, so nothing can move and the recall is the
+    # only thing there is to say.
+    an_investigating_incident = _an_investigating_incident()
+    the_nearest = "3f2b1a09-0000-4000-8000-00000000000a"
+    the_one_behind_it = "3f2b1a09-0000-4000-8000-00000000000b"
+    published: Kept[IncidentEvent] = Kept()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(
+                an_investigating_incident,
+                investigate=investigate,
+                recall_similar=_earlier_incidents_nearest_first(
+                    the_nearest, the_one_behind_it
+                ),
+                record_hypothesis=record_hypothesis,
+                fetch_flag_changes=fetch_flag_changes,
+                fetch_dependencies=fetch_dependencies,
+                publisher=published.take)
+        ) \
+        .then(_the_recall_said(published, [the_nearest, the_one_behind_it]))
+
+
+@pytest.mark.unit
+def test_a_recall_that_found_nothing_is_not_said(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Silent on an empty search, for the reason a reordering that moved nothing is
+    # silent: a line on every walk saying memory held nothing is a timeline nobody
+    # reads.
+    an_investigating_incident = _an_investigating_incident()
+    published: Kept[IncidentEvent] = Kept()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_candidate_blaming(an_investigating_incident.incident_id, SOME_FLAG)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(
+                an_investigating_incident,
+                investigate=investigate,
+                recall_similar=_nothing_like_it_has_happened(),
+                record_hypothesis=record_hypothesis,
+                fetch_flag_changes=fetch_flag_changes,
+                fetch_dependencies=fetch_dependencies,
+                publisher=published.take)
+        ) \
+        .then(_no_recall_was_said(published))
+
+
+@pytest.mark.unit
 def test_the_round_says_what_flag_history_it_reasoned_from(
     investigate: MagicMock, record_hypothesis: MagicMock,
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
@@ -769,6 +840,35 @@ def _an_earlier_incident_that_refuted(
     return recall
 
 
+def _earlier_incidents_nearest_first(*incident_ids: str) -> ports.RecallSimilar:
+    """Memory holding several incidents, in the order a search returned them.
+
+    What each of them tried was refuted, and refuted on a subject no candidate
+    here blames - so nothing memory holds can move anything, which is the
+    arrangement these two cases need. What is under test is that the search is
+    accounted for at all, and a stub that also demoted a candidate would let a
+    reordering's own line satisfy the assertion.
+    """
+    def recall(dont_care_description: str,
+               dont_care_service: str) -> list[RememberedIncident]:
+        return [
+            RememberedIncident(
+                incident_id=incident_id,
+                described_as="an incident that looked like this one",
+                service=SOME_SERVICE,
+                alert_name="HighErrorRate",
+                tried=[
+                    WhatWasTried(
+                        identity=putting_back(ANOTHER_FLAG), verdict=Verdict.REFUTED
+                    )
+                ]
+            )
+            for incident_id in incident_ids
+        ]
+
+    return recall
+
+
 def _the_candidates_are_about(expected: list[str]) -> Assertion[StateDelta]:
     def assertion(delta: StateDelta) -> bool:
         if delta.candidates is None:
@@ -850,6 +950,46 @@ def _no_reordering_was_said(published: Kept[IncidentEvent]) -> Assertion[StateDe
 
         if said:
             raise AssertionError(f"Expected no reordering to be said, got {said}")
+
+        return True
+
+    return assertion
+
+
+def _the_recall_said(published: Kept[IncidentEvent],
+                     expected: list[str]) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        said = [
+            event for event in published.taken
+            if isinstance(event, SimilarIncidentsRecalled)
+        ]
+
+        if len(said) != 1:
+            raise AssertionError(
+                f"Expected one recall to be said, got "
+                f"{[event.kind for event in published.taken]}."
+            )
+
+        if said[0].incident_ids != expected:
+            raise AssertionError(
+                f"Expected the recall to name {expected} nearest first, got "
+                f"{said[0].incident_ids}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_recall_was_said(published: Kept[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        said = [
+            event for event in published.taken
+            if isinstance(event, SimilarIncidentsRecalled)
+        ]
+
+        if said:
+            raise AssertionError(f"Expected no recall to be said, got {said}.")
 
         return True
 

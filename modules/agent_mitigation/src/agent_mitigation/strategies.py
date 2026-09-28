@@ -28,6 +28,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from argus_core.models import (
+    PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -38,6 +39,7 @@ from argus_core.models import (
     FlagChange,
     FlagUndo,
     Hypothesis,
+    PinAutoscaler,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -47,6 +49,7 @@ from argus_core.models import (
 __all__ = [
     "DEFAULT_STRATEGIES",
     "MitigationStrategy",
+    "PinAutoscalerStrategy",
     "RestartDependencyStrategy",
     "RestartServiceStrategy",
     "RollBackDeploymentStrategy",
@@ -326,6 +329,61 @@ class ScaleOutStrategy:
         return ScaleOut(application=service)
 
 
+class PinAutoscalerStrategy:
+    """Answering a controller that will not settle by taking away its room to shrink.
+
+    The fifth generic mitigation, and the first that stops something rather than
+    adding or restoring something. The set's criterion is unchanged by that, as it
+    was unchanged by the one that adds: what admits an action unasked is membership
+    of the declared set, never what kind of change it makes.
+
+    It answers the other half of capacity, and the half is not a smaller version of
+    the first. A deployment that outgrew its size has too little capacity and is
+    answered by more of it; this one has enough capacity twice in every three
+    minutes and cannot keep it, so more would be taken away as fast as it arrived.
+    The scale-out is not merely insufficient here - it is the action the incident
+    is made of, performed by Argus instead of by the controller.
+
+    Which is why this cannot be the scale-out with a different target. The replica
+    count belongs to the autoscaler, so the only write that holds it is one aimed
+    at what the autoscaler is allowed to do, and an action that raised a floor
+    while calling itself a scale-out would leave a reader of the record unable to
+    say which of the two owns the number.
+
+    Like a restart, a rollback and a scale-out, the deployment comes from the alert
+    and from nowhere else. Not from Argus's configuration, which would hardcode one
+    estate's answer into the agent - and not from the hypothesis, whose subject is
+    the model's description of what would not settle rather than the name of
+    anything a platform can be asked about.
+
+    How high to raise the floor is named nowhere here, for the scale-out's reason
+    and one more. A floor is meaningless without the ceiling it is raised to meet,
+    that ceiling is live state only the write tier can read - and it is a bound
+    somebody declared for this deployment, so it is not Argus's to choose even in
+    principle.
+    """
+
+    action_type: ActionType = PIN_AUTOSCALER
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None:
+        """The deployment whose autoscaler to hold - the one the incident is about.
+
+        Neither the hypothesis nor the recorded flag changes are read. A controller
+        oscillating is not something a toggle did, and a flag that happened to move
+        while the count went up and down is a coincidence this must not act on.
+        Both parameters are still spelled as the protocol spells them, for the
+        reason the restart strategy's unread ones are.
+
+        Always an action. A control loop the model found no words for is still a
+        control loop on a deployment the alert names, and there is nothing left for
+        this to fail to identify.
+        """
+        return PinAutoscaler(application=service)
+
+
 Strategies = Mapping[FailureMode, MitigationStrategy]
 
 # Which mitigation answers which cause. A mode absent from this is one Argus
@@ -356,13 +414,22 @@ Strategies = Mapping[FailureMode, MitigationStrategy]
 # deployment look alike on a latency graph and are answered by opposite things,
 # so they map to different strategies and a reader who cannot tell them apart
 # gets the wrong one. That is what the mode is for.
+#
+# The capacity family's third member sharpens that to a point. A flapping
+# autoscaler *is* a saturated deployment at the bottom of every cycle, so the
+# near-miss is not a careless reading of different evidence - it is the same
+# evidence, read a minute too early. And the wrong answer is worse here than
+# anywhere else in this mapping: a scale-out against a controller that owns the
+# count is the incident performed by Argus rather than an action that merely fails
+# to help. What separates them is one series, and it is retrievable.
 DEFAULT_STRATEGIES: Strategies = {
     FailureMode.BAD_DEPLOYMENT: RollBackDeploymentStrategy(),
     FailureMode.FEATURE_FLAG_TOGGLE: RevertFeatureFlagStrategy(),
     FailureMode.RESOURCE_LEAK: RestartServiceStrategy(),
     FailureMode.CONFIG_INDUCED_FAILURE: RollBackDeploymentStrategy(),
     FailureMode.INTERNAL_DEPENDENCY_FAILURE: RestartDependencyStrategy(),
-    FailureMode.DEMAND_SATURATION: ScaleOutStrategy()
+    FailureMode.DEMAND_SATURATION: ScaleOutStrategy(),
+    FailureMode.AUTOSCALING_PATHOLOGY: PinAutoscalerStrategy()
 }
 
 

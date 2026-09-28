@@ -10,12 +10,15 @@ is the reviewable artefact: a test that asked the module what it contained would
 agree with it whatever it contained, and the day a kind nobody argued for
 appears in it, nothing would go red.
 
-Four kinds are declared, and they are unalike in the way that matters. One
+Five kinds are declared, and they are unalike in the way that matters. One
 leaves a value behind to put back, one leaves nothing at all, one leaves two
 things behind - a deployment on an earlier revision and a platform no longer
-reconciling it - and one restores nothing at all, because what it does is add
-capacity the deployment never had. That all four are in the set is the clearest
-statement that membership, and not reversibility, is what is being asked.
+reconciling it - one restores nothing at all, because what it does is add
+capacity the deployment never had, and one *stops* something rather than adding
+or restoring anything, by taking away an autoscaler's room to scale back down.
+That all five are in the set is the clearest statement that membership, and not
+reversibility, is what is being asked - and the fifth makes it plainest, since
+what it leaves behind is a controller held still rather than a value changed.
 """
 
 from __future__ import annotations
@@ -28,12 +31,14 @@ from agent_mitigation import (
     is_within_reach,
 )
 from argus_core.models import (
+    PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     ActionType,
     Ownership,
+    PinAutoscaler,
     RestartService,
     RollBackDeployment,
     ScaleOut,
@@ -52,6 +57,19 @@ def test_an_action_in_the_declared_set_may_be_taken() -> None:
     Scenario() \
         .given(an_admitted_action := an_action_setting(DONT_CARE_FLAG, enabled=False)) \
         .when(lambda: is_a_generic_mitigation(an_admitted_action)) \
+        .then(_it_is_admitted())
+
+
+@pytest.mark.unit
+def test_pinning_an_autoscaler_may_be_taken_unasked() -> None:
+    # The fifth kind, and the one that tests the criterion rather than restating
+    # it. Every member before it either restores a value or adds capacity, so a
+    # reader could still believe the set was about changes that can be put back.
+    # This one stops a controller, and it is admitted on the same ground as the
+    # rest: somebody declared it, which is the whole of what the gate asks.
+    Scenario() \
+        .given(a_pin := PinAutoscaler(application="io-shop")) \
+        .when(lambda: is_a_generic_mitigation(a_pin)) \
         .then(_it_is_admitted())
 
 
@@ -80,7 +98,11 @@ def test_the_declared_set_is_exactly_what_it_is_written_down_as() -> None:
     # and this is where the defending gets noticed: a change to the set that
     # nobody meant fails here, naming both what it was and what it became.
     the_kinds_argus_may_take_unasked: set[ActionType] = {
-        REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT
+        REVERT_FEATURE_FLAG,
+        RESTART_SERVICE,
+        ROLL_BACK_DEPLOYMENT,
+        SCALE_OUT,
+        PIN_AUTOSCALER
     }
 
     Scenario() \

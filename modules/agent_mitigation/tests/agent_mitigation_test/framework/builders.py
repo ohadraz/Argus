@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, create_autospec
 
 from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
 from agent_mitigation.tools import (
+    AutoscalerPinner,
+    AutoscalingRestorer,
     CapacityRestorer,
     ChangedFromOutside,
     DeploymentRestorer,
@@ -296,10 +298,23 @@ def a_capacity_restorer_nobody_calls() -> MagicMock:
     return restore
 
 
+def an_autoscaling_restorer_nobody_calls() -> MagicMock:
+    """The way back from a pin, wired but not exercised.
+
+    Required for the reason the capacity restorer is: an undo that could be built
+    without a way back from every kind of change Argus makes is one that finds out
+    at the worst moment, with a refuted change waiting to be put back.
+    """
+    restore: MagicMock = create_autospec(AutoscalingRestorer, instance=True)
+
+    return restore
+
+
 def the_writes(set_state: FlagSetter | None = None,
                restart: ServiceRestarter | None = None,
                roll_back: DeploymentRoller | None = None,
-               scale_out: DeploymentScaler | None = None) -> PerformingWrites:
+               scale_out: DeploymentScaler | None = None,
+               pin: AutoscalerPinner | None = None) -> PerformingWrites:
     """The writes that perform a mitigation, with stand-ins for the unnamed ones.
 
     Every member is required of the real bundle, because an agent that could be
@@ -321,6 +336,9 @@ def the_writes(set_state: FlagSetter | None = None,
         ),
         scale_out=scale_out if scale_out is not None else create_autospec(
             DeploymentScaler, instance=True
+        ),
+        pin=pin if pin is not None else create_autospec(
+            AutoscalerPinner, instance=True
         )
     )
 
@@ -358,5 +376,6 @@ def an_undo_putting_flags_back(
         changed_from_outside=changed_from_outside,
         set_state=set_state,
         restore_deployment=a_restorer_nobody_calls(),
-        restore_capacity=a_capacity_restorer_nobody_calls()
+        restore_capacity=a_capacity_restorer_nobody_calls(),
+        restore_autoscaling=an_autoscaling_restorer_nobody_calls()
     )

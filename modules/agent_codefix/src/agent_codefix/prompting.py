@@ -44,7 +44,7 @@ import json
 from typing import Any, Final
 
 from argus_core.models import ToolDefinition
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # The tool's name and its fields, named once. Both ends of the exchange read
 # them - the definition offered to the model, and the reader taking the call
@@ -123,10 +123,40 @@ CONTENT_FIELD: Final = "content"
 
 REQUIRED_FIELDS: Final = [SUMMARY_FIELD, FILES_FIELD]
 
+# How a model writes a tool argument when it stops writing JSON and starts
+# writing tags. Both halves are quoted from real submissions rather than
+# guessed: the prose ends with the closing tag of the field it was in, and the
+# patch that should have been an argument follows as the opening tag of the next
+# one. Named here because two things read them - the recovery below, and anybody
+# later wondering why an explanation would contain markup at all.
+EXPLANATION_CLOSING_TAG: Final = "</explanation>"
+FILES_PARAMETER_TAG: Final = '<parameter name="files">'
+
 # The tag a model closed around a file it was asked for the contents of, named
 # for the field rather than spelled at the point it is stripped: it is the
 # field's own name that produced it, and the two have to move together.
 _A_CLOSING_CONTENT_TAG: Final = f"</{CONTENT_FIELD}>"
+
+
+def _the_patch_in(written: str) -> list[Any] | None:
+    """The files written after a parameter tag, or `None` where there are none.
+
+    A list of entries and nothing else. The recovery this serves rewrites the
+    submission's own `files`, so anything that is not the shape of a patch has to
+    leave it alone rather than replace a readable answer with a scalar - and the
+    entries themselves are left exactly as they arrived, because the validator
+    that reads a patch is the one that decides what counts as one.
+
+    Trailing text after the array is tolerated, which is what `raw_decode` buys:
+    a model that closed the tag, or wrote another paragraph after it, still wrote
+    the patch.
+    """
+    try:
+        decoded, _ = json.JSONDecoder().raw_decode(written.strip())
+    except ValueError:
+        return None
+
+    return decoded if isinstance(decoded, list) else None
 
 
 def _the_source_in(content: str) -> str:
@@ -273,6 +303,58 @@ class SubmittedFix(BaseModel):
         with an obvious reading.
         """
         return {proposed.path: proposed.content for proposed in self.files}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _the_patch_written_into_the_prose(cls, value: Any) -> Any:
+        """The patch recovered from an explanation it was written inside.
+
+        A real answer, five submissions across two paid runs and every one the
+        same: the model closes the prose with `</explanation>`, opens
+        `<parameter name="files">`, and writes the whole patch as JSON inside the
+        explanation string - while the `files` argument that arrives properly
+        holds a phrase pointing at it. Tool arguments in the tag form, in the
+        middle of a JSON one.
+
+        Nothing is lost when that happens and nothing is wrong with the fix. The
+        patches recovered this way are the same 67KB module and its tests that
+        every working recording of this walk holds. What it cost was the run:
+        the pointer is dropped as the placeholder it is, the submission then
+        carries no files, and the walk spends its whole clock resubmitting an
+        answer it had written correctly the first time.
+
+        Repaired rather than refused, for the reason the stray closing tag is and
+        the array inside a string before it - the wrapping was wrong and the
+        answer was not.
+
+        Recovered files replace what arrived rather than joining it. The two
+        describe the same patch, and the one written in the tag is the one the
+        model elided.
+
+        Before every field validator, because those run on the fields this
+        rewrites. Silent where the payload does not parse: a model that wrote
+        something else after the tag has submitted a patch nobody can read, which
+        is the case the put-back already exists for.
+        """
+        if not isinstance(value, dict):
+            return value
+
+        explanation = value.get(EXPLANATION_FIELD)
+
+        if not isinstance(explanation, str) or FILES_PARAMETER_TAG not in explanation:
+            return value
+
+        prose, _, written = explanation.partition(FILES_PARAMETER_TAG)
+        files = _the_patch_in(written)
+
+        if files is None:
+            return value
+
+        return {
+            **value,
+            EXPLANATION_FIELD: prose.strip().removesuffix(EXPLANATION_CLOSING_TAG).strip(),
+            FILES_FIELD: files
+        }
 
     @field_validator(SUMMARY_FIELD, EXPLANATION_FIELD, mode="before")
     @classmethod

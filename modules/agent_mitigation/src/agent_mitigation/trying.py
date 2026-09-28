@@ -20,9 +20,12 @@ from argus_core.events import (
     nobody,
     publish,
 )
+from argus_core.mcp_transport import EXHAUSTED_ACTION_MARKER, ActionExhausted
 from argus_core.models import (
+    AutoscalerUndo,
     DeploymentRollbackUndo,
     FlagUndo,
+    PinAutoscaler,
     ReplicaUndo,
     RestartService,
     RevertFeatureFlag,
@@ -142,9 +145,15 @@ def take_action(action: Action,
     Mitigation and the Investigator cannot disagree about whether a given
     minute was healthy - two agents that could would be two incidents.
 
-    An action that could not be taken at all is `ESCALATED`, not `REFUTED`:
-    nothing was changed, so there is nothing to judge and nothing to undo, and
-    a verdict here would describe an experiment that never ran.
+    An action that could not be taken at all is never `REFUTED`: nothing was
+    changed, so there is nothing to judge and nothing to undo, and a verdict here
+    would describe an experiment that never ran. Which of the other two it is
+    depends on *why* it could not be taken, and the difference decides whether the
+    walk goes on. A tier that could not be reached, or that refused after it had
+    already changed something, is `ESCALATED` - nobody can say what state
+    production is in. A tier that answered and said the action has nowhere left to
+    go is `NOT_ATTEMPTED`, and the walk moves to its next candidate: a bound Argus
+    holds is not a reason to wake somebody.
 
     `incident_id` is optional because an `Action` is not incident-scoped and
     neither is this call - a caller with no incident to attribute the wait to
@@ -166,6 +175,30 @@ def take_action(action: Action,
     """
     try:
         performed = _perform(action, writes)
+    except ActionExhausted as exhausted:
+        # Caught before the handler below, and the order is the whole of it: an
+        # exhausted action is an `McpToolError` like any other, so a broader
+        # `except` reached first would swallow it into an escalation and this
+        # branch would never run.
+        #
+        # Not `ESCALATED`, because nothing is wrong: the tier was reached, it
+        # answered, and its answer is that this action has nowhere left to go - a
+        # deployment already at the most replicas Argus may ask for, an
+        # autoscaler whose floor already meets its ceiling. Escalating here ends
+        # the walk over a bound, and an incident whose next candidate is a flag
+        # Argus could revert in seconds reaches a human for no reason.
+        #
+        # Not `REFUTED` either, which is the trap worth naming: that says the
+        # explanation was tested and did not hold, and nothing was tested. A
+        # record carrying it would have the postmortem report that the evidence
+        # ruled a cause out when nothing ruled it out.
+        return Outcome(
+            verdict=Verdict.NOT_ATTEMPTED,
+            detail=(
+                f"did not {_what_it_would_have_done(action)} - "
+                f"{_without_the_marker(exhausted)}"
+            ),
+        )
     except Exception as error:
         return Outcome(
             verdict=Verdict.ESCALATED,
@@ -255,6 +288,32 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
                 ),
                 undo_descriptor=scaled
             )
+        case PinAutoscaler():
+            pinned = writes.pin(action.application)
+
+            return Performed(
+                said=(
+                    # The floor it came *from*, named as the floor it came from
+                    # rather than as the floor it is now - which is the whole care
+                    # of this line. The descriptor records the prior floor, and a
+                    # sentence that used it to assert a present state would be
+                    # false the moment the pin succeeded: "scaling below three"
+                    # was already true before Argus acted.
+                    #
+                    # Where it went, by its number and not by the name of a
+                    # bound. The tier asks for whichever is smaller of the
+                    # autoscaler's declared ceiling and the most replicas Argus
+                    # may hold a deployment at - so "to its ceiling" is false
+                    # exactly where Argus's own cap was the binding one, and names
+                    # a figure belonging to somebody else's declaration rather
+                    # than to anything Argus wrote. The tier records what it
+                    # asked for, which is why this can say it.
+                    f"raised [{action.application}]'s autoscaler floor from "
+                    f"[{pinned.was_min_replicas}] replicas to "
+                    f"[{pinned.min_replicas_asked_for}]"
+                ),
+                undo_descriptor=pinned
+            )
         case _:
             assert_never(action)
 
@@ -273,6 +332,11 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
             return (
                 f"to the revision at history entry "
                 f"[{undo_descriptor.was_on_history_id}]"
+            )
+        case AutoscalerUndo():
+            return (
+                f"to an autoscaler floor of "
+                f"[{undo_descriptor.was_min_replicas}] replicas"
             )
         case ReplicaUndo():
             return f"to [{undo_descriptor.was_replicas}] replicas"
@@ -297,8 +361,26 @@ def _what_it_would_have_done(action: Action) -> str:
             return f"roll [{action.application}] back to its previous revision"
         case ScaleOut():
             return f"scale [{action.application}] out"
+        case PinAutoscaler():
+            return f"stop [{action.application}]'s autoscaler scaling it down"
         case _:
             assert_never(action)
+
+
+def _without_the_marker(exhausted: ActionExhausted) -> str:
+    """The refusal's own words, without the token that classified it.
+
+    The marker is how the transport tells an exhausted action from any other
+    refusal, and it has done that job by the time this reads the message. What
+    goes into the detail is read by a person - in the timeline, in the postmortem,
+    in a Slack line - and `argus:action-exhausted` in the middle of a sentence
+    tells them nothing the verdict beside it has not already said.
+
+    Removed rather than left for the reader to skip, and removed here rather than
+    at the source: the transport is right to carry it, since a caller that wanted
+    to match on the token still can.
+    """
+    return str(exhausted).replace(EXHAUSTED_ACTION_MARKER, "").strip()
 
 
 def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,

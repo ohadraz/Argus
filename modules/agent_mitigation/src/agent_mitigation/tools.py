@@ -9,6 +9,8 @@ from typing import Protocol
 from argus_core import SettingsSlice, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    AutoscalerUndo,
+    AutoscalingRestored,
     CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
@@ -21,7 +23,9 @@ from argus_core.models import (
 from read_mcp_client import get_metrics_summary
 from write_mcp_client import (
     get_recent_flag_changes,
+    pin_autoscaler,
     restart_service,
+    restore_autoscaler_floor,
     restore_deployment,
     restore_replica_count,
     roll_back_deployment,
@@ -124,6 +128,37 @@ class CapacityRestorer(Protocol):
     def __call__(self, descriptor: ReplicaUndo, /) -> CapacityRestored: ...
 
 
+class AutoscalerPinner(Protocol):
+    """Stopping a deployment's autoscaler moving its replica count about.
+
+    The application, and nothing else. How high the floor goes is the tier's to
+    resolve - it reads the autoscaler's own ceiling and raises the floor to meet
+    it, bounded by a ceiling of its own - because a floor is meaningless without
+    the ceiling it is raised to, and because that ceiling is a bound somebody
+    declared for the deployment rather than a figure an agent may assert.
+
+    It answers with the descriptor recording what it changed, and the descriptor
+    records *two* things for the reason a scale-out's does: a platform reconciling
+    the application itself re-applies the autoscaler the repository declares, floor
+    included, so suspending that is part of performing this rather than a separate
+    concern.
+    """
+
+    def __call__(self, application: str, /) -> AutoscalerUndo: ...
+
+
+class AutoscalingRestorer(Protocol):
+    """Letting a pinned autoscaler move again, as Argus found it.
+
+    Both of the things the pin changed, and it answers with which of them it
+    managed rather than with nothing - for the reason the capacity restorer above
+    does: a restore that half-succeeded is not a restore, and the caller has to be
+    able to say which half is still changed.
+    """
+
+    def __call__(self, descriptor: AutoscalerUndo, /) -> AutoscalingRestored: ...
+
+
 class DeploymentRestorer(Protocol):
     """Putting a rolled-back deployment back the way Argus found it.
 
@@ -159,6 +194,7 @@ class PerformingWrites:
     restart: ServiceRestarter
     roll_back: DeploymentRoller
     scale_out: DeploymentScaler
+    pin: AutoscalerPinner
 
 
 Clock = Callable[[], datetime]
@@ -248,8 +284,22 @@ def performing_writes_over(client: McpClient) -> PerformingWrites:
         set_state=flag_setter_over(client),
         restart=service_restarter_over(client),
         roll_back=deployment_roller_over(client),
-        scale_out=deployment_scaler_over(client)
+        scale_out=deployment_scaler_over(client),
+        pin=autoscaler_pinner_over(client)
     )
+
+
+def autoscaler_pinner_over(client: McpClient) -> AutoscalerPinner:
+    """The fifth write, over one connection."""
+    return partial(pin_an_autoscaler, client=client)
+
+
+def autoscaling_restorer_over(client: McpClient) -> AutoscalingRestorer:
+    """Putting the fifth back, which is a tool of its own for the reason the
+    fourth's is: two pieces of prior state and a platform that refuses one order of
+    them, so the tier performs it as its own operation and answers with which
+    halves it managed."""
+    return partial(restore_an_autoscaler, client=client)
 
 
 def deployment_restorer_over(client: McpClient) -> DeploymentRestorer:
@@ -441,6 +491,27 @@ def restore_a_replica_count(descriptor: ReplicaUndo,
     """Puts back both of the things a scale-out changed, reporting which it
     managed."""
     return restore_replica_count(descriptor, client=client)
+
+
+def pin_an_autoscaler(application: str,
+                      *,
+                      client: McpClient) -> AutoscalerUndo:
+    """Stops a deployment's autoscaler scaling it back down, answering with what
+    that changed.
+
+    A named function rather than `pin_autoscaler` itself, for the reason
+    `scale_out_a_deployment` is one: the agent needs one of that tool's calling
+    shapes, and a seam is only useful if a test can spec against the shape the
+    caller actually uses.
+    """
+    return pin_autoscaler(application, client=client)
+
+
+def restore_an_autoscaler(descriptor: AutoscalerUndo,
+                          *,
+                          client: McpClient) -> AutoscalingRestored:
+    """Puts back both of the things a pin changed, reporting which it managed."""
+    return restore_autoscaler_floor(descriptor, client=client)
 
 
 def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:

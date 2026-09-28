@@ -45,10 +45,12 @@ from argus_core.events import (
     RecoveryChecked,
     RememberingFailed,
     RetrievalRequested,
+    SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
 )
 from argus_core.models import (
+    PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -576,6 +578,53 @@ def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
 
 
 @pytest.mark.unit
+def test_what_memory_recalled_says_how_many_and_which_was_nearest() -> None:
+    # The line that says memory was consulted at all. A reordering is written only
+    # where something moved, and whether anything can move depends on how many
+    # candidates the round offered - so on a walk where memory was read and did
+    # find something, this is the only account of it. The count is the marked
+    # phrase because it is what a reader scanning a timeline can act on; the
+    # nearest incident is in the sentence, because it is the record the line after
+    # this one may move a candidate on the strength of.
+    the_nearest_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+    the_one_behind_it = "3f2b1a09-0000-4000-8000-00000000000b"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        incident_ids=[the_nearest_incident, the_one_behind_it]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(all_of(
+            _the_only_line_marks("2 earlier incidents"),
+            _the_only_line_mentions(the_nearest_incident),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
+    # One match is the ordinary case - a service has usually had one incident
+    # resembling this one rather than several - so the singular is the wording
+    # most readers will see, and "1 earlier incidents" is the kind of line that
+    # makes a reader distrust the rest of the timeline.
+    the_only_incident_like_it = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        incident_ids=[the_only_incident_like_it]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(all_of(
+            _the_only_line_marks("1 earlier incident"),
+            _no_line_mentions("earlier incidents")))
+
+
+@pytest.mark.unit
 def test_an_order_memory_changed_names_a_restart_as_a_restart() -> None:
     # Why the event carries a kind at all. Said as its subject alone the line
     # read "moved io-shop down the list" whether io-shop was a service
@@ -977,6 +1026,78 @@ def test_an_order_memory_changed_names_a_scale_out_as_a_scale_out() -> None:
         .then(_the_only_line_marks(
             f"scaling {the_application_that_was_moved_down} out"
         ))
+
+
+@pytest.mark.unit
+def test_a_pin_is_said_as_a_floor_raised_and_never_as_a_count_set() -> None:
+    # Words for the fifth kind of action, and the first that stops something
+    # rather than adding or restoring something. Two actions in this estate now
+    # decide how many replicas run, so a line that called them both scaling would
+    # leave a reader unable to say which of them owns the number - which is the
+    # whole distinction between the mode this answers and the one beside it.
+    an_application_held_still = "io-shop"
+
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=PIN_AUTOSCALER,
+        subject=an_application_held_still,
+        enabled=None
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(all_of(
+            _the_only_line_marks(an_application_held_still),
+            _the_only_line_mentions("Raised the autoscaler floor"),
+            _no_line_mentions("Scaled")
+        ))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_names_a_pin_as_a_floor_raised() -> None:
+    # The gerund form, for the two lines that talk about an action without it
+    # having happened here. It matters most of all for this kind: a reader told
+    # that Argus is not reaching for a pin again has to be able to tell that from
+    # Argus not reaching for capacity again, and the two are one word apart.
+    the_application_that_was_moved_down = "io-shop"
+
+    what_memory_did = CandidatesReordered(
+        incident_id=new_id(),
+        action_type=PIN_AUTOSCALER,
+        subject=the_application_that_was_moved_down,
+        on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+    )
+
+    Scenario() \
+        .given(what_memory_did) \
+        .when(lambda: build_narration([what_memory_did])) \
+        .then(_the_only_line_marks(
+            f"holding {the_application_that_was_moved_down}'s autoscaler still"
+        ))
+
+
+def _no_line_mentions(absent: str) -> Assertion[list[NarrationLine]]:
+    """No line says this, which is what a wrong word looks like here.
+
+    The pin and the scale-out both end with a deployment at a size Argus chose,
+    so the way this goes wrong is not a missing line but a line borrowing the
+    other action's verb - which reads perfectly and says the wrong thing about
+    which action owns the replica count.
+    """
+    def assertion(narration: list[NarrationLine]) -> bool:
+        said = [line for line in narration if absent in "".join(line.text)]
+
+        if said:
+            raise AssertionError(
+                f"Expected no line to say [{absent}], and {len(said)} does: "
+                f"{[line.text for line in said]}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _an_alert() -> Alert:

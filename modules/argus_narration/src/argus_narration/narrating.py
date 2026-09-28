@@ -49,6 +49,7 @@ from argus_core.events import (
     RecoveryChecked,
     RememberingFailed,
     RetrievalRequested,
+    SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
 )
@@ -380,6 +381,20 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # matching them up should not have to read two spellings.
             emphasis = event.subject
             text = f"{emphasis} {_WHAT_BECAME_OF_IT[event.outcome]} - {event.detail}"
+        case SimilarIncidentsRecalled():
+            who = _ARGUS
+            # How many, marked, rather than the ids. The count is what a reader
+            # scanning a timeline can act on - whether memory had anything to say
+            # about this incident at all - and a row of identifiers is a lookup
+            # nobody performs mid-incident. The nearest one is named in the
+            # sentence, because it is the record the line after this may move a
+            # candidate on the strength of.
+            found = len(event.incident_ids)
+            emphasis = f"{found} earlier incident{'s' if found != 1 else ''}"
+            text = (
+                f"Found {emphasis} like this one in memory, nearest first from "
+                f"incident {event.incident_ids[0]}"
+            )
         case CandidatesReordered():
             who = _ARGUS
             # The action, because what moved the candidate is that this action
@@ -665,6 +680,15 @@ def _an_action_said(action_type: ActionType) -> str:
             # take from the line is that the deployment is now larger than the
             # one anybody declared - which is also what a withdrawal puts back.
             return "Scaled out the deployment of"
+        case "pin-autoscaler":
+            # A floor raised, never a count set, and the distinction is the whole
+            # reason this kind exists. Two actions in this estate now decide how
+            # many replicas run: one asks for more of them, and this one stops
+            # something else taking them away. A line that called both scaling
+            # would leave a reader unable to say which owns the number - and the
+            # number is what separates a capacity that was outgrown from one that
+            # will not settle.
+            return "Raised the autoscaler floor of"
 
     assert_never(action_type)
 
@@ -696,6 +720,12 @@ def _what_the_action_does(action_type: ActionType, subject: str) -> str:
             return f"rolling {subject} back"
         case "scale-out":
             return f"scaling {subject} out"
+        case "pin-autoscaler":
+            # Named for what it stops rather than for the field it writes. "Raising
+            # a floor" is the mechanism and reads, in a line about a candidate being
+            # demoted, as though Argus were adding capacity again - which is the
+            # other action and the other mode.
+            return f"holding {subject}'s autoscaler still"
 
     assert_never(action_type)
 

@@ -19,8 +19,15 @@ from agent_mitigation import (
     Undone,
     undo_change,
 )
-from agent_mitigation.tools import CapacityRestorer, DeploymentRestorer, FlagSetter
+from agent_mitigation.tools import (
+    AutoscalingRestorer,
+    CapacityRestorer,
+    DeploymentRestorer,
+    FlagSetter,
+)
 from argus_core.models import (
+    AutoscalerUndo,
+    AutoscalingRestored,
     CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
@@ -33,6 +40,7 @@ from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
     a_capacity_restorer_nobody_calls,
     a_restorer_nobody_calls,
+    an_autoscaling_restorer_nobody_calls,
     an_undo_descriptor_for,
     nobody_can_say,
     nobody_changed_it,
@@ -47,6 +55,11 @@ SOME_APPLICATION = "io-shop"
 THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 # The size the deployment was running before Argus made it larger.
 THE_COUNT_IT_WAS_RUNNING = 3
+# The floor the autoscaler was allowed to fall to before Argus held it still.
+THE_FLOOR_IT_WAS_HOLDING = 3
+# And the floor it was raised to, which is the ceiling here and is not always: the
+# tier asks for whichever is smaller of the ceiling and Argus's own cap.
+THE_CEILING_IT_WAS_HELD_AT = 6
 
 
 @pytest.mark.unit
@@ -63,7 +76,8 @@ def test_a_flag_nobody_touched_is_put_back() -> None:
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -90,7 +104,8 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
                 set_state=set_state,
                 changed_from_outside=somebody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -121,7 +136,8 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -146,7 +162,8 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 set_state=set_state,
                 changed_from_outside=nobody_can_say(),
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -174,7 +191,8 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
                 set_state=_a_flag_setter(),
                 changed_from_outside=asked.record,
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(
@@ -302,7 +320,8 @@ def test_a_rollback_is_put_back_by_the_restorer_rather_than_the_flag_setter() ->
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=restore,
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -325,7 +344,8 @@ def test_a_rollback_put_back_reports_the_application_as_its_subject() -> None:
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=_a_restorer_that_puts_back(),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
             .then(
@@ -351,7 +371,8 @@ def test_a_rollback_whose_sync_could_not_be_restored_is_not_counted_as_undone() 
                 restore_deployment=_a_restorer_that_puts_back(
                     revision=True, automated_sync=False
                 ),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -377,7 +398,8 @@ def test_a_restorer_that_raises_leaves_the_rollback_not_established() -> None:
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=_a_restorer_that_cannot(some_failure),
-                restore_capacity=a_capacity_restorer_nobody_calls()
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -406,7 +428,8 @@ def test_a_scale_out_is_put_back_by_the_capacity_restorer_and_nothing_else() -> 
                 set_state=set_state,
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=restore_deployment,
-                restore_capacity=restore_capacity
+                restore_capacity=restore_capacity,
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -427,7 +450,8 @@ def test_a_scale_out_put_back_reports_the_application_as_its_subject() -> None:
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=_a_capacity_restorer_that_puts_back()
+                restore_capacity=_a_capacity_restorer_that_puts_back(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(_it_is_about(SOME_APPLICATION))
@@ -450,7 +474,8 @@ def test_a_scale_out_put_back_says_the_count_and_the_reconciliation_both_went() 
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=_a_capacity_restorer_that_puts_back()
+                restore_capacity=_a_capacity_restorer_that_puts_back(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -476,7 +501,8 @@ def test_a_resize_whose_sync_could_not_be_restored_is_not_counted_as_undone() ->
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=_a_capacity_restorer_that_puts_back(
                     count=True, automated_sync=False
-                )
+                ),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -501,7 +527,8 @@ def test_a_capacity_restorer_that_raises_leaves_the_resize_not_established() -> 
                 set_state=_a_flag_setter(),
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
-                restore_capacity=restore
+                restore_capacity=restore,
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -545,6 +572,28 @@ def a_resize_descriptor_for(application: str,
     )
 
 
+def a_pin_descriptor_for(application: str,
+                         was_syncing_itself: bool = True) -> AutoscalerUndo:
+    return AutoscalerUndo(
+        application=application,
+        was_min_replicas=THE_FLOOR_IT_WAS_HOLDING,
+        min_replicas_asked_for=THE_CEILING_IT_WAS_HELD_AT,
+        was_syncing_itself=was_syncing_itself
+    )
+
+
+def _an_autoscaling_restorer_that_puts_back(
+    floor: bool = True,
+    automated_sync: bool = True
+) -> MagicMock:
+    restore: MagicMock = create_autospec(AutoscalingRestorer, instance=True)
+    restore.return_value = AutoscalingRestored(
+        floor_put_back=floor, automated_sync_put_back=automated_sync
+    )
+
+    return restore
+
+
 def _a_capacity_restorer_that_puts_back(count: bool = True,
                                         automated_sync: bool = True) -> MagicMock:
     restore: MagicMock = create_autospec(CapacityRestorer, instance=True)
@@ -553,3 +602,107 @@ def _a_capacity_restorer_that_puts_back(count: bool = True,
     )
 
     return restore
+
+@pytest.mark.unit
+def test_a_pin_is_put_back_by_the_autoscaling_restorer_and_nothing_else() -> None:
+    # The dispatch, for the fourth kind. A pin sent to the capacity restorer
+    # would put a replica *count* back on a deployment whose count Argus never
+    # set: the two act on the same number, and only one of them wrote it.
+    set_state = _a_flag_setter()
+    restore_capacity = a_capacity_restorer_nobody_calls()
+
+    Scenario() \
+        .given(
+            a_pin_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_pin_descriptor_for(SOME_APPLICATION),
+                set_state=set_state,
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=restore_capacity,
+                restore_autoscaling=_an_autoscaling_restorer_that_puts_back()
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _nothing_was_written(set_state)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_put_back_reports_the_application_as_its_subject() -> None:
+    # An unwind holds several answers at once and has to say which is which. A
+    # pin is about an application, as a rollback and a resize are.
+    Scenario() \
+        .given(
+            a_pin_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_pin_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=_an_autoscaling_restorer_that_puts_back()
+            )
+        ) \
+        .then(
+            _it_is_about(SOME_APPLICATION)
+        )
+
+
+@pytest.mark.unit
+def test_a_pin_whose_sync_could_not_be_restored_is_not_counted_as_undone() -> None:
+    # The half that is easy to lose, and the same half a rollback and a resize
+    # can lose. The floor is back, so the controller is free to move again - and
+    # the deployment is silently receiving nothing anybody ships to it, because
+    # the reconciliation Argus suspended is still suspended.
+    Scenario() \
+        .given(
+            a_pin_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_pin_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=_an_autoscaling_restorer_that_puts_back(
+                    floor=True, automated_sync=False
+                )
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed("automated sync")
+        ))
+
+
+@pytest.mark.unit
+def test_an_autoscaling_restorer_that_raises_leaves_the_pin_not_established() -> None:
+    some_failure = "the platform would not answer"
+    restore: MagicMock = create_autospec(AutoscalingRestorer, instance=True)
+    restore.side_effect = RuntimeError(some_failure)
+
+    Scenario() \
+        .given(
+            a_pin_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_pin_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=restore
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed(some_failure)
+        ))

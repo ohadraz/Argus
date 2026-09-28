@@ -34,6 +34,7 @@ from argus_core.events import (
 )
 from argus_core.llm import a_conversation_recorded_for
 from argus_core.models import (
+    PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -947,6 +948,49 @@ def test_a_scale_out_already_tried_is_described_as_a_scale_out() -> None:
             ),
             _what_was_asked_first_avoids(
                 investigation.model, f"set {some_application_scaled_out}"
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_already_tried_is_described_as_a_pin() -> None:
+    # The fifth kind, and the one whose absence does not degrade gracefully: the
+    # wording is chosen by a chain of comparisons ending in `assert_never`, so a
+    # kind nobody added a branch for does not render badly - it raises, and the
+    # investigation that would have raised is the second round of a walk whose pin
+    # was refuted. That walk is exactly the one this evidence matters to, because
+    # "the count was already held still and the service is still unwell" argues
+    # against the controller being the cause at all.
+    some_pinned_application = "io-shop"
+    some_time_it_was_pinned = "2026-08-20T11:12:00Z"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(),
+                already_refuted=[
+                    Attempt(
+                        identity=ActionIdentity(
+                            action_type=PIN_AUTOSCALER,
+                            subject=some_pinned_application
+                        ),
+                        occurred_at=some_time_it_was_pinned
+                    )
+                ]
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                f"stopped {some_pinned_application}'s autoscaler scaling it down",
+                some_time_it_was_pinned
+            ),
+            _what_was_asked_first_avoids(
+                investigation.model, f"set {some_pinned_application}"
             )
         ))
 

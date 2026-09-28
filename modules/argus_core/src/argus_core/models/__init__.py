@@ -11,6 +11,7 @@ saying the same thing.
 """
 
 from argus_core.models.action import (
+    PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -18,9 +19,11 @@ from argus_core.models.action import (
     Action,
     ActionIdentity,
     ActionType,
+    AutoscalingRestored,
     CapacityRestored,
     DeploymentRestored,
     Outcome,
+    PinAutoscaler,
     RestartedService,
     RestartService,
     RevertFeatureFlag,
@@ -72,9 +75,11 @@ from argus_core.models.transcript import (
 )
 from argus_core.models.turn import ToolCall, Turn
 from argus_core.models.undo_descriptor import (
+    PIN_AUTOSCALER_TOOL,
     ROLL_BACK_DEPLOYMENT_TOOL,
     SCALE_OUT_TOOL,
     SET_FEATURE_FLAG_TOOL,
+    AutoscalerUndo,
     DeploymentRollbackUndo,
     FlagUndo,
     ReplicaUndo,
@@ -88,6 +93,8 @@ __all__ = [
     "REVERT_FEATURE_FLAG",
     "ROLL_BACK_DEPLOYMENT",
     "ROLL_BACK_DEPLOYMENT_TOOL",
+    "PIN_AUTOSCALER",
+    "PIN_AUTOSCALER_TOOL",
     "SCALE_OUT",
     "SCALE_OUT_TOOL",
     "leaves_something_to_put_back",
@@ -113,6 +120,8 @@ __all__ = [
     "Findings",
     "FixOutcome",
     "FlagChange",
+    "AutoscalerUndo",
+    "AutoscalingRestored",
     "CapacityRestored",
     "DeploymentRollbackUndo",
     "DeploymentRestored",
@@ -134,6 +143,7 @@ __all__ = [
     "Reading",
     "Refusal",
     "RetrievalChannel",
+    "PinAutoscaler",
     "ReplicaUndo",
     "RestartService",
     "RollBackDeployment",

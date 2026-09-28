@@ -43,6 +43,7 @@ from argus_core.llm import (
     on_one_line,
 )
 from argus_core.models import (
+    PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -113,6 +114,15 @@ bad code and a deployment that shipped a broken configuration value arrive \
 identically and are fixed differently, so where a deployment is your best \
 explanation, read what was in it before naming which of the two it was. It takes \
 the revision the change channel gave you.
+
+One of the series you already have separates two causes that are otherwise \
+identical, and it is easy to read past because it is not a symptom. \
+`cpu_limit_cores` is the capacity a minute was served with. Held at one value \
+across the window, it is capacity the load outgrew; taking more than one value, \
+it is a controller that will not settle - and at the bottom of every cycle those \
+two agree on the alert, the latency, the traffic and the change channels alike. \
+So before naming the load outgrowing a resource, or a resource consumed on its \
+own, look at what that series did across the window.
 
 Judge only from the evidence you actually retrieved. Saying the cause is \
 undetermined is a correct and expected answer, not a failure: every window is \
@@ -758,5 +768,8 @@ def _what_was_done_in(attempt: Attempt) -> str:
 
     if kind == SCALE_OUT:
         return f"scaled {subject} out"
+
+    if kind == PIN_AUTOSCALER:
+        return f"stopped {subject}'s autoscaler scaling it down"
 
     assert_never(kind)

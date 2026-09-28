@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import httpx
 import pytest
+from argus_core.mcp_transport import EXHAUSTED_ACTION_MARKER
 from argus_core.models import CapacityRestored, ReplicaUndo
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from write_mcp_server.scaling import (
@@ -336,6 +337,43 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: _restoring(a_descriptor, platform)) \
         .then(_it_reports_restored(count=False, automated_sync=False))
+
+
+@pytest.mark.unit
+def test_a_deployment_at_the_ceiling_refuses_in_a_way_a_caller_can_recognise() -> None:
+    # The refusal that is an answer, and the walk acts on the difference: an
+    # estate already as large as Argus may make it has not failed, so the next
+    # explanation gets tried instead of a human getting woken. A caller that had
+    # to read the words of the sentence to tell that would classify it differently
+    # the day somebody rephrased it, so the marker crosses the wire.
+    platform = a_platform(replicas=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _scaling_out(platform))) \
+        .then(_the_refusal_says_the_action_is_exhausted())
+
+
+def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
+    """The refusal carries the marker the transport turns into a type.
+
+    Asserted against the marker itself rather than against the sentence, because
+    the sentence is allowed to change and the marker is not - and asserted here
+    rather than only in the kernel's own suite, because this is the end that has
+    to remember to apply it. The kernel proves a marked refusal arrives as
+    `ActionExhausted`; this proves this refusal is marked.
+    """
+    def assertion(refusal: Exception | None) -> bool:
+        if refusal is None or EXHAUSTED_ACTION_MARKER not in str(refusal):
+            raise AssertionError(
+                f"Expected the refusal to carry [{EXHAUSTED_ACTION_MARKER}], so "
+                f"that a caller can tell an exhausted action from a broken "
+                f"platform, and it said [{refusal}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _restoring(descriptor: ReplicaUndo, platform: _Platform) -> CapacityRestored:

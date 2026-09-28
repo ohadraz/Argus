@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.models import (
+    AutoscalerUndo,
+    AutoscalingRestored,
     CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
@@ -38,12 +40,14 @@ from write_mcp_server import (
     branching,
     flag_history,
     flag_state,
+    pinning,
     pull_requests,
     restarting,
     rolling_back,
     scaling,
 )
 from write_mcp_server.flag_state import FlagWriteSettings
+from write_mcp_server.pinning import PinSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 from write_mcp_server.restarting import RestartSettings
 from write_mcp_server.rolling_back import RollbackSettings
@@ -55,12 +59,13 @@ def build_server(endpoint: WriteMcpEndpoint,
                  repository_settings: RepositoryWriteSettings,
                  restart_settings: RestartSettings,
                  rollback_settings: RollbackSettings,
-                 scale_settings: ScaleSettings) -> FastMCP:
+                 scale_settings: ScaleSettings,
+                 pin_settings: PinSettings) -> FastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Five slices, not one. The flag tools speak to the provider, the code tool
-    speaks to the repository, and the restart, the rollback and the scale-out
-    each speak to the deployment platform - separately, because they are
+    Six slices, not one. The flag tools speak to the provider, the code tool
+    speaks to the repository, and the restart, the rollback, the scale-out and the
+    pin each speak to the deployment platform - separately, because they are
     different routes under different paths and a single slice would make one
     tool's misconfiguration look like another's. Every credential named belongs to
     this tier, and none of them belongs in another's calls. What keeps the *tiers* apart is that
@@ -231,6 +236,58 @@ def build_server(endpoint: WriteMcpEndpoint,
         return scaling.restore_replica_count(descriptor, scale_settings)
 
     @mcp.tool()
+    def pin_autoscaler(application: str) -> AutoscalerUndo:
+        """Stops a deployment's autoscaler moving the replica count about, and
+        reports the floor it had.
+
+        A generic mitigation (§13), and the first that stops something rather
+        than adding or restoring something - which changes nothing about what
+        admits it: an action is taken unasked because its kind is in the declared
+        set, never because of the kind of change it makes.
+
+        What it stops is a control loop, and it stops it by raising the floor to
+        the ceiling: the controller is left running with nowhere left to scale
+        down to. Nothing is removed and the ceiling is never moved, which is what
+        makes this reversible - lowering a ceiling would reduce a deployment's
+        capacity, and nothing here does that autonomously.
+
+        How high is not a parameter, for a stronger version of the reason a
+        scale-out takes no count. There a target is meaningless without the count
+        it replaces; here the number is not Argus's to choose even in principle,
+        because the ceiling is a bound a human declared.
+
+        Mitigates without resolving. The repository still declares the floor the
+        controller was thrashing between, the platform's own reconciliation has
+        been suspended so that nothing re-applies it, and whatever the controller
+        was reacting to is still there; the first two are recorded in the
+        descriptor returned and are what a withdrawal puts back. The behavior
+        lives in `pinning.pin_autoscaler`; this is registration only."""
+        return pinning.pin_autoscaler(application, pin_settings)
+
+    @mcp.tool()
+    def restore_autoscaler_floor(
+        descriptor: AutoscalerUndo
+    ) -> AutoscalingRestored:
+        """Puts back both of the things a pin changed, and reports which of them
+        it managed.
+
+        The floor the autoscaler had, and the reconciliation that had to be
+        suspended to leave it. Both, or it is not undone: an autoscaler back at
+        its declared floor while the platform is still not reconciling it looks
+        correct from every angle a reader has, and silently receives nothing
+        anybody ships to it.
+
+        Answers with which halves it managed rather than raising, for the reason
+        the other two restores do: a restore can half-succeed, and the caller has
+        to be able to say which half is still changed.
+
+        The floor is put back before reconciliation is re-enabled. The other
+        order would have the platform re-apply the manifest itself,
+        unverifiably, at a moment nothing here chose. The behavior lives in
+        `pinning.restore_autoscaler_floor`; this is registration only."""
+        return pinning.restore_autoscaler_floor(descriptor, pin_settings)
+
+    @mcp.tool()
     def get_recent_flag_changes(since: str) -> list[FlagChange]:
         """Returns the flag toggles the provider recorded since `since`, oldest
         first - for each, the flag, the state it was changed to, when, and who
@@ -315,7 +372,8 @@ def main() -> None:
         RepositoryWriteSettings.of(settings),
         RestartSettings.of(settings),
         RollbackSettings.of(settings),
-        ScaleSettings.of(settings)
+        ScaleSettings.of(settings),
+        PinSettings.of(settings)
     ).run(transport="streamable-http")
 
 

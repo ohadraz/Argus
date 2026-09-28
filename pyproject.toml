@@ -222,6 +222,13 @@ ignore_imports = [
     "orchestrator.** -> argus_core.mcp_transport",
     "read_mcp_client.** -> argus_core.mcp_transport",
     "write_mcp_client.** -> argus_core.mcp_transport",
+    # The one server among them, and it holds no client. What the write tier
+    # takes from this door is the marker that makes a refusal recognisable as an
+    # answer - the word one side writes and the other reads - and a door is the
+    # only place a word like that can live without being spelled twice. It
+    # declares `mcp` itself, so the narrowness this list exists to enforce is
+    # satisfied: the module resolves on its own wherever it is installed.
+    "write_mcp_server.** -> argus_core.mcp_transport",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

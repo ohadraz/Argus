@@ -49,6 +49,23 @@ class FailureMode(StrEnum):
     # the two are the same shape on a latency graph, and a restart makes this one
     # briefly better before it returns.
     DEMAND_SATURATION = "demand-saturation"
+    # The capacity is not wrong, it will not settle: a controller adds replicas,
+    # sees the load it just relieved, takes them away again, and the service is a
+    # different size every few minutes. Not one mode with the saturation above,
+    # though the two are the same family and read the same at the bottom of every
+    # cycle - there a fixed capacity was outgrown, here the capacity moves, and
+    # the split is by response as the leak's is: add capacity that was never
+    # there, or stop the thing that keeps taking it away. Answering one with the
+    # other's action is worse than doing nothing, because a count set by hand
+    # under a live controller is a count the controller reclaims - so the
+    # mitigation appears to work and then is undone, which is the one outcome that
+    # costs a responder the time they spent watching it.
+    #
+    # The fault is a control loop rather than a resource, a revision or a value,
+    # and it is the first mode in this set of which that is true. What is left to
+    # fix afterwards is neither code nor a count but the loop's own terms - a
+    # stabilisation window, a target, a pair of bounds.
+    AUTOSCALING_PATHOLOGY = "autoscaling-pathology"
     # A service this one depends on and does not own stopped answering, and the
     # failure arrived here. The one mode in the set that no mitigation answers,
     # which is not an omission: everything Argus may do reaches its own
@@ -129,7 +146,23 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "they were. Choose it over bad-deployment and over the two dependency "
         "modes when nothing changed and nothing was deployed, and the time is "
         "spent in this service's own work rather than waiting on somebody "
-        "else's"
+        "else's. Choose it over autoscaling-pathology when cpu_limit_cores holds "
+        "one value across the whole window: capacity that was outgrown sits "
+        "still while the demand climbs past it, where capacity that will not "
+        "settle moves"
+    ),
+    FailureMode.AUTOSCALING_PATHOLOGY: (
+        "the capacity is not wrong, it will not settle - a controller adds "
+        "replicas, sees the load it has just relieved, takes them away again, "
+        "and the deployment is a different size every few minutes, so the "
+        "service is starved in some minutes and comfortable in others. "
+        "cpu_limit_cores takes more than one value across the window, and that "
+        "is what separates this from demand-saturation: at the bottom of every "
+        "cycle the two are identical in the alert, the latency, the traffic and "
+        "the change channels, so read that series rather than judging between "
+        "them. What answers this is stopping the controller from scaling back "
+        "down; setting a replica count directly is undone within a minute or "
+        "two, because the controller reclaims what it did not ask for"
     ),
     FailureMode.UPSTREAM_DEPENDENCY_FAILURE: (
         "a service this one depends on stopped answering and the failure "

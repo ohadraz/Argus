@@ -27,6 +27,23 @@ count straight back at its next sync, so a scale-out taken under automated sync 
 a mitigation with a timer on it and a service that returns to saturation at a
 moment nothing in the record explains. Only then is the action run.
 
+Reconciliation is one instance of a general rule and not the rule itself:
+**anything that re-derives the state a mitigation just set has to be suspended or
+changed before it is set**, and a repository is only one such thing. A live
+autoscaler owns the replica count too, and re-derives it from its own metric
+within a sync period.
+
+This module deliberately does nothing about that, and the restraint is the point.
+A scale-out is not the mitigation for a deployment whose count a controller is
+moving - that is a different failure mode with a different answer, and the answer
+patches the controller rather than working around it (`pinning.py`). A scale-out
+that suspended an autoscaler to make itself stick would be one action quietly
+becoming two, and it would be the wrong mode's answer arriving by the back door.
+So an autoscaler here is left exactly as it was found, recorded nowhere in the
+descriptor, and a scale-out aimed at a flapping deployment is left to be refuted
+the way any action the evidence does not bear out is refuted: the count is
+re-derived, the service does not recover, and the walk moves on.
+
 Which is also why this mitigates without resolving, and why the descriptor it
 returns records two things. The repository still asks for the size that was too
 small, and reconciliation is off so that nothing re-applies it. Both have to be put
@@ -41,6 +58,7 @@ from typing import Any, Final
 
 import httpx
 from argus_core import SettingsSlice
+from argus_core.mcp_transport import an_exhausted_action
 from argus_core.models import CapacityRestored, ReplicaUndo
 
 from write_mcp_server.argocd import (
@@ -119,7 +137,12 @@ class AlreadyAtItsLargest(Exception):
     changed. A caller told "done" would record a mitigation that never happened
     and then judge the service against it - and the honest account is the one a
     refusal gives: the action Argus has for this cause is exhausted, so the walk
-    moves on to another candidate or escalates.
+    moves on to another candidate.
+
+    Marked as an exhausted action on the way out, which is what lets the walk do
+    that. The tool worked, the estate was read correctly, and nothing was
+    changed; a caller that could not tell this from a platform it failed to reach
+    would wake a human over an answer.
     """
 
 
@@ -150,8 +173,11 @@ def scale_out(application: str,
 
     if running >= THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR:
         raise AlreadyAtItsLargest(
-            f"[{application}] is running [{running}] replicas, which is as large "
-            f"as Argus may make it ([{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}])"
+            an_exhausted_action(
+                f"[{application}] is running [{running}] replicas, which is as "
+                f"large as Argus may make it "
+                f"([{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}])"
+            )
         )
 
     was_syncing_itself = is_reconciling_itself(
@@ -184,6 +210,17 @@ def restore_replica_count(descriptor: ReplicaUndo,
     nothing to chance. Re-enabling sync first would have the platform set the
     count back on its own - to the same number, and unverifiably, at a moment
     nothing here chose.
+
+    The recorded count is written back even where something else has since moved
+    the live one away from it, and no check is made first. What an undo owes is
+    that nothing Argus set is left behind; it does not owe a deployment left at a
+    size Argus can vouch for. Where a controller owns the count, the figure written
+    here is re-derived within a sync period - and that is the correct outcome
+    rather than a failure of this call, because a count a controller immediately
+    replaces is a count Argus is no longer responsible for. Reading the live count
+    first and declining to write on a mismatch would be this module deciding
+    whether somebody else's change should stand, which is not its question to
+    answer.
     """
     count = _tried(
         lambda: _ask_for(

@@ -390,6 +390,115 @@ def _a_deployment_that_is_too_small(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+def _a_controller_that_will_not_settle(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by a conclusion about a controller.
+
+    Borrowed from the saturation walk, which is the nearest world there is: the
+    same ramp to the same plateau, the same empty change channels, the same
+    latency climb, and at the bottom of every cycle the same readings exactly.
+    That closeness is the scenario's whole point and it is what makes this the
+    rehearsal most likely to flatter itself - a fabricated answer cannot be wrong
+    about the one series the real model has to notice, because it is written by
+    somebody who already knows which mode this is.
+
+    So what a green replay of this set proves is the plumbing and nothing else:
+    the mode reaching the fifth strategy, the gate admitting it, the tier reading
+    the live bounds before it patches, the controller stopping, and the walk
+    carrying on to a postmortem. Whether a model reads a moving `cpu_limit_cores`
+    correctly is measured by the eval pair and by the paid recording, never here.
+
+    One hypothesis, for the reason the two rewrites above give. No
+    `faulting_service`: the fault is this deployment's own controller, and that
+    field names a service somebody else's outage is reached at.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.76,
+                            "failure_mode": "autoscaling-pathology",
+                            "subject": (
+                                "io-shop's horizontal pod autoscaler "
+                                "(cpu_limit_cores moving between 3.0 and 6.0)"
+                            ),
+                            "summary": (
+                                "The deployment is a different size every few "
+                                "minutes: cpu_limit_cores takes two values across "
+                                "this window rather than one, so the capacity is "
+                                "not a number the load outgrew but a number that "
+                                "will not settle. Two minutes in every three are "
+                                "served at the floor and saturate; the third runs "
+                                "at the ceiling, reports a fraction of its CPU "
+                                "target, and the controller answers by taking the "
+                                "replicas straight back. The heap is flat, the "
+                                "error rate never stirred, and neither the deploy "
+                                "history nor the flag provider records a change. "
+                                "Adding capacity is undone within a minute here - "
+                                "what ends it is taking away the controller's room "
+                                "to scale down."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "cpu_limit_cores alternates 3.00 -> 6.00 "
+                                        "-> 3.00 across the window, which is the "
+                                        "one series that separates this from "
+                                        "demand saturation, where it holds a "
+                                        "single value throughout"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "p95 alternates with it - about 1700ms in "
+                                        "the minutes served at 3.0 cores against "
+                                        "about 215ms in the minutes served at 6.0 "
+                                        "- so the service is starved in some "
+                                        "minutes and comfortable in others"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "request_volume is flat at its plateau "
+                                        "across both kinds of minute, so what "
+                                        "changes between them is the capacity and "
+                                        "not the load"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-24T09:16:00Z",
+                                    "claim": (
+                                        "the deploy history is empty over the "
+                                        "whole window and no flag changed, so "
+                                        "nothing was released or toggled"
+                                    )
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answer has to be rewritten, by the set being fabricated, and which tool
 # call marks it. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -414,7 +523,12 @@ _THE_ANSWER_THAT_HAS_TO_DIFFER: Final[
     "both-pricing-service-degraded": (THE_TOOL_THAT_ANSWERS,
                                       _a_failing_internal_dependency),
     "grep-cpu-saturation": (THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),
-    "both-cpu-saturation": (THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small)
+    "both-cpu-saturation": (THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),
+    # `both` alone, as the large-fix set is and for its reason: the case that
+    # replays this is collected in that mode only (`noxfile._the_cases_for`), so a
+    # `grep-` set of it would answer a question no session asks.
+    "both-autoscaler-flapping": (THE_TOOL_THAT_ANSWERS,
+                                 _a_controller_that_will_not_settle)
 }
 
 

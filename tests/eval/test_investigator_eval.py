@@ -83,6 +83,7 @@ CASE_THE_MOVED_PORT = "config-induced-failure-is-told-from-a-bad-deployment"
 CASE_THE_REWRITTEN_SUM = "bad-deployment-is-told-from-a-config-change"
 CASE_THE_SATURATION = "demand-saturation-is-identified"
 CASE_THE_LEAK = "resource-leak-is-told-from-demand-saturation"
+CASE_THE_FLAPPING_AUTOSCALER = "autoscaling-pathology-is-told-from-demand-saturation"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -97,10 +98,15 @@ CASE_THE_LEAK = "resource-leak-is-told-from-demand-saturation"
 # a single lapse survives while two do not. Re-measure after any change to
 # `BRIEF`, to a tool description, or to the budget, and do not re-derive from a
 # batch: 10 samples distinguish nothing short of total failure.
-# That re-measure is owed as of the deployment channel: `BRIEF` and the tool list
-# both moved, so every figure below describes the configuration digested as
-# `33a135e3fc06` and none of them has been measured since. They are kept as the
-# last thing that was true rather than reset, and the pool separates the two.
+# That re-measure is owed twice over, and the second time is the larger of the two.
+# The deployment channel moved `BRIEF` and the tool list, so every figure below
+# describes the configuration digested as `33a135e3fc06`. The autoscaling mode then
+# moved `BRIEF` again - it now tells the Investigator to read `cpu_limit_cores`
+# before naming saturation or a leak - which is a change aimed squarely at the
+# capacity pair two of these bars score. So the digest named above no longer
+# describes what any of this is measured against, and the pair's figures are the
+# least trustworthy in the file rather than the most. They are kept as the last
+# thing that was true rather than reset, and the pool separates the arms.
 MUST_IDENTIFY_THE_FLAG_TOGGLE = 9  # 50/50 on every arm
 MUST_STAY_UNDETERMINED = 9  # 50/50 on every arm
 MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 9  # 50/50 on every arm
@@ -137,6 +143,12 @@ MUST_IDENTIFY_THE_REWRITTEN_SUM = 9  # UNMEASURED - no pooled samples yet
 # that leaks too.
 MUST_IDENTIFY_THE_SATURATION = 9  # UNMEASURED - no pooled samples yet
 MUST_IDENTIFY_THE_LEAK = 9  # UNMEASURED - no pooled samples yet
+# The third member of the capacity family, unmeasured for its siblings' reason and
+# with less standing than either: the evidence its twin reads is a subset of this
+# one's, so a model that never looks at the capacity series passes the twin and
+# fails this - and the paragraph above means neither figure has been measured
+# against the prompt that now tells it to look.
+MUST_IDENTIFY_THE_FLAPPING_AUTOSCALER = 9  # UNMEASURED - no pooled samples yet
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
@@ -202,6 +214,12 @@ SURGED_REQUEST_VOLUME = CALM_REQUEST_VOLUME * 4
 # not, where a number growing past its own limit is not a thing a real gauge
 # does.
 SATURATED_CPU_CORES = CPU_LIMIT_CORES
+# The ceiling during the minutes a controller had already added replicas. Twice the
+# declared size, which is what makes the shop briefly comfortable at the same
+# traffic - and it is the *second* value of a series every other fixture here holds
+# at one, which is the whole of what separates a capacity that will not settle from
+# one that was outgrown.
+A_DOUBLED_CEILING = CPU_LIMIT_CORES * 2
 
 # Where a heap that has been filling for an hour sits: close enough to the limit
 # to be the story, and not spilled - nothing has failed here, which is what keeps
@@ -611,6 +629,39 @@ def test_a_heap_that_filled_while_the_traffic_stood_still_is_told_from_saturatio
 
 @pytest.mark.eval
 @needs_the_real_api
+def test_a_capacity_that_will_not_settle_is_told_from_one_that_was_outgrown()\
+        -> None:
+    # The pair this scenario was built around, and the hardest separation in the
+    # suite: its twin's evidence is a subset of this one's. At the bottom of every
+    # cycle the alert, the quantiles, the traffic and the change channels all read
+    # as demand saturation, and the only thing that says otherwise is one series
+    # taking two values.
+    #
+    # Its twin is `test_a_service_that_outgrew_its_capacity_is_told_from_one_that_is_leaking`,
+    # unchanged by this mode's arrival, which is half the claim: a fourth resource
+    # story must not make the model hedge on the three that were already right.
+    some_incident = an_incident_where_the_capacity_would_not_settle()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_FLAPPING_AUTOSCALER,
+                MUST_IDENTIFY_THE_FLAPPING_AUTOSCALER,
+                _a_run_where(
+                    the_cause_was_identified_as(FailureMode.AUTOSCALING_PATHOLOGY)
+                )
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
 def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
     # The cost of the third channel, measured. This is the undetermined case
     # above with one deploy added and nothing else touched, so a drop here
@@ -939,6 +990,30 @@ def an_incident_where_a_heap_filled_without_the_traffic() -> Incident:
     )
 
 
+def an_incident_where_the_capacity_would_not_settle() -> Incident:
+    """A size that keeps changing, against a size that was outgrown.
+
+    The third member of the capacity family and the near-miss of the case above
+    it: same alert, same ramp to the same plateau, same log lines, same empty
+    change list, and at the bottom of every cycle the readings are saturation's
+    exactly. The single variable is that `cpu_limit_cores` takes more than one
+    value.
+
+    It is scored beside its twin rather than alone because that is the only way
+    either figure means anything. A model that answers `demand-saturation` to any
+    shop with pinned CPU passes the twin and fails this; one that reaches for the
+    controller whenever capacity is mentioned does the reverse. And the cost of
+    getting this one wrong is not a worse write-up - it is the mitigation the
+    controller undoes within a minute, which looks like it worked.
+    """
+    return _an_incident(
+        alert=a_latency_alert(),
+        buckets=_a_window_where_the_capacity_kept_moving(),
+        log_lines=_a_service_that_only_got_slower(),
+        changes=[]
+    )
+
+
 def _as_a_deploy_is_actually_summarised(revision: str) -> str:
     """One deployment said the way the deploy adapter says it.
 
@@ -1004,7 +1079,8 @@ def a_bucket_at(offset_minutes: int,
                 p99_ms: int = CALM_P99_MS,
                 memory_used_bytes: int = CALM_MEMORY_BYTES,
                 request_volume: int = CALM_REQUEST_VOLUME,
-                cpu_used_cores: float = CALM_CPU_CORES) -> MetricBucket:
+                cpu_used_cores: float = CALM_CPU_CORES,
+                cpu_limit_cores: float = CPU_LIMIT_CORES) -> MetricBucket:
     """One minute as the metrics channel would serve it.
 
     The traffic and the CPU are parameters rather than fixtures of the shop,
@@ -1025,7 +1101,7 @@ def a_bucket_at(offset_minutes: int,
         memory_limit_bytes=MEMORY_LIMIT_BYTES,
         process_start_time_seconds=DONT_CARE_STARTED_AT,
         cpu_used_cores=cpu_used_cores,
-        cpu_limit_cores=CPU_LIMIT_CORES
+        cpu_limit_cores=cpu_limit_cores
     )
 
 
@@ -1136,6 +1212,55 @@ def _a_calm_stretch_then_a_filling_heap() -> list[MetricBucket]:
                     memory_used_bytes=int(MEMORY_LIMIT_BYTES * filling[3])),
         a_bucket_at(5, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
                     memory_used_bytes=LEAKING_MEMORY_BYTES)
+    ]
+
+
+def _a_window_where_the_capacity_kept_moving() -> list[MetricBucket]:
+    """The same slowing, from a size that will not settle.
+
+    The saturation twin's window with one variable changed: there the capacity is
+    one number the load outgrew, and here it takes two - the controller adds
+    replicas on a saturated minute, the minute after is still served at the old
+    size while they warm, and the third runs at the larger size and reports a
+    fraction of its target, which the controller answers by taking them back.
+
+    So the traffic ramps exactly as its twin's does and stops at the same place.
+    What a reader has to notice is that `cpu_limit_cores` is not the same number in
+    every minute, and that the comfortable minutes are comfortable because the shop
+    was briefly bigger rather than because the load eased.
+
+    The cycle is written out minute by minute rather than generated, because what
+    this fixture is for is a reader seeing two values where its twin has one - and
+    a loop would hide the one line that matters behind arithmetic.
+    """
+    return [
+        *(a_bucket_at(minute, CALM_ERROR_RATE) for minute in range(-45, 1)),
+        a_bucket_at(1, CALM_ERROR_RATE, 120, 600, 900,
+                    request_volume=int(CALM_REQUEST_VOLUME * 1.8),
+                    cpu_used_cores=1.39),
+        a_bucket_at(2, CALM_ERROR_RATE, 380, 2200, 3100,
+                    request_volume=int(CALM_REQUEST_VOLUME * 2.9),
+                    cpu_used_cores=2.24),
+        a_bucket_at(3, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES),
+        a_bucket_at(4, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES),
+        a_bucket_at(5, CALM_ERROR_RATE, CALM_P50_MS, CALM_P95_MS, CALM_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES,
+                    cpu_limit_cores=A_DOUBLED_CEILING),
+        a_bucket_at(6, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES),
+        a_bucket_at(7, CALM_ERROR_RATE, SLOW_P50_MS, SLOW_P95_MS, SLOW_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES),
+        a_bucket_at(8, CALM_ERROR_RATE, CALM_P50_MS, CALM_P95_MS, CALM_P99_MS,
+                    request_volume=SURGED_REQUEST_VOLUME,
+                    cpu_used_cores=SATURATED_CPU_CORES,
+                    cpu_limit_cores=A_DOUBLED_CEILING)
     ]
 
 

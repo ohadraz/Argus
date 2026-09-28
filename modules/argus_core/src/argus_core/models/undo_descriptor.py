@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 SET_FEATURE_FLAG_TOOL: Final = "set_feature_flag"
 ROLL_BACK_DEPLOYMENT_TOOL: Final = "roll_back_deployment"
 SCALE_OUT_TOOL: Final = "scale_out"
+PIN_AUTOSCALER_TOOL: Final = "pin_autoscaler"
 
 
 class FlagUndo(BaseModel):
@@ -125,11 +126,63 @@ class ReplicaUndo(BaseModel):
     written_at: datetime | None = None
 
 
-# Three members, and the tag is what chooses between them. Everything that
+class AutoscalerUndo(BaseModel):
+    """The record of an autoscaler held still, in the shape that lets it move again.
+
+    Two pieces of prior state, as the scale-out's descriptor and the rollback's
+    have, and for their reason: a platform that reconciles the application itself
+    re-applies the autoscaler's manifest at its next sync, floor included, so the
+    action suspended that first and an undo restoring only the floor would leave
+    the deployment silently receiving nothing anybody ships to it.
+
+    `was_min_replicas` is the floor the controller had, read from the platform's
+    live resource rather than from the repository. The two are the same number
+    until somebody pins and different afterwards, and it is the running one a
+    withdrawal has to put back.
+
+    `was_syncing_itself` is the setting as it was found, never a default - an
+    application somebody had already stopped reconciling must be left stopped, for
+    the reason the other two leave it as found.
+
+    A descriptor of its own rather than `ReplicaUndo` reused, because the field is
+    a different claim. A replica count put back and an autoscaler's floor put back
+    are not the same fact: one is how large the deployment is, the other is how
+    small it is allowed to become, and a reader of `was_replicas` on a pin would be
+    told something nobody established. The two actions also undo in the same estate
+    at the same time, so a single descriptor would leave a withdrawal unable to say
+    which of them it was putting back.
+
+    `min_replicas_asked_for` is the floor this pin actually asked for, which is not
+    derivable from anything else recorded. The tier raises the floor to whichever
+    is smaller of the autoscaler's declared ceiling and the most replicas Argus may
+    ask for, so a reader reconstructing the destination from the ceiling is wrong
+    exactly when Argus's own cap was the binding one - and that is the case nobody
+    would notice, because the ceiling is a plausible number that happens to be
+    somebody else's.
+
+    Recorded here rather than left to the sentence the action reported, because the
+    two readers need it at different times. The sentence is read once, by whoever is
+    watching; this is read hours later by a withdrawal, which can compare it against
+    the floor in force to find out whether anybody has been in the estate since
+    Argus wrote. Both floors together are also what makes the record a transition
+    rather than half of one.
+    """
+
+    kind: Literal["autoscaler-floor"] = "autoscaler-floor"
+    application: str
+    was_min_replicas: int
+    min_replicas_asked_for: int
+    was_syncing_itself: bool
+    tool: str = PIN_AUTOSCALER_TOOL
+    written_at: datetime | None = None
+
+
+# Four members, and the tag is what chooses between them. Everything that
 # matches on `kind` carries a branch for each, which is what this was a tagged
 # union for while it still had only one.
 type UndoDescriptor = Annotated[
-    FlagUndo | DeploymentRollbackUndo | ReplicaUndo, Field(discriminator="kind")
+    FlagUndo | DeploymentRollbackUndo | ReplicaUndo | AutoscalerUndo,
+    Field(discriminator="kind")
 ]
 
 _descriptors = TypeAdapter[UndoDescriptor](UndoDescriptor)

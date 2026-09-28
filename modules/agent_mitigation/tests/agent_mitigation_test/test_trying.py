@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
+    AutoscalerPinner,
     DeploymentRoller,
     DeploymentScaler,
     FlagSetter,
@@ -19,9 +20,17 @@ from agent_mitigation.trying import UndoChange
 from argus_core import new_id
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
+from argus_core.mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
+    ActionExhausted,
+    McpToolError,
+    an_exhausted_action,
+)
 from argus_core.models import (
+    AutoscalerUndo,
     DeploymentRollbackUndo,
     MetricBucket,
+    PinAutoscaler,
     ReplicaUndo,
     RestartedService,
     RollBackDeployment,
@@ -73,6 +82,25 @@ THE_CEILING_REFUSED = (
     f"[{SOME_APPLICATION}] is running [12] replicas, which is as large as Argus "
     f"may make it ([12])"
 )
+# The two refusals a pin can meet, in the words the write tier raises them with,
+# and quoted for the reason the ceiling's are. The pair is the point: one is an
+# estate with nothing left to hold still, the other a platform that would not
+# make the change - and they are told apart by the marker rather than by their
+# wording, so a case matching on the words would pass whichever verdict it got.
+THE_AUTOSCALER_HAS_NO_ROOM_LEFT = (
+    f"[{SOME_APPLICATION}]'s autoscaler may fall to [6] replicas and rise to "
+    f"[6], and the highest floor Argus may ask for is [6] - so there is no room "
+    f"left between the two and nothing here for a pin to stop"
+)
+THE_PATCH_WAS_REFUSED = (
+    f"the platform would not patch [{SOME_APPLICATION}]'s autoscaler"
+)
+
+# The two floors a pin moves between. Named separately from the replica counts
+# above because they are a different claim: those are how large the deployment is,
+# these are how small it is allowed to become.
+SOME_FLOOR_IT_COULD_FALL_TO = 3
+THE_FLOOR_IT_WAS_HELD_AT = 6
 
 # How long the verification waits. Short, because every test here would
 # otherwise sit through it - the clock and the sleeper are injected, so what
@@ -1023,6 +1051,123 @@ def test_a_refuted_scale_out_says_which_count_it_was_put_back_to() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated() -> None:
+    # The verdict that exists so a bound Argus holds does not wake anybody. The
+    # tier was reached, it answered, and its answer is that a floor already meets
+    # its ceiling - nothing is wrong, nothing was changed, and the walk has other
+    # candidates. Escalating here ends a walk whose next candidate might be a flag
+    # revert that takes seconds.
+    #
+    # Not `REFUTED` either, and that is the trap the assertion below is really
+    # about: `REFUTED` says an explanation was tested and did not hold, where
+    # nothing was tested - a record carrying it would have the postmortem report
+    # that the evidence ruled a cause out when nothing ruled it out.
+    Scenario() \
+        .given(
+            the_autoscaler_is_already_held_still := _a_pinner_with_no_room_left(
+                THE_AUTOSCALER_HAS_NO_ROOM_LEFT
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_pin_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(pin=the_autoscaler_is_already_held_still),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.NOT_ATTEMPTED),
+            _the_detail_mentions(
+                f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
+            ),
+            _the_detail_mentions(THE_AUTOSCALER_HAS_NO_ROOM_LEFT),
+            _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_refused_without_the_marker_still_escalates() -> None:
+    # The half that matters, and the one a single catch in the wrong order gets
+    # wrong. `ActionExhausted` is an `McpToolError` like any other, so the broad
+    # handler reached first swallows the exhausted case into an escalation - which
+    # is the failure this pair is written around. This case is the other
+    # direction: an unmarked refusal must *not* become the new verdict.
+    #
+    # The distinction is not a taxonomy. The tier raises both, and only the one
+    # that changed nothing is marked: a refused patch can fire after sync was
+    # already suspended, so the estate is in a state nobody can name and a human
+    # has to look. Reading that as "nothing left to do" would move the walk on
+    # from a deployment it has half-changed.
+    Scenario() \
+        .given(
+            the_platform_would_not_patch_it := _a_pinner_that_cannot(
+                THE_PATCH_WAS_REFUSED
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_pin_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(pin=the_platform_would_not_patch_it),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions(
+                f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
+            ),
+            _the_detail_mentions(THE_PATCH_WAS_REFUSED),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_a_confirmed_pin_says_which_floor_it_raised_and_to_what() -> None:
+    # Both numbers, because an account of a pin is a transition and one of them is
+    # half of it. The floor it came from is what a withdrawal puts back. The floor
+    # it went to is the one a reader cannot reconstruct: the tier asks for whichever
+    # is smaller of the declared ceiling and Argus's own cap, so a line naming the
+    # destination as "its ceiling" is false in exactly the case nobody checks - and
+    # names a number that belongs to somebody else's declaration rather than to
+    # anything Argus wrote.
+    Scenario() \
+        .given(the_latency_came_back_down := a_recovered_window()) \
+        .when(
+            lambda: take_action(
+                _a_pin_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    pin=_a_pinner_holding_it_at(
+                        SOME_APPLICATION, THE_FLOOR_IT_WAS_HELD_AT
+                    )
+                ),
+                fetch_metrics=metrics_reading(the_latency_came_back_down),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_mentions(f"from [{SOME_FLOOR_IT_COULD_FALL_TO}] replicas"),
+            _the_detail_mentions(f"to [{THE_FLOOR_IT_WAS_HELD_AT}]"),
+            _the_detail_does_not_mention("its ceiling")
+        ))
+
+
 def _an_action_is_taken(metrics: list[MetricBucket],
                         publisher: Any = None,
                         clock: Callable[[], datetime] | None = None,
@@ -1235,6 +1380,27 @@ def _the_detail_mentions(expected: str) -> Assertion[Outcome]:
         if expected not in outcome.detail:
             raise AssertionError(
                 f"Expected the detail to mention [{expected}], "
+                f"got [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_detail_does_not_mention(forbidden: str) -> Assertion[Outcome]:
+    """What a reader must not be shown, asserted rather than assumed.
+
+    The marker is how the transport classified this refusal, and it has done that
+    job by the time a detail is written. It reaches a timeline, a postmortem and a
+    Slack line, where `argus:action-exhausted` in the middle of a sentence tells a
+    person nothing the verdict beside it has not already said - and a stripping
+    step nobody asserts is one that quietly stops happening.
+    """
+    def assertion(outcome: Outcome) -> bool:
+        if forbidden in outcome.detail:
+            raise AssertionError(
+                f"Expected the detail not to mention [{forbidden}], "
                 f"got [{outcome.detail}]."
             )
 
@@ -1497,3 +1663,55 @@ def _it_carries_a_way_back() -> Assertion[Outcome]:
         return True
 
     return assertion
+
+
+def _a_pin_of(application: str) -> PinAutoscaler:
+    return PinAutoscaler(application=application)
+
+
+def _a_pinner_with_no_room_left(refusal: str) -> MagicMock:
+    """Answers as the tier does when there is nothing left to hold still.
+
+    `ActionExhausted` rather than a bare error, because that is what the transport
+    raises when a tool's refusal carries the marker - a case raising anything else
+    would be exercising a failure production cannot produce. Marked the way the
+    tier marks it rather than with the token written out here, so this stays true
+    if the token changes.
+    """
+    pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
+    pin.side_effect = ActionExhausted(an_exhausted_action(refusal))
+
+    return pin
+
+
+def _a_pinner_that_cannot(failure: str) -> MagicMock:
+    """Answers as the tier does when the patch itself was refused.
+
+    Unmarked, which is the whole of what it stands for: the same tier raises both,
+    and only the refusal that changed nothing carries the marker. This one can fire
+    after reconciliation was already suspended, so nobody can say what state the
+    estate is in.
+    """
+    pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
+    pin.side_effect = McpToolError(failure)
+
+    return pin
+
+
+def _a_pinner_holding_it_at(application: str, floor_asked_for: int) -> MagicMock:
+    """Answers as the tier does when the pin went through.
+
+    Both floors on the descriptor, because both are what the tier knew: the one the
+    controller had, and the one it was actually asked for - which is the smaller of
+    the declared ceiling and Argus's own cap, and so is not reconstructible from
+    either.
+    """
+    pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
+    pin.return_value = AutoscalerUndo(
+        application=application,
+        was_min_replicas=SOME_FLOOR_IT_COULD_FALL_TO,
+        min_replicas_asked_for=floor_asked_for,
+        was_syncing_itself=True
+    )
+
+    return pin

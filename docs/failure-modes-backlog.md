@@ -23,7 +23,7 @@ pattern. See "A note on the name" below.
 |---|---|---|---|
 | Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Yes.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here, all diagnosed and all mitigated. FM-09 and FM-10 share one action: a revision carries the code and the configuration it shipped with, so the platform's rollback answers both |
 | Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Yes.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage. `pricing-service-degraded` is FM-23: diagnosed and mitigated by restarting a service the alert never named. What tells the pair apart is ownership, which the organisation's service register answers and no telemetry does |
-| Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Partly.** FM-13 is built in both halves: `resource-leak` is the leak and `demand-saturation` is the saturation, told apart by whether the consumption moved with the traffic and answered by opposite things - reclaiming what accumulated, or adding capacity the deployment never had. FM-25 is not built, and is no longer blocked: a replica count now exists, is visible in telemetry and can be changed |
+| Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Yes**, and the second family covered entire. FM-13 is built in both halves: `resource-leak` is the leak and `demand-saturation` is the saturation, told apart by whether the consumption moved with the traffic and answered by opposite things - reclaiming what accumulated, or adding capacity the deployment never had. FM-25 is `autoscaler-flapping`: diagnosed by the one series that moves, and mitigated by raising the controller's floor to its ceiling. What tells it from saturation is whether the capacity is itself moving, because at the bottom of every cycle the rest of the evidence is saturation's exactly |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
 | Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Partly.** `slow-canary-rollout` is FM-06: diagnosed and mitigated by putting the flag back. In-flight compatibility is not built |
@@ -105,20 +105,17 @@ variable.
 
 In order of share, minus what is out of scope for a demo:
 
-1. **FM-25 Autoscaling pathology** (the other half of capacity's 13%). An
-   autoscaler that makes things worse - flapping, or scaling on the wrong signal,
-   or scaling into a dependency that cannot take the load. It is first because it
-   is newly reachable rather than because it is newly interesting: staging it
-   needs a replica count that exists, is visible and can be changed, and demand
-   saturation is what built all three.
-2. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
+1. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
    3%). A deploy that is correct on both sides of itself and wrong for the
-   requests that span it.
+   requests that span it. It is first by elimination rather than by share: with
+   capacity covered entire, it is the only remaining half of a family that has a
+   built half - and a family half-covered is where the distinctions are cheapest
+   to draw, because the neighbour it has to be told apart from already exists.
 
 ## Measurements owed, and what each would buy
 
-Neither is a scenario, and both cost real money - a walk is about five dollars -
-so they are written down rather than run. What is here is what the spend would
+None of these is a scenario, and each costs real money - a walk is about five
+dollars - so they are written down rather than run. What is here is what the spend would
 buy, so that a decision to buy it is a decision rather than a habit.
 
 - **The saturation pair's eval bars.** `demand-saturation-is-identified` and
@@ -129,6 +126,19 @@ buy, so that a decision to buy it is a decision rather than a habit.
   One real walk has named it correctly, which is an anecdote rather than a rate.
   Every other bar in that suite is stale for the same reason - the prompt moved -
   so this pool is owed a pass whenever one is bought at all.
+- **The capacity pair's eval bars, which are the same pool.** `autoscaler-flapping`
+  brings a second pair with the same shape - a moving capacity told from an
+  outgrown one - and the two pairs are one purchase rather than two: the same
+  alert, the same latency climb, the same empty change channels, and in each case a
+  single variable. A rate for either is worth little without the other, because
+  what is being measured is not whether one mode is recognised but whether a reader
+  separates neighbours that agree on everything else. This pair costs more per run
+  than any other in the suite: the near-miss is a whole mitigation attempt - scale
+  out, wait the verification timeout, be refuted, undo - so a walk that takes it
+  bills for two attempts. What the spend would buy is the only figure that speaks
+  to the risk this scenario was built around: how often the evidence is read as
+  saturation when the capacity was moving all along, which is the reading that gets
+  the mitigation the controller undoes.
 - **A rate for Code-Fix answering inside its budget.** There is no eval for
   Code-Fix; `grade_fixes` scores the patches it did produce, and nothing measures
   how often it produces one at all. Two walks have now ended with the agent
@@ -305,10 +315,45 @@ a proposal that is beside the point, and the incident is `mitigated` either way.
 The claim that a capacity shortfall gets no patch is a claim about a model's
 reading rather than about Argus, and nothing here asserts it.
 
-**FM-25 is unblocked by it, and is the next thing rather than the thing behind
-it.** Nothing could stage an autoscaler misbehaving until a replica count
-existed, was visible in telemetry, and could be changed. All three are now true,
-and none of them was before.
+**FM-25 is built on it.** Nothing could stage an autoscaler misbehaving until a
+replica count existed, was visible in telemetry, and could be changed; demand
+saturation is what made all three true.
+
+**FM-25 Autoscaling pathology is built.** `autoscaler-flapping` stages the same
+surge and one difference: the deployment has a controller whose scale-down
+stabilisation window is zero. Readiness lag makes the cycle three minutes - it
+scales up on a saturated minute, the minute after is still served at the old size
+while the replicas warm, and the third runs at the ceiling and reports a fraction
+of its CPU target, which the controller answers by taking the replicas straight
+back. So `cpu_limit_cores` takes two values across one window, and that is the
+whole diagnosis: nothing is wrong with the code, the configuration, the flags or
+the heap, and at the bottom of every cycle the telemetry *is* saturation's.
+
+Three things it added beyond the scenario.
+
+**The first mode whose fault is a control loop.** Every mode before it is a change,
+a state or a resource - something was shipped, something was switched, something
+filled up. A controller goes on deciding, which is why the answer is aimed at what
+it is *allowed* to do rather than at what it has done.
+
+**A fifth generic mitigation, and the first that stops something.** The three
+before scaling out put something back and the fourth added something; this one
+takes away a controller's room to shrink, by raising the floor it may fall to
+until it meets the ceiling somebody already declared for the deployment. The
+criterion is unchanged again, and that is the point of saying so twice: what
+admits an action unasked is membership of the declared set, never the kind of
+change it makes.
+
+**The first demonstration that a mitigation under a live controller has a timer on
+it.** Setting the replica count directly works for about a minute and is then
+re-derived away, because the controller owns that number - so the near-miss here is
+not a worse answer but a correct-looking one that expires. That is also what makes
+the scenario refutable: the wrong action is undone by the estate rather than by a
+rule in Argus.
+
+It is mitigated and never resolved. The values file still declares the window that
+flaps, so putting the floor back returns the shop to flapping - and a walk that
+answered this with a restart would have changed nothing at all.
 
 ## Why they are called modes
 
