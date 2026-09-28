@@ -159,7 +159,11 @@ _A_HYPOTHESIS_WAS_FORMED: Final = _Published(HypothesisFormed)
 _AN_ACTION_WAS_TAKEN: Final = _Published(ActionTaken)
 _AN_ACTION_WAS_REFUSED: Final = _Published(ActionRefused)
 _A_VERDICT_WAS_REACHED: Final = _Published(VerdictReached)
-# Memory was searched during the walk and found the incident the staging filed.
+# Memory was searched during the walk and came back with something. Which record
+# it came back with is not checked here - the event carries a list, and this asks
+# only that the list exists, which is all a corpus can promise. The case that
+# replays this one names the record it staged.
+#
 # The search rather than the demotion it may lead to: whether anything moves needs
 # a round that offered a candidate to move the flag behind, and how many
 # candidates a round offers is the model's to decide - so a recording held to the

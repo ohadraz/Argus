@@ -408,8 +408,8 @@ def _clear_minutes_a_recovery_has_to_show(still_the_incident: Sequence[bool],
     One more than the longest lull the incident has already come back from. That
     is the whole rule, and it is a measurement rather than a setting: a lull of
     the length this incident is known to take is the one length that proves
-    nothing, because the service has twice now been exactly that well and
-    returned. One minute past it is the shortest stretch the window has no
+    nothing, because the service has already been exactly that well and returned
+    once. One minute past it is the shortest stretch the window holds no
     counterexample to.
 
     So a step - departed, acted on, back - asks for one minute, which is every
@@ -437,8 +437,9 @@ def _the_longest_lull_the_incident_came_back_from(
     incident then returned from, or zero where it never returned.
 
     Inside the incident, so the calm the window opens with is not a lull: those
-    minutes are followed by the onset, which would make every window ask for more
-    clear minutes than it holds calm ones.
+    minutes are followed by the onset, which reaches persistence by definition, so
+    counting them would have every window demand one more clear minute than the
+    calm it opened with - which is most of the window, and never available.
 
     Returned, and returned properly - the departed run after the lull has to reach
     `anomaly_persistence_minutes`, the same bar `_departs_for_long_enough_to_be_the_incident`

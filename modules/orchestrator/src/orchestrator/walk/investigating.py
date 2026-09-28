@@ -105,13 +105,16 @@ def investigator_node(
     # must not have its answer depend on a document store being up at the
     # instant it asks.
     dependencies = _what_the_register_lists(state, fetch_dependencies)
-    # What memory makes of this round's candidates, before anything is chosen
-    # from them. Read once here rather than per candidate: one search, a
-    # deterministic order, and one line accounting for it.
+    # What earlier incidents on this service looked like this one. Searched once
+    # per round rather than once per candidate: one search, and a deterministic
+    # order for everything below to reason from.
     #
     # The description is built from this round's best answer, because that is
     # what this incident looks like as far as anyone knows yet - the alert's own
     # words plus what the investigation just concluded.
+    #
+    # Held in a local rather than read inside the demotion, because two readers
+    # want it: what memory demotes, and the account of the search itself.
     recalled = recall_similar(
         what_it_looked_like(state.alert, findings.candidates[0]),
         state.alert.service
@@ -131,6 +134,10 @@ def investigator_node(
             publisher
         )
 
+    # What memory makes of this round's candidates, before anything is chosen from
+    # them. The action that answers a candidate is what is matched, not the
+    # candidate's own prose - which is why the flag history had to be in hand
+    # before this point.
     reordered = demoting_what_was_refuted(
         what_each_would_do(findings.candidates, flag_changes, state.alert.service),
         recalled

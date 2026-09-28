@@ -27,8 +27,9 @@ from tests.e2e.framework.argus import THE_SERVICE_NAME
 from tests.e2e.framework.flags import THE_DEMO_FLAG
 
 # An incident that is over, from long enough ago that nothing else is about it.
-# Its id is arbitrary and never looked up: what a later walk reads is the list of
-# what was tried.
+# Named rather than arbitrary: the case that stages this asserts the walk recalled
+# *this* id, because a walk that searched memory and came back with something else
+# has not demonstrated the thing the case is about.
 AN_EARLIER_INCIDENT = "9c1d4e7a-0000-4000-8000-00000000fee1"
 
 # What that earlier incident was described as. Close to what a flag incident on
@@ -36,9 +37,14 @@ AN_EARLIER_INCIDENT = "9c1d4e7a-0000-4000-8000-00000000fee1"
 # words - because a search by similarity is exactly what has to bridge the
 # difference. Measured against the query a walk actually builds from its alert and
 # its first conclusion, this sits around 0.78 similarity against a floor of 0.5.
+#
+# The service is interpolated rather than spelled, because a description naming a
+# service this module imports a constant for is a second place to change it - and
+# the one that would go on matching nothing quietly, since a recall that falls
+# below the floor is a case that times out rather than one that says why.
 AS_IT_WAS_DESCRIBED = (
-    "HighErrorRate on io-shop: checkout failures climbed sharply after a "
-    "feature flag was switched on, and stayed up"
+    f"HighErrorRate on {THE_SERVICE_NAME}: checkout failures climbed sharply "
+    "after a feature flag was switched on, and stayed up"
 )
 
 

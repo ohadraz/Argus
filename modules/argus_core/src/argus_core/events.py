@@ -418,11 +418,11 @@ class SimilarIncidentsRecalled(_Event):
     """Memory was searched for incidents like this one, and these were found.
 
     The search rather than what came of it, and the two are different facts. A
-    reordering is visible only where a round offered a candidate to move
-    something behind, and how many candidates a round offers is the model's to
-    decide - so on a walk where memory was read and did find something, a
-    timeline carrying `CandidatesReordered` alone says memory was never
-    consulted. This is the line that says it was.
+    reordering is visible only where a round offered a candidate to move something
+    behind, and how many candidates a round offers is the model's to decide - so a
+    timeline whose only account of memory is `CandidatesReordered` says nothing at
+    all about the walks where memory was read, found something, and had nowhere to
+    move it. This is the line that says it was read.
 
     Nearest first, as the search returned them, because the order is the only
     thing here a reader could act on: the incident at the front is the one whose

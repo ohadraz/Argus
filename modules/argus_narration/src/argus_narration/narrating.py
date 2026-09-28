@@ -386,14 +386,18 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # How many, marked, rather than the ids. The count is what a reader
             # scanning a timeline can act on - whether memory had anything to say
             # about this incident at all - and a row of identifiers is a lookup
-            # nobody performs mid-incident. The nearest one is named in the
+            # nobody performs mid-incident. The closest one is named in the
             # sentence, because it is the record the line after this may move a
             # candidate on the strength of.
+            #
+            # Named as the closest match rather than as the head of an order. One
+            # match is the ordinary case, and "nearest first" is a claim about a
+            # sequence that a single incident does not have.
             found = len(event.incident_ids)
             emphasis = f"{found} earlier incident{'s' if found != 1 else ''}"
             text = (
-                f"Found {emphasis} like this one in memory, nearest first from "
-                f"incident {event.incident_ids[0]}"
+                f"Found {emphasis} like this one in memory, the closest match "
+                f"being incident {event.incident_ids[0]}"
             )
         case CandidatesReordered():
             who = _ARGUS

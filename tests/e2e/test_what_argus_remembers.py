@@ -1,4 +1,4 @@
-"""What the stack remembers of an incident, and what it does with it next time.
+"""What the stack remembers of an incident, and that the next one reaches for it.
 
 Two halves of one mechanism, and only the whole stack can show either. The
 record is composed from rows the walk wrote, embedded by a model that runs in

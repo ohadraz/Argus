@@ -1002,6 +1002,49 @@ def test_a_single_minute_falling_back_mid_incident_is_not_the_recovery() -> None
 
 
 @pytest.mark.unit
+def test_a_running_cycle_has_no_recovery_to_report() -> None:
+    # The postmortem's bound, and the reason the measured rule has to reach this
+    # end too. Every figure an incident is described by is averaged over the
+    # window recovery closes, so a recovery dated inside a lull describes a
+    # service that was mostly well - which is how a rise in errors once came to be
+    # reported as negative. A cycle that is still running has not recovered at any
+    # of its lulls, and the honest answer is that this window does not contain the
+    # end of it.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    a_cycle = [some_degradation_rate] * 2 + [some_steady_rate] * 4
+    some_window = a_window_of([some_steady_rate] * CALM_MINUTES + a_cycle * 3)
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_it_never_recovered())
+
+
+@pytest.mark.unit
+def test_recovery_is_dated_after_a_cycle_stops_and_not_inside_a_lull() -> None:
+    # The other side of it: the same cycle, and then something that actually
+    # stopped it. The minute recovery is dated at is the first of the run that
+    # outlasted every lull before it - not the first of the two four-minute lulls
+    # that look identical up to their fifth minute and do not have one.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    a_cycle = [some_degradation_rate] * 2 + [some_steady_rate] * 4
+    a_last_departure = [some_degradation_rate] * 2
+    it_settled = [some_steady_rate] * 8
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + a_cycle * 2 + a_last_departure + it_settled
+    )
+
+    the_minute_the_cycle_stopped = some_window[-len(it_settled)]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_the_recovery_is(the_minute_the_cycle_stopped.bucket_id))
+
+
+@pytest.mark.unit
 def test_a_busy_stretch_with_nothing_else_moved_is_no_onset() -> None:
     # Utilisation tracks traffic, and traffic has a shape. A departure test over
     # this series would date the onset at the minute the load arrived - minutes
