@@ -101,6 +101,16 @@ def no_deployment_was_read(dont_care_service: str,
     return []
 
 
+def no_rollout_was_read(dont_care_service: str) -> list[str]:
+    """A rollout channel that answers about nothing.
+
+    Unread rather than converged, which is the one answer this must never give
+    by default: "the deployment converged" rules a failure mode out, and a
+    stand-in volunteering it would hand the model a finding no case here staged.
+    """
+    return []
+
+
 def the_configured_thresholds() -> AnomalyThresholds:
     """Where the algorithm draws its lines, read from this deployment.
 

@@ -2,15 +2,15 @@
   "container": null,
   "content": [
     {
-      "signature": "EuwHCpABCBIYAipAt7g+ZLGkJ0SInd/HzzWQNbco+fyDnAXgqafQSnfbbcTvOnwB7FvtrGNaMAoamzP7wbDOVxJdcyDLDdiXwU5zSjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAfG16NUGEgwPgv2P88BXivKr2WIaDBEeOjr79Rqrl1hThyIwjiIFy1PWnWzkBRv4IieFY/HY5PKUWaOseYQHDYJ8B8HKckWjcST3PtwZhoJqihtUKogGk5WRenkTnS7mdnkOknk2/vmob8KFZaVL0OuhNo28hq8BdeGMvqgjZHpdiWGb9N7OKqdsxs7HbedQmYmsPMdSKIaHwPS7pJT5k06u92zLfHmJ2pcjxBxKGACt/MyD4eaZlPFfhakJj8zFG1hTZ87L5VB0CxWBgxf1UrhtuPGTx7qA/HS+qX65ZrB5r8Gj6w2d3Fam1DxWy+gMxqP1xaGA7yqaZ1+Jdn9TWafYPAS4rYYabmbAxp2SsssOVgwhoIt7CMpb4DpS/h5Dp7cj8qjEjfydbveYaATY14LDHmGmm43OhBEWagsiynj4gWDXU6fhvnPA3IAvEaEyBn5cTdsGesv+e7+7nJXS6IJKAe1xo1zVsK0GAKin8dVr8Y5gad2z8ToSFagvN40FBq0AtqGjLc2tbdw8EStwyIVBTOCloVoZTHG67HwtJouWFt2wuWV83LeO6wCvLFD/xyJ/g1NcEwQ+6YmUDVd75bCVgGgFLwefUEA66TAn/Q+f1uNMa+qf3A0E9FPiIH0Srg19cATbFpcUVruNwkS6mSMOlhEORJY/XCgnINIv4dGvAanLv0TP9L+utSVi9z48/nRXiwKrXGq5yo1/1U+PhCCMn+KjqImjLbtFnNM5c4xyRjK1LEtUid3FFPozKBkRMfXlCi5NZe4knVUjfm/bUKOJsJvN3GlIppdrzqIok1Iz5JiwADvSwGAX7KtRVptoiGbTZCg+IWpGzjJhf9jbrnHMCcxAprRZHuC0KXsFN5IVxgnOiz9L+gxFOSfmKTwfU5wl5+UYaz8mFJSLRqbMSWBOMKm3wV0fUylbJ/v8FXxDKjgccUJLuesfA0IGnDd1yC34Hhu+c6yU28eZ8hDcImldDmG5/5lzOt0raDWoBYMp2OQWlJp2wjnwl6oGwRhEbil9qOng4lkghqO0/dLd7m0WUXO+AHqtIv3evC6ofW2teiicAxplApMFsNVYNuzfq0lSh0QXbNi+gDq3be6tOWky50xdfbugKLPw6fr/2QIIYo6M1UMrYtO2q3ITz3QYAQ==",
-      "thinking": "The deploy at 07:39:00 changed the cache port from 6379 to 6380, causing connection refused errors that line up exactly with the onset time. Even though the cache is optional by design and the page should work fine without it, latency spiked massively (p50 183ms vs 26ms baseline), suggesting the cache failures are causing blocking waits or timeouts rather than being gracefully skipped.\n\nThis fits config-induced-failure perfectly: the deployment altered a config value to point at the wrong port, the source code itself is untouched, and the underlying redis cache is healthy - it's just being addressed incorrectly.\n\n",
+      "signature": "EtkICpABCBIYAipAIOP7q9SHIuHTSkR0j3OAXtC7IpSVxMcDleYR1vyXCR1XRlWOWmFlIb1BSAz9+K5qLBub4huAr5S7ap/jWOkl1TIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAdXP69UGEgy6m1QO+cCBpVvTLf0aDHZEBPciWD0o6YE8YSIwEgI+KAtO+mHye3ybK9lynUHlgQOoGf4xI5RzJa4GaOKTnujTaEKKazId7DIBQXdSKvUG/fzyr2Ixx89eeSPSAb89QfDcFYTCDBMVPtUG5BC5L5iNGBk2f4AJaRdYvvK4oUgxy9v7yPPoGpsSXGOY+GjOp83SjzD+9U2BZaw6bSHQJCwIDt/YnC0ypDhZnHpLgWqNVYGAe/YZnY/+U6IV7L2sWfNaLwPmTIuO6RSZdNTf0ihrxGSf/sZgXj1O9n13D2+hEN5qBxn+G+ZZtxSLJEWwvDJ0UqPIb4q7NGHkncsrbyehdY9U2dXsjtt4pp2dd08HU088JxqwwAYCwery0d3OTmrocNlNYIPtFq37Jss2IpN+MTN3mSp2Md/fOOAmdx3PkP+5ZAxHKuRf2AWw/cxW0kgIsQVwjmxWyyiQ4q2miukjV1lGj8KGeQQIIrWv/PCHDFoOlSf843XWzuHagGlYIra/CiNNQSUEexRJV8dzHRVuBrbL9nrzfyAXb3nYzHMF04AvHzqGFAciZgi3r7DjuiBRF9I/062F230DSO0RgCrEmSna8vfcwVdp6YuLndPyA9YaRXhJIGOJkiuIPFHRch56ksNoxSdSgJ17kvT4RIL66XONlLR389rdKoMxzYQJANUam7TklV2g/rF9Ir5aj03JCSAGNeuSnk18d9aqqlBpe/salKESxWjwH9YQj0ODZuUm9oV0RTKWoNGRQH8mFzuwui3L8e3hx/Qo146lyyfPAv4OCAAXTjIVMIHvm5eID0GXtfXtcz1p+o1ta8X76fDhTxvsoldazRhGM5VfWvKC/0DgOJ5BYrK1bkHBTgKRruE622M1Ul4MS9EPXTAl1SNXCOHZN+eBdVCJECrQsaHg0p3wdcqHTAyi6zwH5N0L2xOClAQc0OPezaOol1EW+cXQKpgCYnvfgTx9x40Sqmk1luD6XF2kxtQRwNOVdk/ndcE4pVa4Qe2oDQMhNGrFNdaK701JwpZm8Q8BSy476EM2/zN6lSSjGNj0TLXQkjpTCQG2hxnj/XOqrRPCn2a3hjym+nLzT+6CMZ8AVEycQUySSKvzjBLvM+MMZt0lC3e5BrgJC0I91t6QIs05YfgVi5QFGrydAKseSa/AI+keqXSG5KssiFxkRYkjNcFSePUW6dhQ8SgbM+Dx06e1KIGyyw+ca3NcTs3sZA389xke9kHRv2lzpo0JIlUKS6il0muztl+mIiaYpwskni2baxqAohZivdm4GAE=",
+      "thinking": "The 22:13 deploy switched the cache port from 6379 to 6380, breaking the redis connection. Since caching is optional, errors get swallowed and the error rate barely moved, but latency tells the real story\u2014p50 jumped from 26ms to 179ms and cache_hit_ratio fell to 0, confirming the cache is silently failing rather than the app itself erroring out.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01Q9Zpesn4JenvJXjDvgcXAM",
+      "id": "toolu_01QXtwkocUvfBmDfVnmLEbsV",
       "input": {
         "hypotheses": [
           {
@@ -18,24 +18,28 @@
             "failure_mode": "config-induced-failure",
             "faulting_service": null,
             "from_state": "6379",
-            "subject": "cache.port (io-summary-cache connection config)",
-            "summary": "The 07:39 deploy changed the io-summary-cache port in values-production.yaml from 6379 to 6380, which is not the address the redis cache listens on, so every cache lookup started failing with connection refused. This drove p50/p95 latency far above baseline (p50 jumped from ~26ms to ~183-192ms) as requests waited on/retried the broken cache connection, timing since the onset lines up exactly with the deploy timestamp.",
+            "subject": "cache.io-shop.svc.cluster.local port",
+            "summary": "The io-shop deploy at 2026-09-28T22:13:00Z changed the io-summary-cache port from 6379 to 6380 in deploy/values-production.yaml. The cache is now unreachable ('connection refused to redis://cache.io-shop.svc.cluster.local:6380'), and every account-page request spends time attempting and failing that connection before falling back, which is why p50/p95 latency jumped from ~26ms to ~190ms and cache_hit_ratio dropped to 0 at exactly the same minute as the deploy, while cpu_limit_cores stayed flat at 3.0 throughout (ruling out capacity/autoscaling causes) and request_volume stayed flat at 1200/min (ruling out demand saturation). The rollout has converged (all 3 replicas on the new revision), so this is not a split-version issue - it is a broken config value shipped in a deploy, with the cache service itself otherwise healthy on the correct port.",
             "supporting_evidence": [
               {
-                "at": "2026-09-28T07:39:00Z",
-                "claim": "modified deploy/values-production.yaml: cache.port changed from 6379 to 6380"
+                "at": "2026-09-28T22:13:00Z",
+                "claim": "cache:\n    host: cache.io-shop.svc.cluster.local\n-  port: 6379\n+  port: 6380"
               },
               {
-                "at": "2026-09-28T07:40:00Z",
-                "claim": "ERROR io-shop: summary cache lookup failed - connection refused to redis://cache.io-shop.svc.cluster.local:6380 (200 of 200 requests)"
+                "at": "2026-09-28T22:14:00Z",
+                "claim": "summary cache lookup failed - connection refused to redis://cache.io-shop.svc.cluster.local:6380 (200 of 200 requests)"
               },
               {
-                "at": "2026-09-28T07:39:00Z",
-                "claim": "p50_ms jumps from 26 to 183 and cache_hit_ratio drops from 0.905 to 0.37 then 0.0"
+                "at": "2026-09-28T22:13:00Z",
+                "claim": "p50_ms jumped from 26 to 179 and cache_hit_ratio dropped from 0.9 to 0.475 then 0.0"
               },
               {
-                "at": "2026-09-28T07:39:00Z",
-                "claim": "deployed revision 0d8e826225f0de73958a8a8dd3d867b2ae249e72, from deploy"
+                "at": null,
+                "claim": "Deployment of io-shop has converged: all 3 replicas are running revision [0d8e826225f0de73958a8a8dd3d867b2ae249e72]"
+              },
+              {
+                "at": null,
+                "claim": "cpu_limit_cores holds steady at 3.0 across the entire window"
               }
             ],
             "to_state": "6380"
@@ -46,15 +50,15 @@
             "faulting_service": "io-summary-cache",
             "from_state": null,
             "subject": "io-summary-cache",
-            "summary": "If the config change were not the cause, the observed pattern (cache connection refused, latency spike, cpu_limit_cores steady at 3.0 throughout) would instead point to the internal io-summary-cache dependency itself failing, but the register describes it as an optional internal cache owned by the same organisation and logs show the failure is a refused connection to a port the deploy itself changed, so this is less likely.",
+            "summary": "If the port change is judged not to be the proximate cause, the same symptoms (latency spike, cache_hit_ratio collapse) could instead reflect the io-summary-cache dependency itself failing, though the register marks it internal to checkout-platform and the config diff is a more direct explanation.",
             "supporting_evidence": [
               {
-                "at": "2026-09-28T07:39:00Z",
-                "claim": "ERROR io-shop: summary cache lookup failed - connection refused to redis://cache.io-shop.svc.cluster.local:6380 (121 of 200 requests)"
+                "at": null,
+                "claim": "io-summary-cache: internal, owned by checkout-platform, at cache.io-shop.svc.cluster.local - Holds a shopper's spend figure ... Optional by design - the page is correct without it"
               },
               {
-                "at": null,
-                "claim": "io-summary-cache: internal, owned by checkout-platform, at cache.io-shop.svc.cluster.local"
+                "at": "2026-09-28T22:17:00Z",
+                "claim": "summary cache lookup failed - connection refused to redis://cache.io-shop.svc.cluster.local:6380 (200 of 200 requests)"
               }
             ],
             "to_state": null
@@ -66,7 +70,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfVTtkref7rXMetHHAU8G",
+  "id": "msg_011CfWcZH3r7j6VunjKGHkXE",
   "model": "claude-sonnet-5",
   "role": "assistant",
   "stop_details": null,
@@ -76,15 +80,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 257
+      "ephemeral_5m_input_tokens": 421
     },
-    "cache_creation_input_tokens": 257,
-    "cache_read_input_tokens": 28281,
+    "cache_creation_input_tokens": 421,
+    "cache_read_input_tokens": 32250,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 1163,
+    "output_tokens": 1391,
     "output_tokens_details": {
-      "thinking_tokens": 258
+      "thinking_tokens": 291
     },
     "service_tier": "standard"
   }

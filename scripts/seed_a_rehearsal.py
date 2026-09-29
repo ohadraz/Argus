@@ -64,6 +64,11 @@ THE_TOOL_THAT_SUBMITS_A_FIX: Final = "submit_fix"
 THE_TOOL_THAT_ANSWERS: Final = "final_answer"
 TOOL_USE_TYPE: Final = "tool_use"
 
+# The extension a set's capture instant is stored beside its answers under, spelled
+# here for the reason the two names above it are: this is not a package the e2e
+# framework can be imported from.
+ANCHOR_SUFFIX: Final = ".anchor"
+
 # The file the fix is of - the largest module the shop has, and the whole reason
 # this scenario exists. Read from the repository double rather than from the
 # demo app's checkout, because what Code-Fix is answering about is what the
@@ -499,6 +504,133 @@ def _a_controller_that_will_not_settle(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+# The two revisions serving at once, as the platform's deploy history names them.
+# Carried here because a rollout is the one subject whose two states are commits:
+# the hypothesis has to say which revision the fleet is split across, and a
+# fabricated pair would be a rehearsal of a diff the repository does not hold.
+THE_REVISION_ROLLING_OUT: Final = "696c33a68b36aed6456cdc5b3806f33038488515"
+THE_REVISION_STILL_SERVING: Final = "5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e"
+
+
+def _a_rollout_that_stopped_half_way(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by a conclusion about a split fleet.
+
+    Borrowed from the bad-deployment walk, which is the only world with the thing
+    this one turns on: a deploy at the onset and a rollback at the end. The
+    difference is which series moved - that walk read a latency climb, this one an
+    error rate that steps while every quantile holds - and the difference does not
+    reach the plumbing, because the channels are the same channels and the ending
+    is the same ending.
+
+    One hypothesis, for the reason the rewrites above give. The mode is the whole
+    of what this rehearsal exercises and the whole of what it cannot judge: the
+    conclusion is written by somebody who already knows the rollout is paused, and
+    whether a model reads a paused rolling update as nobody's fault is measured by
+    the eval pair and by the paid recording, never here.
+
+    `from_state` and `to_state` are the two revisions serving at once rather than
+    a good state and a bad one, which is this mode's whole claim - neither is at
+    fault, and what a rollback achieves is that one of them is serving alone. No
+    `faulting_service`: nothing outside the shop is involved.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.81,
+                            "failure_mode": "in-flight-compatibility-break",
+                            "subject": "src/io_shop/summary_cache.py (the stored entry's shape)",
+                            "from_state": THE_REVISION_STILL_SERVING,
+                            "to_state": THE_REVISION_ROLLING_OUT,
+                            "summary": (
+                                f"The rolling update of "
+                                f"{THE_REVISION_ROLLING_OUT} is paused with three "
+                                f"of six replicas on it, so two revisions are "
+                                f"serving at once. That revision changed what a "
+                                f"summary-cache entry is - a figure became a "
+                                f"figure and the purchases behind it - and kept "
+                                f"no read path for the old shape, which is the "
+                                f"expand step of a migration nobody performed. An "
+                                f"account page fails when a replica still on "
+                                f"{THE_REVISION_STILL_SERVING} draws an entry a "
+                                f"newer replica wrote, which is about one request "
+                                f"in five and is why the error rate steps while "
+                                f"every quantile holds where it was. Neither "
+                                f"revision is at fault and both pass the shop's "
+                                f"own tests; what is wrong is that both are "
+                                f"running. Returning the deployment ends it by "
+                                f"leaving one shape being read and written, not "
+                                f"by removing anything that was broken."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": "2026-09-28T07:03:00Z",
+                                    "claim": (
+                                        f"deployed revision "
+                                        f"{THE_REVISION_ROLLING_OUT}, from deploy"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-28T07:03:00Z",
+                                    "claim": (
+                                        "the rolling update reports 3 of 6 "
+                                        "replicas updated and paused, so the "
+                                        "revision above and the one before it are "
+                                        "both serving"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-28T07:03:00Z",
+                                    "claim": (
+                                        "error_rate 0.010 -> 0.197 from the deploy "
+                                        "minute onward with p50, p95 and p99 "
+                                        "unmoved - requests that fail outright "
+                                        "rather than a revision that made every "
+                                        "request slower"
+                                    )
+                                },
+                                {
+                                    "at": None,
+                                    "claim": (
+                                        "the diff stores `{\"figure\": ..., "
+                                        "\"purchases\": [...]}` where the revision "
+                                        "before it stored the figure alone, and no "
+                                        "reader of the older shape was kept"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-28T07:08:00Z",
+                                    "claim": (
+                                        "no flag changed over the whole window and "
+                                        "the cache answers at its usual nine "
+                                        "lookups in ten, which rules out a toggle "
+                                        "and a cache that stopped working"
+                                    )
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answer has to be rewritten, by the set being fabricated, and which tool
 # call marks it. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -528,8 +660,51 @@ _THE_ANSWER_THAT_HAS_TO_DIFFER: Final[
     # replays this is collected in that mode only (`noxfile._the_cases_for`), so a
     # `grep-` set of it would answer a question no session asks.
     "both-autoscaler-flapping": (THE_TOOL_THAT_ANSWERS,
-                                 _a_controller_that_will_not_settle)
+                                 _a_controller_that_will_not_settle),
+    # `both` alone, for the reason above it: the two cases that replay this are
+    # collected in that mode only.
+    "both-half-finished-rollout": (THE_TOOL_THAT_ANSWERS,
+                                   _a_rollout_that_stopped_half_way)
 }
+
+
+def _the_anchor_of(name: str) -> Path:
+    """Where a set keeps the instant the world it was captured in was seeded.
+
+    Spelled here rather than imported from `tests.e2e.framework.argus`, which
+    owns the reading half: a script under `scripts/` is not part of that package
+    tree, and importing across into it would give one module two names for the
+    sake of one suffix.
+    """
+    return RECORDINGS_DIR / f"{name}{ANCHOR_SUFFIX}"
+
+
+def _borrow_the_anchor(borrowed_from: str, stored_as: str) -> Path | None:
+    """Copies the source set's seeding instant across, unchanged.
+
+    The answers carry retrieval windows frozen at the instant they were captured,
+    and the replay moves them into this run's world by the gap between the two
+    seedings. That gap is measured from the anchor, so a fabricated set without
+    one is replayed unshifted: every channel is asked about an hour that no longer
+    holds an incident, answers correctly with nothing, and the case fails for a
+    property of the borrowing rather than of Argus.
+
+    The source's instant and not a new one, because the windows being rebased are
+    the source's. A set whose source has no anchor gets none either - that is a
+    recording captured before anchors were written, and inventing one would claim
+    a world was seeded at an instant nobody observed.
+    """
+    anchor = _the_anchor_of(borrowed_from)
+
+    if not anchor.exists():
+        return None
+
+    destination = _the_anchor_of(stored_as)
+    destination.write_text(
+        anchor.read_text(encoding="utf-8"), encoding="utf-8", newline="\n"
+    )
+
+    return destination
 
 
 def _write(borrowed: list[Path], stored_as: str) -> list[Path]:
@@ -596,6 +771,12 @@ def main() -> int:
             path.unlink()
             print(f"removed {path.name}")
 
+        anchor = _the_anchor_of(arguments.stored_as)
+
+        if anchor.exists():
+            anchor.unlink()
+            print(f"removed {anchor.name}")
+
         return 0
 
     _the_two_names_share_a_mode(arguments.borrowed_from, arguments.stored_as)
@@ -608,10 +789,19 @@ def main() -> int:
         )
 
     written = _write(borrowed, arguments.stored_as)
+    anchored = _borrow_the_anchor(arguments.borrowed_from, arguments.stored_as)
 
     print(f"fabricated {len(written)} answers as {arguments.stored_as}:")
     for path in written:
         print(f"  {path.name}  {path.stat().st_size:>7} bytes")
+
+    if anchored is not None:
+        print(f"  {anchored.name}  the source's seeding instant, so the windows "
+              f"rebase")
+    else:
+        print(f"  no anchor beside [{arguments.borrowed_from}], so nothing is "
+              f"rebased and the recorded windows are replayed as captured")
+
     print(
         "\nThese are made up. They prove the pipeline and nothing about the "
         "model.\nDo not commit them; `nox -s record` replaces them with the "

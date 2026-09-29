@@ -84,6 +84,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    RolloutFetcher,
 )
 from agent_investigator.tools import (
     ANSWER_TOOL,
@@ -101,19 +102,29 @@ BRIEF: Final = """\
 You are the Investigator in an autonomous incident-response system. One \
 production incident is described below. Find what caused it.
 
-You have five ways to read evidence and one way to finish. Ask for whatever \
+You have six ways to read evidence and one way to finish. Ask for whatever \
 you need, in whatever order, over whatever windows look worth reading - that \
 judgement is the reason you are here rather than a fixed sequence of reads. \
 When you have seen enough, call final_answer.
 
-Two of the five answer about something other than a stretch of time, and are \
+Three of the six answer about something other than a stretch of time, and are \
 easy to leave unread for that reason. One says what this service calls and whose \
-each of those is. The other says what a deployment changed, and it is the answer \
+each of those is. One says what a deployment changed, and it is the answer \
 to a question the rest of the evidence cannot settle: a deployment that shipped \
 bad code and a deployment that shipped a broken configuration value arrive \
 identically and are fixed differently, so where a deployment is your best \
 explanation, read what was in it before naming which of the two it was. It takes \
 the revision the change channel gave you.
+
+The third says whether the deployment that landed actually finished arriving, \
+and it settles a question the change channel cannot even raise. A deploy history \
+records syncs that completed; a rollout that stopped part way is in none of \
+them, and for as long as it is stopped the service is running two versions at \
+once - which fails the requests that cross between them and leaves neither \
+revision at fault. So where a deployment precedes the onset, read the rollout \
+before you blame the revision it carried. A deployment that converged is an \
+answer worth having too: it rules the split out and leaves the revision itself \
+as the subject.
 
 One of the series you already have separates two causes that are otherwise \
 identical, and it is easy to read past because it is not a symptom. \
@@ -189,6 +200,7 @@ def investigate(
     fetch_change_events: ChangeFetcher,
     fetch_dependencies: DependencyFetcher,
     fetch_what_a_deployment_changed: DeploymentDiffFetcher,
+    fetch_rollout: RolloutFetcher,
     *,
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
@@ -315,7 +327,8 @@ def investigate(
         fetch_logs=fetch_logs,
         fetch_change_events=fetch_change_events,
         fetch_dependencies=fetch_dependencies,
-        fetch_what_a_deployment_changed=fetch_what_a_deployment_changed
+        fetch_what_a_deployment_changed=fetch_what_a_deployment_changed,
+        fetch_rollout=fetch_rollout
     )
     spend = budget if budget is not None else a_budget_for(settings)
     tools = investigator_tools()

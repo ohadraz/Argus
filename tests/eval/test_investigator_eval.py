@@ -84,6 +84,7 @@ CASE_THE_REWRITTEN_SUM = "bad-deployment-is-told-from-a-config-change"
 CASE_THE_SATURATION = "demand-saturation-is-identified"
 CASE_THE_LEAK = "resource-leak-is-told-from-demand-saturation"
 CASE_THE_FLAPPING_AUTOSCALER = "autoscaling-pathology-is-told-from-demand-saturation"
+CASE_THE_STOPPED_ROLLOUT = "in-flight-compatibility-break-is-told-from-a-bad-deployment"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -149,6 +150,13 @@ MUST_IDENTIFY_THE_LEAK = 9  # UNMEASURED - no pooled samples yet
 # fails this - and the paragraph above means neither figure has been measured
 # against the prompt that now tells it to look.
 MUST_IDENTIFY_THE_FLAPPING_AUTOSCALER = 9  # UNMEASURED - no pooled samples yet
+# The pair whose evidence agrees most completely of any in this suite, and the
+# only one where a wrong answer still reaches the right action - so what this
+# figure measures is the honesty of the record rather than the fitness of the
+# mitigation. Unmeasured for its siblings' reason and owed the same pass: the
+# standing brief now tells the model to read the rollout before blaming the
+# revision a deployment carried, and no figure here was measured against it.
+MUST_IDENTIFY_THE_STOPPED_ROLLOUT = 9  # UNMEASURED - no pooled samples yet
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
@@ -335,6 +343,48 @@ TOGGLED_LONG_BEFORE_THE_WINDOW_OPENS = -45
 # minutes between the two are visible in the metrics span, so the model can
 # read the gap rather than having to be told the change was harmless.
 DEPLOYED_LONG_BEFORE_THE_ONSET = -40
+
+# The revision this scenario's deployment is rolling out, and the one the
+# replicas that have not updated are still on. Real commits in the Target
+# Service, as the two above are.
+THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY = "696c33a"
+THE_REVISION_STILL_SERVING = "5470c1a"
+
+# What the rollout channel answers. Prose rather than a shape, because that is
+# what the channel returns: a replica count, two revisions, whether the update
+# is paused, and when the state began.
+A_ROLLOUT_STOPPED_HALF_WAY = [
+    f"Deployment of io-shop has not converged: 3 of 6 replicas are running "
+    f"revision [{THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY}], and 3 are still "
+    f"running revision [{THE_REVISION_STILL_SERVING}].",
+    "Its rolling update is paused, so the platform is not converging it on its "
+    "own.",
+    "The revision it is converging on was deployed at 2026-08-20T11:05:00Z, "
+    "which is when the replicas first differed."
+]
+A_CONVERGED_DEPLOYMENT = [
+    "Deployment of io-shop has converged: all 3 replicas are running revision "
+    "[a3f9c21], deployed at 2026-08-20T11:05:00Z."
+]
+
+# What the deployment carried. A stored shape that changed, with no read path
+# kept for the old one - which is the missing expand step of an expand-contract
+# migration, and the only thing in the diff that says so.
+WHAT_THE_RESHAPED_ENTRY_SHIPPED = [
+    f"Deployment of revision {THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY} to "
+    f"io-shop, compared against {THE_REVISION_STILL_SERVING} - the revision "
+    f"deployed before it.",
+    "modified src/io_shop/summary_cache.py",
+    "  @@ -38,7 +38,10 @@ def read_summary(entry):",
+    "  -    return Cents(int(entry))",
+    "  +    amount, items = entry.split('/')",
+    "  +    return Summary(Cents(int(amount)), int(items))"
+]
+
+A_FAILURE_READING_A_CACHE_ENTRY = (
+    "ERROR checkout: summary cache entry could not be read - ValueError: "
+    "summary cache entry '2400/8' is not a figure in cents"
+)
 
 
 @pytest.mark.eval
@@ -662,6 +712,40 @@ def test_a_capacity_that_will_not_settle_is_told_from_one_that_was_outgrown()\
 
 @pytest.mark.eval
 @needs_the_real_api
+def test_a_rollout_that_did_not_converge_is_told_from_a_bad_deployment() -> None:
+    # The pair with the least to separate it and the most riding on the answer.
+    # Its twin is the deploy-before-a-latency-climb case, and both reach the same
+    # rollback - so unlike every other pair here, getting this wrong does not
+    # produce a wrong action. It produces a correct action and a false record: a
+    # revision named as the fault, and a fix filed against code with no defect in
+    # it.
+    #
+    # Which is also why this is the only place the claim lives. The e2e case
+    # cannot assert it, because a wrong reading would have ended the incident too.
+    some_incident = an_incident_where_a_rollout_stopped_half_way()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_STOPPED_ROLLOUT,
+                MUST_IDENTIFY_THE_STOPPED_ROLLOUT,
+                _a_run_where(
+                    the_cause_was_identified_as(
+                        FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK
+                    )
+                )
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
 def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
     # The cost of the third channel, measured. This is the undetermined case
     # above with one deploy added and nothing else touched, so a drop here
@@ -726,7 +810,7 @@ def test_an_onset_that_is_only_a_lower_bound_is_read_past() -> None:
 
 @dataclass(frozen=True)
 class Incident:
-    """One pinned incident, as the four retrieval channels would serve it.
+    """One pinned incident, as the six retrieval channels would serve it.
 
     The alert and the metrics are what the loop reads before the model's first
     turn. The log lines and the changes are what is *available* to be read -
@@ -751,6 +835,12 @@ class Incident:
     changes: list[ChangeEvent]
     dependencies: list[ServiceDependency]
     what_each_deployment_changed: dict[str, list[str]] = field(default_factory=dict)
+    # How far the fixture records this incident's deployment as having got. The
+    # same kind of fact as the two above, for the third pair that arrives
+    # identically: a revision that is wrong and a revision that reached half the
+    # fleet are one deploy at the onset either way, and only this separates them.
+    # Empty for every case where no rollout decides anything.
+    rollout: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -883,7 +973,12 @@ def an_incident_where_a_deploy_slowed_the_service() -> Incident:
         # Given its own diff, so that a model reaching for the deployment
         # channel here learns what this one shipped rather than that the
         # fixture records nothing about it.
-        what_each_deployment_changed={"a3f9c21": WHAT_THE_REWRITTEN_SUM_SHIPPED}
+        what_each_deployment_changed={"a3f9c21": WHAT_THE_REWRITTEN_SUM_SHIPPED},
+        # Converged, and that is what makes this the twin of the stopped rollout
+        # rather than merely another deployment: the single variable between the
+        # two is this answer, so a model that never asks passes one and fails the
+        # other whichever way it guesses.
+        rollout=A_CONVERGED_DEPLOYMENT
     )
 
 
@@ -945,6 +1040,49 @@ def an_incident_where_a_deployment_rewrote_a_sum() -> Incident:
         what_each_deployment_changed={
             THE_REVISION_THAT_REWROTE_A_SUM: WHAT_THE_REWRITTEN_SUM_SHIPPED
         }
+    )
+
+
+def an_incident_where_a_rollout_stopped_half_way() -> Incident:
+    """A deployment that landed and did not finish arriving.
+
+    The near-miss of `an_incident_where_a_deploy_slowed_the_service`, and the
+    hardest pair in the suite to separate for a reason none of the others share:
+    both are answered by the same rollback, so a model that gets this wrong takes
+    the right action and writes a false record - a revision named as the fault
+    and a fix filed against code with no defect in it.
+
+    Everything a model can read is a neighbour's. The metrics are the flag
+    toggle's exactly - an error rate that steps with every quantile flat - so the
+    flag history has to be read before that shape is believed, and it is empty.
+    The change channel is a bad deployment's - one deploy before the onset - so
+    the rollout has to be read before the revision is blamed. The diff shows a
+    stored shape that changed with no read path kept for the old one, which is
+    the fault in the process rather than in either revision.
+
+    The single variable against its twin is the rollout channel's answer.
+    """
+    return _an_incident(
+        alert=an_error_rate_alert(),
+        buckets=_a_calm_stretch_then_a_spike(),
+        log_lines=[
+            a_log_line_at(-1, A_SUCCESS),
+            a_log_line_at(1, A_FAILURE_READING_A_CACHE_ENTRY),
+            a_log_line_at(2, A_FAILURE_READING_A_CACHE_ENTRY)
+        ],
+        changes=[
+            a_deploy_at(
+                -6,
+                THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY,
+                _as_a_deploy_is_actually_summarised(
+                    THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY
+                )
+            )
+        ],
+        what_each_deployment_changed={
+            THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY: WHAT_THE_RESHAPED_ENTRY_SHIPPED
+        },
+        rollout=A_ROLLOUT_STOPPED_HALF_WAY
     )
 
 
@@ -1343,13 +1481,15 @@ def _an_incident(alert: Alert,
                  log_lines: list[str],
                  changes: list[ChangeEvent],
                  dependencies: list[ServiceDependency] | None = None,
-                 what_each_deployment_changed: dict[str, list[str]] | None = None
+                 what_each_deployment_changed: dict[str, list[str]] | None = None,
+                 rollout: list[str] | None = None
                  ) -> Incident:
     return Incident(alert=alert, buckets=buckets, log_lines=log_lines,
                     changes=changes, dependencies=dependencies or [],
                     what_each_deployment_changed=(
                         what_each_deployment_changed or {}
-                    ))
+                    ),
+                    rollout=rollout or [])
 
 
 def _the_register_for(incident: Incident
@@ -1389,6 +1529,27 @@ def _what_a_deployment_changed_for(incident: Incident
         return incident.what_each_deployment_changed.get(revision) or [
             f"This evaluation records nothing about what the deployment of "
             f"[{revision}] changed, so take it as unread rather than as empty."
+        ]
+
+    return fetch
+
+
+def _the_rollout_of(incident: Incident) -> Callable[[str], list[str]]:
+    """How far the fixture records this incident's deployment as having got.
+
+    Per incident like the register and the diff, and evidence for the same
+    reason: what separates a revision that is wrong from two revisions serving
+    at once is whether the deployment converged, so which is correct for a set
+    of metrics is decided here and nowhere else.
+
+    An incident that records nothing is answered as unread rather than as
+    converged. "It converged" rules a failure mode out, so a default that said
+    it would hand every case a finding no fixture made.
+    """
+    def fetch(dont_care_service: str) -> list[str]:
+        return incident.rollout or [
+            "This evaluation records nothing about how far this deployment got, "
+            "so take the rollout as unread rather than as finished."
         ]
 
     return fetch
@@ -1440,6 +1601,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_change_events=_the_changes_of(incident),
             fetch_dependencies=_the_register_for(incident),
             fetch_what_a_deployment_changed=_what_a_deployment_changed_for(incident),
+            fetch_rollout=_the_rollout_of(incident),
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
             converse=speak,

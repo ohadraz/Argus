@@ -26,6 +26,7 @@ from agent_investigator import (
     deployment_diffs_over,
     logs_over,
     metrics_over,
+    rollouts_over,
 )
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
@@ -250,14 +251,15 @@ def against(connections: Connections,
             _investigate,
             settings=InvestigationSettings.of(settings),
             thresholds=thresholds,
-            # The five channels, each over the tier that answers it. The change
+            # The six channels, each over the tier that answers it. The change
             # channel takes both, because a deploy and a flag flip are recorded
             # by two systems and the Investigator reads one history.
             fetch_metrics=metrics_over(read),
             fetch_logs=logs_over(read),
             fetch_change_events=changes_over(read, write),
             fetch_dependencies=register,
-            fetch_what_a_deployment_changed=deployment_diffs_over(read)
+            fetch_what_a_deployment_changed=deployment_diffs_over(read),
+            fetch_rollout=rollouts_over(read)
         ),
         record_hypothesis=records.hypothesis,
         # The same channel the investigation reads, asked again by the walk -

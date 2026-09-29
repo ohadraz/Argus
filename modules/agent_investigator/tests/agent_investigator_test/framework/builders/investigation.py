@@ -21,6 +21,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    RolloutFetcher,
 )
 from argus_core import new_id
 from argus_core.events import Publisher, nobody
@@ -50,6 +51,7 @@ class Investigation(NamedTuple):
     change_fetcher: Mock
     dependency_fetcher: Mock
     deployment_diff_fetcher: Mock
+    rollout_fetcher: Mock
     model: Mock
     budget: Budget
 
@@ -79,6 +81,7 @@ class Investigation(NamedTuple):
             fetch_change_events=self.change_fetcher,
             fetch_dependencies=self.dependency_fetcher,
             fetch_what_a_deployment_changed=self.deployment_diff_fetcher,
+            fetch_rollout=self.rollout_fetcher,
             settings=settings or some_investigation_settings(),
             thresholds=some_thresholds(),
             converse=None if conversations is not None else self.model,
@@ -130,6 +133,9 @@ def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation
         ),
         deployment_diff_fetcher=create_autospec(
             DeploymentDiffFetcher, instance=True, return_value=[]
+        ),
+        rollout_fetcher=create_autospec(
+            RolloutFetcher, instance=True, return_value=[]
         ),
         model=model,
         budget=budget or a_budget()

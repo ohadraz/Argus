@@ -18,6 +18,7 @@ _FLAG_NAMES: Final = TypeAdapter(list[str])
 _SERVICE_DEPENDENCIES: Final = TypeAdapter(list[ServiceDependency])
 _FILE_PATHS: Final = TypeAdapter(list[str])
 _WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
+_ROLLOUT_STATE: Final = TypeAdapter(list[str])
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
@@ -136,6 +137,36 @@ def get_what_a_deployment_changed(service: str,
         _WHAT_A_DEPLOYMENT_CHANGED.validate_python,
         service=service,
         revision=revision,
+    )
+
+
+def get_rollout_state(service: str, *, client: McpClient) -> list[str]:
+    """Reads whether the deployment a service is running has finished arriving.
+
+    The evidence that separates a revision which is wrong from two revisions
+    serving at once, and the only evidence that does. The deploy history reports
+    that a revision was deployed and cannot report whether it reached every
+    replica: a history records syncs that completed, and a rollout is a stretch
+    rather than an instant.
+
+    Worth reading whenever a deployment precedes the onset - before the revision
+    is named as the fault, and before returning it is proposed. A deployment that
+    converged is an answer too: it rules the split out and leaves the revision
+    itself as the subject.
+
+    What comes back describes and does not judge. Every deployment is part way
+    through for a minute or two, so the answer says what the platform reports and
+    when the state began, and whether that is too long is the caller's to decide
+    against an onset this channel has never seen.
+
+    Raises rather than answering that the deployment converged when the platform
+    could not be reached. That answer rules a mode out, so an outage read as
+    convergence sends a walk to blame a revision that is not at fault.
+    """
+    return client.call(
+        "get_rollout_state",
+        _ROLLOUT_STATE.validate_python,
+        service=service
     )
 
 

@@ -85,6 +85,7 @@ RECORDED_LARGE_CODE_FIX = "monthly-statement-panel"
 RECORDED_PRICING_SERVICE_DEGRADED = "pricing-service-degraded"
 RECORDED_CPU_SATURATION = "cpu-saturation"
 RECORDED_AUTOSCALER_FLAPPING = "autoscaler-flapping"
+RECORDED_HALF_FINISHED_ROLLOUT = "half-finished-rollout"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,

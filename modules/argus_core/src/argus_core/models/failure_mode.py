@@ -94,6 +94,25 @@ class FailureMode(StrEnum):
     # deployment rollback answers both, since one revision carries the code and
     # the configuration it shipped with.
     CONFIG_INDUCED_FAILURE = "config-induced-failure"
+    # A deployment landed and stopped part way, so the service is running as two
+    # versions at once and the requests that cross between them fail. Not one
+    # mode with the bad deployment above, though the two arrive identically - a
+    # single deploy entry at the onset - and are answered identically, by
+    # returning the deployment. There the revision carried the fault and going
+    # back removes it; here neither revision is faulty and going back *converges*
+    # the fleet, which is a different thing that the same call happens to do.
+    #
+    # The one mode in this set with no culprit commit, which is why it earns a
+    # value despite bringing no action with it. A reader who calls it a bad
+    # deployment takes the right action and writes a false record: a revision
+    # named as the fault, a fix filed against code with no defect in it, and
+    # nothing said about the rollout that was left half-done - which is the only
+    # thing that will happen again.
+    #
+    # What is left to fix afterwards is neither code nor configuration but an
+    # order of operations: a version that could read both shapes had to ship
+    # before one that wrote only the new shape.
+    IN_FLIGHT_COMPATIBILITY_BREAK = "in-flight-compatibility-break"
 
     def meaning(self) -> str:
         """What this mode is, in the words the model weighing it reads.
@@ -103,14 +122,14 @@ class FailureMode(StrEnum):
         comes to disagree with the comments above - which are what a person
         maintaining the set reads.
 
-        One sentence each, and the two that are hardest to tell apart say what
-        separates them. A model handed five hyphenated names infers a taxonomy
-        from the spelling, and the pair it most often confuses is the one that
-        arrives the same way and is fixed differently: both a bad deployment and
-        a broken configuration landed as a deployment and are both mitigated by
-        returning it, so what the model is being asked is which of the two the
-        change was - because that is what somebody has left to fix, and it is
-        what the incident will say it was about.
+        One sentence each, and every mode that is hard to tell from a neighbour
+        says what separates it. A model handed a list of hyphenated names infers a
+        taxonomy from the spelling, and the pairs it confuses are the ones that
+        arrive the same way: a bad deployment, a broken configuration value and a
+        rollout that stopped half-way are one deployment at the onset each, and
+        all three are mitigated by returning it - so what the model is being asked
+        is which of them the change was, because that is what somebody has left to
+        fix and what the incident will say it was about.
         """
         return _WHAT_EACH_MODE_MEANS[self]
 
@@ -125,7 +144,12 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
     ),
     FailureMode.BAD_DEPLOYMENT: (
         "a deployment shipped new or changed source code and the service got "
-        "worse; the fault is in the code that was released"
+        "worse; the fault is in the code that was released. Choose this over "
+        "in-flight-compatibility-break only once the rollout has converged - "
+        "every replica on the revision that landed. The two arrive the same way, "
+        "as one deployment at the onset, and are answered the same way, so the "
+        "deploy history cannot separate them: it records that a revision was "
+        "deployed and never whether that revision finished arriving"
     ),
     FailureMode.RESOURCE_LEAK: (
         "consumption climbs while traffic does not - a heap never released, a "
@@ -195,5 +219,21 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "read it rather than inferring it. The path a deployment shipped from is "
         "not the answer: that is where its manifests live, and it is the same "
         "directory whatever the commit touched"
+    ),
+    FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: (
+        "a deployment landed and stopped part way, so two versions of the "
+        "service are serving at once and the requests that cross between them "
+        "fail - neither revision is faulty on its own, and each one alone would "
+        "work. Choose this over bad-deployment when the rollout has not "
+        "converged: replicas split across two revisions, or a rolling update "
+        "reported as paused. That is a fact about the deployment rather than "
+        "about the code it carried, it is retrievable, and the deploy history "
+        "does not carry it - read the rollout rather than inferring from the "
+        "entry. Choose it over feature-flag-toggle when no flag moved, because "
+        "the metrics here are a flag toggle's exactly: an error rate that steps "
+        "while every quantile stays flat. What answers it is getting the fleet "
+        "onto one revision, which returning the deployment does; what is left "
+        "to fix is the migration that changed a stored shape with no version "
+        "able to read both"
     )
 }

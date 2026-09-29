@@ -117,6 +117,33 @@ def test_the_two_ways_capacity_can_be_wrong_say_what_separates_them() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_the_two_ways_a_deployment_can_be_wrong_say_what_separates_them() -> None:
+    # The fourth pair, and the one whose evidence agrees most completely. Both
+    # arrive as one deploy entry at the onset, both move the service, and the
+    # history recording that deploy cannot decide between them: it says a
+    # revision was deployed and nothing about whether the revision finished
+    # arriving. One channel differs - the rollout the platform is running - so
+    # this distinction has to be somewhere to look rather than a judgement to
+    # make.
+    #
+    # Both directions, as with the three pairs above, and here the cost of the
+    # unmentioned direction is a false record rather than a wrong action: the
+    # two are answered by the same rollback, so a model that reads a stalled
+    # rollout as a bad deployment ends the incident and then files a fix against
+    # code with no defect in it.
+    Scenario() \
+        .given(the_two_ways := (
+            FailureMode.BAD_DEPLOYMENT,
+            FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK
+        )) \
+        .when(lambda: the_two_ways) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_the_rollout()
+        ))
+
+
 def _what_it_means(cause: FailureMode) -> str:
     """The meaning, or the empty string where asking for one fails.
 
@@ -310,6 +337,39 @@ def _the_pair_is_told_apart_by_the_capacity() -> Assertion[
                 f"without naming the series that separates them - the capacity "
                 f"the deployment had, which moves in one of the pair and holds "
                 f"still in the other - so the model is left to judge where it "
+                f"could have looked."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_the_rollout() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to send the model to the rollout.
+
+    Naming the other mode is not enough, for the reason it is not enough of any
+    pair above. What a model has in front of it is a deployment at the onset,
+    which both of these have, and the deploy history cannot decide between them:
+    it records that a revision was deployed and says nothing about whether that
+    revision finished arriving. So a meaning that does not send the model to the
+    rollout leaves it choosing between a faulty revision and a half-applied one
+    on evidence that describes the two identically.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "rollout" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without sending the model to the rollout - whether the "
+                f"deployment converged - so the model is left to judge between "
+                f"a wrong revision and two revisions serving at once where it "
                 f"could have looked."
             )
 

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import ast
 import json
+from collections.abc import Iterable
 from typing import Any, Final
 
 from argus_core.models import ToolDefinition
@@ -137,6 +138,11 @@ FILES_PARAMETER_TAG: Final = '<parameter name="files">'
 # field's own name that produced it, and the two have to move together.
 _A_CLOSING_CONTENT_TAG: Final = f"</{CONTENT_FIELD}>"
 
+# What a path has to end in before its content is read as Python. The suffix and
+# not a guess at the content, because a file whose name says Python is one whose
+# reader will treat it as Python whatever it holds.
+_A_PYTHON_SUFFIX: Final = ".py"
+
 
 def _the_patch_in(written: str) -> list[Any] | None:
     """The files written after a parameter tag, or `None` where there are none.
@@ -194,8 +200,13 @@ def _is_only_a_placeholder(content: str) -> bool:
     tests for what a module has rather than for how short it is: a length is a
     number somebody would have to defend.
 
-    Anything that will not parse is not judged here. A file that is not Python
-    is a different failure, and one this has no business deciding.
+    Anything that will not parse is not judged here. A file that is not Python is
+    a different failure and this has no business deciding it - but it is a failure
+    somebody has to decide, which for a while nobody did: `(see above)` parses as
+    nothing, so it was neither an elision nor source and was written out as a
+    module. `the_paths_whose_content_is_not_source` is where that is judged now,
+    and a reader of this function should expect to find it there rather than
+    conclude the case is unhandled.
     """
     try:
         parsed = ast.parse(content)
@@ -210,6 +221,47 @@ def _is_only_a_placeholder(content: str) -> bool:
         and not isinstance(statement.value, ast.Constant)
         for statement in parsed.body
     )
+
+
+def the_paths_whose_content_is_not_source(files: Iterable[ProposedFile]) -> list[str]:
+    """Which of these files carry something that is not Python at all.
+
+    The failure `_is_only_a_placeholder` names and declines: a module elided as a
+    bare expression is that function's business, and one elided as prose - `(see
+    above)`, pointing at a patch the model wrote into its explanation - parses as
+    nothing and so was judged by nobody. It reached a branch, and the fix grader
+    found a shop that would not import.
+
+    Parsing is the whole of the evidence available here. Code-Fix never runs what
+    it writes, so whether the content is source is the one thing that can be
+    established before a branch exists. It also catches a file that ends mid-
+    statement inside an answer that was otherwise complete, which is the half of
+    truncation `AnswerTruncated` cannot see: that names a response the model ran
+    out of room for, and says nothing about one that finished a file early.
+
+    Python alone. A patch may carry a values file or a manifest, and a parser for
+    one of those is a parser this would have to keep being right about; a file
+    whose name says Python and whose content is not is the case that has actually
+    happened, twice.
+
+    Public, unlike its neighbours, because the loop is what puts a submission
+    back and the judgement of what a file's content is belongs here beside the
+    other readings of it.
+    """
+    return [
+        proposed.path for proposed in files
+        if proposed.path.endswith(_A_PYTHON_SUFFIX) and not _parses(proposed.content)
+    ]
+
+
+def _parses(content: str) -> bool:
+    """Whether this text is Python, whatever it says."""
+    try:
+        ast.parse(content)
+    except (SyntaxError, ValueError):
+        return False
+
+    return True
 
 
 def _the_array_inside(submitted: str) -> Any:
@@ -318,10 +370,13 @@ class SubmittedFix(BaseModel):
 
         Nothing is lost when that happens and nothing is wrong with the fix. The
         patches recovered this way are the same 67KB module and its tests that
-        every working recording of this walk holds. What it cost was the run:
-        the pointer is dropped as the placeholder it is, the submission then
-        carries no files, and the walk spends its whole clock resubmitting an
-        answer it had written correctly the first time.
+        every working recording of this walk holds. What it cost was the run,
+        where the pointer was a bare word: dropped as the placeholder it is, the
+        submission then carried no files, and the walk spent its whole clock
+        resubmitting an answer it had written correctly the first time. Where the
+        pointer was a phrase - `(see above)` - it cost the patch instead. It
+        parses as nothing, so the reading below judged it as neither source nor an
+        elision and kept it, and eleven characters reached a branch as a module.
 
         Repaired rather than refused, for the reason the stray closing tag is and
         the array inside a string before it - the wrapping was wrong and the
@@ -332,9 +387,11 @@ class SubmittedFix(BaseModel):
         model elided.
 
         Before every field validator, because those run on the fields this
-        rewrites. Silent where the payload does not parse: a model that wrote
-        something else after the tag has submitted a patch nobody can read, which
-        is the case the put-back already exists for.
+        rewrites. Silent where the payload does not parse - which is not the rare
+        case it reads as: a patch written into prose carries the files' own
+        newlines, so the array is often not JSON at all. What is left then is
+        whatever arrived in `files`, and the two put-backs are what catch it: no
+        files, or a file whose content is not source.
         """
         if not isinstance(value, dict):
             return value

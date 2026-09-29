@@ -44,6 +44,7 @@ from tests.e2e.framework.argus import (
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_CPU_SATURATION,
     RECORDED_FLAG_TOGGLE,
+    RECORDED_HALF_FINISHED_ROLLOUT,
     REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
@@ -240,6 +241,46 @@ def test_a_withdrawn_pin_puts_the_floor_back_and_resumes_reconciliation() -> Non
                 all_of(
                     argus_ended_with_status(IncidentStatus.WITHDRAWN),
                     _the_autoscaler_may_fall_as_far_as_it_could_before(),
+                    _the_shop_reconciles_itself_again(),
+                    _nothing_was_written_up()
+                ),
+                timeout=MITIGATION_TIMEOUT_SECONDS
+            )
+        )
+
+
+@pytest.mark.e2e
+def test_a_withdrawn_rollback_splits_the_fleet_again() -> None:
+    # The fifth kind, and the first rollback whose undo a reader can see. The two
+    # rollback cases above assert the incident's record, because a revision is
+    # nowhere in the platform's answers; how far a rollout got is on the
+    # Deployment, so this one asserts the world.
+    #
+    # Which also makes it the case that shows what the other two cannot promise.
+    # `withdraw_the_rollback` puts this scenario's rollout back and leaves the
+    # misconfigured cache and the slower revision where the rollback left them -
+    # so two of the three modes answered by a rollback are mitigated and never
+    # un-mitigated. That asymmetry is older than this scenario and is recorded in
+    # the failure-modes backlog rather than fixed here.
+    some_alert_name = "HighErrorRate"
+    some_severity = "critical"
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
+                                            alert_name=some_alert_name,
+                                            severity=some_severity)
+
+    Scenario() \
+        .given(
+            calling(a_scenario_was_seeded("half-finished-rollout")),
+            calling(the_model_answers_from(RECORDED_HALF_FINISHED_ROLLOUT))
+        ) \
+        .when(
+            _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(some_alert)
+        ) \
+        .then(
+            eventually(
+                all_of(
+                    argus_ended_with_status(IncidentStatus.WITHDRAWN),
+                    _the_fleet_is_split_again(),
                     _the_shop_reconciles_itself_again(),
                     _nothing_was_written_up()
                 ),
@@ -627,6 +668,52 @@ def _the_autoscaler_may_fall_as_far_as_it_could_before(
                 f"with once the incident was withdrawn, and the platform reports "
                 f"[{floor}] - so a controller Argus held still under an incident "
                 f"that has ended is still being held, by nobody who chose it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_fleet_is_split_again() -> Assertion[httpx.Response]:
+    """The rollout is back where the incident found it, read from the platform.
+
+    The third restore in this file that can be checked against the world, and the
+    first of the three rollback modes that can be. A revision is nowhere in the
+    platform's answers - which is why the bad deployment and the misconfigured
+    cache assert their withdrawals against the incident's record - but how far a
+    rollout got is on the Deployment, so this one asserts the thing itself.
+
+    And what it asserts is that the shop is **broken again**: two versions serving,
+    the update paused where somebody left it. That is the honest end of a
+    withdrawal rather than a state anybody would call fixed - a run that left the
+    fleet converged would be keeping a mitigation alive under an incident that has
+    ended, held by nobody who chose it.
+    """
+    def assertion(dont_care_response: httpx.Response) -> bool:
+        response = httpx.get(
+            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
+            timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        manifest = json.loads(response.json()["manifest"])
+        status = manifest.get("status", {})
+        serving = status.get("replicas")
+        updated = status.get("updatedReplicas")
+
+        if serving == updated:
+            raise AssertionError(
+                f"Expected the fleet to be split again once the incident was "
+                f"withdrawn, and the platform reports all {serving} replicas on "
+                f"one revision - so a rollback Argus took under an incident that "
+                f"has ended is still in force, and nobody is watching it."
+            )
+
+        if not manifest.get("spec", {}).get("paused"):
+            raise AssertionError(
+                "The fleet is split again but the rolling update is no longer "
+                "paused, so the platform is converging it on its own - which is "
+                "not the world the incident was found in."
             )
 
         return True

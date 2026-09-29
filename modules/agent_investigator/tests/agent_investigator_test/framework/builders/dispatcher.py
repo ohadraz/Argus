@@ -16,6 +16,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    RolloutFetcher,
 )
 from agent_investigator.tools import Dispatcher
 from argus_core.models import ToolCall
@@ -35,6 +36,7 @@ def a_dispatcher(reads_metrics: Mock | None = None,
                  reads_changes: Mock | None = None,
                  reads_dependencies: Mock | None = None,
                  reads_a_deployment: Mock | None = None,
+                 reads_the_rollout: Mock | None = None,
                  alert_time: str | None = AN_ALERT_TIME) -> Dispatcher:
     """A dispatcher whose unnamed channels answer with nothing.
 
@@ -69,6 +71,9 @@ def a_dispatcher(reads_metrics: Mock | None = None,
         ),
         fetch_what_a_deployment_changed=reads_a_deployment or create_autospec(
             DeploymentDiffFetcher, instance=True, return_value=[]
+        ),
+        fetch_rollout=reads_the_rollout or create_autospec(
+            RolloutFetcher, instance=True, return_value=[]
         )
     )
 

@@ -70,6 +70,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
+    RECORDED_HALF_FINISHED_ROLLOUT,
     RECORDED_LARGE_CODE_FIX,
     RECORDED_PRICING_SERVICE_DEGRADED,
     RECORDED_RESOURCE_LEAK,
@@ -387,6 +388,27 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         # about - which is the failure this scenario exists to catch, not the
         # answer it exists to store.
         (_AN_ACTION_WAS_TAKEN,)
+    ),
+    # The one incident where no revision is at fault: a rolling update paused
+    # half-way, with two correct revisions serving at once. Its alert is the error
+    # rate, because a replica that cannot read an entry a newer one wrote fails the
+    # page outright rather than waiting - which is the flag scenarios' page with an
+    # empty flag history and a deploy at the onset, and the collision this
+    # recording exists to capture the model's answer to.
+    _Recording(
+        RECORDED_HALF_FINISHED_ROLLOUT,
+        "half-finished-rollout",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        # The action and the verdict it earned, as the capacity walks have them:
+        # the action because the claim is that the deployment was returned, and the
+        # verdict because a rollback the shop never answered for would be a
+        # recording of a walk that stopped before finding out whether converging
+        # the fleet was the answer. No fix demanded - both revisions pass the
+        # shop's own tests, so what was skipped is a migration step rather than
+        # anything a patch could repair, and a `must_have` naming one would refuse
+        # the walk this recording is of.
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
     ),
     # The flag scenario again, with the fault moved into the largest module the
     # shop has. Everything a reader of the telemetry sees is the first

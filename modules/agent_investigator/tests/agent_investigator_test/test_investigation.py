@@ -21,6 +21,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    RolloutFetcher,
 )
 from argus_core import new_id, parse_iso
 from argus_core.events import (
@@ -1826,6 +1827,7 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
         fetch_what_a_deployment_changed=create_autospec(
             DeploymentDiffFetcher, instance=True, return_value=[]
         ),
+        fetch_rollout=create_autospec(RolloutFetcher, instance=True, return_value=[]),
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),
         converse=a_model_that_says(a_turn_answering(an_explanation())),

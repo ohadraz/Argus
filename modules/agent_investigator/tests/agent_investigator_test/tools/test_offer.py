@@ -16,6 +16,7 @@ from agent_investigator.tools import (
     DEPLOYMENT_DIFF_TOOL,
     LOGS_TOOL,
     METRICS_TOOL,
+    ROLLOUT_TOOL,
     investigator_tools,
 )
 from argus_core.models import ToolDefinition
@@ -29,7 +30,7 @@ def test_the_investigator_is_offered_nothing_that_changes_anything() -> None:
     # appearing in this list is the failure that matters most in this package.
     read_only_names = {
         LOGS_TOOL, METRICS_TOOL, CHANGES_TOOL, DEPENDENCIES_TOOL,
-        DEPLOYMENT_DIFF_TOOL, ANSWER_TOOL
+        DEPLOYMENT_DIFF_TOOL, ROLLOUT_TOOL, ANSWER_TOOL
     }
 
     Scenario() \

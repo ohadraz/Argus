@@ -55,6 +55,8 @@ DONT_CARE_SERVICE = "dont-care-service"
 
 NO_FLAGS_CHANGED: Sequence[FlagChange] = []
 
+SOME_APPLICATION_THE_ALERT_NAMES = "io-shop"
+
 
 @pytest.mark.unit
 def test_the_strategy_registered_for_a_cause_is_the_one_asked() -> None:
@@ -190,80 +192,6 @@ def test_the_registry_argus_ships_answers_a_leak_with_a_restart() -> None:
         .then(_the_service_to_restart_is(some_alerting_service))
 
 
-def _no_strategies() -> Strategies:
-    """A registry that answers for no cause at all.
-
-    Spelled out rather than written as a bare `{}` at each call, because an
-    empty mapping needs its type named for it to be one of these.
-    """
-    return {}
-
-
-class _StandInStrategy:
-    """A strategy built to propose one particular thing.
-
-    A class rather than `create_autospec`, because what is being stood in for
-    is a `Protocol` carrying an attribute as well as a method, and the
-    attribute is half of what the thing under test reads.
-
-    It answers for the one action type there is. That is the only one a
-    registry can be asked about today, and standing in for a *second* type so
-    that a test could name one would be a branch in every match in the repo,
-    added for this file's benefit.
-    """
-
-    action_type: ActionType = REVERT_FEATURE_FLAG
-
-    def __init__(self, proposing: Action | None) -> None:
-        self._proposing = proposing
-
-    def propose(self,
-                dont_care_hypothesis: Hypothesis,
-                dont_care_flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
-        return self._proposing
-
-
-def _a_strategy_proposing(action: Action) -> MitigationStrategy:
-    return _StandInStrategy(proposing=action)
-
-
-def _the_action_proposed_names(flag: str) -> Assertion[Action | None]:
-    def assertion(action: Action | None) -> bool:
-        if not isinstance(action, RevertFeatureFlag):
-            raise AssertionError(
-                f"Expected an action naming flag [{flag}], got [{action}]."
-            )
-
-        if action.flag != flag:
-            raise AssertionError(
-                f"Expected an action naming flag [{flag}], "
-                f"got one naming [{action.flag}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_service_to_restart_is(service: str) -> Assertion[Action | None]:
-    def assertion(action: Action | None) -> bool:
-        if not isinstance(action, RestartService):
-            raise AssertionError(
-                f"Expected a restart of [{service}], got [{action}]."
-            )
-
-        if action.service != service:
-            raise AssertionError(
-                f"Expected a restart of [{service}], "
-                f"got one of [{action.service}]."
-            )
-
-        return True
-
-    return assertion
-
-
 @pytest.mark.unit
 def test_nothing_answers_an_upstream_dependency_failure() -> None:
     # The absence is the decision, not an omission. Argus's mitigations reach
@@ -335,21 +263,6 @@ def test_no_mode_at_all_is_answered_by_nothing() -> None:
         )
 
 
-def _the_answer_is(expected: bool) -> Assertion[bool]:
-    def assertion(answered: bool) -> bool:
-        if answered is not expected:
-            raise AssertionError(
-                f"Expected [{expected}], got [{answered}]."
-            )
-
-        return True
-
-    return assertion
-
-
-SOME_APPLICATION_THE_ALERT_NAMES = "io-shop"
-
-
 @pytest.mark.unit
 def test_a_config_induced_failure_is_answered_by_rolling_the_configuration_back() -> None:
     Scenario() \
@@ -359,7 +272,7 @@ def test_a_config_induced_failure_is_answered_by_rolling_the_configuration_back(
             NO_FLAGS_CHANGED,
             SOME_APPLICATION_THE_ALERT_NAMES
         )) \
-            .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
 
 @pytest.mark.unit
@@ -377,7 +290,25 @@ def test_a_bad_deployment_is_answered_by_rolling_the_deployment_back() -> None:
             NO_FLAGS_CHANGED,
             SOME_APPLICATION_THE_ALERT_NAMES
         )) \
-            .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_an_in_flight_compatibility_break_is_answered_by_rolling_the_deployment_back() -> None:
+    # The third mode reaching this strategy, and the first whose reason is not
+    # that the revision carried the fault. Neither revision did - each one alone
+    # would work - so what ends the incident is every replica arriving on one of
+    # them, and returning the deployment is the call that does it. The account
+    # differs and the action does not, which is this mapping being many-to-one
+    # on purpose rather than by coincidence.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK),
+            NO_FLAGS_CHANGED,
+            SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
 
 @pytest.mark.unit
@@ -396,7 +327,7 @@ def test_the_deployment_rolled_back_is_the_one_the_alert_names() -> None:
         .when(lambda: propose_action(
             describing_a_symptom, NO_FLAGS_CHANGED, SOME_APPLICATION_THE_ALERT_NAMES
         )) \
-            .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
 
 @pytest.mark.unit
@@ -411,7 +342,7 @@ def test_a_rollback_names_no_revision_to_return_to() -> None:
             NO_FLAGS_CHANGED,
             SOME_APPLICATION_THE_ALERT_NAMES
         )) \
-            .then(_it_carries_nothing_but_the_application())
+        .then(_it_carries_nothing_but_the_application())
 
 
 @pytest.mark.unit
@@ -585,7 +516,93 @@ def test_a_scale_out_names_no_count_to_scale_to() -> None:
             NO_FLAGS_CHANGED,
             SOME_APPLICATION_THE_ALERT_NAMES
         )) \
-            .then(_the_scale_out_carries_nothing_but_the_application())
+        .then(_the_scale_out_carries_nothing_but_the_application())
+
+
+def _no_strategies() -> Strategies:
+    """A registry that answers for no cause at all.
+
+    Spelled out rather than written as a bare `{}` at each call, because an
+    empty mapping needs its type named for it to be one of these.
+    """
+    return {}
+
+
+class _StandInStrategy:
+    """A strategy built to propose one particular thing.
+
+    A class rather than `create_autospec`, because what is being stood in for
+    is a `Protocol` carrying an attribute as well as a method, and the
+    attribute is half of what the thing under test reads.
+
+    It answers for the one action type there is. That is the only one a
+    registry can be asked about today, and standing in for a *second* type so
+    that a test could name one would be a branch in every match in the repo,
+    added for this file's benefit.
+    """
+
+    action_type: ActionType = REVERT_FEATURE_FLAG
+
+    def __init__(self, proposing: Action | None) -> None:
+        self._proposing = proposing
+
+    def propose(self,
+                dont_care_hypothesis: Hypothesis,
+                dont_care_flag_changes: Sequence[FlagChange],
+                service: str) -> Action | None:
+        return self._proposing
+
+
+def _a_strategy_proposing(action: Action) -> MitigationStrategy:
+    return _StandInStrategy(proposing=action)
+
+
+def _the_action_proposed_names(flag: str) -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, RevertFeatureFlag):
+            raise AssertionError(
+                f"Expected an action naming flag [{flag}], got [{action}]."
+            )
+
+        if action.flag != flag:
+            raise AssertionError(
+                f"Expected an action naming flag [{flag}], "
+                f"got one naming [{action.flag}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_service_to_restart_is(service: str) -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, RestartService):
+            raise AssertionError(
+                f"Expected a restart of [{service}], got [{action}]."
+            )
+
+        if action.service != service:
+            raise AssertionError(
+                f"Expected a restart of [{service}], "
+                f"got one of [{action.service}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_answer_is(expected: bool) -> Assertion[bool]:
+    def assertion(answered: bool) -> bool:
+        if answered is not expected:
+            raise AssertionError(
+                f"Expected [{expected}], got [{answered}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_scales_out(application: str) -> Assertion[Action | None]:

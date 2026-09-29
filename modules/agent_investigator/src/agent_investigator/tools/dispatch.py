@@ -23,6 +23,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    RolloutFetcher,
 )
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_investigator.tools.changes import CHANGES_TOOL, read_changes
@@ -34,6 +35,7 @@ from agent_investigator.tools.deployments import (
 from agent_investigator.tools.logs import LOGS_TOOL, read_logs
 from agent_investigator.tools.metrics import METRICS_TOOL, read_metrics
 from agent_investigator.tools.results import Served, could_not_serve
+from agent_investigator.tools.rollouts import ROLLOUT_TOOL, read_the_rollout
 
 # Reading the clock, so a test can hand over one that does not tick. A
 # `Callable` rather than a Protocol because it takes no arguments: there are no
@@ -100,6 +102,7 @@ class Dispatcher:
                  fetch_change_events: ChangeFetcher,
                  fetch_dependencies: DependencyFetcher,
                  fetch_what_a_deployment_changed: DeploymentDiffFetcher,
+                 fetch_rollout: RolloutFetcher,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
                  having_read: Sequence[Reading] = (),
@@ -116,6 +119,7 @@ class Dispatcher:
         self._fetch_change_events = fetch_change_events
         self._fetch_dependencies = fetch_dependencies
         self._fetch_what_a_deployment_changed = fetch_what_a_deployment_changed
+        self._fetch_rollout = fetch_rollout
         self._readings: list[Reading] = list(having_read)
 
     @property
@@ -220,9 +224,13 @@ class Dispatcher:
                 call, self._service, self._fetch_what_a_deployment_changed
             )
 
+        if call.name == ROLLOUT_TOOL:
+            return read_the_rollout(call, self._service, self._fetch_rollout)
+
         return could_not_serve(
             call,
             f"there is no tool called {call.name!r}. The tools available are "
             f"{METRICS_TOOL}, {LOGS_TOOL}, {CHANGES_TOOL}, "
-            f"{DEPENDENCIES_TOOL}, {DEPLOYMENT_DIFF_TOOL} and {ANSWER_TOOL}."
+            f"{DEPENDENCIES_TOOL}, {DEPLOYMENT_DIFF_TOOL}, {ROLLOUT_TOOL} and "
+            f"{ANSWER_TOOL}."
         )

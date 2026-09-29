@@ -2,45 +2,55 @@
   "container": null,
   "content": [
     {
-      "text": "Latency spike at 07:52 correlates directly with pricing.io-internal.svc slow calls (1500ms, nearly all requests). No changes deployed. This is an internal dependency (io-pricing, owned by checkout-platform).",
+      "text": "Clear picture: latency spike at 22:29-22:34 correlates directly with pricing.io-internal.svc calls taking 1500ms for basket-total, going from 21/200 slow requests to 200/200 (all requests). This is an internal dependency (io-pricing, owned by checkout-platform, same org) failing/degrading, and no deployment/change occurred on io-shop itself.",
       "type": "text"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01Cet8t5VkdVt83RafVj3256",
+      "id": "toolu_01LYfjTP3HZ9XwP71hf6EdDB",
       "input": {
         "hypotheses": [
           {
-            "confidence": 0.85,
+            "confidence": 0.88,
             "failure_mode": "internal-dependency-failure",
             "faulting_service": "io-pricing",
             "from_state": null,
             "subject": "io-pricing",
-            "summary": "io-shop's latency jump at 07:52 coincides with pricing.io-internal.svc (io-pricing) taking 1500ms per call for basket-total, hitting all or nearly all requests each minute thereafter. No deployment or config change occurred on io-shop in the prior 24h, and io-pricing is an internal dependency owned by the same organisation (checkout-platform), so the fault arrived through that dependency rather than originating in io-shop.",
+            "summary": "io-shop's p50/p95/p99 latency jumped at 22:29-22:30 in lockstep with logs showing the upstream pricing.io-internal.svc dependency taking 1500ms per call on basket-total requests, escalating from 21/200 to 200/200 requests affected. No code or config change occurred on io-shop in the preceding hours, and io-pricing is an internal dependency owned by the same organisation (checkout-platform).",
             "supporting_evidence": [
               {
-                "at": "2026-09-28T07:53:00Z",
-                "claim": "slow upstream call - pricing.io-internal.svc took 1500ms for /v1/shoppers/shopper-19076-4-0/basket-total (200 of 200 requests)"
+                "at": "2026-09-28T22:29:00Z",
+                "claim": "slow upstream call - pricing.io-internal.svc took 1500ms for /v1/shoppers/shopper-35697-6-0/basket-total (21 of 200 requests)"
               },
               {
-                "at": "2026-09-28T07:54:00Z",
-                "claim": "slow upstream call - pricing.io-internal.svc took 1500ms for /v1/shoppers/shopper-34099-9-0/basket-total (200 of 200 requests)"
+                "at": "2026-09-28T22:30:00Z",
+                "claim": "slow upstream call - pricing.io-internal.svc took 1500ms for /v1/shoppers/shopper-40709-7-0/basket-total (200 of 200 requests)"
               },
               {
-                "at": "2026-09-28T07:52:00Z",
-                "claim": "p50_ms jumps from 46 to 408 then to ~1545, matching the onset of upstream slowness"
+                "at": "2026-09-28T22:30:00Z",
+                "claim": "p50_ms jumps from 44 to 1545 and p95_ms from 209 to 1715 starting at the same minute"
               },
               {
                 "at": null,
-                "claim": "io-pricing: internal, owned by checkout-platform, at pricing.io-internal.svc - Called while the account page renders"
+                "claim": "io-pricing: internal, owned by checkout-platform, at pricing.io-internal.svc - What a shopper's basket comes to once their discounts are applied. Called while the account page renders"
               },
               {
                 "at": null,
                 "claim": "(nothing changed in this window)"
               }
             ],
+            "to_state": null
+          },
+          {
+            "confidence": null,
+            "failure_mode": null,
+            "faulting_service": null,
+            "from_state": null,
+            "subject": null,
+            "summary": "No cause could be confirmed beyond the dependency correlation - if io-pricing itself turns out healthy and the slowness is only an artifact of io-shop's own call path, no other explanation is supported by the retrieved evidence.",
+            "supporting_evidence": [],
             "to_state": null
           }
         ]
@@ -50,7 +60,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfVUuHu4qt68tkptt53d5",
+  "id": "msg_011CfWdngtXj4cYrqR4S9CxD",
   "model": "claude-sonnet-5",
   "role": "assistant",
   "stop_details": null,
@@ -60,13 +70,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2002
+      "ephemeral_5m_input_tokens": 1960
     },
-    "cache_creation_input_tokens": 2002,
-    "cache_read_input_tokens": 24912,
+    "cache_creation_input_tokens": 1960,
+    "cache_read_input_tokens": 25748,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 676,
+    "output_tokens": 885,
     "output_tokens_details": {
       "thinking_tokens": 0
     },

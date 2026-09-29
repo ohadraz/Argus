@@ -71,6 +71,7 @@ from agent_codefix.prompting import (
     SUBMIT_FIX,
     SUBMIT_TOOL_NAME,
     SubmittedFix,
+    the_paths_whose_content_is_not_source,
 )
 
 # What the loop asks of the repository, said as the shape it calls with rather
@@ -564,6 +565,20 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         submitted = _the_submission_in(turn)
 
         if submitted is not None and submitted.files:
+            not_source = the_paths_whose_content_is_not_source(submitted.files)
+
+            if not_source:
+                # A patch that cannot be read as the language it is written in,
+                # which is a submission to recover from rather than one to
+                # propose. Put back for the reason an empty one is: the model has
+                # decided what to write and is one turn from writing it properly.
+                transcript.append(_what_it_is_told_next(
+                    [_that_is_not_source(turn, not_source)],
+                    one_call_left=spend.is_on_its_last_call()
+                ))
+
+                continue
+
             return submitted
 
         if submitted is not None:
@@ -659,6 +674,38 @@ def _no_patch_was_attached(turn: Turn) -> ToolResult:
             "Submit again with the whole content of every file the fix touches. "
             "If what you meant is that the code needs no change, that is a "
             f"complete answer and {REPORT_TOOL_NAME} is how to give it."
+        ),
+        failed=True
+    )
+
+
+def _that_is_not_source(turn: Turn, paths: list[str]) -> ToolResult:
+    """The submission put back because a file's content is not the language it is.
+
+    A failure rather than a remark, as the empty patch's is, and for the same
+    reason: this is something to recover from, not evidence about the incident.
+
+    The paths are named. What happened on the run this exists for is that the
+    model wrote the whole module into its explanation and pointed `content` at
+    it - so a complaint that did not say which file it means would be answered by
+    a model re-reading its own prose for the answer it already has.
+
+    Said as "not source" rather than as the parser's message. A `SyntaxError` from
+    line one of `(see above)` describes the placeholder rather than the mistake,
+    and the mistake is that a pointer was sent where a file belongs.
+    """
+    submitting = next(
+        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
+    )
+
+    return ToolResult(
+        call_id=submitting.id if submitting is not None else "",
+        content=(
+            f"The content submitted for {', '.join(paths)} is not source - it "
+            f"does not parse as Python, so writing it out would replace the file "
+            f"with something nothing can read. Submit again with that file's "
+            f"whole new text as the value of its content, and nothing referring "
+            f"to text written anywhere else."
         ),
         failed=True
     )

@@ -84,6 +84,16 @@ SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_SOURCE = "def average_spend_per_item_this_month(account):\n    ...\n"
 SOME_FIXED_SOURCE = "def average_spend_per_item_this_month(account):\n    return 0\n"
 
+# What the live run actually submitted where a file's content belongs, and it is
+# valid JSON, a valid string and a schema-valid argument - which is the whole
+# reason nothing refused it. Not valid Python, which is the one thing that can be
+# checked here.
+A_PLACEHOLDER_WHERE_SOURCE_BELONGS = "(see above)"
+
+# The words the complaint has to carry, not the sentence carrying them - as the
+# last-call warning above pins words rather than prose.
+WHAT_IS_NOT_SOURCE = "not source"
+
 SOME_MODEL = "claude-sonnet-5"
 SOME_EFFORT: Effort = "medium"
 SOME_MAX_OUTPUT_TOKENS = 128_000
@@ -1195,6 +1205,111 @@ def test_an_empty_patch_sent_twice_is_never_read_as_a_verdict() -> None:
 
 
 @pytest.mark.unit
+def test_a_patch_whose_content_is_not_source_is_put_back_for_another_attempt() -> None:
+    # What a live run did: the model wrote the whole new module into its
+    # explanation and then put "(see above)" where the file's content belongs.
+    # The submission is schema-valid - a string is a string - so nothing refused
+    # it, the walk finished looking like a success, and what reached the
+    # repository was eleven characters written over a module. Two steps later
+    # the fix grader found a demo app that would not even import.
+    #
+    # Parsing is the only evidence available here: Code-Fix runs statically and
+    # never executes what it writes, so whether the content is Python at all is
+    # the one thing that can be checked before a branch exists. It catches a
+    # truncation as well, which nothing currently catches.
+    #
+    # Put back rather than raised, as an empty patch is: the model has already
+    # decided what to write and is one turn from writing it properly.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_whose_content_is(A_PLACEHOLDER_WHERE_SOURCE_BELONGS),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_told(model, WHAT_IS_NOT_SOURCE),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_patch_that_is_never_source_is_never_written_to_a_branch() -> None:
+    # The safety half of the put-back. A model that keeps pointing at prose
+    # instead of writing the file runs out, and running out is reported as a run
+    # that never answered - which sends a reader to the agent. What must not
+    # happen is the other ending: a branch carrying eleven characters where a
+    # module was, proposed to a human as a fix and looking like one until
+    # somebody tries to import it.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_whose_content_is(A_PLACEHOLDER_WHERE_SOURCE_BELONGS),
+        submits_a_fix_whose_content_is(A_PLACEHOLDER_WHERE_SOURCE_BELONGS)
+    )
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=2),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_patch_file_that_is_not_python_is_proposed_as_it_arrived() -> None:
+    # The limit of the rule above, and why it is drawn at the suffix. A fix may
+    # touch a values file or a manifest, and neither is Python - so a check that
+    # asked "does this parse" of every file would refuse the deployment fixes this
+    # agent exists to write, while one that asks it of the files whose names say
+    # Python refuses only what a Python reader will choke on.
+    #
+    # A parser per format is the alternative, and it is a parser this would have
+    # to keep being right about for every format a repository holds.
+    some_values_file = "deploy/values.yaml"
+    some_yaml = "replicaCount: 6\nresources:\n  limits:\n    cpu: 3\n"
+
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_whose_content_is(some_yaml, path=some_values_file)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_patch_written_was(repository, {some_values_file: some_yaml}))
+
+
+@pytest.mark.unit
 def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> None:
     # Raised rather than answered with nothing. "No fix was found" and "the fix
     # could not be pushed" reach the same human and only one of them would be
@@ -1560,6 +1675,22 @@ def submits_a_fix_touching(*paths: str,
         "files": [
             {"path": path, "content": SOME_FIXED_SOURCE} for path in paths
         ]
+    })
+
+
+def submits_a_fix_whose_content_is(content: str,
+                                   path: str = SOME_PATH,
+                                   summary: str = "a summary",
+                                   explanation: str = "an explanation") -> Turn:
+    """A submission attaching one file whose content is whatever a test says.
+
+    Beside the builder above rather than a parameter on it: what that one says
+    is "a fix of these files", and every caller of it means a fix that is fine.
+    """
+    return _a_turn_calling("submit_fix", {
+        "summary": summary,
+        "explanation": explanation,
+        "files": [{"path": path, "content": content}]
     })
 
 

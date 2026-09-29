@@ -26,7 +26,14 @@ from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
 from code_index.embedding import an_embedder
 from mcp.server.fastmcp import FastMCP
 
-from read_mcp_server import deployments, flags, meaning, repository, retrieval
+from read_mcp_server import (
+    deployments,
+    flags,
+    meaning,
+    repository,
+    retrieval,
+    rollouts,
+)
 from read_mcp_server.argocd import (
     ArgocdSettings,
     fetch_argocd_application,
@@ -42,6 +49,7 @@ from read_mcp_server.registry import (
 )
 from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
+from read_mcp_server.rollouts import RolloutReadSettings, fetch_live_deployment
 from read_mcp_server.window import RetrievalSettings
 
 
@@ -50,6 +58,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  target_service: TargetServiceSettings,
                  flag_settings: FlagReadSettings,
                  argocd_settings: ArgocdSettings,
+                 rollout_settings: RolloutReadSettings,
                  registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
@@ -97,6 +106,14 @@ def build_server(endpoint: ReadMcpEndpoint,
         )
 
     changes: ChangeSource = deploys
+
+    # The other half of what the platform knows about a deployment, and a
+    # different route: the application says what was synced, this says what is
+    # running. Bound here beside the application fetcher because the rollout
+    # channel asks both, and one closure deciding where the platform is is one
+    # place to correct when it moves.
+    def the_live_deployment(application: str) -> dict[str, Any]:
+        return fetch_live_deployment(application, rollout_settings)
 
     def registered(service: str) -> dict[str, object]:
         return fetch_registered_service(service, registry_settings)
@@ -297,6 +314,39 @@ def build_server(endpoint: ReadMcpEndpoint,
         )
 
     @mcp.tool()
+    def get_rollout_state(service: str) -> list[str]:
+        """Returns whether the deployment a service is running has finished
+        arriving - how many replicas are on the revision being rolled out, how
+        many are still on the one before it, and whether the rolling update is
+        paused.
+
+        The channel that tells a bad deployment from two revisions serving at
+        once, and the only one that can. `get_change_events` reports that a
+        revision was deployed, which both look like; what it cannot report is
+        whether that revision reached every replica, because a deploy history
+        records syncs that completed and a rollout is a stretch rather than an
+        instant.
+
+        Worth calling whenever a deployment precedes the onset - before saying
+        the revision is at fault, and before proposing to return it. A deployment
+        that has converged rules the split out and leaves the revision itself as
+        the subject, which is an answer worth having either way.
+
+        A split fleet is not a verdict. Every deployment is part way through for
+        a minute or two, so the answer says what the platform reports and when
+        the state began, and whether that is too long is yours to judge against
+        an onset this channel has never seen. What makes it a fault rather than a
+        rollout in progress is failures that only requests crossing the two
+        versions could produce.
+
+        A platform that could not be reached raises rather than answering that
+        the deployment converged. The behavior lives in
+        `rollouts.how_the_rollout_is_going`; this is registration only."""
+        return rollouts.how_the_rollout_is_going(
+            service, fetch_deployment=the_live_deployment, fetch=the_application
+        )
+
+    @mcp.tool()
     def get_service_dependencies(service: str) -> list[ServiceDependency]:
         """Returns what a service calls, and whose each of those is.
 
@@ -416,6 +466,7 @@ def main() -> None:
             TargetServiceSettings.of(settings),
             FlagReadSettings.of(settings),
             ArgocdSettings.of(settings),
+            RolloutReadSettings.of(settings),
             ServiceRegistrySettings.of(settings),
             RepositoryReadSettings.of(settings),
             IndexReadSettings.of(settings),

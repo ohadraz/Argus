@@ -26,7 +26,7 @@ pattern. See "A note on the name" below.
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Yes**, and the second family covered entire. FM-13 is built in both halves: `resource-leak` is the leak and `demand-saturation` is the saturation, told apart by whether the consumption moved with the traffic and answered by opposite things - reclaiming what accumulated, or adding capacity the deployment never had. FM-25 is `autoscaler-flapping`: diagnosed by the one series that moves, and mitigated by raising the controller's floor to its ceiling. What tells it from saturation is whether the capacity is itself moving, because at the bottom of every cycle the rest of the evidence is saturation's exactly |
 | Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
-| Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Partly.** `slow-canary-rollout` is FM-06: diagnosed and mitigated by putting the flag back. In-flight compatibility is not built |
+| Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Yes**, and the third family covered entire. FM-06 is `slow-canary-rollout`: diagnosed and mitigated by putting the flag back. FM-35 is `half-finished-rollout`: a revision that landed and stopped, diagnosed from whether the rollout converged and mitigated by the rollback that converges the fleet. What the two share is a fault that exists for part of the traffic and no more of it - one because a cohort is small, the other because a failing share is the product of two shares |
 | AI-specific | 2% | Output-quality degradation (FM-17), accelerator heterogeneity (FM-33) | No |
 | External/adversarial | 1% | External attack (FM-15), supply-chain breach (FM-16) | No, and out of scope |
 
@@ -105,12 +105,15 @@ variable.
 
 In order of share, minus what is out of scope for a demo:
 
-1. **FM-35 In-flight compatibility break** (the other half of tail/outlier's
-   3%). A deploy that is correct on both sides of itself and wrong for the
-   requests that span it. It is first by elimination rather than by share: with
-   capacity covered entire, it is the only remaining half of a family that has a
-   built half - and a family half-covered is where the distinctions are cheapest
-   to draw, because the neighbour it has to be told apart from already exists.
+1. **FM-26 Silent data corruption**, inside foundational integrity (12%). The
+   largest family with nothing built in it, and the first entry here chosen by
+   share rather than by elimination - every family above it is covered entire.
+   It is also the first mode whose *detection* is the hard part rather than its
+   attribution: nothing fails, no rate moves, no quantile moves, and the service
+   goes on reporting itself healthy while what it writes is wrong. Every mode
+   built so far announces itself in a series the detector already judges, which
+   is what dates an onset and starts a walk at all - so this one asks a question
+   none of them has: what pages somebody when the only evidence is a value.
 
 ## Measurements owed, and what each would buy
 
@@ -146,6 +149,29 @@ buy, so that a decision to buy it is a decision rather than a habit.
   fixed, which makes this the question worth a rate rather than a fix. What the
   spend would buy: how often a conclusion that names no file leaves the agent
   roaming until a bound binds.
+- **What an irreversible action would buy, and what it would cost.** Not a
+  measurement but the same kind of entry: a purchase written down so that taking
+  it is a decision. `half-finished-rollout` is its motivation, and the sharper
+  version of that scenario is the one declined. There, the newer side has already
+  written the new shape into something that outlives a rollback, so going back is
+  refuted - every replica then reads rows it cannot parse, and the only thing that
+  ends the incident is *finishing* the rollout. That version makes the diagnosis
+  decide the action, which is stronger than making it decide only the record.
+
+  It was declined on the autonomy rule (§13 of the spec): completing a rollout
+  has no undo. There is no returning a fleet to half-deployed, and the revision is
+  at every replica the moment it converges - so Argus would diagnose it and ask a
+  human, which is FM-01's ending reached at the cost of a sixth action kind, an
+  undo descriptor that cannot undo, a gate question about irreversibility and a
+  narration for all of it.
+
+  So what a decision here would be deciding is not whether rolling forward is
+  correct - it is whether Argus should be able to say *"I know what would fix
+  this and I will not do it unasked"* in its own words, as a third refusal beside
+  the two the write tier already makes. Today that case is indistinguishable from
+  having found no action at all. The distinction is worth writing down and has not
+  yet been worth the machinery; the scenario that motivates it now exists, which
+  is the part that was missing the last time it was raised.
 
 **FM-06 Aggregate-masked tail degradation is built.** `slow-canary-rollout`
 stages the account page's newest figure going out to three percent of traffic,
@@ -354,6 +380,91 @@ rule in Argus.
 It is mitigated and never resolved. The values file still declares the window that
 flaps, so putting the floor back returns the shop to flapping - and a walk that
 answered this with a restart would have changed nothing at all.
+
+**FM-35 In-flight compatibility break is built, and tail/outlier is the third
+family covered entire.** `half-finished-rollout` stages a revision that changed
+the shape of what the summary cache stores, deployed and then paused half-way
+through its rolling update. Three replicas write the new shape and three were
+deployed before it existed, so an account page fails when a replica on the older
+side draws an entry a replica on the newer side wrote. The error rate steps, no
+quantile moves at all, the cache answers at the ratio it always did, nothing
+accumulates and nothing saturates.
+
+Three things it added beyond the scenario.
+
+**The first mode with no culprit commit.** Every mode before it has something a
+reader can point at - a commit, a value, a flag, a heap, a controller, somebody
+else's service. Here both revisions leave `tests/io_shop` green, which makes "no
+revision is at fault" a fact about the fixture rather than a claim in a
+description: `grade_fixes` has nothing to grade, because there is no failing test
+for a patch to turn green. What is left to fix is the expand step of an
+expand-contract migration nobody performed - a version that could read both
+shapes, deployed before the one that writes only the new one - and that is a
+process rather than a patch.
+
+**The first channel that reads a deployment as a stretch rather than an
+instant.** The five before it all read a deployment as an event: the history
+records that a sync happened, the diff records what that sync carried, and
+metrics, logs and the flag provider describe the service. A rollout is a stretch,
+and a stretch that has not ended is invisible to every one of them - so the sixth
+channel reads the live Deployment and reports which revision the platform is
+converging on, how many replicas have reached it, how many have not, whether the
+rolling update is paused, and when it entered that state. No new source: the
+application, the credential and the route are the deploy history's own.
+
+**A failing share that is the product of two shares.** It is the share of entries
+written by the newer side times the share of reads taken by the older one, scaled
+by how much of the traffic the cache answers at all - so it is zero before a
+rollout begins, zero once it converges, and largest in the middle. About one
+request in five here, with the cache carrying its usual nine in ten. No other
+mode in the set produces a rate that a rollout *finishing* would take to zero,
+and it is arithmetic a reader can check against the replica counts the platform
+reports.
+
+**The near-miss is refuted in the record rather than by the estate, which is
+uncomfortable and is the mode's whole point.** A reader who calls this a bad
+deployment reaches the right action - the rollback - so the incident ends either
+way, and nothing in the walk would have caught the mistake. What the wrong
+reading costs is the account: a postmortem naming a revision that is not at
+fault, an action item filed against code with no defect in it, and nothing said
+about the rollout that was left half-done, which is the only thing that will
+happen again. Every other near-miss in this file is refuted by the fixture, where
+a wrong mitigation changes nothing and the telemetry says so. This one is carried
+by an eval case instead - `bad-deployment` must not be determined where the
+deploy landed and did not finish - because the e2e case cannot assert that a
+wrong reading would have failed, when it would not have.
+
+It is mitigated and never resolved, and for a reason the other two rollback modes
+do not share. There the revision carried the fault and going back removes it;
+here going back removes nothing and *converges* the fleet, and one version
+reading and writing one shape is a shop that works whichever version it is. The
+repository still declares the revision that was going out, reconciliation stays
+suspended so nothing re-applies it, and a withdrawal returns the shop to a
+rollout stopped half-way.
+
+## Known defects
+
+Written down here rather than left in a commit message, because each is a gap
+somebody will otherwise rediscover from the outside.
+
+**A withdrawal only puts back the paused rollout.** `cache-misconfigured` and
+`bad-deployment` both say in their own descriptions that withdrawing the rollback
+brings the incident back, and neither does: `ScenarioState.withdraw_the_rollback`
+reopens the rollout and leaves `cache_outage` and `deploy_slowdown` where the
+rollback left them. So two of the three rollback modes are mitigated and never
+un-mitigated, and both e2e withdrawal cases assert the incident's record instead
+of the world - there is nothing in the world to read back.
+
+The asymmetry is older than the mode that exposed it. The platform stand-in's
+rollback endpoint had no direction at all before `half-finished-rollout`, so a
+withdrawal re-ran the rollback and put nothing back for any of the three; what
+that scenario did was give one mode a real answer, which is what made the gap
+visible.
+
+The fix has a shape: two more branches in `withdraw_the_rollback`, opening a
+fresh `CacheOutage` and a fresh `SlowDeployment` and returning the cache endpoint
+to the one the deployment configured, after which both e2e withdrawal cases can
+read the world rather than the record.
 
 ## Why they are called modes
 

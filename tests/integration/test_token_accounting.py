@@ -39,6 +39,7 @@ from tests.framework.investigating import (
     no_changes,
     no_dependencies,
     no_deployment_was_read,
+    no_rollout_was_read,
     the_configured_thresholds,
 )
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
@@ -84,6 +85,7 @@ def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
                     fetch_change_events=no_changes,
                     fetch_dependencies=no_dependencies,
                     fetch_what_a_deployment_changed=no_deployment_was_read,
+                    fetch_rollout=no_rollout_was_read,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
                     budget=the_budget,

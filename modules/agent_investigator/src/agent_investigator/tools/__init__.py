@@ -24,6 +24,7 @@ from agent_investigator.tools.dispatch import Dispatcher
 from agent_investigator.tools.logs import LOGS_TOOL
 from agent_investigator.tools.metrics import METRICS_TOOL
 from agent_investigator.tools.offer import investigator_tools
+from agent_investigator.tools.rollouts import ROLLOUT_TOOL
 
 __all__ = [
     "ANSWER_TOOL",
@@ -33,6 +34,7 @@ __all__ = [
     "HYPOTHESES_ARG",
     "LOGS_TOOL",
     "METRICS_TOOL",
+    "ROLLOUT_TOOL",
     "Dispatcher",
     "investigator_tools",
 ]

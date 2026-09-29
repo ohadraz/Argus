@@ -16,20 +16,22 @@ from agent_investigator.tools.dependencies import dependencies_tool
 from agent_investigator.tools.deployments import deployment_diff_tool
 from agent_investigator.tools.logs import logs_tool
 from agent_investigator.tools.metrics import metrics_tool
+from agent_investigator.tools.rollouts import rollout_tool
 
 
 def investigator_tools() -> list[ToolDefinition]:
     """Every tool the Investigator is offered, and nothing else.
 
-    Five retrievals and one way to finish, in three shapes. Three take their own
+    Six retrievals and one way to finish, in three shapes. Three take their own
     optional window, because which minutes are worth reading is the model's
     decision to make once it has seen something - and leaving a window out is also
     a decision, answered by each channel's own default rather than by the model
     guessing at an anchor it was already told.
 
-    The register takes nothing at all, and the asymmetry is the point rather than
-    an oversight: what a service calls is a fact about how it is built, so there
-    is no window to name and no default to fall back on.
+    The register and the rollout take nothing at all, and the asymmetry is the
+    point rather than an oversight: what a service calls is a fact about how it is
+    built, and how far its deployment got is a fact about what is running now, so
+    neither has a window to name or a default to fall back on.
 
     The deployment channel is the third shape - no window, but a subject. What a
     deployment changed has nothing to date either, and there is more than one
@@ -42,5 +44,6 @@ def investigator_tools() -> list[ToolDefinition]:
         changes_tool(),
         dependencies_tool(),
         deployment_diff_tool(),
+        rollout_tool(),
         answer_tool()
     ]

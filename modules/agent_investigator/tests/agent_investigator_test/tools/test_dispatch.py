@@ -29,6 +29,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    RolloutFetcher,
 )
 from agent_investigator.tools import LOGS_TOOL, METRICS_TOOL, Dispatcher
 from argus_core.models import ToolResult
@@ -266,6 +267,7 @@ def _a_dispatcher_recording_to(recorded: Kept[ReplayEntry],
         fetch_what_a_deployment_changed=create_autospec(
             DeploymentDiffFetcher, instance=True, return_value=[]
         ),
+        fetch_rollout=create_autospec(RolloutFetcher, instance=True, return_value=[]),
         replay=Replay(SOME_INCIDENT_ID, recorded.take)
     )
 

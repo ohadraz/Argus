@@ -28,6 +28,7 @@ from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
+from read_mcp_server.rollouts import RolloutReadSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
 
@@ -79,6 +80,9 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
         ArgocdSettings(argocd_base_url="http://argocd.invalid",
                        argocd_application_path="/argocd/{application}",
                        argocd_auth_token="dont-care-token"),
+        RolloutReadSettings(argocd_base_url="http://argocd.invalid",
+                            argocd_resource_path="/argocd/{application}/resource",
+                            argocd_auth_token="dont-care-token"),
         ServiceRegistrySettings(
             service_registry_base_url="http://registry.invalid",
             service_registry_service_path="/registry/services/{service}"

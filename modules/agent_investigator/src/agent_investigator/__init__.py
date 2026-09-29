@@ -31,6 +31,7 @@ from agent_investigator.retrieval import (
     deployment_diffs_over,
     logs_over,
     metrics_over,
+    rollouts_over,
 )
 from agent_investigator.tools import investigator_tools
 
@@ -44,5 +45,6 @@ __all__ = [
     "investigate",
     "investigator_tools",
     "logs_over",
-    "metrics_over"
+    "metrics_over",
+    "rollouts_over"
 ]

@@ -394,12 +394,23 @@ Strategies = Mapping[FailureMode, MitigationStrategy]
 # load or fail over - which is a mitigation somebody has to build and defend,
 # not a gap to be filled in.
 #
-# Many-to-one, and the two deployment modes are where that shows: a revision
+# Many-to-one, and the three deployment modes are where that shows: a revision
 # carries the code and the configuration it shipped with, so returning the
 # deployment answers a bad deploy and a broken value alike. A mode is a
 # distinction a reader of an incident makes, never one this mapping makes for
-# them - what separates these two is the account the incident gives and the fix
+# them - what separates those two is the account the incident gives and the fix
 # left afterwards, not what is done about it now.
+#
+# The third of them reaches this strategy for a reason the other two do not
+# share, and it is worth reading before anybody concludes the mapping is merely
+# loose. For a bad deploy and a broken value, returning the deployment *removes*
+# the thing that was wrong. For an in-flight compatibility break nothing that was
+# deployed is wrong: each revision alone would work, and what returning the
+# deployment does is get every replica onto one of them. One call, two things
+# achieved - and the record says which in the hypothesis rather than in the
+# action, because the narration dispatches on what was done and what was done is
+# identical in all three. A line that varied with the diagnosis would put a
+# verdict in a sentence about a call the platform answered the same way.
 #
 # The two restarts are the other shape of the same thing, and they are two
 # strategies rather than one because they differ in something a caller cannot
@@ -429,7 +440,8 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.CONFIG_INDUCED_FAILURE: RollBackDeploymentStrategy(),
     FailureMode.INTERNAL_DEPENDENCY_FAILURE: RestartDependencyStrategy(),
     FailureMode.DEMAND_SATURATION: ScaleOutStrategy(),
-    FailureMode.AUTOSCALING_PATHOLOGY: PinAutoscalerStrategy()
+    FailureMode.AUTOSCALING_PATHOLOGY: PinAutoscalerStrategy(),
+    FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: RollBackDeploymentStrategy()
 }
 
 
