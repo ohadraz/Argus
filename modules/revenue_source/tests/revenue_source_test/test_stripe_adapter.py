@@ -14,7 +14,7 @@ pagination, the base address, the credential - is proven in the e2e stack.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -98,10 +98,10 @@ def test_only_money_that_arrived_is_reported_as_having_arrived() -> None:
             ]
         ) \
         .when(
-            lambda: charges_between(
+            lambda: list(charges_between(
                 some_window_start, some_window_end,
                 settings=_settings_with(api_key="dont care"),
-                client_of=_a_provider_reporting(*reported))
+                client_of=_a_provider_reporting(*reported)))
         ) \
         .then(
             all_of(
@@ -130,10 +130,10 @@ def test_what_the_provider_counts_in_minor_units_leaves_here_as_money() -> None:
             ]
         ) \
         .when(
-            lambda: charges_between(
+            lambda: list(charges_between(
                 some_window_start, some_window_end,
                 settings=_settings_with(api_key="dont care"),
-                client_of=_a_provider_reporting(*reported))
+                client_of=_a_provider_reporting(*reported)))
         ) \
         .then(
             all_of(
@@ -156,13 +156,44 @@ def test_a_charge_nobody_refunded_is_reported_as_refunding_nothing() -> None:
             reported := [_a_reported_charge(of=dont_care_amount, refunded=None)]
         ) \
         .when(
-            lambda: charges_between(
+            lambda: list(charges_between(
                 some_window_start, some_window_end,
                 settings=_settings_with(api_key="dont care"),
-                client_of=_a_provider_reporting(*reported))
+                client_of=_a_provider_reporting(*reported)))
         ) \
         .then(
             _the_charge_at(0, had_refunded=Decimal(0))
+        )
+
+
+@pytest.mark.unit
+def test_a_listing_is_read_only_as_far_as_it_is_drawn() -> None:
+    # The window a postmortem asks for is the incident's, and an onset an alert
+    # states can be a week old: at this shop's rate that is 957,000 charges over
+    # 9,577 pages. Read into a list, every one of them is held at once to
+    # produce a single per-currency sum. What the provider reports has to arrive
+    # as it is drawn, or the size of the window becomes the size of the reader.
+    some_window_end = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
+    some_window_start = some_window_end - timedelta(days=7)
+    dont_care_amount = 4_000
+    drawn: Kept[Mapping[str, Any]] = Kept()
+
+    Scenario() \
+        .given(
+            reported := [
+                _a_reported_charge(of=dont_care_amount),
+                _a_reported_charge(of=dont_care_amount),
+                _a_reported_charge(of=dont_care_amount)
+            ]
+        ) \
+        .when(
+            lambda: charges_between(
+                some_window_start, some_window_end,
+                settings=_settings_with(api_key="dont care"),
+                client_of=_a_provider_reporting_as_it_is_drawn(*reported, drawn=drawn))
+        ) \
+        .then(
+            _drawing_one_charge_read(1, of=len(reported), from_the_provider=drawn)
         )
 
 
@@ -267,6 +298,55 @@ def _the_charge_at(position: int,
             raise AssertionError(
                 f"Expected [{had_refunded}] refunded off the charge at "
                 f"[{position}], but it came back as [{charge.refunded}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_provider_reporting_as_it_is_drawn(*reported: Mapping[str, Any],
+                                         drawn: Kept[Mapping[str, Any]]) -> Any:
+    """A client whose listing yields one charge at a time, recording each.
+
+    A generator rather than a list, which is what the SDK's own
+    `auto_paging_iter` is: it fetches the next page only when asked. What the
+    recording shows is how much of that the reader drew, and a reader that
+    materialises the listing draws all of it however little the caller wanted.
+    """
+    def pages() -> Iterator[Any]:
+        for charge in reported:
+            drawn.take(charge)
+            yield Mock(to_dict=Mock(return_value=dict(charge)))
+
+    listing = Mock(auto_paging_iter=Mock(side_effect=pages))
+
+    return lambda *dont_care_args, **dont_care_kwargs: SimpleNamespace(
+        v1=SimpleNamespace(charges=Mock(list=Mock(return_value=listing)))
+    )
+
+
+def _drawing_one_charge_read(expected: int,
+                             of: int,
+                             from_the_provider: Kept[Mapping[str, Any]]) -> Assertion[Any]:
+    """One charge taken off the listing, and what that cost at the provider.
+
+    The listing is drawn here rather than in the `when`, because laziness is
+    only observable across the draw: what is asserted is that taking one charge
+    read one, and that the rest are still unread behind it.
+    """
+    def assertion(charges: Any) -> bool:
+        if next(iter(charges), None) is None:
+            raise AssertionError(
+                f"Expected a charge to be drawn off a listing of [{of}], but it "
+                f"was empty."
+            )
+
+        if len(from_the_provider.taken) != expected:
+            raise AssertionError(
+                f"Expected drawing one charge to read [{expected}] of [{of}] from "
+                f"the provider, but it read [{len(from_the_provider.taken)}] - the "
+                f"listing is materialised before the caller asks for any of it."
             )
 
         return True

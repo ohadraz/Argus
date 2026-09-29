@@ -298,12 +298,19 @@ def investigate(
         latency_ms=int((time.monotonic() - started_reading_at) * _MILLISECONDS_PER_SECOND)
     )
 
-    onset = find_onset(metric_buckets, thresholds)
+    # Measured first, and preferred wherever there is one. A measured onset is
+    # evidence - derived from buckets Argus retrieved and re-derivable by anyone
+    # reading the incident - where a stated one is testimony from whatever fired
+    # the alert. Where both exist they should agree; where they do not, the one
+    # that can be checked is the one to keep.
+    measured_onset = find_onset(metric_buckets, thresholds)
+    onset = measured_onset or _the_onset_the_alert_states(alert)
 
     if onset is None:
         # Nothing was read beyond the metrics, and nothing was spent. There is
         # also nothing to converse about: every window the model could ask for
-        # is anchored on an onset the metrics do not contain.
+        # is anchored on an onset the metrics do not contain, and nothing else
+        # has offered one.
         return _nothing_to_say(alert, incident_id, metric_buckets, narrator)
 
     narrator.say(OnsetDetected, onset=onset)
@@ -344,7 +351,12 @@ def investigate(
             # a measurement rather than a thing prose can work out.
             opened_already_elevated=earliest_bucket_is_anomalous(
                 metric_buckets, thresholds
-            )
+            ),
+            # Whether the minute above came out of the buckets or out of the
+            # alert. The message says which, because the two ask the model for
+            # different readings of the same flat rows: evidence it has already
+            # seen, or evidence it does not have.
+            corroborated=measured_onset is not None
         ))
     ]
 
@@ -585,6 +597,23 @@ def _declined(alert: Alert,
     return Findings(candidates=[undetermined], already_read=dispatcher.readings)
 
 
+def _the_onset_the_alert_states(alert: Alert) -> str | None:
+    """When the alert says the incident began, where it says anything at all.
+
+    Almost every alert says nothing, and that silence is the normal case rather
+    than a gap: a rule watching a series is reporting a departure the loop
+    measures for itself, in minutes it has in front of it.
+
+    An alert speaks here only where it knows something no series carries. A
+    check that reconciles stored values against the records behind them finds
+    what went wrong long after the writing did, and dates it from the oldest
+    record it found wrong - a minute nothing marks, because nothing failed and
+    nothing slowed. Read rather than derived from `started_at` for exactly that
+    reason: that is when somebody noticed, and the two can differ by a week.
+    """
+    return to_iso(alert.stated_onset) if alert.stated_onset is not None else None
+
+
 def _nothing_to_say(alert: Alert,
                     incident_id: str,
                     metric_buckets: list[MetricBucket],
@@ -653,7 +682,8 @@ def _the_opening_message(alert: Alert,
                          metric_buckets: list[MetricBucket],
                          already_refuted: Sequence[Attempt],
                          already_read: Sequence[Reading],
-                         opened_already_elevated: bool) -> str:
+                         opened_already_elevated: bool,
+                         corroborated: bool) -> str:
     """Everything about *this incident* the model is told before it decides.
 
     This incident, and nothing standing. What the Investigator is and what its
@@ -667,6 +697,14 @@ def _the_opening_message(alert: Alert,
     it is only a lower bound that is said plainly - a model that does not know
     its window may have opened mid-incident cannot know to reach further back,
     and confidence will not tell it: it cannot miss what it was never shown.
+
+    `corroborated` says whether that fact was measured or merely stated, and the
+    paragraph changes rather than gaining a caveat. An uncorroborated onset comes
+    with a window in which nothing departs, and a model reading flat rows under a
+    sentence about a measured departure has been handed a contradiction to
+    resolve on its own - which it resolves, reasonably, by concluding the service
+    is well and there is nothing here. So the flatness is named as the shape of
+    the fault, in the same breath as the minute it cannot be seen at.
     """
     said = [
         "## Alert",
@@ -680,6 +718,14 @@ def _the_opening_message(alert: Alert,
         f"The incident began at {onset}, measured from the per-minute metrics below: "
         f"it is the first minute that departs from the service's own baseline and "
         f"stays departed."
+        if corroborated else
+        f"The incident began at {onset}, stated by the alert rather than measured: "
+        f"no series departs from its baseline anywhere in the window below, so the "
+        f"metrics carry no evidence about this incident at all. Read that flatness "
+        f"as the shape of the fault rather than as the service being well - "
+        f"whatever raised this knows something no series does, and the minute it "
+        f"gives is long before the alert fired. The change that caused it is at "
+        f"that minute, not at this one."
     ]
 
     if opened_already_elevated:
@@ -689,14 +735,26 @@ def _the_opening_message(alert: Alert,
             "retrievable, and a window anchored on it may not contain the cause."
         )
 
+    # What the rows below are evidence *of*, which is not the same question in
+    # the two cases. Where the onset was measured they are what it was measured
+    # from; where it was stated they are what says the flatness is real, and a
+    # model told they are the minutes a departure was found in would be reading
+    # rows that contradict the sentence above them.
+    what_the_rows_are = (
+        "These are the minutes the onset was measured from"
+        if corroborated else
+        "These are what the service reported around the alert, and none of them "
+        "departs from its baseline"
+    )
+
     said.extend([
         "",
         "## Per-minute metrics",
-        "One row per minute, in time order, comma-separated under the header. These "
-        "are the minutes the onset was measured from, and they are the whole span "
-        "the metrics source keeps - there is no more of this channel to ask for. An "
-        "empty cell is a reading this service does not have at all, which is not the "
-        "same as a reading of zero.",
+        f"One row per minute, in time order, comma-separated under the header. "
+        f"{what_the_rows_are}, and they are the whole span the metrics source "
+        f"keeps - there is no more of this channel to ask for. An empty cell is a "
+        f"reading this service does not have at all, which is not the same as a "
+        f"reading of zero.",
         _the_minutes_as_rows(metric_buckets)
     ])
 

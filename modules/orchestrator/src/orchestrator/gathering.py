@@ -19,7 +19,12 @@ from datetime import datetime
 import psycopg
 from agent_postmortem import IncidentEvidence, Sources, write_postmortem
 from argus_core import Connections, parse_iso, to_iso
-from argus_core.events import FixAttempted, LogsRetrieved, OnsetDetected
+from argus_core.events import (
+    ActionRecommended,
+    FixAttempted,
+    LogsRetrieved,
+    OnsetDetected,
+)
 from argus_core.llm import ClientFor
 from argus_core.models import OpenedPullRequest, PostmortemDocument
 from argus_core.replay import Recorder, Replay
@@ -31,7 +36,7 @@ from argus_incidents.repository import (
     replay,
     taken_actions,
 )
-from argus_narration import build_narration
+from argus_narration import build_narration, what_the_action_does
 
 
 def write_postmortem_for(incident_id: str,
@@ -93,8 +98,35 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         actions=_what_was_done(conn, incident_id),
         log_lines=_what_was_read(conn, incident_id),
         tokens_spent=replay.get_tokens_spent(conn, incident_id),
-        pull_request=_what_was_proposed(conn, incident_id)
+        pull_request=_what_was_proposed(conn, incident_id),
+        recommended_action=_what_is_still_owed(conn, incident_id)
     )
+
+
+def _what_is_still_owed(conn: psycopg.Connection, incident_id: str) -> str | None:
+    """The action Argus named and declined to take, said as an instruction.
+
+    Off the account rather than off the walk's state, as everything else here
+    is: what the document describes is what was recorded, and a postmortem that
+    read anything from somewhere the timeline cannot show would describe an
+    incident nobody can check it against.
+
+    Said through the narration's own renderer rather than assembled here. The
+    dashboard, the Slack message and this document all say what Argus would
+    have done, and three spellings of one action is three things a reader has
+    to recognise as the same.
+
+    The last one, for the reason the proposal above takes the last: the walk can
+    reach the gate more than once, and what is owed is whatever stands at the
+    end rather than whatever was refused first.
+    """
+    recommended = [
+        what_the_action_does(event.action_type, event.subject or "")
+        for event in events.get_by_incident(conn, incident_id)
+        if isinstance(event, ActionRecommended)
+    ]
+
+    return recommended[-1] if recommended else None
 
 
 def _what_was_proposed(conn: psycopg.Connection,

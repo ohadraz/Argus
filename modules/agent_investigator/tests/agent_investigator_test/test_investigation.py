@@ -23,7 +23,7 @@ from agent_investigator.retrieval import (
     MetricsFetcher,
     RolloutFetcher,
 )
-from argus_core import new_id, parse_iso
+from argus_core import new_id, parse_iso, to_iso
 from argus_core.events import (
     ChannelsUnread,
     HypothesisFormed,
@@ -60,6 +60,7 @@ from agent_investigator_test.framework.builders.configuration import (
     some_thresholds,
 )
 from agent_investigator_test.framework.builders.incident import (
+    A_STATED_ONSET,
     CALM_CPU_CAPACITY_CORES,
     CALM_CPU_CORES,
     CALM_ERROR_RATE,
@@ -591,6 +592,111 @@ def test_the_model_is_told_the_onset_it_does_not_get_to_choose() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_told_when_no_series_corroborates_the_onset() -> None:
+    # Said rather than left implicit, for the reason the "opens already
+    # elevated" sentence is said. A model handed a confident minute and a flat
+    # window reads the flatness as the service being well, and concludes there
+    # is nothing to find - which is the one conclusion this kind of incident
+    # cannot afford, because the flatness is the mode rather than its absence.
+    #
+    # The existing sentence would also be a lie here: it tells the model the
+    # onset was measured from the metrics below, and it was not.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=A_STATED_ONSET))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model, "stated by the alert", "no series departs"
+                ),
+                _what_was_asked_first_avoids(
+                    investigation.model, "measured from the per-minute metrics"
+                )
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_change_channels_are_read_at_the_stated_onset() -> None:
+    # The whole of what a stated onset buys. An alert raised by a check that
+    # runs weekly fires long after the writing went wrong, so a window anchored
+    # on when it fired asks what changed during the discovery rather than during
+    # the fault - which for a week is hundreds of changes and no answer. The
+    # minute the alert states narrows that to an hour's worth.
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(CHANGES_TOOL),
+            a_turn_answering(an_explanation())
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=A_STATED_ONSET))
+        ) \
+        .then(
+            _the_channel_was_read_up_to(
+                investigation.change_fetcher, to_iso(A_STATED_ONSET)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_metrics_are_not_described_as_what_the_onset_was_measured_from() -> None:
+    # The same falsehood the Onset paragraph stopped telling, one section lower
+    # and in different words - which is exactly how a caveat added in one place
+    # comes to be contradicted by prose nobody re-read. The rows are still worth
+    # sending: they are what says the flatness is real.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=A_STATED_ONSET))
+        ) \
+        .then(
+            _what_was_asked_first_avoids(
+                investigation.model, "the minutes the onset was measured from"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_measured_onset_is_still_described_as_measured() -> None:
+    # The branch every existing incident takes, asserted beside the new one
+    # because a change to this paragraph could quietly reword it for everybody.
+    some_metrics = a_window_that_starts_calm()
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model, "measured from the per-minute metrics"
+                ),
+                _what_was_asked_first_avoids(investigation.model, "stated by the alert")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_the_investigation_is_held_with_the_model_its_deployment_named() -> None:
     # Per agent, and this is the agent it matters most for: the investigator
     # is the one whose judgement is the product, so which model answers it and
@@ -776,6 +882,51 @@ def test_a_window_with_no_anomalous_minute_is_answered_without_asking_the_model(
         ) \
         .when(
             lambda: investigation.investigate()
+        ) \
+        .then(
+            all_of(
+                _the_model_was_never_asked(investigation.model),
+                _no_cause_was_determined()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_onset_the_alert_states_is_used_where_the_metrics_show_none() -> None:
+    # The branch that lets an incident be found by something other than a health
+    # series. A window that is flat because nothing was ever wrong and one that
+    # is flat because what is wrong is a stored value are the same window, and
+    # only the alert can tell them apart - so where it says when this began, the
+    # loop works from that and asks the model, rather than reporting that there
+    # was nothing to investigate.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=A_STATED_ONSET))
+        ) \
+        .then(
+            _the_model_was_asked(investigation.model, times=1)
+        )
+
+
+@pytest.mark.unit
+def test_a_flat_window_with_no_stated_onset_is_still_answered_without_the_model() -> None:
+    # The other half, asserted beside it because this is the branch every
+    # existing incident takes and the one a change here could quietly widen.
+    # An alert that states nothing leaves the loop exactly where it was: the
+    # metrics are the only word on when this began, and they have none.
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
         ) \
         .then(
             all_of(
@@ -1082,6 +1233,32 @@ def _the_channel_was_read(reader: Mock, times: int) -> Assertion[Findings]:
             raise AssertionError(
                 f"Expected the channel to be read {times} time(s), "
                 f"and it was read {reader.call_count}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_channel_was_read_up_to(reader: Mock, moment: str) -> Assertion[Findings]:
+    """That the window a channel was asked for ends where the onset is.
+
+    The end rather than the start, because that is the bound the onset sets: a
+    change made after the incident began did not cause it. Asserted about the
+    call the fetcher actually received, since what the model asked for and what
+    the window was defaulted to are two different things and only one of them
+    reaches the source.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        if not reader.called:
+            raise AssertionError("Expected the channel to have been read at all.")
+
+        dont_care_service, dont_care_start, window_end = reader.call_args.args
+
+        if window_end != moment:
+            raise AssertionError(
+                f"Expected the channel to be read up to [{moment}], and it was "
+                f"read up to [{window_end}]."
             )
 
         return True

@@ -17,7 +17,14 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.models import Alert, FailureMode, Hypothesis, IncidentStatus
+from argus_core.models import (
+    Alert,
+    FailureMode,
+    FlagUndo,
+    Hypothesis,
+    IncidentStatus,
+    RevertFeatureFlag,
+)
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from orchestrator.walk.state import IncidentState, status_after
 from pydantic import ValidationError
@@ -202,6 +209,35 @@ def test_a_code_fix_that_was_not_found_escalates() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_nobody_could_confirm_is_recommended_rather_than_escalated() -> None:
+    # The same ordering trap `mitigated` has, and the same fix. This walk goes
+    # on to Code-Fix - the fault is in the code whether or not anybody takes the
+    # action - so `fix_found` is set by the time the status is derived, and
+    # asking it first would report the incident escalated and lose the one
+    # thing it exists to say.
+    #
+    # Escalated would also be untrue. Argus did not run out of moves; it had a
+    # move, named it, and declined to take it because nothing would have said
+    # afterwards whether it worked. A reader of the two needs to know whether to
+    # work out what to do or to go and do a named thing.
+    Scenario() \
+        .given(
+            an_incident_carrying_a_recommendation := _an_incident(
+                candidate_index=1,
+                rounds=SOME_MAX_ROUNDS,
+                fix_found=True,
+                recommended_action=_some_action()
+            )
+        ) \
+        .when(
+            lambda: status_after(an_incident_carrying_a_recommendation, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.RECOMMENDED)
+        )
+
+
+@pytest.mark.unit
 def test_a_mitigated_incident_stays_mitigated_once_a_fix_is_proposed() -> None:
     # The new path: a mitigation worked, and Code-Fix then ran and proposed
     # something. Both facts are set on the state at once, so the order the
@@ -350,4 +386,17 @@ def _a_candidate() -> Hypothesis:
         confidence=0.8,
         supporting_evidence=[],
         subject="monthly-spend-feature"
+    )
+
+
+def _some_action() -> RevertFeatureFlag:
+    """An action of whatever kind, since what matters here is that one exists.
+
+    The status turns on there being a recommendation at all, not on what it
+    recommends - so this says as little as an `Action` can be built saying.
+    """
+    return RevertFeatureFlag(
+        flag="some-flag",
+        enabled=False,
+        undo_descriptor=FlagUndo(flag="some-flag", was_enabled=True)
     )

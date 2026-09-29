@@ -62,7 +62,10 @@ from argus_testkit.scenario import Scenario, attempting
 
 DONT_CARE_INCIDENT = "incident-41"
 
-def a_hypothesis(summary: str, *claims: str) -> Hypothesis:
+
+def a_hypothesis(summary: str,
+                 *claims: str,
+                 mode: FailureMode = FailureMode.FEATURE_FLAG_TOGGLE) -> Hypothesis:
     """What the investigation concluded, as Code-Fix is handed it.
 
     Above the constants rather than below with the other helpers, because one
@@ -76,7 +79,7 @@ def a_hypothesis(summary: str, *claims: str) -> Hypothesis:
     return Hypothesis(
         incident_id=DONT_CARE_INCIDENT,
         summary=summary,
-        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+        failure_mode=mode,
         confidence=0.9,
         supporting_evidence=[Evidence(claim=claim, at=None) for claim in claims]
     )
@@ -332,6 +335,57 @@ def test_the_model_may_ask_for_several_files_in_one_turn() -> None:
             )
         ) \
         .then(_the_tool_offered_said(model, READ_FILE_TOOL, "several files"))
+
+
+@pytest.mark.unit
+def test_a_fault_that_already_wrote_wrong_values_is_asked_for_a_repair_too() -> None:
+    # A patch stops the fault and leaves every value it already wrote wrong, so
+    # a pull request carrying only the patch closes an incident while the
+    # damage stays in the rows. Both belong in one request because they are one
+    # change: a reviewer approving the fix is approving what has to happen to
+    # the data behind it.
+    #
+    # Told rather than inferred. The model is looking at a write path with a
+    # field update missing, and nothing in that code says how many rows went
+    # through it - a model that had to work out for itself that a residue
+    # exists would be reasoning from evidence it was never shown.
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                a_hypothesis(
+                    "the cheaper write path stopped adding to the stored total",
+                    mode=FailureMode.SILENT_DATA_CORRUPTION
+                ),
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **a_repository(holding=[SOME_PATH]).ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, "already written"))
+
+
+@pytest.mark.unit
+def test_an_ordinary_fault_is_asked_for_nothing_but_the_fix() -> None:
+    # Every other mode leaves nothing behind: the flag goes back, the revision
+    # is returned, and what was served while it was wrong is served again
+    # correctly. A standing instruction to repair the data would have the model
+    # writing a migration for an incident that wrote nothing.
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **a_repository(holding=[SOME_PATH]).ports()
+            )
+        ) \
+        .then(_the_model_was_not_told(model, "already written"))
 
 
 @pytest.mark.unit
@@ -639,6 +693,33 @@ def test_a_deployment_with_an_index_offers_both_ways_of_searching() -> None:
 
 
 @pytest.mark.unit
+def test_the_agent_is_offered_nothing_that_could_run_a_repair() -> None:
+    # The guarantee this agent rests on is the absence of a capability, not a
+    # check somebody could skip (§13) - and a repair script makes that concrete
+    # rather than theoretical. Code-Fix now proposes a file whose whole purpose
+    # is to rewrite stored data, so for the first time the difference between
+    # writing one and running one is a difference about this agent.
+    #
+    # Pinned as the whole set rather than asserted as the absence of a name
+    # nobody has written: a tool that ran something would be added under a name
+    # this test cannot predict, and a check for "no tool called execute" is a
+    # check that passes on the day somebody calls it something else.
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **a_repository(holding=[SOME_PATH]).ports()
+            )
+        ) \
+        .then(_the_only_tools_offered_were(model))
+
+
+@pytest.mark.unit
 def test_a_deployment_with_no_index_offers_no_tool_that_cannot_answer() -> None:
     # A tool that is offered will be called, and one backed by an index nobody
     # built answers nothing for every description - which a model reads as a
@@ -762,6 +843,45 @@ def _the_model_was_offered(model: _Model, tool: str) -> Assertion[Any]:
 
         if tool not in offered:
             raise AssertionError(f"Expected [{tool}] to be offered, got {offered}.")
+
+        return True
+
+    return assertion
+
+
+def _the_only_tools_offered_were(model: _Model) -> Assertion[Any]:
+    """That the set of things this agent can reach is exactly this.
+
+    Named here rather than imported from the module that builds them, which
+    would make this a test that the code equals itself. The point of writing
+    them out is that widening the set is a line somebody has to add in two
+    places, one of which asks why.
+
+    Five reads and two answers. Nothing here reaches the service, nothing runs
+    anything, and nothing merges - which is the guarantee stated as an absence
+    (§13) rather than as a check a later caller could skip.
+    """
+    def assertion(dont_care_result: Any) -> bool:
+        offered = {
+            definition.name
+            for definitions in model.tools_offered
+            for definition in definitions
+        }
+        expected = {
+            "search_repository",
+            "search_repository_by_meaning",
+            "list_repository_files",
+            "read_repository_file",
+            "submit_fix",
+            "report_nothing_to_change",
+        }
+
+        if offered != expected:
+            raise AssertionError(
+                f"Expected exactly {sorted(expected)} to be offered, got "
+                f"{sorted(offered)}. A tool added here can reach production "
+                f"without anybody deciding it should."
+            )
 
         return True
 

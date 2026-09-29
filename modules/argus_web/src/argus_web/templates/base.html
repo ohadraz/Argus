@@ -342,6 +342,15 @@
   /* Escalated is over too - it stops moving for the same reason resolved
      does - and stays red because it ended by giving up. */
   .status.escalated { color: var(--bad);   border-color: var(--bad); }
+  /* Recommended is over too, and it is the one ending that leaves an
+     instruction. Not red: nothing failed, Argus knows what to do, and a
+     responder reading this from across the room is being asked to act rather
+     than to work out what went wrong. Not green either, because the service is
+     still wrong and will stay wrong until somebody does it. Amber, and dashed
+     like `mitigated` - the dash is this page's mark for an ending with
+     something still owed. */
+  .status.recommended { color: var(--amber); border-color: var(--amber);
+                        border-style: dashed; }
   /* Withdrawn is the one ending that is nobody's verdict on the failure: a
      human took the incident back, and whether the service is well is a
      question this status does not answer. So it is neither red nor green but
@@ -387,6 +396,7 @@
   .moved-to.mitigated { color: var(--good); }
   .moved-to.resolved { color: var(--good); }
   .moved-to.escalated { color: var(--bad); }
+  .moved-to.recommended { color: var(--amber); }
   .moved-to.withdrawn { color: #9aa0a6; }
 
   /* The verdict is the sentence the whole mitigation was for. Red or green and

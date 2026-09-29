@@ -67,7 +67,21 @@ class RecordOutcome(Protocol):
 
 
 class FetchFlagChanges(Protocol):
-    def __call__(self) -> list[FlagChange]: ...
+    """The provider's own history of who moved which flag, and when.
+
+    Takes the onset the alert stated, which is `None` for almost every incident
+    there is. The deployment's lookback settles how wide the window is; what
+    this decides is where it ends. Ending it at the present asks what somebody
+    just changed - right about an incident happening now, and wrong about one a
+    scheduled check found long afterwards, where the flag moved before anything
+    a window ending now can reach.
+
+    Keyword-only, because the binding that supplies it is a `partial` over the
+    deployment's settings and the connection: a positional argument would land
+    on the parameter after those two, which is the clock.
+    """
+
+    def __call__(self, *, onset: datetime | None) -> list[FlagChange]: ...
 
 
 class FetchDependencies(Protocol):

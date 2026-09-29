@@ -95,6 +95,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
             url="https://github.invalid/ohadraz/io-shop/pull/7",
             branch="argus/fix-abc"
         ),
+        recommended_action="putting monthly-spend-feature back",
         checklist_complete=True
     )
 

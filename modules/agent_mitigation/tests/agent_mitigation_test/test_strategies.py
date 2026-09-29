@@ -294,6 +294,29 @@ def test_a_bad_deployment_is_answered_by_rolling_the_deployment_back() -> None:
 
 
 @pytest.mark.unit
+def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it() -> None:
+    # The fourth mode reaching a strategy it does not own, and the only one that
+    # maps to an action Argus will not be allowed to take. That is the gate's
+    # judgement and not this lookup's: a mode with no strategy answers `None`,
+    # which is refused as "nothing answers this kind of failure" and escalates
+    # with nothing named - so the incident would end saying a person is needed
+    # and not saying what for.
+    #
+    # The action is the flag toggle's exactly, because the cause is a flag that
+    # moved and putting it back is what stops the drift. What differs is
+    # everything after: it repairs nothing already written, and nothing can
+    # confirm it inside the time Argus waits.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
+            flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
+            service=DONT_CARE_SERVICE
+        )) \
+        .then(_the_action_proposed_names(DONT_CARE_FLAG))
+
+
+@pytest.mark.unit
 def test_an_in_flight_compatibility_break_is_answered_by_rolling_the_deployment_back() -> None:
     # The third mode reaching this strategy, and the first whose reason is not
     # that the revision carried the fault. Neither revision did - each one alone

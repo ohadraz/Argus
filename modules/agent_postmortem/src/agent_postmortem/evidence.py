@@ -52,3 +52,9 @@ class IncidentEvidence(BaseModel):
     # of the finished document goes on to open, and a summary is free to be
     # written well without mentioning it.
     pull_request: OpenedPullRequest | None = None
+    # The action the gate declined because nothing could confirm it. Structured
+    # rather than left in `timeline` for the model to notice, for the reason the
+    # pull request is: what a reader of the finished document goes on to do is
+    # exactly this, and a summary is free to be written well without mentioning
+    # it.
+    recommended_action: str | None = None

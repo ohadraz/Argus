@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from agent_mitigation import a_mitigation_answers, is_within_reach
-from argus_core.events import ActionRefused, Publisher, nobody, publish
+from argus_core.events import (
+    ActionRecommended,
+    ActionRefused,
+    Publisher,
+    nobody,
+    publish,
+)
 from argus_core.models import (
     Action,
     Attempt,
@@ -15,9 +21,13 @@ from argus_core.models import (
     the_identity_of,
 )
 
-from orchestrator.walk.deltas import StateDelta
+from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import Admitted, RecordOutcome
-from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
+from orchestrator.walk.routes import (
+    FIXING_ROUTE,
+    MITIGATING_ROUTE,
+    NEXT_CANDIDATE_ROUTE,
+)
 from orchestrator.walk.state import IncidentState
 
 # What the candidate's own row says stopped it, one sentence per reason. The
@@ -38,7 +48,10 @@ _WHAT_THE_ROW_SAYS = {
     Refusal.ALREADY_TRIED_ENOUGH: "this has already been tried on this subject "
                                   "as often as the incident allows",
     Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH: "this is addressed to a service "
-                                          "outside the estate Argus may act on"
+                                          "outside the estate Argus may act on",
+    Refusal.NOTHING_COULD_CONFIRM_IT: "nothing would say whether this worked "
+                                      "inside the time Argus waits, so it is "
+                                      "recommended rather than taken"
 }
 
 
@@ -85,12 +98,17 @@ def tier_gate_node(
     would let one unauthorised proposal spend the whole of Argus's autonomy.
     Where nothing follows, the node that decides that says so.
 
-    It moves the incident nowhere - a rejection is the end of this attempt, not
-    of the incident, so the status is `mitigating` before and after. The
-    refusal is published from here rather than returned as a sentence for
+    Five of the six refusals move the incident nowhere - a rejection is the end
+    of this attempt, not of the incident, so the status is `mitigating` before
+    and after. The sixth does move it, because an action nobody can confirm is
+    not an attempt that failed but an ending: it leaves a recommendation, and
+    the status derives from that. So this node narrates in exactly that case
+    and in no other, a narration for a move that did not happen being a line in
+    the account describing nothing.
+
+    The refusal is published from here rather than returned as a sentence for
     somebody else to write down: this is the only place that knows a refusal
-    happened, and the walk's narration accounts for a node that *moved* the
-    incident, which this one does not.
+    happened.
 
     Admission is a question about the kind; where the action is aimed is a
     question about the instance, and the two are asked separately because they
@@ -119,7 +137,11 @@ def tier_gate_node(
         state.dependencies,
         state.attempts,
         attempts_per_subject,
-        state.hypothesis.failure_mode if state.hypothesis is not None else None
+        state.hypothesis.failure_mode if state.hypothesis is not None else None,
+        # Whether this incident was dated by the alert rather than measured from
+        # the service's own series - which is what decides whether anything
+        # could confirm an action taken on it.
+        state.alert.stated_onset is not None
     )
 
     if refusal is None:
@@ -140,7 +162,48 @@ def tier_gate_node(
         publisher
     )
 
-    return StateDelta(proposed_action=None)
+    # Kept only for the refusal that is not a judgement on the action. The other
+    # five reject something Argus should not do, and passing one of those on
+    # would be telling a person to go and do the thing Argus was stopped from
+    # doing.
+    recommended = (
+        state.proposed_action
+        if refusal is Refusal.NOTHING_COULD_CONFIRM_IT else None
+    )
+
+    if recommended is not None:
+        # A second event rather than a field on the refusal above, because the
+        # two are different findings: that one says something did not happen
+        # and why, and this is the only thing anybody can act on.
+        publish(
+            ActionRecommended(
+                incident_id=state.incident_id,
+                hypothesis_id=(
+                    state.hypothesis.id if state.hypothesis is not None else None
+                ),
+                action_type=recommended.action_type,
+                subject=the_identity_of(recommended).subject
+            ),
+            publisher
+        )
+
+    return StateDelta(
+        proposed_action=None,
+        recommended_action=recommended,
+        # Only where there is a recommendation, because only then does this node
+        # move the incident. The other five refusals end an attempt and leave the
+        # status where it was, and the walk refuses a move nothing accounts for -
+        # which is how this was found, one case after the ending was written.
+        #
+        # The refusal's own sentence rather than a second one: a reader meeting
+        # this on the timeline and again on the candidate's row is meeting one
+        # fact, and two spellings of it would read as two.
+        narration=(
+            Narration(action="action recommended",
+                      detail=what_the_row_says(refusal))
+            if recommended is not None else None
+        )
+    )
 
 
 def _why_the_action_cannot_proceed(action: Action | None,
@@ -149,7 +212,8 @@ def _why_the_action_cannot_proceed(action: Action | None,
                                    dependencies: Sequence[ServiceDependency],
                                    attempts: Sequence[Attempt],
                                    attempts_per_subject: int,
-                                   failure_mode: FailureMode | None) -> Refusal | None:
+                                   failure_mode: FailureMode | None,
+                                   dated_by_the_alert: bool) -> Refusal | None:
     """Which refusal this is, or `None` when there is none to give.
 
     Five rejections reach the same status for different reasons, and a human
@@ -184,9 +248,24 @@ def _why_the_action_cannot_proceed(action: Action | None,
     whole of the case, where a kind nobody pre-authorised cannot be built at all
     now that every action type Argus has is in the declared set.
 
-    The cap is asked last, because it is the narrowest question: it presumes an
-    action that is admitted in general and asks only whether *this* incident
-    has had enough of it.
+    The cap is asked last of the questions about the action, because it is the
+    narrowest: it presumes an action that is admitted in general and asks only
+    whether *this* incident has had enough of it.
+
+    Confirmability is asked after all of them, because it is not a question
+    about the action at all. The kind may be pre-authorised, the subject Argus's
+    to touch, the cap nowhere near, and the action exactly right - and it still
+    must not be taken if nothing would say afterwards whether it worked.
+    Reporting that ahead of the others would tell somebody their register is
+    fine and their declared set is fine about an action that was neither.
+
+    `dated_by_the_alert` is how that is known, and it is one inference rather
+    than a policy: an onset stated by the alert means the metrics measured none,
+    which means no series departed, which means recovery has nothing to be
+    judged on. The only thing that would answer is whatever raised the alert,
+    running again on a schedule Argus does not control - days away, or never. An
+    action taken there would be taken, reported, and never judged, which is
+    worse than one not taken, because the incident looks handled.
     """
     if action is None:
         # A mode nobody determined is not a mode nothing answers. There was
@@ -206,6 +285,9 @@ def _why_the_action_cannot_proceed(action: Action | None,
 
     if _times_already_tried(action, attempts) >= attempts_per_subject:
         return Refusal.ALREADY_TRIED_ENOUGH
+
+    if dated_by_the_alert:
+        return Refusal.NOTHING_COULD_CONFIRM_IT
 
     return None
 
@@ -231,5 +313,20 @@ def route_after_gate(state: IncidentState) -> str:
     A rejected action clears `proposed_action`, which is what distinguishes the
     two - the status is `mitigating` either way, because a rejection at the gate
     is not the end of the incident, only the end of this attempt.
+
+    Unless the refusal was that nothing could confirm it, which ends the
+    mitigation phase instead of moving on to the next explanation. The other
+    refusals reject a particular action and leave the rest of the list worth
+    trying; this one rejects the possibility of confirming any action on this
+    incident, so the next candidate would be refused for the same reason and
+    would overwrite the recommendation with its own on the way past.
+
+    Third, and on to Code-Fix rather than out of the graph, for the reason a
+    mitigation that *worked* goes there: nobody is going to take the action, so
+    the fault it would have held off is still in the code and still worth a
+    patch. Here it is the only thing anybody gets.
     """
+    if state.recommended_action is not None:
+        return FIXING_ROUTE
+
     return MITIGATING_ROUTE if state.proposed_action is not None else NEXT_CANDIDATE_ROUTE

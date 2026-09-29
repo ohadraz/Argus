@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import assert_never
 
 from argus_core.events import (
+    ActionRecommended,
     ActionRefused,
     ActionTaken,
     AgentInvoked,
@@ -114,7 +115,17 @@ _WHY_IT_WAS_REFUSED = {
     # reader who read this as "Argus may not do that" would go looking at the
     # declared set instead of at the service register.
     Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH: "is addressed to a service outside "
-                                          "the estate Argus may act on"
+                                          "the estate Argus may act on",
+    # Said as what nobody could find out rather than as what Argus declined,
+    # because the action is not what was wrong with it. A reader who took this
+    # for Argus doubting the diagnosis would go looking for better evidence of
+    # the cause; what is missing is evidence of the *outcome*, which no amount
+    # of investigating supplies. The action still stands, and somebody has to
+    # take it.
+    Refusal.NOTHING_COULD_CONFIRM_IT: "is sound, and nothing would have said "
+                                      "whether it worked inside the time Argus "
+                                      "waits - so it is recommended rather than "
+                                      "taken"
 }
 
 # What became of one change an incident made, said after the flag it is about.
@@ -367,6 +378,20 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # happened is the only part a person can act on.
             emphasis = _WHY_IT_WAS_REFUSED[event.refusal]
             text = f"Refused to act - {emphasis}"
+        case ActionRecommended():
+            who = _ARGUS
+            # The subject rather than the kind, because the kind is not
+            # something anybody can go and do: "revert a feature flag" is a
+            # category, and the flag's name is the instruction.
+            emphasis = event.subject or ""
+            # The gerund the demotion line and the tried-and-filed line share,
+            # rather than a third spelling of the same action. This is a third
+            # place the same fact is said - Argus would have done this - and a
+            # reader matching the three should not have to read three tenses.
+            text = (
+                f"Left for a person to do - "
+                f"{what_the_action_does(event.action_type, emphasis)}"
+            )
         case MitigationResumed():
             who = _ARGUS
             emphasis = str(event.outcome).upper()
@@ -406,7 +431,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # a reader unable to tell which experiment is being skipped. The
             # past incident is in the sentence rather than marked: it is where
             # the reason lives, not what the line is about.
-            emphasis = _what_the_action_does(event.action_type, event.subject)
+            emphasis = what_the_action_does(event.action_type, event.subject)
             text = (
                 f"Moved {emphasis} down the list - it was tried on incident "
                 f"{event.on_the_strength_of} and the service did not recover"
@@ -422,7 +447,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # lines are about the same thing a record away from each other -
             # what this incident filed, and what a later one was spared.
             emphasis = ", ".join(
-                _what_the_action_does(identity.action_type, identity.subject)
+                what_the_action_does(identity.action_type, identity.subject)
                 for identity in event.tried
             )
             text = f"Filed what was tried on this incident: {emphasis}"
@@ -697,7 +722,7 @@ def _an_action_said(action_type: ActionType) -> str:
     assert_never(action_type)
 
 
-def _what_the_action_does(action_type: ActionType, subject: str) -> str:
+def what_the_action_does(action_type: ActionType, subject: str) -> str:
     """An action named as the thing it does, whenever it was done.
 
     A gerund rather than the past tense `_an_action_said` opens with, and the

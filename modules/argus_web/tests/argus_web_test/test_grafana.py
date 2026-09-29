@@ -14,6 +14,7 @@ the time anybody noticed.
 from __future__ import annotations
 
 import pytest
+from argus_core import to_iso
 from argus_core.models import Alert
 from argus_testkit import Assertion, Scenario
 from argus_web.grafana import parse_grafana_alert
@@ -51,6 +52,45 @@ def test_parse_grafana_alert_does_not_leak_grafana_labels_nesting() -> None:
         ) \
         .then(
             _nothing_of_grafanas_came_through("labels")
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_reads_an_onset_the_alert_states() -> None:
+    # Almost no alert states one, and this is why the field exists at all: a
+    # rule that fires on a series reports a minute Argus measures for itself,
+    # where a check reporting what it found says when the writing went wrong
+    # and fired a week later. `startsAt` is the second of those and cannot be
+    # the first, so the onset travels beside it rather than in it.
+    stated_onset = "2026-09-22T14:10:00Z"
+
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(onset=stated_onset)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_read_an_onset_of(stated_onset)
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_leaves_the_onset_unset_when_none_is_stated() -> None:
+    # The ordinary alert, and the branch every existing incident takes. An
+    # onset invented here would be a measured minute's rival with none of its
+    # evidence - and worse, it would be `startsAt`, which is when somebody
+    # noticed rather than when it began.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload()
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_read_an_onset_of(None)
         )
 
 
@@ -93,6 +133,28 @@ def _nothing_of_grafanas_came_through(*fields: str) -> Assertion[Alert]:
 
         if leaked:
             raise AssertionError(f"Expected Grafana's {leaked} not to survive parsing.")
+
+        return True
+
+    return assertion
+
+
+def _it_read_an_onset_of(expected: str | None) -> Assertion[Alert]:
+    """What the alert says about when the incident began, or nothing.
+
+    One assertion for both directions rather than a present/absent pair,
+    because the failure worth catching is a parser that answers the same way
+    whatever it was handed - and a check that only ever asked "is it set?"
+    would pass against one that always set it to the time the alert fired.
+    """
+    def assertion(alert: Alert) -> bool:
+        stated = to_iso(alert.stated_onset) if alert.stated_onset else None
+
+        if stated != expected:
+            raise AssertionError(
+                f"Expected the alert to state an onset of [{expected}], got "
+                f"[{stated}]."
+            )
 
         return True
 

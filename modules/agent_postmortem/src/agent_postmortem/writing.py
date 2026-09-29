@@ -95,6 +95,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # be read, and a document that waited for the model to mention it would
         # lose the address on any run whose prose read well without one.
         pull_request=evidence.pull_request,
+        recommended_action=evidence.recommended_action,
         assumptions=disclose(answer, measured, sources.working_hours_a_year),
         checklist_complete=not faults
     )

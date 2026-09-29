@@ -123,6 +123,26 @@ def test_a_mitigated_incident_has_nowhere_left_to_go() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_recommended_incident_has_nowhere_left_to_go() -> None:
+    # Argus worked out what to do and declined to do it, because nothing could
+    # tell it afterwards whether the action had worked. Terminal for the reason
+    # `mitigated` is: it is as far as Argus can take the incident, and what
+    # moves it on is a person taking the action Argus named. Non-terminal, it
+    # would be an incident a page polls forever waiting for a walk that has
+    # already stopped.
+    Scenario() \
+        .given(
+            recommended := IncidentStatus.RECOMMENDED
+        ) \
+        .when(
+            lambda: recommended.is_terminal()
+        ) \
+        .then(
+            _nothing_more_is_coming()
+        )
+
+
 def _nothing_more_is_coming() -> Assertion[bool]:
     """That the status is terminal, and says so as a real `bool`.
 

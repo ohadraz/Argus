@@ -232,7 +232,10 @@ def _what_the_provider_recorded(state: IncidentState,
     opposite things.
     """
     try:
-        flag_changes = fetch_flag_changes()
+        # The onset the alert stated, or nothing - which is what every alert
+        # that measured its own says, and what leaves the window ending where
+        # it always ended.
+        flag_changes = fetch_flag_changes(onset=state.alert.stated_onset)
     except Exception:
         return None
 

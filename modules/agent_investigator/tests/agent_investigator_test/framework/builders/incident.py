@@ -34,18 +34,37 @@ CALM_CPU_CAPACITY_CORES = 3.0
 
 WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 AN_ALERT_TIME = datetime(2026, 8, 20, 11, 8, tzinfo=UTC)
+# Far outside the window, because that is the case a stated onset exists for: a
+# check that reconciles stored values against the records behind them finds what
+# went wrong long after the writing did, and the minute it dates is one no
+# retrievable series covers. A week is what a weekly check implies.
+A_STATED_ONSET = WINDOW_START - timedelta(days=7)
 
 A_SERVICE = "kuki"
 
 
-def an_alert(started_at: datetime | None = AN_ALERT_TIME) -> Alert:
+def an_alert(started_at: datetime | None = AN_ALERT_TIME,
+             stated_onset: datetime | None = None) -> Alert:
     """The alert that opened the incident.
 
     `started_at` is a parameter because its absence is a real case - an alert
     that never said when it fired - and it decides where a default log window
     ends.
+
+    `stated_onset` is absent by default because almost every alert leaves it so,
+    and because leaving it so is what keeps these builders describing the
+    ordinary incident: a rule watching a series reports a minute the loop
+    measures for itself, and the measurement wins wherever there is one. An
+    alert states one only where it knows something no series carries, so a test
+    that wants the stated minute used has to hand the loop a window with nothing
+    in it as well.
     """
-    return Alert(service=A_SERVICE, alert_name="HighErrorRate", started_at=started_at)
+    return Alert(
+        service=A_SERVICE,
+        alert_name="HighErrorRate",
+        started_at=started_at,
+        stated_onset=stated_onset
+    )
 
 
 def a_window_that_starts_calm() -> list[MetricBucket]:

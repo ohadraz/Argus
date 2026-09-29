@@ -14,7 +14,7 @@ Nothing above this module imports `stripe`, and nothing above it sees a
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Final
@@ -72,6 +72,12 @@ def charges_between(started_at: datetime,
     would otherwise be reported as whatever fitted on one page, which is wrong
     in exactly the direction that makes an incident look cheap.
 
+    Drawn rather than collected. The window is the incident's, and an onset an
+    alert states can be a week old - at this shop's rate, near a million
+    charges over some ten thousand pages, all of it read to produce one
+    per-currency sum. Yielding leaves the size of the window a property of the
+    read rather than of the reader.
+
     Each charge leaves as a `Charge`, which is Argus's word for one and not
     Stripe's: the vendor's field names, its status vocabulary and its minor
     units all stop here, and what travels on is money with a currency and a
@@ -82,6 +88,10 @@ def charges_between(started_at: datetime,
     needs is between "there were no charges" and "nobody could say", and an
     exception is the only way a listing can say the second.
     """
+    # Eager, both of them, and that is why the paging sits in a function of its
+    # own: a generator defers its whole body to the first draw, and a caller
+    # that never drew would neither be told the credential is missing nor be
+    # stopped from having a client built under one nobody chose.
     if not settings.stripe_api_key:
         raise RevenueUnavailable(
             "no payment credential is configured, so what the shop took cannot "
@@ -97,19 +107,31 @@ def charges_between(started_at: datetime,
         )
     )
 
+    return _drawn_from(client, started_at, ended_at)
+
+
+def _drawn_from(client: StripeClient,
+                started_at: datetime,
+                ended_at: datetime) -> Iterator[Charge]:
+    """The listing itself, one charge at a time.
+
+    A failure mid-listing leaves here in the same vocabulary as one on the
+    first page: the provider fetches the next page as it is asked for, so a
+    window can be half-read and then unreadable, and the caller that is folding
+    it has to hear about that as `RevenueUnavailable` rather than as a vendor's
+    error escaping from under a `for`.
+    """
     try:
-        return [
-            _as_a_charge(charge.to_dict())
-            for charge in client.v1.charges.list(
-                params={
-                    _CREATED: {
-                        _AT_OR_AFTER: int(started_at.timestamp()),
-                        _AT_OR_BEFORE: int(ended_at.timestamp())
-                    },
-                    _LIMIT: _A_FULL_PAGE
-                }
-            ).auto_paging_iter()
-        ]
+        for charge in client.v1.charges.list(
+            params={
+                _CREATED: {
+                    _AT_OR_AFTER: int(started_at.timestamp()),
+                    _AT_OR_BEFORE: int(ended_at.timestamp())
+                },
+                _LIMIT: _A_FULL_PAGE
+            }
+        ).auto_paging_iter():
+            yield _as_a_charge(charge.to_dict())
     except StripeError as error:
         raise RevenueUnavailable(
             f"the payment provider could not be read: {error}"

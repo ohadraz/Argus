@@ -95,6 +95,12 @@ class StateDelta(BaseModel):
     # the alerting service, and nothing else.
     dependencies: list[ServiceDependency] | None = None
     proposed_action: Action | None = None
+    # The action the gate declined to take because nothing could confirm it, and
+    # which somebody else should take instead. Separate from `proposed_action`
+    # rather than left in it: that one means "about to be performed", and an
+    # action sitting there unperformed is what every reader of this walk, and
+    # the router after the gate, takes as an action in flight.
+    recommended_action: Action | None = None
     nothing_worth_trying: bool | None = None
     fix_found: bool | None = None
     confidence: float | None = None

@@ -101,16 +101,21 @@ def taken_between(started_at: datetime,
     """
     taken: dict[str, Decimal] = {}
 
+    # Folded as it arrives rather than collected first. What a listing costs to
+    # hold is the window's size, and the window here is the incident's - a week
+    # of a busy shop is near a million charges to produce this handful of sums.
+    # The fold is inside the try because a drawn listing fails where it is
+    # drawn: the provider going unreadable half way through arrives here, not at
+    # the call above it. A part-summed window is still no answer, so it leaves
+    # as `None` however far it got.
     try:
-        listing = list(charges(started_at, ended_at))
+        for charge in charges(started_at, ended_at):
+            if not charge.succeeded:
+                continue
+
+            kept = charge.amount - charge.refunded
+            taken[charge.currency] = taken.get(charge.currency, Decimal(0)) + kept
     except RevenueUnavailable:
         return None
-
-    for charge in listing:
-        if not charge.succeeded:
-            continue
-
-        kept = charge.amount - charge.refunded
-        taken[charge.currency] = taken.get(charge.currency, Decimal(0)) + kept
 
     return Takings(amounts=taken)

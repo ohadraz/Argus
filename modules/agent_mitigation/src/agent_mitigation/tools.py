@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import Protocol
 
-from argus_core import SettingsSlice, to_iso, utc_now
+from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     AutoscalerUndo,
@@ -328,6 +328,7 @@ def fetch_recent_flag_changes(
     settings: MitigationSettings,
     fetch: FlagChangesSince,
     now: Clock = utc_now,
+    onset: datetime | None = None,
 ) -> list[FlagChange]:
     """The flag toggles recorded over the configured lookback, oldest first -
     excluding the ones Argus itself made.
@@ -348,13 +349,34 @@ def fetch_recent_flag_changes(
     act more than once on an incident, its own revert lands in this window, and
     a window carrying it makes the unambiguous case - one flag changed, so that
     is the one to put back - report two flags and refuse to act.
+
+    `onset` moves the window back to end where the incident began, and is left
+    out by almost every caller. Ending it at the present asks what somebody
+    *just* changed, which is the right question about an incident happening now
+    and the wrong one about an incident a check found long afterwards: there the
+    flag moved a week ago, a window ending now does not reach it, and the agent
+    proposes nothing about a flag that is still on.
+
+    Anchored rather than widened, and the difference matters. The lookback is
+    short on purpose - a wide window makes "two flags changed, so no action" the
+    common case - so it stays the width it was and only moves. The upper bound
+    is applied here because the provider is asked from a moment and answers to
+    the present: without it, a window anchored a week back carries a week. What
+    it drops is changes made after the incident began, which did not cause it,
+    and that is the rule the Investigator's own default window already applies.
     """
     lookback = timedelta(minutes=settings.flag_change_lookback_minutes)
+    window_ends_at = onset if onset is not None else now()
 
-    return changes_not_made_by(
+    changes = changes_not_made_by(
         settings.unleash_actor,
-        fetch(since=to_iso(now() - lookback)),
+        fetch(since=to_iso(window_ends_at - lookback)),
     )
+
+    return [
+        change for change in changes
+        if parse_iso(change.occurred_at) <= window_ends_at
+    ]
 
 
 def argus_changed_flag_since(

@@ -18,4 +18,11 @@ def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
         severity=labels.get("severity"),
         summary=annotations.get("summary"),
         started_at=alert.get("startsAt"),
+        # An annotation rather than a label, because Grafana's labels are the
+        # alert's identity and a timestamp in one would make every firing a
+        # different alert. Absent from almost every payload, and left unset
+        # rather than defaulted to `startsAt`: an onset invented here would be
+        # a measured minute's rival carrying none of its evidence, and would
+        # be the minute somebody noticed rather than the minute it began.
+        stated_onset=annotations.get("onset"),
     )

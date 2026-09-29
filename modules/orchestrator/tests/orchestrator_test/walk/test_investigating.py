@@ -25,6 +25,7 @@ store being reachable at the instant it asked.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
@@ -168,6 +169,77 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
             ),
             assert_that(record_hypothesis).was_called_with(some_hypothesis)
         ))
+
+
+@pytest.mark.unit
+def test_the_flag_history_is_asked_at_an_onset_the_alert_stated(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The history the gate's action is chosen from, asked about the minute the
+    # incident began rather than about the present. For an alert raised by a
+    # check that runs weekly those are a week apart, and a window ending now
+    # reaches no flag at all - so Mitigation would name no action, and an
+    # incident whose whole point is an action nobody may take would escalate
+    # with nothing to recommend.
+    a_stated_onset = datetime(2026, 9, 22, 14, 10, tzinfo=UTC)
+    an_incident_found_by_a_check = an_incident_state(
+        Alert(
+            service=SOME_SERVICE,
+            alert_name="SpendTotalsDoNotReconcile",
+            stated_onset=a_stated_onset
+        ),
+        IncidentStatus.INVESTIGATING
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate, a_determined_hypothesis(
+                    an_incident_found_by_a_check.incident_id
+                )
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_incident_found_by_a_check,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            assert_that(fetch_flag_changes).was_called_with(onset=a_stated_onset)
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_that_states_no_onset_asks_the_flag_history_for_the_present(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The branch every existing incident takes. An alert that measured its own
+    # onset says nothing here, and the history is asked the question it has
+    # always been asked - what somebody just changed.
+    an_ordinary_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate, a_determined_hypothesis(an_ordinary_incident.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_ordinary_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            assert_that(fetch_flag_changes).was_called_with(onset=None)
+        )
 
 
 @pytest.mark.unit

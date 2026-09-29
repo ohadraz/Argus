@@ -131,7 +131,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        actions: list[str] | None = None,
                        log_lines: list[str] | None = None,
                        tokens_spent: int = DONT_CARE_TOKENS_SPENT,
-                       pull_request: OpenedPullRequest | None = None
+                       pull_request: OpenedPullRequest | None = None,
+                       recommended_action: str | None = None
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -141,6 +142,12 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     No pull request by default, because most incidents end without one - a flag
     put back is the whole fix as often as not, and a bundle that always carried
     a proposal would make the exception look like the rule.
+
+    Nothing recommended by default either, and for the stronger version of that
+    reason: a recommendation means Argus reached the end of an incident without
+    acting on it, which is the exception the whole of `RECOMMENDED` exists for.
+    A bundle carrying one as standard would have every test written against an
+    incident that is not over.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -153,7 +160,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         actions=actions if actions is not None else ["dont care"],
         log_lines=log_lines if log_lines is not None else ["dont care"],
         tokens_spent=tokens_spent,
-        pull_request=pull_request
+        pull_request=pull_request,
+        recommended_action=recommended_action
     )
 
 

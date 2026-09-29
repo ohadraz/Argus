@@ -36,6 +36,7 @@ from argus_core.models import OpenedPullRequest, PostmortemDocument
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (
+    _it_says_what_is_still_owed,
     estimates_a_loss_of,
     is_marked_complete,
     is_marked_incomplete,
@@ -321,6 +322,60 @@ def test_the_fix_that_was_proposed_is_carried_onto_the_document() -> None:
         ) \
         .then(
             proposes_the_fix_at(where_it_can_be_read)
+        )
+
+
+@pytest.mark.unit
+def test_the_action_nobody_took_is_carried_onto_the_document() -> None:
+    # Carried, not written, for the reason the pull request is: the gate worked
+    # this out and declined it, and a document that relied on the model
+    # mentioning it would lose the one thing a reader goes on to do - silently,
+    # on every run where the summary read perfectly well without it.
+    #
+    # This one is worse to lose than the address. A postmortem that omits a
+    # link still describes an incident somebody can act on; one that omits this
+    # describes an incident that is over, and it is not over - the flag is
+    # still on and the shop is still writing wrong totals.
+    what_somebody_should_do = "put the monthly-spend-feature flag back"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recommended_action=what_somebody_should_do
+            )
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _it_says_what_is_still_owed(what_somebody_should_do)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_argus_acted_on_itself_owes_nobody_an_action() -> None:
+    # The ordinary ending. Argus took the action and watched it work, so there
+    # is nothing here for a person to do, and a document saying otherwise would
+    # send somebody to repeat a change already made.
+    Scenario() \
+        .given(evidence := an_evidence_bundle()) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _it_says_what_is_still_owed(None)
         )
 
 

@@ -81,6 +81,16 @@ class PostmortemDocument(BaseModel):
     # nothing in the code to change. An empty address would read as a proposal
     # whose link went missing.
     pull_request: OpenedPullRequest | None = None
+    # What Argus worked out to do, declined to do, and is handing to a person.
+    # A field rather than a sentence the model was asked to include, for the
+    # reason the address above is one - and with more at stake. A document that
+    # loses a link still describes an incident somebody can act on; one that
+    # loses this describes an incident as over while the cause is still live.
+    #
+    # `None` for every ending Argus reached itself, where the action was taken
+    # and watched. Prose here would send somebody to repeat a change already
+    # made.
+    recommended_action: str | None = None
     checklist_complete: bool
 
 

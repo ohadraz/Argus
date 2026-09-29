@@ -25,6 +25,15 @@ class IncidentStatus(StrEnum):
     RESOLVED = "resolved"
     FIXING = "fixing"
     ESCALATED = "escalated"
+    # Argus worked out what to do and declined to do it. Not a kind of
+    # escalation, which is Argus running out of moves and handing over: here
+    # there is a move, it is named, and what stopped it being taken is that
+    # nothing could say afterwards whether it had worked. An action Argus cannot
+    # verify is one it must not take unasked, however sound the diagnosis - and
+    # the difference a reader of an outcome most needs is whether somebody has
+    # to work out what to do or go and do a named thing, which is exactly what a
+    # shared status would erase.
+    RECOMMENDED = "recommended"
     # A human took the incident back: they had it in hand, and Argus was told to
     # stop. Its own status rather than a kind of escalation, because escalation
     # is Argus running out of moves and handing over, and this is a handover
@@ -62,10 +71,17 @@ class IncidentStatus(StrEnum):
         to do. Something is still owed there, which is exactly what the status
         is for saying; it is not something Argus is still working on, so a page
         polling it would poll forever.
+
+        `recommended` is terminal for that same reason, and the thing owed is
+        the sharpest of any status here: a named action nobody has taken. Argus
+        has stopped not because it ran out of moves but because it declined the
+        one it had, so there is nothing of its own still running and nothing it
+        is waiting for.
         """
         return self in (
             IncidentStatus.MITIGATED,
             IncidentStatus.RESOLVED,
             IncidentStatus.ESCALATED,
+            IncidentStatus.RECOMMENDED,
             IncidentStatus.WITHDRAWN
         )

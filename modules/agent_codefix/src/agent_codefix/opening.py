@@ -14,7 +14,7 @@ what happens to what it says back.
 
 from __future__ import annotations
 
-from argus_core.models import CodeSearch, Hypothesis
+from argus_core.models import CodeSearch, FailureMode, Hypothesis
 
 from agent_codefix.budget import FixSettings
 from agent_codefix.prompting import SUBMIT_TOOL_NAME
@@ -59,12 +59,46 @@ def the_opening_message(hypothesis: Hypothesis | None,
         "",
         f"What the investigation concluded: {what_it_concluded(hypothesis)}",
         *_and_what_it_rests_on(hypothesis),
+        *_and_what_it_already_wrote(hypothesis),
         *_what_the_repository_holds(settings, list_files),
         *_what_is_known_about_the_index(settings, index_notice),
         "",
         f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
         f"every file you are changing, in full."
     ])
+
+
+def _and_what_it_already_wrote(hypothesis: Hypothesis | None) -> list[str]:
+    """That this fault left a residue, for the one mode where it does.
+
+    Every other mode is over when the cause is: a flag goes back, a revision is
+    returned, and what was served wrongly is served again correctly. This one
+    is not. The patch stops the next wrong value and every value already stored
+    stays wrong, so a pull request carrying only the patch closes an incident
+    while the damage stays in the rows.
+
+    Said rather than left to be inferred. What the model is looking at is a
+    write path with a field update missing, and nothing in that code says how
+    many rows went through it - a model asked to work out for itself that a
+    residue exists would be reasoning from evidence it was never shown.
+
+    Both in one request, because they are one change: a reviewer approving the
+    fix is approving what has to happen to the data behind it. And proposed
+    only - running it is a rewrite of stored data, which is irreversible and
+    outside what Argus may do unasked (§13).
+    """
+    if hypothesis is None or hypothesis.failure_mode != FailureMode.SILENT_DATA_CORRUPTION:
+        return []
+
+    return [
+        "",
+        "This fault wrote wrong values before anybody noticed, and they are "
+        "still wrong: the patch stops the next one and repairs none of the "
+        "ones already written. So submit a second file beside the fix - a "
+        "one-off script that reads the records the fault got wrong and puts "
+        "them right - and say in your explanation that it has not been run "
+        "and that a person has to run it."
+    ]
 
 
 def _and_what_it_rests_on(hypothesis: Hypothesis | None) -> list[str]:

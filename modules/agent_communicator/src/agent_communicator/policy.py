@@ -25,6 +25,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 from argus_core.events import (
+    ActionRecommended,
     ActionRefused,
     ActionTaken,
     AlertAcknowledged,
@@ -103,6 +104,17 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # says what Argus did; this says what it declined to do and why,
             # which is the autonomy boundary (spec §13) visibly holding - and
             # the one moment a person may need to finish the job by hand.
+            return Register.FOLLOWED
+        case ActionRecommended():
+            # The other half of it, and the only line in an incident that asks
+            # a reader to do something. A refusal heard without this tells
+            # somebody Argus stopped and not what stopping left them holding.
+            #
+            # The one place where the silence this policy defaults to would be
+            # wrong rather than merely quiet. Everything else unsaid is still
+            # on the page for whoever goes looking; this is a change nobody has
+            # made to a service that is still wrong, and a reader who never
+            # goes looking is a reader for whom the incident never ends.
             return Register.FOLLOWED
         case AwaitingRecovery():
             # Said, unlike the looks that follow it: this is the longest

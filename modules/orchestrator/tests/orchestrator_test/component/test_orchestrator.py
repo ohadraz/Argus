@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -241,6 +241,40 @@ def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
                      _nothing_was_written(transition_incident)))
 
 
+@pytest.mark.component
+def test_an_action_nothing_could_confirm_is_recommended_rather_than_taken(
+    collaborators: Collaborators
+) -> None:
+    # The gate's one refusal that is not a judgement on the action. The alert
+    # dated this incident because no series could, so nothing would say
+    # afterwards whether the revert worked - and an action taken, reported and
+    # never judged leaves an incident that looks handled. The walk still reaches
+    # Code-Fix, for the reason a mitigation that worked does: nobody is putting
+    # the flag back, so the fault behind it is the only thing anybody gets.
+    Scenario() \
+        .given(
+            a_cause_only_next_week_could_confirm := replace(
+                collaborators,
+                investigate=_an_investigation_offering(
+                    a_candidate_blaming(
+                        SOME_FLAG,
+                        failure_mode=FailureMode.SILENT_DATA_CORRUPTION)
+                )
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_dated_by_its_alert(),
+                                   a_cause_only_next_week_could_confirm)) \
+        .then(all_of(
+            _the_walk_went(INVESTIGATOR_NODE,
+                           MITIGATION_PROPOSAL_NODE,
+                           TIER_GATE_NODE,
+                           CODEFIX_NODE,
+                           REMEMBERING_NODE,
+                           POSTMORTEM_NODE),
+            _the_incident_ended(IncidentStatus.RECOMMENDED),
+            _the_action_recommended_was(SOME_FLAG)))
+
+
 def _the_walk_of(incident: IncidentState, collaborators: Collaborators) -> Walked:
     """One incident through the compiled graph, and the nodes it passed.
 
@@ -273,12 +307,39 @@ def _an_incident_on_its_last_round() -> IncidentState:
     return _an_incident_just_alerted().model_copy(update={"rounds": EVERY_ROUND - 1})
 
 
-def a_candidate_blaming(flag: str) -> Hypothesis:
+def _an_incident_dated_by_its_alert() -> IncidentState:
+    """An incident whose onset only the alert could state.
+
+    One inference rather than a flag: an alert dating the incident means the
+    series measured no departure, which means nothing would mark a recovery
+    either. A week back, because that is the distance at which a weekly
+    integrity check finds a fault nothing else noticed.
+    """
+    a_week_before_anybody_noticed = datetime(2026, 8, 13, 11, 0, tzinfo=UTC)
+
+    return IncidentState(
+        incident_id=a_random_id(),
+        alert=DONT_CARE_ALERT.model_copy(
+            update={"stated_onset": a_week_before_anybody_noticed}),
+        status=IncidentStatus.INVESTIGATING
+    )
+
+
+def a_candidate_blaming(
+    flag: str,
+    failure_mode: FailureMode = FailureMode.FEATURE_FLAG_TOGGLE
+) -> Hypothesis:
+    """A candidate naming one flag as the cause.
+
+    The mode is a parameter because two of these walks differ in nothing else:
+    a toggle and a silent corruption are both answered by putting the flag
+    back, and what separates them is whether anything could confirm it.
+    """
     some_confidence = 0.75
 
     return Hypothesis(incident_id="dont-care",
                       summary=f"the {flag} flag was switched on",
-                      failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                      failure_mode=failure_mode,
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=flag)
@@ -314,7 +375,15 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
 
 
 def _a_provider_reporting(*changes: FlagChange) -> ports.FetchFlagChanges:
-    def fetch_flag_changes() -> list[FlagChange]:
+    """Whatever the provider recorded, whichever window it is asked about.
+
+    The onset is taken and ignored: which window these changes would fall in is
+    settled where the window is built, and a double that filtered on it would be
+    a second implementation of that rule agreeing with itself. Named rather than
+    starred, so that a caller passing it positionally stops here instead of
+    landing on a parameter this does not have.
+    """
+    def fetch_flag_changes(*, onset: datetime | None) -> list[FlagChange]:
         return list(changes)
 
     return fetch_flag_changes
@@ -400,6 +469,33 @@ def _nothing_was_written(transition_incident: MagicMock) -> Assertion[Walked]:
             raise AssertionError(
                 f"Expected nothing to be written, got "
                 f"{transition_incident.call_args_list}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_recommended_was(flag: str) -> Assertion[Walked]:
+    """What the incident is left recommending, and what it is addressed to.
+
+    The status alone would pass on a walk that recommended nothing and derived
+    `RECOMMENDED` from something else. The whole of this ending is that
+    somebody is handed an action, so the action is what is asserted.
+    """
+    def assertion(walked: Walked) -> bool:
+        final, dont_care_visited = walked
+
+        if not isinstance(final.recommended_action, RevertFeatureFlag):
+            raise AssertionError(
+                f"Expected the incident to recommend putting a flag back, it "
+                f"recommends [{final.recommended_action!r}]."
+            )
+
+        if final.recommended_action.flag != flag:
+            raise AssertionError(
+                f"Expected the recommendation to name [{flag}], it names "
+                f"[{final.recommended_action.flag}]."
             )
 
         return True

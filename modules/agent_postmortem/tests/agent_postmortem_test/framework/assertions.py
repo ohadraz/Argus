@@ -198,6 +198,27 @@ def proposes_the_fix_at(expected: str | None) -> Assertion[PostmortemDocument]:
     return assertion
 
 
+def _it_says_what_is_still_owed(expected: str | None) -> Assertion[PostmortemDocument]:
+    """The action nobody took, or that the document owes nobody one.
+
+    Carried rather than written, for the reason the pull request's address is -
+    and with more at stake. A document that loses a link still describes an
+    incident somebody can act on; one that loses this describes an incident as
+    over while the cause is still live.
+    """
+    def assertion(document: PostmortemDocument) -> bool:
+        owed = document.recommended_action
+
+        if owed != expected:
+            raise AssertionError(
+                f"Expected the document to say [{expected}] is still owed, got "
+                f"[{owed}].")
+
+        return True
+
+    return assertion
+
+
 def reports_a_responder_cost_of(expected: Decimal) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.responder_cost_estimate != expected:

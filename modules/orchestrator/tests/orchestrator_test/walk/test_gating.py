@@ -22,10 +22,11 @@ follows is decided one node further on, in one place.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
-from argus_core.events import ActionRefused, IncidentEvent
+from argus_core.events import ActionRecommended, ActionRefused, IncidentEvent
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -48,7 +49,11 @@ from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.gating import route_after_gate, tier_gate_node, what_the_row_says
-from orchestrator.walk.routes import MITIGATING_ROUTE, NEXT_CANDIDATE_ROUTE
+from orchestrator.walk.routes import (
+    FIXING_ROUTE,
+    MITIGATING_ROUTE,
+    NEXT_CANDIDATE_ROUTE,
+)
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.assertions import the_route_is
@@ -118,7 +123,6 @@ def test_the_gate_rejects_an_incident_with_no_proposed_action(
 ) -> None:
     # The walk reaches the gate whether or not a proposal was made: with no
     # candidate there is nothing to answer, and the refusal is still the only
-    # candidate there is nothing to answer, and the refusal is still the only
     # account of why this attempt ended. Admissibility is not what stops this
     # one, so the stand-in admits everything - a refusal here has to come from
     # the absence and nothing else.
@@ -185,6 +189,28 @@ def test_a_rejected_action_is_handed_to_the_walk() -> None:
         .given(a_rejected_incident := _a_mitigating_incident()) \
         .when(lambda: route_after_gate(a_rejected_incident)) \
         .then(the_route_is(NEXT_CANDIDATE_ROUTE))
+
+
+@pytest.mark.unit
+def test_an_incident_carrying_a_recommendation_stops_trying_candidates() -> None:
+    # The one refusal that ends the mitigation phase rather than reaching for
+    # the next explanation. The other five reject a particular action, so
+    # another candidate is worth trying; this rejects the possibility of
+    # confirming any action on this incident, and a second candidate is no
+    # better placed than the first - it would be refused for the same reason,
+    # and each pass would overwrite the recommendation with its own.
+    #
+    # On to Code-Fix rather than out of the graph. Nobody is going to take the
+    # action, so the fault it would have held off is still in the code and
+    # still worth a patch - which is the same reason a mitigation that *worked*
+    # goes there.
+    Scenario() \
+        .given(
+            an_incident_carrying_a_recommendation := _a_mitigating_incident()
+            .model_copy(update={"recommended_action": _a_proposed_action()})
+        ) \
+        .when(lambda: route_after_gate(an_incident_carrying_a_recommendation)) \
+        .then(the_route_is(FIXING_ROUTE))
 
 
 @pytest.mark.unit
@@ -322,9 +348,14 @@ def test_a_candidate_refused_for_having_been_tried_enough_says_so_in_its_row(
 def _a_mitigating_incident(proposing: Action | None = None,
                            about: Hypothesis | None = None,
                            already_tried: list[Attempt] | None = None,
-                           listing: list[ServiceDependency] | None = None
+                           listing: list[ServiceDependency] | None = None,
+                           dated_by_the_alert: datetime | None = None
                            ) -> IncidentState:
-    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_alert = Alert(
+        service="kuki-service",
+        alert_name="HighErrorRate",
+        stated_onset=dated_by_the_alert
+    )
     state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
 
     return state.model_copy(
@@ -440,6 +471,41 @@ def _the_action_was_cleared() -> Assertion[StateDelta]:
     return assertion
 
 
+def _it_was_kept_as_the_recommendation(action: Action) -> Assertion[StateDelta]:
+    """That the action nobody took survives as the thing somebody should do.
+
+    The other half of clearing it. `proposed_action` is cleared because nothing
+    is going to perform it, and an incident that stopped there would report a
+    cause and no next step - which is worse than escalating, since escalation at
+    least announces that a person is needed.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.recommended_action != action:
+            raise AssertionError(
+                f"Expected the refused action {action!r} to be kept as the "
+                f"recommendation, the gate returned "
+                f"{updates.recommended_action!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_recommended() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.recommended_action is not None:
+            raise AssertionError(
+                f"Expected no recommendation from a refusal that is a judgement "
+                f"on the action itself, the gate returned "
+                f"{updates.recommended_action!r}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_incident_was_moved_nowhere() -> Assertion[StateDelta]:
     """A rejection ends this attempt, not the incident: `mitigating` before and
     after, so the gate names no status at all."""
@@ -448,6 +514,58 @@ def _the_incident_was_moved_nowhere() -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected the gate to name no status, it named "
                 f"[{updates.status}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_recommendation_was_published(flag: str,
+                                      published: list[IncidentEvent]
+                                      ) -> Assertion[StateDelta]:
+    """The gate's account of what it worked out and did not do.
+
+    Published beside the refusal rather than folded into it, because the two
+    are different findings and only one of them has a reader who can act. Five
+    of the six refusals have nothing to recommend at all - they reject the
+    action itself - so an account that carried the action on every refusal
+    would be telling somebody to go and cross the boundary Argus just held.
+    """
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        recommendations = [
+            event for event in published if isinstance(event, ActionRecommended)
+        ]
+
+        if not recommendations:
+            raise AssertionError(
+                f"Expected the recommendation to be published, got "
+                f"{[event.kind for event in published]}."
+            )
+
+        if recommendations[0].subject != flag:
+            raise AssertionError(
+                f"Expected the recommendation to name [{flag}], got "
+                f"[{recommendations[0].subject}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_published_recommending_anything(
+    published: list[IncidentEvent]
+) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        recommendations = [
+            event for event in published if isinstance(event, ActionRecommended)
+        ]
+
+        if recommendations:
+            raise AssertionError(
+                f"Expected nothing recommended after a refusal about the action "
+                f"itself, got {[event.subject for event in recommendations]}."
             )
 
         return True
@@ -487,14 +605,35 @@ def _nothing_was_narrated() -> Assertion[StateDelta]:
     """The gate says nothing through the walk's narration.
 
     Narration is how a node that *moved* the incident accounts for the move,
-    and this one moves it nowhere. Returning a sentence here is what used to
-    route the refusal into a second, untyped account of the same event.
+    and five of the six refusals move it nowhere. Returning a sentence for one
+    of those is what used to route the refusal into a second, untyped account
+    of the same event. The sixth does move it, and has an assertion of its own.
     """
     def assertion(updates: StateDelta) -> bool:
         if updates.narration is not None:
             raise AssertionError(
                 f"Expected the gate to narrate nothing, it said "
                 f"[{updates.narration.action}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
+    """The gate accounts for the one refusal that ends the incident.
+
+    The other five end an attempt and leave the status where it was. This one
+    leaves a recommendation, the status derives from that, and the walk refuses
+    a move with no account of itself - so silence here is not a quieter gate,
+    it is a walk that stops with a `ValueError` at the node.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.narration is None:
+            raise AssertionError(
+                "Expected the gate to account for the recommendation, it "
+                "narrated nothing."
             )
 
         return True
@@ -698,6 +837,107 @@ def test_a_restart_of_a_dependency_the_register_calls_ours_is_let_through(
 
 
 @pytest.mark.unit
+def test_an_action_nothing_could_confirm_is_refused(
+    record_outcome: MagicMock
+) -> None:
+    # The one refusal that is not a judgement on the action. The kind is
+    # pre-authorised, the subject is Argus's to touch, the cap is nowhere near -
+    # and the action may well be exactly right. What stops it is that nothing
+    # would say afterwards whether it worked.
+    #
+    # Read off how the incident was dated. An onset stated by the alert means
+    # the metrics measured none, which means no series departed, which means
+    # recovery has nothing to be judged on: the only thing that would answer is
+    # whatever raised the alert, running again on a schedule Argus does not
+    # control. An action taken here would be taken, reported, and never judged.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_no_series_carries := _a_mitigating_incident(
+                proposing=_a_proposed_action(),
+                dated_by_the_alert=datetime(2026, 9, 22, 9, 19, 43, tzinfo=UTC)
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_no_series_carries,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(all_of(_the_action_was_cleared(),
+                     _the_incident_was_moved_nowhere(),
+                     _the_recommendation_was_narrated(),
+                     _the_refusal_was_published(
+                         Refusal.NOTHING_COULD_CONFIRM_IT, published)))
+
+
+@pytest.mark.unit
+def test_an_action_on_an_incident_its_own_series_measured_is_let_through(
+    record_outcome: MagicMock
+) -> None:
+    # The branch every existing incident takes. A measured onset means a series
+    # departed, and a series that departed is one that can be watched coming
+    # back - so the action is confirmable and the gate has nothing to say.
+    Scenario() \
+        .given(
+            an_ordinary_incident := _a_mitigating_incident(
+                proposing=_a_proposed_action()
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_ordinary_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(all_of(_the_gate_changed_nothing(),
+                     _no_outcome_was_recorded(record_outcome)))
+
+
+@pytest.mark.unit
+def test_an_action_nothing_could_confirm_is_kept_as_the_recommendation(
+    record_outcome: MagicMock
+) -> None:
+    # What separates this refusal from the five that are judgements on the
+    # action. Those reject something Argus should not do; this declines
+    # something somebody else still should, so the incident has to carry it.
+    some_action = _a_proposed_action()
+
+    Scenario() \
+        .given(
+            an_incident_no_series_carries := _a_mitigating_incident(
+                proposing=some_action,
+                dated_by_the_alert=datetime(2026, 9, 22, 9, 19, 43, tzinfo=UTC)
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_no_series_carries,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(all_of(_the_action_was_cleared(),
+                     _it_was_kept_as_the_recommendation(some_action)))
+
+
+@pytest.mark.unit
+def test_an_action_argus_may_not_take_is_not_recommended_to_anybody(
+    record_outcome: MagicMock
+) -> None:
+    # The other refusals reject the action itself, so there is nothing here to
+    # pass on. An incident recommending a kind nobody pre-authorised would be
+    # telling a person to go and do the thing Argus was stopped from doing.
+    Scenario() \
+        .given(
+            an_incident_proposing_the_unauthorised := _a_mitigating_incident(
+                proposing=_a_proposed_action()
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_proposing_the_unauthorised,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_not_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(all_of(_the_action_was_cleared(),
+                     _nothing_was_recommended()))
+
+
+@pytest.mark.unit
 def test_a_candidate_refused_for_where_it_was_aimed_says_so_in_its_row(
     record_outcome: MagicMock
 ) -> None:
@@ -741,6 +981,55 @@ def test_every_refusal_has_a_sentence_for_the_candidates_row() -> None:
             for refusal in every_reason_to_refuse
         }) \
         .then(_every_refusal_was_put_into_words())
+
+
+@pytest.mark.unit
+def test_the_recommendation_is_published_beside_the_refusal(
+    record_outcome: MagicMock
+) -> None:
+    # Two findings, published separately. A reader of the refusal learns that
+    # Argus declined to act and why; only this says what should happen instead,
+    # and it is the only line in the account anybody can act on.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_no_series_carries := _a_mitigating_incident(
+                proposing=_a_proposed_action(),
+                dated_by_the_alert=datetime(2026, 9, 22, 9, 19, 43, tzinfo=UTC)
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_no_series_carries,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(all_of(
+            _the_refusal_was_published(Refusal.NOTHING_COULD_CONFIRM_IT, published),
+            _the_recommendation_was_published(DONT_CARE_FLAG, published)))
+
+
+@pytest.mark.unit
+def test_a_refusal_about_the_action_itself_recommends_nothing_to_anybody(
+    record_outcome: MagicMock
+) -> None:
+    # The other five reject the action, so there is nothing to hand on. An
+    # account recommending a kind nobody pre-authorised would be telling a
+    # person to go and cross the boundary Argus just held.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_proposing_the_unauthorised := _a_mitigating_incident(
+                proposing=_a_proposed_action()
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_proposing_the_unauthorised,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_not_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(_nothing_was_published_recommending_anything(published))
 
 
 def _what_the_row_would_say_about(refusal: Refusal) -> str:

@@ -113,6 +113,22 @@ class FailureMode(StrEnum):
     # order of operations: a version that could read both shapes had to ship
     # before one that wrote only the new shape.
     IN_FLIGHT_COMPATIBILITY_BREAK = "in-flight-compatibility-break"
+    # What the service has already written is wrong, while the service itself is
+    # available, fast, and reporting nothing. The first mode in this set that no
+    # series carries: nothing fails, nothing slows, nothing accumulates, and the
+    # whole of the symptom is a value that disagrees with the values it was
+    # derived from. So it is found by a reconciliation somebody runs rather than
+    # by a rule watching a graph, and dated by the oldest record it finds wrong
+    # rather than by the minute a monitor noticed.
+    #
+    # Not one mode with the flag toggle or the bad deployment it may well have
+    # been caused by, and the split is by what removing the change does. There
+    # putting the flag back or returning the revision ends the incident; here it
+    # stops the drift and repairs nothing, because the damage is in rows that
+    # outlive whatever wrote them. That difference is the whole of the response:
+    # what is left afterwards is not only a patch but a repair of what the fault
+    # already wrote, and no mitigation Argus can take reaches either.
+    SILENT_DATA_CORRUPTION = "silent-data-corruption"
 
     def meaning(self) -> str:
         """What this mode is, in the words the model weighing it reads.
@@ -140,7 +156,11 @@ class FailureMode(StrEnum):
 _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
     FailureMode.FEATURE_FLAG_TOGGLE: (
         "a feature flag was switched and the service got worse; the code and "
-        "the configuration are both unchanged"
+        "the configuration are both unchanged. Choose this over "
+        "silent-data-corruption when putting the flag back is the whole of the "
+        "answer - the flag changed how the service behaves and left nothing "
+        "written behind it. The two arrive identically, as one flag moved at "
+        "the onset, and the flag history cannot separate them"
     ),
     FailureMode.BAD_DEPLOYMENT: (
         "a deployment shipped new or changed source code and the service got "
@@ -235,5 +255,21 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "onto one revision, which returning the deployment does; what is left "
         "to fix is the migration that changed a stored shape with no version "
         "able to read both"
+    ),
+    FailureMode.SILENT_DATA_CORRUPTION: (
+        "what the service has already written is wrong, while the service "
+        "itself is available, fast and reporting nothing - no request fails, no "
+        "quantile moves, nothing accumulates, and the only evidence is a value "
+        "that disagrees with the values it was derived from. Expect the metrics "
+        "to be flat across the whole window: that is the mode rather than a "
+        "sign there is nothing to find, and the alert's own reconciliation "
+        "finding is what says otherwise. Date it from the oldest record the "
+        "finding reports as wrong, never from when the alert fired - a check "
+        "that runs on a schedule reports long after the writing went wrong, and "
+        "the change that caused it is at the older minute. Choose this over "
+        "feature-flag-toggle and bad-deployment even where a flag moved or a "
+        "revision landed at that minute: they may well be the cause, and what "
+        "separates the modes is that putting the change back stops the drift "
+        "and repairs nothing already written"
     )
 }

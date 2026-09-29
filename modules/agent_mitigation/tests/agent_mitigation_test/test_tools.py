@@ -157,6 +157,66 @@ def test_the_window_asked_for_reaches_back_one_lookback_from_now() -> None:
 
 
 @pytest.mark.unit
+def test_the_window_ends_at_an_onset_the_alert_stated() -> None:
+    # A lookback measured back from now asks what somebody *just* changed, which
+    # is the right question for an incident happening now and the wrong one for
+    # an incident found by a check that runs weekly. There the flag moved a week
+    # ago, a window ending now does not reach it, and Mitigation proposes
+    # nothing - so the incident escalates with no action to recommend, which is
+    # the one outcome this kind of incident must not produce.
+    #
+    # Anchored rather than widened. The sixty minutes is short on purpose: a
+    # wide window makes "two flags changed, so no action" the common case.
+    some_lookback = timedelta(minutes=30)
+    a_week_earlier = THE_MOMENT_IT_WAS_CLAIMED - timedelta(days=7)
+
+    Scenario() \
+        .given(
+            fetch := _a_provider_reporting()
+        ) \
+        .when(
+            lambda: fetch_recent_flag_changes(
+                _some_mitigation_settings(lookback=some_lookback),
+                fetch=fetch,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
+                onset=a_week_earlier
+            )
+        ) \
+        .then(
+            _it_asked_from(fetch, to_iso(a_week_earlier - some_lookback))
+        )
+
+
+@pytest.mark.unit
+def test_a_change_made_after_the_onset_is_not_in_the_window() -> None:
+    # The provider is asked from a moment and answers to the present, so a
+    # window anchored a week back carries a week of changes unless something
+    # closes it. A change made after the incident began did not cause it -
+    # the rule the Investigator's own default window already applies.
+    an_onset = THE_MOMENT_IT_WAS_CLAIMED - timedelta(days=7)
+    the_one_that_moved_at_the_onset = _a_change_at(an_onset - timedelta(minutes=2))
+
+    Scenario() \
+        .given(
+            fetch := _a_provider_reporting(
+                the_one_that_moved_at_the_onset,
+                _a_change_at(an_onset + timedelta(days=3))
+            )
+        ) \
+        .when(
+            lambda: fetch_recent_flag_changes(
+                _some_mitigation_settings(),
+                fetch=fetch,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
+                onset=an_onset
+            )
+        ) \
+        .then(
+            _it_returned_only(the_one_that_moved_at_the_onset)
+        )
+
+
+@pytest.mark.unit
 def test_changes_argus_made_itself_are_left_out() -> None:
     # Once Argus can act more than once on an incident its own revert lands in
     # this window, and a window carrying it turns the unambiguous case - one
@@ -394,6 +454,19 @@ def _a_change_by(actor: str) -> FlagChange:
     return FlagChange(
         flag=SOME_FLAG, enabled=True,
         occurred_at=to_iso(THE_MOMENT_IT_WAS_CLAIMED), actor=actor
+    )
+
+
+def _a_change_at(moment: datetime) -> FlagChange:
+    """A change by somebody other than Argus, at a moment that matters.
+
+    Separate from `_a_change_by` because the two tests care about different
+    halves of the same record: that one is about who moved the flag, this is
+    about when - and a builder taking both would make every call site state a
+    fact it does not care about.
+    """
+    return FlagChange(
+        flag=SOME_FLAG, enabled=True, occurred_at=to_iso(moment), actor="some-human"
     )
 
 

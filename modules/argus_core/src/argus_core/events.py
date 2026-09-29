@@ -324,6 +324,32 @@ class ActionRefused(_Event):
     refusal: Refusal
 
 
+class ActionRecommended(_Event):
+    """An action Argus worked out, declined to take, and is handing on.
+
+    The other half of the refusal beside it. That one says something did not
+    happen and why; this is the only thing that says what should. An incident
+    that published the refusal alone would report a cause, a reason for
+    inaction, and no next step - which is worse than escalating, because
+    escalation at least announces that a person is needed.
+
+    Its own event rather than a field on `ActionRefused`, because five of the
+    six refusals have nothing to recommend: they reject the action itself, and
+    a reader told to go and do the thing Argus was stopped from doing would be
+    told to cross the boundary Argus just held.
+
+    `action_type` and `subject` mirror `ActionTaken` for the reason that one
+    carries them - the tag is what a renderer matches on, and the subject is
+    the half a person can act on. "Revert a feature flag" is not something
+    anybody can go and do; the flag's name is.
+    """
+
+    kind: Literal["action-recommended"] = "action-recommended"
+    hypothesis_id: UuidStr | None
+    action_type: ActionType
+    subject: str | None
+
+
 class MitigationResumed(_Event):
     """A restarted walk found this candidate's verdict already recorded.
 
@@ -554,6 +580,7 @@ type IncidentEvent = Annotated[
         | HypothesisFormed
         | CandidateSelected
         | ActionRefused
+        | ActionRecommended
         | ActionTaken
         | VerdictReached
         | MitigationResumed

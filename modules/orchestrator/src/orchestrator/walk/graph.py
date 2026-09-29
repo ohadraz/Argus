@@ -204,6 +204,11 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         {
             MITIGATING_ROUTE: MITIGATION_NODE,
             NEXT_CANDIDATE_ROUTE: NEXT_CANDIDATE_NODE,
+            # An action the gate declined because nothing could confirm it. The
+            # mitigation phase is over - no candidate after this one would be
+            # any more confirmable - and what is left is the fault in the code,
+            # which is where a mitigation that worked goes too.
+            FIXING_ROUTE: CODEFIX_NODE,
             WITHDRAWN_ROUTE: END
         }
     )

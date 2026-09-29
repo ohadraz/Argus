@@ -246,6 +246,21 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- nothing in the code to change: an empty object would read as a proposal
     -- whose address went missing.
     pull_request JSONB,
+    -- What Argus worked out to do, declined to do, and is handing to a person.
+    -- Stored for the reason the proposal above is, and with more at stake: a
+    -- document that loses a link still describes an incident somebody can act
+    -- on, where one that loses this describes an incident as over while the
+    -- cause is still live.
+    --
+    -- Text rather than the action's own shape, because what is kept is the
+    -- sentence a reader acts on. The action itself is already in the account as
+    -- the event that recommended it; this is the one rendering of it that has
+    -- to survive beside the document quoting it.
+    --
+    -- Null for every ending Argus reached itself, where the action was taken
+    -- and watched: a sentence here would send somebody to repeat a change
+    -- already made.
+    recommended_action TEXT,
     executive_summary TEXT,
     checklist_complete BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()

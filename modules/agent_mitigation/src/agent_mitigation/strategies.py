@@ -441,7 +441,15 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.INTERNAL_DEPENDENCY_FAILURE: RestartDependencyStrategy(),
     FailureMode.DEMAND_SATURATION: ScaleOutStrategy(),
     FailureMode.AUTOSCALING_PATHOLOGY: PinAutoscalerStrategy(),
-    FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: RollBackDeploymentStrategy()
+    FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: RollBackDeploymentStrategy(),
+    # The flag toggle's own action, for a cause that really is a flag somebody
+    # moved - and the one entry here whose action the gate will decline. That
+    # refusal is the gate's judgement and not this table's: a mode absent from
+    # this mapping answers `None`, which is refused as nothing answering the
+    # kind of failure at all, and the incident then ends saying a person is
+    # needed without saying what for. Named here so there is something to
+    # recommend.
+    FailureMode.SILENT_DATA_CORRUPTION: RevertFeatureFlagStrategy()
 }
 
 

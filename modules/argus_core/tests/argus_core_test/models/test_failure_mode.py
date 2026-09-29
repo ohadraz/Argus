@@ -144,6 +144,31 @@ def test_the_two_ways_a_deployment_can_be_wrong_say_what_separates_them() -> Non
         ))
 
 
+@pytest.mark.unit
+def test_the_mode_whose_damage_outlives_its_cause_says_so() -> None:
+    # The fifth pair, and the first whose two members can share a cause. A flag
+    # moved at the onset in both, and the flag history says the same thing about
+    # each: somebody turned something on and the shop went wrong from there. No
+    # series separates them either - one steps the error rate, the other moves
+    # nothing at all, and a model reading a flat window has nothing to compare.
+    #
+    # What decides it is what the flag left written. The cost of the wrong
+    # reading is the sharpest in the taxonomy so far, because the mitigation
+    # appears to work: the flag goes back, the drift stops, the incident is
+    # closed as mitigated, and every value already written is still wrong with
+    # nobody left looking at it.
+    Scenario() \
+        .given(the_pair := (
+            FailureMode.FEATURE_FLAG_TOGGLE,
+            FailureMode.SILENT_DATA_CORRUPTION
+        )) \
+        .when(lambda: the_pair) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_what_the_change_left_behind()
+        ))
+
+
 def _what_it_means(cause: FailureMode) -> str:
     """The meaning, or the empty string where asking for one fails.
 
@@ -371,6 +396,44 @@ def _the_pair_is_told_apart_by_the_rollout() -> Assertion[
                 f"deployment converged - so the model is left to judge between "
                 f"a wrong revision and two revisions serving at once where it "
                 f"could have looked."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_what_the_change_left_behind() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to say whether putting the change back ends it.
+
+    Naming the other mode is not enough, for the reason it is not enough of any
+    pair above - and here the evidence agrees on the one thing a model looks at
+    first. Both of these arrive as a flag that moved at the onset, and the flag
+    history describes the two identically: somebody turned something on, and the
+    shop went wrong from that minute.
+
+    What separates them is what the flag left behind. Put it back and a toggle
+    is over; put it back here and the drift stops while every value already
+    written stays wrong. So a meaning that does not send the model to what the
+    service has already written leaves it reading a mode whose damage outlives
+    its cause as one whose damage ends with it - and the cost of that reading is
+    an incident closed as mitigated over a shop that is still lying.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "written" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without saying what the change left written behind it - so a "
+                f"model is told there is a distinction and not that putting the "
+                f"flag back ends one of the pair and repairs nothing in the "
+                f"other."
             )
 
         return True

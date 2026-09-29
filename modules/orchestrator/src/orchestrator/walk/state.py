@@ -90,6 +90,11 @@ class IncidentState(BaseModel):
     # passed between the two, because a gate the acting node could bypass by
     # re-deriving the action would guard nothing.
     proposed_action: Action | None = None
+    # What Argus worked out to do and declined to do, because nothing would say
+    # afterwards whether it worked. The one thing a `recommended` incident is
+    # for saying, and the reason that status is not escalation: a reader learns
+    # to go and do this, rather than to work out what to do.
+    recommended_action: Action | None = None
     # Whether the round that just ran found any candidate worth acting on. The
     # Investigator's own answer, recorded because it is the one thing that
     # distinguishes an investigation with nothing to offer from a walk that has
@@ -150,6 +155,14 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     """
     if state.action_outcome == Verdict.CONFIRMED:
         return IncidentStatus.MITIGATED
+
+    # Asked before `fix_found` for the reason `mitigated` is: this walk goes on
+    # to Code-Fix, so both facts are set by the time the status is derived, and
+    # asking the fix first would report the incident escalated and lose the one
+    # thing it exists to say. Escalated would also be untrue - Argus did not run
+    # out of moves, it declined the move it had.
+    if state.recommended_action is not None:
+        return IncidentStatus.RECOMMENDED
 
     # A fix reached without a confirmed mitigation is one Argus arrived at
     # having stopped nothing: the symptom is still happening, and a proposal

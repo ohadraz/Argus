@@ -23,6 +23,7 @@ import pytest
 from agent_communicator.policy import Register, how_it_is_said
 from argus_core import new_id
 from argus_core.events import (
+    ActionRecommended,
     ActionRefused,
     ActionTaken,
     AgentInvoked,
@@ -335,6 +336,11 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
     `action-refused` is the one a reader would most want to have been told: it
     is the autonomy boundary holding, and a system that changed nothing because
     it would not risk the change has said the most important thing it can say.
+
+    `action-recommended` is the other half of it, and the only line in an
+    incident that asks a reader to do something. A refusal heard without it
+    tells somebody Argus stopped and not what stopping left them holding - and
+    for this incident the shop is still writing wrong totals while they read it.
     """
     return [
         OnsetDetected(incident_id=AN_INCIDENT, onset="2026-08-30T10:03:00Z"),
@@ -358,6 +364,12 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
             refusal=Refusal.NOT_A_GENERIC_MITIGATION
+        ),
+        ActionRecommended(
+            incident_id=AN_INCIDENT,
+            hypothesis_id=new_id(),
+            action_type=REVERT_FEATURE_FLAG,
+            subject="monthly-spend-feature"
         ),
         ActionTaken(
             incident_id=AN_INCIDENT,

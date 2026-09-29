@@ -86,6 +86,7 @@ RECORDED_PRICING_SERVICE_DEGRADED = "pricing-service-degraded"
 RECORDED_CPU_SATURATION = "cpu-saturation"
 RECORDED_AUTOSCALER_FLAPPING = "autoscaler-flapping"
 RECORDED_HALF_FINISHED_ROLLOUT = "half-finished-rollout"
+RECORDED_SILENT_DATA_CORRUPTION = "silent-data-corruption"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,
@@ -152,6 +153,30 @@ def argus_is_triggered_with_alert(
         return httpx.post(
             f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
             json=payload,
+            timeout=WALK_TIMEOUT_SECONDS,
+        )
+
+    return step
+
+
+def the_shop_raises_its_own_alert() -> Callable[[], httpx.Response]:
+    """Asks the shop's monitoring to page Argus, instead of posting a payload.
+
+    The one case where the alert cannot be built here. Every other alert in
+    this directory is a rule firing on a series, and its payload carries
+    nothing the test does not already know - so assembling it locally is
+    honest. This one's carries a finding: how many stored totals disagree with
+    the purchases behind them, by how much, and when the oldest of them was
+    written. Only the shop's own check can produce that, and a payload written
+    here would be the test telling Argus what the check found.
+
+    Waits on the walk for the reason the webhook call does, and by the same
+    route: the shop holds this request open until Argus's webhook answers, so
+    the whole incident runs inside it.
+    """
+    def step() -> httpx.Response:
+        return httpx.post(
+            f"{TARGET_SERVICE_BASE_URL}/monitoring/alert",
             timeout=WALK_TIMEOUT_SECONDS,
         )
 

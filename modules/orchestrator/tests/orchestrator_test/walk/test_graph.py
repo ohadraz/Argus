@@ -75,6 +75,9 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
 
     (TIER_GATE_NODE, MITIGATION_NODE),
     (TIER_GATE_NODE, NEXT_CANDIDATE_NODE),
+    # An action the gate declined because nothing could confirm it: the
+    # mitigation phase is over and the fault is still in the code.
+    (TIER_GATE_NODE, CODEFIX_NODE),
     (TIER_GATE_NODE, END),
 
     # A mitigation that worked still goes looking for a permanent fix: the flag

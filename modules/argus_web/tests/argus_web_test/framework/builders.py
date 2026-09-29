@@ -6,13 +6,26 @@ from typing import Any
 
 
 def a_grafana_payload(service: str = "kukibuki",
-                      alert_name: str = "HighErrorRate") -> dict[str, Any]:
+                      alert_name: str = "HighErrorRate",
+                      onset: str | None = None) -> dict[str, Any]:
     """One firing alert, nested the way Grafana nests it.
 
     The whole envelope rather than the fields Argus wants, because the nesting
     is what the parser exists to undo - a fixture already flattened would test
     the parser against its own output.
+
+    `onset` is absent by default, because almost no alert states one: a rule
+    that fires on a series is reporting a minute Argus can measure for itself.
+    An alert carries one only where the thing that fired it knows something the
+    series cannot say - a check reporting what it found long after the writing
+    went wrong - which is why it is an annotation of its own rather than
+    `startsAt`. Those two differ by a week in the case this exists for.
     """
+    annotations = {"summary": f"Error rate above threshold on {service}"}
+
+    if onset:
+        annotations["onset"] = onset
+
     return {
         "receiver": "argus-webhook",
         "status": "firing",
@@ -24,7 +37,7 @@ def a_grafana_payload(service: str = "kukibuki",
                     "service": service,
                     "severity": "critical"
                 },
-                "annotations": {"summary": f"Error rate above threshold on {service}"},
+                "annotations": annotations,
                 "startsAt": "2026-08-14T10:15:00Z",
                 "endsAt": "0001-01-01T00:00:00Z"
             }

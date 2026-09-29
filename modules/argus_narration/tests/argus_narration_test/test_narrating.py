@@ -24,6 +24,7 @@ from decimal import Decimal
 import pytest
 from argus_core import new_id
 from argus_core.events import (
+    ActionRecommended,
     ActionRefused,
     ActionTaken,
     AgentInvoked,
@@ -391,6 +392,32 @@ def test_a_refusal_marks_why_the_action_was_not_taken() -> None:
         .when(lambda: build_narration([some_refusal])) \
         .then(all_of(
             _the_only_line_marks("is not a mitigation Argus may take unasked"),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_recommendation_names_the_action_somebody_should_take() -> None:
+    # The refusal beside it says Argus declined to act and why. That is half an
+    # account: a reader of a refusal learns something did not happen, and this
+    # is the only line that says what should. Without it the incident reports a
+    # cause, a reason for inaction, and no next step - which is worse than
+    # escalating, because escalation at least announces that a person is needed.
+    #
+    # The subject is marked rather than the kind. "Revert a feature flag" is
+    # not something anybody can go and do; the flag's name is.
+    some_flag = "monthly-spend-summary"
+    some_recommendation = ActionRecommended(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=REVERT_FEATURE_FLAG,
+        subject=some_flag
+    )
+
+    Scenario() \
+        .given(some_recommendation) \
+        .when(lambda: build_narration([some_recommendation])) \
+        .then(all_of(
+            _the_only_line_marks(some_flag),
             _the_lines_are_credited_to(["Argus"])))
 
 

@@ -64,3 +64,22 @@ class Refusal(StrEnum):
     # touch that, and is usually answered by somebody correcting an entry in the
     # service register.
     OUTSIDE_WHAT_ARGUS_MAY_TOUCH = "outside-what-argus-may-touch"
+    # There is something to do, its kind is pre-authorised, the subject is
+    # Argus's to touch - and nothing could tell Argus afterwards whether it
+    # worked. The only refusal that is about the *evidence after* the action
+    # rather than about the action itself, and the only one that is not a
+    # judgement on the proposal at all: the action may be exactly right, and
+    # taking it would still be taking it blind.
+    #
+    # What makes it necessary is an incident found by something other than a
+    # series. Every mitigation Argus takes is watched for in the minutes after
+    # it, and where the only thing that would answer is a check somebody else
+    # runs on a schedule of their own, those minutes carry nothing and the next
+    # answer is days away. An action reported as taken and never judged is worse
+    # than one not taken, because the incident looks handled.
+    #
+    # Distinct from the five above in where it leaves the walk. Each of those
+    # rejects a particular action, so the next candidate is worth reaching for;
+    # this rejects the possibility of confirming any action on this incident, and
+    # a second candidate is no better placed than the first.
+    NOTHING_COULD_CONFIRM_IT = "nothing-could-confirm-it"

@@ -12,6 +12,10 @@ be making every destination pay for the page's furniture.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
+import argus_web
 import pytest
 from argus_core import new_id
 from argus_core.events import (
@@ -47,6 +51,22 @@ def test_a_status_line_wears_the_badge_the_header_wears() -> None:
         ) \
         .when(lambda: decorated(the_incident_resolving)) \
         .then(_it_is_dressed_as(f"moved-to {IncidentStatus.RESOLVED}"))
+
+
+@pytest.mark.unit
+def test_every_status_the_walk_can_reach_has_a_colour_on_the_page() -> None:
+    # The invariant the class-from-the-line rule rests on: the page cannot
+    # colour a status the account did not mark, and cannot mark one it did not
+    # colour. The first half is enforced by deriving the class from the line;
+    # nothing enforced the second, so a status added to the state machine
+    # reached the page as an unstyled word and nothing failed.
+    #
+    # Read off the stylesheet rather than off a list kept beside it, because a
+    # list is the second copy this exists to do without.
+    Scenario() \
+        .given(every_status := list(IncidentStatus)) \
+        .when(lambda: _the_statuses_the_page_can_colour()) \
+        .then(_nothing_is_left_uncoloured(every_status))
 
 
 @pytest.mark.unit
@@ -247,6 +267,41 @@ def _it_still_marks(undressed: NarrationLine) -> Assertion[DecoratedLine]:
 
         if split != was:
             raise AssertionError(f"Expected the split {was}, got {split}")
+
+        return True
+
+    return assertion
+
+
+def _the_statuses_the_page_can_colour() -> set[str]:
+    """Which statuses the stylesheet has a rule for, read off the stylesheet.
+
+    The badge and the word inside a sentence are styled separately - one is the
+    thing read from across the room, the other is a word in a line - so a status
+    is only fully coloured when both carry a rule for it.
+    """
+    stylesheet = (
+        Path(argus_web.__file__).parent / "templates" / "base.html"
+    ).read_text(encoding="utf-8")
+
+    badged = set(re.findall(r"\.status\.([a-z-]+)", stylesheet))
+    worded = set(re.findall(r"\.moved-to\.([a-z-]+)", stylesheet))
+
+    return badged & worded
+
+
+def _nothing_is_left_uncoloured(expected: list[IncidentStatus]) -> Assertion[set[str]]:
+    def assertion(coloured: set[str]) -> bool:
+        uncoloured = sorted(
+            str(status) for status in expected if str(status) not in coloured
+        )
+
+        if uncoloured:
+            raise AssertionError(
+                f"{uncoloured} reach the page as unstyled words: the state "
+                f"machine can produce them and the stylesheet has no rule "
+                f"giving them a badge and a colour inside a sentence."
+            )
 
         return True
 
