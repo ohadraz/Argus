@@ -49,6 +49,7 @@ import psycopg
 from anthropic_double.recordings import RECORDINGS_DIR
 from argus_core import get_settings, to_iso
 from argus_core.events import (
+    ActionRecommended,
     ActionRefused,
     ActionTaken,
     FixAttempted,
@@ -74,6 +75,7 @@ from tests.e2e.framework.argus import (
     RECORDED_LARGE_CODE_FIX,
     RECORDED_PRICING_SERVICE_DEGRADED,
     RECORDED_RESOURCE_LEAK,
+    RECORDED_SILENT_DATA_CORRUPTION,
     RECORDED_SLOW_CANARY_ROLLOUT,
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
     THE_RECORDINGS_THAT_MUST_CARRY_A_FIX,
@@ -159,6 +161,12 @@ class _Published(NamedTuple):
 _A_HYPOTHESIS_WAS_FORMED: Final = _Published(HypothesisFormed)
 _AN_ACTION_WAS_TAKEN: Final = _Published(ActionTaken)
 _AN_ACTION_WAS_REFUSED: Final = _Published(ActionRefused)
+# The action Argus worked out and declined to take. Beside the refusal rather
+# than folded into it, because a walk can refuse and have nothing to hand on:
+# five of the six refusals reject the action itself, and only this one leaves
+# somebody something to do. A recording held to the refusal alone would accept a
+# walk that stopped for one of the other five.
+_AN_ACTION_WAS_RECOMMENDED: Final = _Published(ActionRecommended)
 _A_VERDICT_WAS_REACHED: Final = _Published(VerdictReached)
 # Memory was searched during the walk and came back with something. Which record
 # it came back with is not checked here - the event carries a list, and this asks
@@ -210,10 +218,19 @@ class _Recording(NamedTuple):
     order, not a model that reasons afresh, so a walk replayed in a world
     unlike the one it was captured in runs longer than the queue and the double
     runs dry mid-incident. Anything a case stages, this stages too.
+
+    `alert_name` is `None` for an incident the shop pages about itself. Every
+    other alert here is a rule firing on a series, and a payload assembled
+    locally carries nothing the run does not already know - but an alert that
+    carries a *finding* cannot be written here at all. The one that dates a
+    silent corruption states its onset, and an onset is what decides whether
+    anything could confirm an action taken on it; a payload built from
+    `alert_name` alone states none, so the walk would be recorded reaching a
+    different ending than the case replaying it arranges.
     """
     name: str
     scenario: str | None
-    alert_name: str
+    alert_name: str | None
     ends_as: IncidentStatus
     must_have: tuple[_Published, ...]
     and_then: Callable[[], None] | None = None
@@ -441,6 +458,26 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "HighErrorRate",
         IncidentStatus.ESCALATED,
         ()
+    ),
+    # The one incident whose alert is not written here. The shop's own weekly
+    # check finds stored totals that stopped keeping up with the purchases
+    # behind them, and pages with the count, the widest gap and the oldest
+    # affected purchase - the last of which dates the fault a week back, where
+    # no series marks anything at all.
+    #
+    # Held to the recommendation rather than to the refusal alone. A walk that
+    # refused for any of the other five reasons would also publish
+    # `action-refused`, and would be a recording of the wrong ending: this one
+    # is of Argus naming the cause, working out the move, and declining to make
+    # it because only next week's check could say whether it worked.
+    _Recording(
+        RECORDED_SILENT_DATA_CORRUPTION,
+        "silent-data-corruption",
+        None,
+        IncidentStatus.RECOMMENDED,
+        (_A_HYPOTHESIS_WAS_FORMED,
+         _AN_ACTION_WAS_REFUSED,
+         _AN_ACTION_WAS_RECOMMENDED)
     )
 )
 
@@ -640,8 +677,14 @@ def _write_the_anchor(stored: str, seeded_at: str | None) -> None:
     anchor.write_text(f"{seeded_at}\n", encoding="utf-8", newline="\n")
 
 
-def _an_incident_was_opened_by(service: str, alert_name: str) -> str:
+def _an_incident_was_opened_by(service: str, alert_name: str | None) -> str:
     """Fires the alert and returns the incident the webhook wrote down.
+
+    Two ways in, and which one is used is the recording's to say. A named alert
+    is assembled here and posted to Argus, as Grafana would; `None` asks the
+    shop's own monitoring to page instead, because that alert carries a finding
+    only the shop can produce - and the finding is what the walk turns on. Both
+    answer with the incident the webhook wrote down.
 
     Separate from waiting for the walk, because they are two things: the
     webhook writes the incident down and answers at once, and a worker walks it
@@ -654,6 +697,18 @@ def _an_incident_was_opened_by(service: str, alert_name: str) -> str:
     A walk that does not finish is the one whose account is worth reading, and
     a wait that owned the id took it down with it.
     """
+    if alert_name is None:
+        # The shop holds this open until Argus's webhook answers, which it does
+        # as soon as the incident is written down - so this returns with an id
+        # and the walk carries on behind it, exactly as the posted payload does.
+        raised = httpx.post(
+            f"{TARGET_SERVICE_BASE_URL}/monitoring/alert",
+            timeout=A_WHOLE_INVESTIGATION_SECONDS,
+        )
+        raised.raise_for_status()
+
+        return str(raised.json().get("incident_id") or "unknown")
+
     response = httpx.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
         json=_an_alert_for(service, alert_name),

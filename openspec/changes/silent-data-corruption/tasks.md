@@ -121,13 +121,20 @@
 ## 9. Bought
 
 - [ ] 9.1 `nox -s record` for `both-silent-data-corruption` only - one corpus,
-      and check no existing corpus moved. **Stop after the first walk and read
-      its investigation before recording the rest.** Nothing free proves a real
-      model, handed a flat window and a week-old onset, names a cause the gate
-      then refuses - 8.3 proves the walk given that investigation, not that the
-      model produces it. If it named none, the walk never reaches the gate, and
-      stopping first costs one walk instead of a set
-- [ ] 9.2 A real-API `e2e` run of the new test, and report the token spend
+      and check no existing corpus moved. Then replay it and read what the model
+      actually said. Nothing free proves a real model, handed a flat window and a
+      week-old onset, names a cause the gate then refuses - 8.3 proves the walk
+      *given* that investigation, not that the model produces it. Replay is what
+      settles it: `record` runs no assertions, so a walk that named no cause is
+      captured in silence and only turns the case red when replayed. There is no
+      cheaper hedge than that, because one scenario is one walk: the money is
+      spent the moment it runs, and there is no "rest" to stop before
+- [ ] 9.2 Report the record run's token spend. Not a second paid `e2e` run of
+      the new test: `record` already drives it against the real API and replay
+      already runs the assertions over what came back, so a real-API run would
+      re-establish for a second fee what the free replay establishes. All it
+      would add is a second independent sample of the model's behaviour, which
+      is the same trade that already keeps the large-fix case out of `e2e`
 - [ ] 9.3 Investigator eval cases: the new mode named, and an action recommended
       rather than taken where nothing can confirm it
 
