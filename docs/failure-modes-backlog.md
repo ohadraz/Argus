@@ -24,7 +24,7 @@ pattern. See "A note on the name" below.
 | Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Yes.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here, all diagnosed and all mitigated. FM-09 and FM-10 share one action: a revision carries the code and the configuration it shipped with, so the platform's rollback answers both |
 | Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Yes.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage. `pricing-service-degraded` is FM-23: diagnosed and mitigated by restarting a service the alert never named. What tells the pair apart is ownership, which the organisation's service register answers and no telemetry does |
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Yes**, and the second family covered entire. FM-13 is built in both halves: `resource-leak` is the leak and `demand-saturation` is the saturation, told apart by whether the consumption moved with the traffic and answered by opposite things - reclaiming what accumulated, or adding capacity the deployment never had. FM-25 is `autoscaler-flapping`: diagnosed by the one series that moves, and mitigated by raising the controller's floor to its ceiling. What tells it from saturation is whether the capacity is itself moving, because at the bottom of every cycle the rest of the evidence is saturation's exactly |
-| Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | No |
+| Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | **Partly.** FM-26 is `silent-data-corruption`: a flag that changes what the shop writes rather than whether it works, found by the shop's own weekly integrity check because no series ever moves. Diagnosed from a flat window and an onset the alert states, and then *not* acted on - the flag revert is named and recommended rather than taken, because only the next run of that check could say whether it worked. The first mode here whose detection is the hard part and the first whose correct outcome is an action Argus declines. FM-30, FM-27 and FM-31 are not built |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
 | Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Yes**, and the third family covered entire. FM-06 is `slow-canary-rollout`: diagnosed and mitigated by putting the flag back. FM-35 is `half-finished-rollout`: a revision that landed and stopped, diagnosed from whether the rollout converged and mitigated by the rollback that converges the fleet. What the two share is a fault that exists for part of the traffic and no more of it - one because a cohort is small, the other because a failing share is the product of two shares |
 | AI-specific | 2% | Output-quality degradation (FM-17), accelerator heterogeneity (FM-33) | No |
@@ -105,15 +105,25 @@ variable.
 
 In order of share, minus what is out of scope for a demo:
 
-1. **FM-26 Silent data corruption**, inside foundational integrity (12%). The
-   largest family with nothing built in it, and the first entry here chosen by
-   share rather than by elimination - every family above it is covered entire.
-   It is also the first mode whose *detection* is the hard part rather than its
-   attribution: nothing fails, no rate moves, no quantile moves, and the service
-   goes on reporting itself healthy while what it writes is wrong. Every mode
-   built so far announces itself in a series the detector already judges, which
-   is what dates an onset and starts a walk at all - so this one asks a question
-   none of them has: what pages somebody when the only evidence is a value.
+1. **FM-26's deploy-caused sibling**, inside foundational integrity (12%). The
+   family's first member is built and the mode is not exhausted by it: what
+   `silent-data-corruption` stages is a *flag* changing what the shop writes,
+   which is why the flag revert is the action Argus works out and declines. The
+   same damage arriving from a deployment is a different incident with the same
+   symptoms - nothing fails, no series moves, and the integrity check is still
+   what pages - but the evidence names a revision rather than a toggle, and the
+   mitigation that answers it is the rollback. It is worth building because it
+   separates the mode from the change that caused it: a walk that reads a flat
+   window and reaches for a flag has learned the scenario rather than the mode.
+   The recommendation ending holds either way, since what makes the action
+   unconfirmable is the dating, not the kind.
+
+2. **FM-30 Control-plane failure**, the same family's largest remaining member.
+   Nothing here is built, and it asks a question the modes above do not: what
+   Argus does when the platform it mitigates *through* is the thing that is
+   broken. Every generic mitigation in the declared set reaches the estate
+   through that plane, so a failure in it makes the whole set unavailable at
+   once rather than one action at a time.
 
 ## Measurements owed, and what each would buy
 

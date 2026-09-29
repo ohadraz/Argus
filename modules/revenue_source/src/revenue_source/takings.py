@@ -102,12 +102,21 @@ def taken_between(started_at: datetime,
     taken: dict[str, Decimal] = {}
 
     # Folded as it arrives rather than collected first. What a listing costs to
-    # hold is the window's size, and the window here is the incident's - a week
-    # of a busy shop is near a million charges to produce this handful of sums.
-    # The fold is inside the try because a drawn listing fails where it is
-    # drawn: the provider going unreadable half way through arrives here, not at
-    # the call above it. A part-summed window is still no answer, so it leaves
-    # as `None` however far it got.
+    # hold is the window's size, and the window here is the incident's - a busy
+    # shop's whole week of takings, to produce this handful of sums. The order
+    # it arrives in does not matter, because every charge in the window is
+    # summed: this is the consumer that lets the listing state its order rather
+    # than guarantee one. The fold is inside the try because a drawn listing
+    # fails where it is drawn: the provider going unreadable half way through
+    # arrives here, not at the call above it. A part-summed window is still no
+    # answer, so it leaves as `None` however far it got.
+    #
+    # **Do not wrap this in `list(...)`.** It reads as harmless and no test can
+    # catch it: what it costs is peak memory, and this function exposes only a
+    # total, so collecting the listing first and folding it as it arrives are
+    # indistinguishable through the public API. The adapter's own laziness is
+    # tested; this half is held by nothing but this comment, and undoing it
+    # puts a week of a shop's charges back in memory with every suite green.
     try:
         for charge in charges(started_at, ended_at):
             if not charge.succeeded:

@@ -103,7 +103,9 @@
 ## 8. Proved for free, before anything is bought
 
 - [x] 8.1 `lint`, `typecheck`, `guard_layering`, `test_all`
-- [ ] 8.2 `grade_fixes` against the new corpus entry once one exists
+- [x] 8.2 `grade_fixes` against the new corpus entry once one exists - 13
+      patches pass, the new one among them, so the fix the walk proposed is
+      demonstrated by its own tests and breaks nothing in `tests/io_shop`
 - [x] 8.3 A component test for the scenario, driving the whole walk in-process
       with the agents doubled, proving it reaches `RECOMMENDED` and that the
       gate's refusal is not the model's to make. Not the e2e under the double
@@ -120,7 +122,7 @@
 
 ## 9. Bought
 
-- [ ] 9.1 `nox -s record` for `both-silent-data-corruption` only - one corpus,
+- [x] 9.1 `nox -s record` for `both-silent-data-corruption` only - one corpus,
       and check no existing corpus moved. Then replay it and read what the model
       actually said. Nothing free proves a real model, handed a flat window and a
       week-old onset, names a cause the gate then refuses - 8.3 proves the walk
@@ -129,19 +131,39 @@
       captured in silence and only turns the case red when replayed. There is no
       cheaper hedge than that, because one scenario is one walk: the money is
       spent the moment it runs, and there is no "rest" to stop before
-- [ ] 9.2 Report the record run's token spend. Not a second paid `e2e` run of
+- [x] 9.2 Report the record run's token spend - 297,506 over ten answers: 20
+      input, 15,728 output, 158,429 cache read, 123,329 cache write. Not a
+      second paid `e2e` run of
       the new test: `record` already drives it against the real API and replay
       already runs the assertions over what came back, so a real-API run would
       re-establish for a second fee what the free replay establishes. All it
       would add is a second independent sample of the model's behaviour, which
       is the same trade that already keeps the large-fix case out of `e2e`
-- [ ] 9.3 Investigator eval cases: the new mode named, and an action recommended
-      rather than taken where nothing can confirm it
+- [x] 9.3 An Investigator eval case: the new mode named, as the fourth matched
+      pair against the flag toggle it shares a cause and a mitigation with.
+      Written and collecting, not run - the bar is at its siblings' unmeasured
+      9, so the first pooled batch either confirms it or moves it.
+
+      One case rather than the two this asked for. "An action recommended rather
+      than taken" is the *gate's* judgement and reaches no model: it is a branch
+      in `gating.py` decided by whether the alert dated the incident, already
+      held by that module's unit tests and walked end to end by 8.3. An eval
+      scores what the model concludes from evidence, and this is not that
 
 ## 10. Written down
 
-- [ ] 10.1 `docs/spec-and-architecture.md`: the mode, the stated onset, and
-      verification deciding autonomy
-- [ ] 10.2 `docs/failure-modes-backlog.md`: foundational integrity gains its
+- [x] 10.1 `docs/spec-and-architecture.md`: the mode, the stated onset, and
+      verification deciding autonomy. §9 gains the alert-stated onset beside the
+      lower-bound paragraph, and the flat-window exit is corrected - it now
+      turns on the alert dating nothing as well as the series being flat. §10
+      gains `recommended`, in the diagram and as what separates it from
+      `escalated` and `resolved`. §13 gains the sixth refusal, a row in the tier
+      table, and the paragraph saying autonomy rests on verification where
+      membership and reversibility are both satisfied. §15.3 gains the scenario
+- [x] 10.2 `docs/failure-modes-backlog.md`: foundational integrity gains its
       first built member, and the deploy-caused sibling is written down as what
-      follows it
+      follows it - with FM-30 behind it as the family's largest remaining
+      member. What the sibling buys is stated: the same damage from a
+      deployment rather than a flag separates the mode from the change that
+      caused it, and a walk that reads a flat window and reaches for a flag has
+      learned this scenario rather than the mode

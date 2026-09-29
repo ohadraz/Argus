@@ -169,10 +169,12 @@ def test_a_charge_nobody_refunded_is_reported_as_refunding_nothing() -> None:
 @pytest.mark.unit
 def test_a_listing_is_read_only_as_far_as_it_is_drawn() -> None:
     # The window a postmortem asks for is the incident's, and an onset an alert
-    # states can be a week old: at this shop's rate that is 957,000 charges over
-    # 9,577 pages. Read into a list, every one of them is held at once to
-    # produce a single per-currency sum. What the provider reports has to arrive
-    # as it is drawn, or the size of the window becomes the size of the reader.
+    # states can be a week old - a whole shop's takings, read into a list and
+    # held at once to produce a single per-currency sum. What the provider
+    # reports has to arrive as it is drawn, or the size of the window becomes
+    # the size of the reader. Three charges say that as well as a million do:
+    # what is asserted is that drawing one reads one, which is a property of
+    # the reader rather than a figure the fixture happens to produce.
     some_window_end = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
     some_window_start = some_window_end - timedelta(days=7)
     dont_care_amount = 4_000

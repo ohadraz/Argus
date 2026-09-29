@@ -85,6 +85,7 @@ CASE_THE_SATURATION = "demand-saturation-is-identified"
 CASE_THE_LEAK = "resource-leak-is-told-from-demand-saturation"
 CASE_THE_FLAPPING_AUTOSCALER = "autoscaling-pathology-is-told-from-demand-saturation"
 CASE_THE_STOPPED_ROLLOUT = "in-flight-compatibility-break-is-told-from-a-bad-deployment"
+CASE_THE_SILENT_CORRUPTION = "silent-data-corruption-is-told-from-a-flag-toggle"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -157,6 +158,14 @@ MUST_IDENTIFY_THE_FLAPPING_AUTOSCALER = 9  # UNMEASURED - no pooled samples yet
 # standing brief now tells the model to read the rollout before blaming the
 # revision a deployment carried, and no figure here was measured against it.
 MUST_IDENTIFY_THE_STOPPED_ROLLOUT = 9  # UNMEASURED - no pooled samples yet
+# The fourth matched pair, unmeasured for its siblings' reason. Both members
+# stage the same flag switched on and are answered by the same revert; what
+# differs is that one broke the service and the other quietly wrote wrong
+# numbers while it kept working. A model that reads a flag flip and reaches for
+# the nearest toggle story gets one of these right, and the wrong one here is
+# the more expensive of the two - it reports a service that failed, in a window
+# a reader can see was well from end to end.
+MUST_IDENTIFY_THE_SILENT_CORRUPTION = 9  # UNMEASURED - no pooled samples yet
 
 # How sure a model may sound about a cause the evidence does not carry.
 #
@@ -808,6 +817,48 @@ def test_an_onset_that_is_only_a_lower_bound_is_read_past() -> None:
         )
 
 
+@pytest.mark.eval
+@needs_the_real_api
+def test_data_that_went_wrong_silently_is_told_from_a_flag_that_broke_the_service() -> None:
+    # The fourth matched pair, and the one whose halves share the most. Its twin
+    # is `test_a_flag_that_was_toggled_on_is_identified`: both stage a flag
+    # switched on, both are answered by putting the same flag back, and a model
+    # that reads "flag on, then trouble" gets both wrong in the same breath.
+    #
+    # Two things separate them, and both are readable. The window holds no
+    # departure anywhere - nothing failed and nothing slowed - so the shape the
+    # twin turns on is absent. And the alert dates the fault a week back, where
+    # the twin's onset is a minute after the flip. A model that names a plain
+    # toggle here has claimed a service broke, in a window it can see was well
+    # throughout.
+    #
+    # Naming this correctly is what makes the incident unactionable: the mode is
+    # answered by the same revert either way, and it is the *dating* that tells
+    # the gate nothing could confirm one. Which is why the wrong answer here is
+    # expensive rather than merely wrong - it reads as an incident Argus could
+    # have fixed and did not.
+    some_incident = an_incident_where_the_totals_stopped_keeping_up()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_SILENT_CORRUPTION,
+                MUST_IDENTIFY_THE_SILENT_CORRUPTION,
+                _a_run_where(
+                    the_cause_was_identified_as(
+                        FailureMode.SILENT_DATA_CORRUPTION
+                    )
+                )
+            )
+        )
+
+
 @dataclass(frozen=True)
 class Incident:
     """One pinned incident, as the six retrieval channels would serve it.
@@ -1152,15 +1203,31 @@ def an_incident_where_the_capacity_would_not_settle() -> Incident:
     )
 
 
-def _as_a_deploy_is_actually_summarised(revision: str) -> str:
-    """One deployment said the way the deploy adapter says it.
+def an_incident_where_the_totals_stopped_keeping_up() -> Incident:
+    """A flag that changed what gets written, not whether the service works.
 
-    A revision and the directory the application synced from, and nothing about
-    what changed - because that is all a deployment record carries. The path is
-    the same for every deployment of this service, which is exactly why it
-    cannot separate the pair and why the diff has to be read.
+    The twin of `an_incident_where_a_flag_was_toggled_on`, sharing its cause and
+    its mitigation and nothing else a model can read. The flag sits a week back
+    rather than a minute, which is where the alert says to look; the change
+    channel is windowed, so a model that anchors on the alert's own time finds
+    nothing and has to widen to the onset it was given.
+
+    The log lines are ordinary trade on purpose. There is no failure to find,
+    because there was none - the shop served every request correctly and wrote
+    the wrong number afterwards, which is the whole of what this mode means.
     """
-    return f"deployed revision {revision}, from deploy"
+    a_week_in_minutes = 7 * 24 * 60
+
+    return _an_incident(
+        alert=an_integrity_alert(),
+        buckets=_a_window_in_which_nothing_happened(),
+        log_lines=[
+            a_log_line_at(-2, A_SUCCESS),
+            a_log_line_at(-1, A_SUCCESS),
+            a_log_line_at(1, A_SUCCESS)
+        ],
+        changes=[a_flag_change_at(-a_week_in_minutes, "monthly-spend-feature")]
+    )
 
 
 def an_incident_underway_before_the_window_opens() -> Incident:
@@ -1190,6 +1257,17 @@ def an_incident_underway_before_the_window_opens() -> Incident:
         ],
         changes=[]
     )
+
+
+def _as_a_deploy_is_actually_summarised(revision: str) -> str:
+    """One deployment said the way the deploy adapter says it.
+
+    A revision and the directory the application synced from, and nothing about
+    what changed - because that is all a deployment record carries. The path is
+    the same for every deployment of this service, which is exactly why it
+    cannot separate the pair and why the diff has to be read.
+    """
+    return f"deployed revision {revision}, from deploy"
 
 
 def an_error_rate_alert() -> Alert:
@@ -1907,3 +1985,55 @@ def _the_budget_was_not_exhausted() -> Assertion[Run]:
         return True
 
     return assertion
+
+
+def an_integrity_alert() -> Alert:
+    """The alert a weekly reconciliation raises, and the only one here that
+    dates its own incident.
+
+    `stated_onset` is the whole of what separates this case from its twin.
+    Every other alert in this file is a rule firing on a series, so the onset is
+    measurable from the metrics; this one is a check reporting what it found
+    long after the writing went wrong, and the metrics mark nothing at all.
+    """
+    a_week = timedelta(days=7)
+
+    return Alert(
+        service="checkout",
+        alert_name="SpendTotalsDoNotReconcile",
+        severity="critical",
+        summary="weekly reconciliation: 47 accounts hold a stored monthly total "
+                "that disagrees with the purchases behind it, the widest by "
+                "1284.50, the oldest affected purchase written 7 days ago",
+        stated_onset=datetime.now(UTC) - a_week
+    )
+
+
+def a_flag_change_at(offset_minutes: int, flag: str) -> ChangeEvent:
+    """One flag switched on, as the change channel would serve it.
+
+    The kind matters rather than the wording: a model weighing a flag flip
+    against a deploy is given two distinct values to reason about, and this is
+    the half no case here had yet staged.
+    """
+    return ChangeEvent(
+        kind=ChangeKind.FLAG_TOGGLE,
+        occurred_at=_minute(offset_minutes),
+        reference=flag,
+        summary=f"feature flag '{flag}' switched from 'off' to 'on'",
+        actor="ops-console",
+        source="https://flags.acme.internal/projects/default/features/"
+               f"{flag}"
+    )
+
+
+def _a_window_in_which_nothing_happened() -> list[MetricBucket]:
+    """Three quarters of an hour in which the service is simply well.
+
+    Not a calm stretch before something - there is no after. Error rate at
+    baseline, every quantile flat, memory flat, traffic flat, in every minute
+    the channel holds. That is the evidence, and it is evidence of absence: a
+    model reading this window can see that nothing here failed and nothing here
+    slowed, so whatever the alert is about left no operational trace.
+    """
+    return [a_bucket_at(minute, CALM_ERROR_RATE) for minute in range(-45, 3)]

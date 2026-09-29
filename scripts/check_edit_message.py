@@ -11,12 +11,17 @@ So this is the same check, aimed at a draft. Nothing here restates a rule: the
 hook's `complaints_about` is imported and called, so the two can never drift
 into disagreeing about what a usable address is.
 
+That hook is deliberately untracked - `.gitignore` names it - so a checkout
+without it is an ordinary checkout rather than a broken one. This says there is
+nothing to check with and stops, which is a different answer from "the draft is
+fine" and is spelled differently below.
+
     uv run python scripts/check_edit_message.py draft.md
     uv run python scripts/check_edit_message.py -          # read stdin
 
-Exits 0 when the draft is fit to send, and 1 with one complaint per line when
-it is not. Run it on every message that directs an edit by hand, and fix the
-draft rather than the correction.
+Exits 0 when the draft is fit to send, 1 with one complaint per line when it is
+not, and 2 when it could not be checked at all. Run it on every message that
+directs an edit by hand, and fix the draft rather than the correction.
 """
 
 from __future__ import annotations
@@ -64,6 +69,19 @@ def drafted_in(argument: str) -> str:
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__, file=sys.stderr)
+        return 2
+
+    if not THE_HOOK.is_file():
+        # Not the same answer as a clean draft, and it must not be able to read
+        # as one: a checkout without the hook can check nothing, and exiting 0
+        # here would tell every caller that every message was fine.
+        print(
+            f"No edit-format hook at {THE_HOOK}, so there is nothing to check "
+            f"this draft against. The hook is untracked by design; this is a "
+            f"checkout without it rather than a fault.",
+            file=sys.stderr
+        )
+
         return 2
 
     complaints = the_hook_module().complaints_about(drafted_in(sys.argv[1]))

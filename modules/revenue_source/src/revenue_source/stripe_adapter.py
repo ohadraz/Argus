@@ -66,17 +66,24 @@ def charges_between(started_at: datetime,
                     ended_at: datetime,
                     settings: RevenueSettings,
                     client_of: ClientOf = StripeClient) -> Iterable[Charge]:
-    """Every charge the provider recorded in the window, oldest page first.
+    """Every charge the provider recorded in the window, newest first.
+
+    The provider's own order, not a choice made here: Stripe lists charges with
+    the most recent first, and every consumer above sums the whole window, so
+    the order is something to state rather than something to rely on. A reader
+    that stopped early would be taking the newest and calling it the window.
 
     Paged to the end rather than to the first hundred: a busy shop's window
     would otherwise be reported as whatever fitted on one page, which is wrong
     in exactly the direction that makes an incident look cheap.
 
     Drawn rather than collected. The window is the incident's, and an onset an
-    alert states can be a week old - at this shop's rate, near a million
-    charges over some ten thousand pages, all of it read to produce one
-    per-currency sum. Yielding leaves the size of the window a property of the
-    read rather than of the reader.
+    alert states can be a week old, so what has to be held at once is a whole
+    shop's takings for a week - to produce one per-currency sum. Yielding
+    leaves the size of the window a property of the read rather than of the
+    reader. It does not reduce the round trips, and nothing here can: the page
+    size is already the provider's maximum and the endpoint offers no
+    aggregate, so a narrower answer would have to be a narrower question.
 
     Each charge leaves as a `Charge`, which is Argus's word for one and not
     Stripe's: the vendor's field names, its status vocabulary and its minor

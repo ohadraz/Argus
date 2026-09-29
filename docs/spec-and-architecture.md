@@ -277,7 +277,7 @@ flowchart TD
     L -->|Yes| M[Exit to escalated: insufficient evidence, naming the bound]
 ```
 
-Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-E are fixed because the onset is a **measurement, not a decision**: it anchors every window the model can ask for and every later comparison between runs, and a sampled call that locates it differently on a second run makes two investigations of one incident incomparable and the eval suite a measurement of noise. The model is not denied the metrics - it may read them again itself - but it cannot skip the first read or contest what it found. A window in which no minute departs from the baseline has no onset to anchor on and nothing to explain, so the loop exits immediately without asking the model at all: there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
+Step B seeds the *first* hypothesis before any log is read - "last 3 times we saw this pattern, it was a bad deploy." Steps C-E are fixed because the onset is a **measurement, not a decision**: it anchors every window the model can ask for and every later comparison between runs, and a sampled call that locates it differently on a second run makes two investigations of one incident incomparable and the eval suite a measurement of noise. The model is not denied the metrics - it may read them again itself - but it cannot skip the first read or contest what it found. A window in which no minute departs from the baseline and whose alert dates nothing has no onset to anchor on and nothing to explain, so the loop exits immediately without asking the model at all: there is nothing to ask about, and a model handed an alert with no anomaly will invent a cause for it.
 
 From there **the model chooses**: which channel (§16) to pull, over what window, in what order, and when it has seen enough. Three of them are windowed - metrics, changes, logs - and two are not. The service register answers what this service calls and whose each of those is, which is a fact about how the service is built rather than about a stretch of time, and takes no arguments at all. The deployment channel answers what one deployment changed, and takes the revision it is about - the only channel whose argument comes out of another channel's answer, since a deploy's revision is what the change channel reports. It is offered those five retrieval tools and a sixth, `final_answer`, whose input schema is the ranked-hypotheses shape. Calling it is the only typed exit, which keeps the seam impossible to satisfy without producing a verdict, and makes "the model stopped asking and wrote prose" a detectable outcome rather than something to be parsed hopefully - a text-only turn is told it answered nothing and gets another turn if the budget allows one. A call the loop cannot serve - an unknown tool name, an inverted window, a window already read - comes back as a failed tool result the model can correct on its next turn, never as an exception that kills an investigation that has already paid for everything before it.
 
@@ -288,6 +288,10 @@ Two of the three are seen coming, and the second matters most to the agent whose
 A model that reads what it has already read learns nothing and pays a turn for it, so **a window served once is refused the second time** rather than fetched again, with the refusal saying so. The metrics the loop read itself count as read, since those minutes are in the opening message. What was read is also what the investigation reports alongside its candidates, so a later round - bought by a refutation, not by a wider window - is told what the round before it saw, and so that a channel nobody asked for stays distinguishable from one that was asked and came back empty.
 
 **The onset is sometimes only a lower bound**, and the model is told when it is. The check is structural rather than introspective: if the earliest bucket in the metrics window is already anomalous, the incident began before the window did, so the onset located there is a floor and a window anchored on it may not contain the cause. Read literally, that condition says there is no calm stretch on screen to serve as a baseline - which is the same thing. It matters because the failure it guards against is undetectable from the model's own report: one that formed a plausible hypothesis from too little evidence reports high confidence, because it cannot miss what it was never shown. Stating the lower bound as a fact in the opening message is what lets the model know to reach further back; no confidence threshold could tell it.
+
+**An alert may state the onset itself, and where the metrics measured none, the stated one is used.** The measurement comes first and wins wherever it finds anything: a series that departed is the more reliable witness, and an alert is free to be wrong about its own timing. What the stated onset covers is the case the measurement cannot reach at all - a fault that left no operational trace, found later by something that reconciles stored values against the records behind them and dates its finding from the oldest record it found wrong. Nothing in any series marks that minute, because nothing failed and nothing slowed. The two are distinct from the alert's own time for different reasons: `started_at` is when somebody noticed, a measured onset is when the service changed, and a stated onset is when the *damage* began - which here is a week earlier than either.
+
+The opening message says which of the two the incident was dated by, and the paragraph describing the metrics changes with it. A flat window under a sentence about a measured departure is a contradiction, and the reading a model reaches for to resolve it is that the service is well - which is true, and is not what the incident is about.
 
 The change-event channel (§16) attacks the same problem from the other side: deploys and configuration changes are read as structured rows over a span far wider than any log window, rather than hoped for inside one. A change is a candidate to judge against the symptoms, never proof, and the channel is legitimately silent about causes it does not cover - a flag toggle is diagnosed from log prose, which is why reaching further back in the *logs* is what ties a candidate change to the symptoms. Spending the whole budget on one channel is permitted: requiring a spread would be re-imposing a fixed sequence under another name, and the incident that changes alone explain is exactly the case this loop exists to allow.
 
@@ -310,9 +314,12 @@ stateDiagram-v2
     mitigating --> investigating: candidates exhausted, rounds remain
     mitigating --> escalated: action could not be taken at all
     mitigating --> fixing: no mitigation left to try
+    mitigating --> fixing: nothing could confirm the action, so it is recommended
     fixing --> resolved: PR opened + target repo's test suite passes against it
+    fixing --> recommended: an action nobody took is what the incident leaves behind
     fixing --> escalated: no code-level fix found after N iterations
     resolved --> [*]: postmortem generated
+    recommended --> [*]: postmortem generated + the action a person must take
     escalated --> [*]: postmortem generated (partial) + human paged
     acknowledged --> withdrawn: a human takes the incident back
     investigating --> withdrawn: a human takes the incident back
@@ -327,7 +334,11 @@ What admits the walk is a *named* cause, not a confident one: a generic mitigati
 
 `acknowledged` is where an incident sits between being accepted and being picked up: Argus has the alert and has committed to handling it, and the walk is queued for a worker (§7.1). It is a status rather than an event because it is the incident's own state and can last - a worker that is down leaves incidents there, and a screen reporting them as `investigating` would claim attention nobody is paying. The interval between it and `investigating` is how long the incident waited for a worker, which is the one duration the timeline could not otherwise report.
 
-`mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. `escalated`, `resolved` and `withdrawn` are terminal.
+`mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. `mitigated`, `escalated`, `resolved`, `recommended` and `withdrawn` are terminal.
+
+`recommended` is the ending for an incident Argus knows what to do about and must not do. It is not `escalated`, and the difference is the whole of it: escalation says nobody knows what to do, where this says somebody does and names the action - a cause identified, a mitigation worked out, and a reader handed an instruction rather than a problem. It is not `resolved` either, because nothing was done. Argus declining a move it holds is a different outcome from Argus running out of moves, and a record that spelled them the same way would report the one incident carrying an answer as the one carrying none.
+
+It is derived ahead of whether a fix was found, for the reason `mitigated` is: this walk goes on to Code-Fix, so both facts are settled by the time the status is read, and asking about the fix first would report the incident escalated and lose the one thing it exists to say. The recommended action is carried on the incident and stated wherever the incident is - the timeline, the page, the Slack message and the postmortem's outstanding work - because an action nobody is told about is one nobody takes.
 
 `withdrawn` is the one status Argus does not decide. It is reachable from every phase the walk passes through, because the moment somebody wants the incident back is not one Argus gets to choose, and it is the only transition written with `Actor.HUMAN` - the single row about something Argus did not do. `status_after` never returns it for that reason: it is set from outside the walk, and the walk finds out by reading the incident back rather than by being told.
 
@@ -615,6 +626,7 @@ Every action is tiered, and the tier determines how much autonomy the agent has:
 | Generic mitigation | toggle a flag back, restart a service, return a deployment to the revision it was running before, give a deployment more replicas than it was sized for | Autonomous, but announced in Slack immediately + logged, with whatever it left to put back recorded |
 | Outside the declared set | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
 | Give up / escalate | the investigation's budget binds before it names a cause, no mitigation Argus may take resolves the alert, or the cause is named and the declared set answers that kind of failure with nothing | Autonomous - pages a human with full context, doesn't keep guessing |
+| Admitted, but unconfirmable | a mitigation of a declared kind, aimed within the estate and inside the cap, on an incident nothing could judge a recovery on | **Never autonomous.** Argus names the action and leaves it for a person |
 
 What admits an action is **membership of a closed, declared set** - a kind of
 action somebody wrote down and defended - and not any property of the particular
@@ -694,6 +706,35 @@ The two questions fail differently and are reported differently, because a
 reader has to know which happened. "Argus does not do that" asks somebody to
 widen a declared set and defend the addition; "Argus does not touch that" is
 usually somebody correcting an entry in the register.
+
+**An action that nothing could confirm is not taken, however well it is
+admitted.** This is the one refusal that is not a judgement on the action: the
+kind may be pre-authorised, the subject Argus's to touch, the cap nowhere near,
+and the action exactly right. What stops it is that nothing would say
+afterwards whether it worked. Autonomy here rests on verification, not on
+reversibility and not on membership - both of those are satisfied - because what
+makes an autonomous action safe to take is that its effect is observed and its
+failure is noticed. An action taken, reported, and never judged is worse than
+one not taken, since the incident then looks handled.
+
+Whether anything could confirm it is read off how the incident was dated (§9).
+An onset stated by the alert rather than measured from the service's own series
+means no series departed; a series that never departed is one that cannot be
+watched coming back; so recovery has nothing to be judged on. The only thing
+that would answer is whatever raised the alert, running again on a schedule
+Argus does not control - days away, or never. That is one inference from a fact
+about the incident, not a policy with a knob.
+
+This refusal alone ends the mitigation phase rather than reaching for the next
+candidate. The other five reject a particular action and leave the rest of the
+list worth trying; this one rejects the possibility of confirming *any* action
+on this incident, so the next candidate would be refused for the same reason and
+would overwrite the recommendation with its own on the way past. The action is
+kept and published as what somebody else should do, which is what the other five
+must never do: passing one of those on would be telling a person to go and do
+the thing Argus was stopped from doing. The walk still continues to Code-Fix -
+nobody is taking the mitigation, so the fault it would have held off is the only
+thing anybody gets.
 
 A mitigation in the set is still bounded. One kind may be applied to one subject
 only so many times within a single incident, because what a repeatable
@@ -789,6 +830,7 @@ One control API drives both a demo UI and the benchmark harness (headless, scrip
 | Demand saturation | the reported traffic ramps past what the deployment's replica count can serve; the heap, the error rate and every change channel stay where they were | when the deployment is large enough for the load - the repository still asks for the size that was too small, and no patch makes it bigger | scale the deployment out via `argus-write-mcp`, suspending the platform's own reconciliation first, and confirm the latency returned - mitigated, never resolved, because what ended it is capacity the repository does not hold |
 | Autoscaling pathology | a live controller resizes the deployment every few minutes, so `cpu_limit_cores` takes more than one value across one window while the code, the flags, the heap and every change channel stay where they were | when the count stops moving - the values file still declares the stabilisation window that flaps, and no patch is proposed for it | raise the autoscaler's floor to its ceiling via `argus-write-mcp`, suspending the platform's own reconciliation first, and confirm the count and the latency both settled - mitigated, never resolved, because putting the floor back returns the shop to flapping |
 | In-flight compatibility break | a revision changing the shape of what the summary cache stores is deployed and its rolling update is paused half-way, so half the fleet writes a shape the other half cannot read; the error rate steps while every quantile, the hit ratio, the heap and the CPU pair stay where they were | when the deployment is returned to the revision before it, which puts every replica on one version - a restart changes nothing, because nothing about the split is the process's doing | read whether the rollout converged before attributing it to the revision that landed, roll the deployment back via `argus-write-mcp`, confirm recovery - mitigated, never resolved, and no revision is at fault, so what is left to fix is the migration step nobody performed rather than a file |
+| Silent data corruption | a flag changes what the shop *writes* rather than whether it works: stored monthly totals stop keeping up with the purchases behind them, while the error rate, every quantile and the heap sit at baseline in every minute. Nothing fails, nothing slows, no rule fires, and the shop's own weekly integrity check is what pages - carrying the count, the widest gap, and the oldest affected purchase, which is the only thing that dates the fault | never by anything Argus can watch: the flag going back stops further drift, and only the next run of the check says whether it did. The totals already written stay wrong until something repairs them | name the cause from a flat window and a week-old stated onset, work out that the flag should go back, and **decline to take it** - recommending the action instead, because nothing would confirm it inside the time Argus waits. Then propose the fix, carrying a repair for what the fault already wrote beside the change that stops it |
 | No evidence | nothing correlated | never, automatically | exhaust the mitigations it may take, escalate |
 | Upstream dependency failure | the payment provider the account page reads a card from refuses; no flag, no deploy, no process involved | never - the condition belongs to another company, and only a reset clears it | name the cause, take nothing, escalate: no generic mitigation answers this mode |
 | Multiple causes | two of the above seeded together | all seeded conditions reverted | mitigate/fix each without false-attributing to only one |

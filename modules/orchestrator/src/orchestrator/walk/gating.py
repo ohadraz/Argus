@@ -82,21 +82,27 @@ def tier_gate_node(
     attempts_per_subject: int,
     publisher: Publisher = nobody
 ) -> StateDelta:
-    """Refuses to let an action reach its call unless its kind is pre-authorised
-    (spec §13).
+    """Refuses to let an action reach its call unless it is pre-authorised, aimed
+    within the estate, inside the cap, and confirmable (spec §13).
 
-    The one check, and the reason it lives here rather than inside the agent
-    that performs the write: a guarantee enforced by the code it constrains is a
-    convention, not a guarantee. What admits an action is membership of the
-    closed set of generic mitigations - a kind somebody declared and defended -
-    and not any property of the particular action, however it is labelled. An
-    incident with no action at all has nothing for this stage to admit.
+    Four questions rather than one, and the reason they live here rather than
+    inside the agent that performs the write: a guarantee enforced by the code
+    it constrains is a convention, not a guarantee. What admits an action is
+    membership of the closed set of generic mitigations - a kind somebody
+    declared and defended - and not any property of the particular action,
+    however it is labelled. An incident with no action at all has nothing for
+    this stage to admit.
 
-    A rejection is recorded and the walk moves on, rather than ending the
-    incident. The gate is judging *this* action, and the explanations after it
-    on the list may be answered by a mitigation that is admitted - stopping here
-    would let one unauthorised proposal spend the whole of Argus's autonomy.
-    Where nothing follows, the node that decides that says so.
+    Five of the six rejections are recorded and the walk moves on, rather than
+    ending the incident. The gate is judging *this* action, and the explanations
+    after it on the list may be answered by a mitigation that is admitted -
+    stopping there would let one unauthorised proposal spend the whole of
+    Argus's autonomy. Where nothing follows, the node that decides that says so.
+
+    The sixth stops instead, because it is not a judgement on the action: it
+    rejects the possibility of confirming *any* action on this incident, so the
+    next candidate would be refused for the same reason and would overwrite the
+    recommendation with its own on the way past.
 
     Five of the six refusals move the incident nowhere - a rejection is the end
     of this attempt, not of the incident, so the status is `mitigating` before
