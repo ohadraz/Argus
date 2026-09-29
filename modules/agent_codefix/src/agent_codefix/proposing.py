@@ -16,6 +16,10 @@ count alone cannot bound - it reads whole files and carries every one it has
 read for the rest of the run, so it can be frugal in calls and ruinous in
 tokens. No bound is ever expressed to the model, because one it could ask to
 extend would not be one.
+
+What the model is offered is `tools`, what it is first told is `opening`, and what
+it may spend is `budget`. What is left here is the conversation between them and
+the proposal at the end of it.
 """
 
 from __future__ import annotations
@@ -24,8 +28,6 @@ from collections.abc import Mapping
 from functools import partial
 from typing import Final, Protocol
 
-from argus_core import SettingsSlice
-from argus_core.budget import Budget
 from argus_core.llm import (
     AnswerTruncated,
     Conversation,
@@ -36,14 +38,10 @@ from argus_core.llm import (
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Ask,
-    CodeSearch,
-    Effort,
     Exchange,
     Hypothesis,
     ModelPolicy,
     OpenedPullRequest,
-    ToolCall,
-    ToolDefinition,
     ToolResult,
     ToolResults,
     Turn,
@@ -63,24 +61,24 @@ from read_mcp_client import (
 )
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
+from agent_codefix.budget import FixSettings, a_budget_for
+from agent_codefix.opening import the_opening_message, what_it_concluded
 from agent_codefix.prompting import (
     EXPLANATION_FIELD,
-    REPORT_NOTHING_TO_CHANGE,
     REPORT_TOOL_NAME,
     STANDING_BRIEF,
-    SUBMIT_FIX,
     SUBMIT_TOOL_NAME,
     SubmittedFix,
     the_paths_whose_content_is_not_source,
 )
-
-# What the loop asks of the repository, said as the shape it calls with rather
-# than as the function that answers today. `Protocol` rather than a `Callable`
-# alias throughout, for the reason the investigator's retrieval channels are:
-# a test stands each of these in with `create_autospec`, which needs something
-# introspectable - and specing against the client functions would be specing
-# against the wrong shape, since those take the connection they are asked over
-# and the loop is asked about a repository.
+from agent_codefix.retrieval import (
+    FileLister,
+    FileReader,
+    IndexNotice,
+    MeaningSearcher,
+    SourceSearcher,
+)
+from agent_codefix.tools import the_answer_to, tools_for
 
 
 class FixNotAnswered(Exception):
@@ -106,36 +104,6 @@ class FixNotAnswered(Exception):
     """
 
 
-def a_budget_for(settings: FixSettings) -> Budget:
-    """What one attempt at a fix may spend, as this deployment configures it.
-
-    Beside the settings it reads rather than on `Budget`, which is the
-    kernel's and knows none of its callers by name. The investigator has one
-    of these too, over fields of its own - what the two share is the
-    arithmetic, not what their numbers are called.
-    """
-    return Budget(
-        max_tool_calls=settings.codefix_max_tool_calls,
-        max_tokens=settings.codefix_max_tokens,
-        max_seconds=settings.codefix_max_seconds
-    )
-
-
-# What the model is told when one call is all that is left, ridden in on the
-# last result rather than sent as a message of its own: it is not a separate
-# thing to weigh, it is the condition the rest of the reply is read under.
-#
-# Without it a model spends its last call asking for one more file, and
-# everything it read is thrown away as no fix proposed - which reads as a
-# verdict on code nobody finished looking at. It costs more here than in the
-# investigation, because the turns being discarded are whole files.
-_ONE_CALL_LEFT: Final = (
-    "\n\nThis is your last call: there is no budget for another read. Submit "
-    "the fix now, from what you have already seen, or say there is nothing to "
-    "change."
-)
-
-
 class FixDeclined(Exception):
     """The model was asked to write a fix and said no.
 
@@ -154,40 +122,8 @@ class FixDeclined(Exception):
     """
 
 
-class SourceSearcher(Protocol):
-    def __call__(self, query: str, ref: str, /) -> list[str]: ...
-
-
-class MeaningSearcher(Protocol):
-    """Finding code by describing what it does rather than by naming it.
-
-    The other retrieval channel, and the same shape as the first on purpose:
-    the loop answers both the same way, and a caller configured for one of
-    them is offering the model a different tool rather than running different
-    code.
-    """
-
-    def __call__(self, description: str, ref: str, /) -> list[str]: ...
-
-
-class IndexNotice(Protocol):
-    """What has to be said about the index before anything it answers is used.
-
-    Asked once, before the conversation starts, rather than read off a search
-    result: a model that learns the index is behind from a result it has
-    already acted on has learned it a turn too late. Empty when there is
-    nothing to say, which is the ordinary state.
-    """
-
-    def __call__(self, ref: str, /) -> str: ...
-
-
-class FileLister(Protocol):
-    def __call__(self, ref: str, /) -> list[str]: ...
-
-
-class FileReader(Protocol):
-    def __call__(self, path: str, ref: str, /) -> str: ...
+# What the proposal half asks of the write tier, and what the walk asks of this
+# module - said as shapes for the reason the read channels are, in `retrieval`.
 
 
 class BranchWriter(Protocol):
@@ -222,172 +158,19 @@ class Fixer(Protocol):
                  incident_id: str, /) -> OpenedPullRequest | None: ...
 
 
-SEARCH_TOOL = "search_repository"
-SEARCH_BY_MEANING_TOOL = "search_repository_by_meaning"
-LIST_FILES_TOOL = "list_repository_files"
-READ_FILE_TOOL = "read_repository_file"
-
-PATH_ARGUMENT = "path"
-QUERY_ARGUMENT = "query"
-DESCRIPTION_ARGUMENT = "description"
-
-
-class FixSettings(SettingsSlice):
-    """What the fix loop is aimed and bounded by.
-
-    `github_base_branch` is what a fix is cut from and proposed onto - the
-    branch that is actually deployed, since a fix against anything else patches
-    a repository nobody is running.
-    """
-
-    github_base_branch: str
-    # Three bounds rather than one, for the reason the investigation has
-    # three: they fail differently and none implies the others. This
-    # agent is the case a call count alone cannot see - it reads whole
-    # files and writes whole files, so a run can be frugal in calls and
-    # ruinous in tokens. Measured, one that reads the three largest files
-    # in the Target Service carries 47,950 tokens of source for every
-    # remaining turn.
-    #
-    # Calls rather than turns, because a model may ask for several files
-    # at once and a bound counting turns would let it read several times
-    # what it was allowed while still looking healthy.
-    codefix_max_tool_calls: int
-    codefix_max_tokens: int
-    codefix_max_seconds: float
-    # Which model writes the fix and how hard it is asked to think. Here
-    # with the bound rather than anywhere else because both are what a
-    # deployment decides about one attempt at a fix, and both are read once
-    # when the loop starts. This is the agent the choice matters most for:
-    # its answers are whole files, which is the workload where the higher
-    # efforts earn their cost and the cheaper models most obviously do not.
-    codefix_model: str
-    codefix_effort: Effort
-    # Whole files, so far more room than any other agent needs, and past
-    # the line where the answer has to be streamed to arrive at all.
-    codefix_max_output_tokens: int
-    # Which ways of finding code this deployment has, and so which the model
-    # is offered. Both in production, where the model chooses per question;
-    # one alone where the benchmark is comparing them, or where nothing builds
-    # an index and a tool that could only ever answer nothing would teach the
-    # model that the cause is not in the code.
-    code_search: CodeSearch
-
-
-SEARCH = ToolDefinition(
-    name=SEARCH_TOOL,
-    description=(
-        "Find where something appears in the service's source. Answers with "
-        "every matching line as 'path:line: text'. START HERE: the "
-        "investigation has already named the cause, so search for it - the "
-        "flag, the function, the message from the log line - and the answer "
-        "tells you which files to read. Plain text, not a regular expression."
-    ),
-    properties={
-        QUERY_ARGUMENT: {
-            "type": "string",
-            "description": (
-                "The text to look for. Something distinctive from the cause - "
-                "a flag name, a function name, an error message."
-            )
-        }
-    },
-    required=[QUERY_ARGUMENT]
-)
-
-LIST_FILES = ToolDefinition(
-    name=LIST_FILES_TOOL,
-    description=(
-        "List every file in the service's repository, as paths from its root. "
-        "A fallback for when searching found nothing and you need to see the "
-        f"shape of the repository - prefer {SEARCH_TOOL}, which tells you "
-        "which file to open rather than leaving you to guess from names."
-    ),
-    properties={},
-    required=[]
-)
-
-# Said here rather than in the brief, because the first sentence of this
-# description is what was holding the model to one file at a time. It reads as
-# a limit where a unit was meant, and no instruction elsewhere outranks a tool
-# telling you what it does. Measured: one file in 59 of 88 turns, never more
-# than four, though every parallel call is answered in a single reply.
+# What the model is told when one call is all that is left, ridden in on the
+# last result rather than sent as a message of its own: it is not a separate
+# thing to weigh, it is the condition the rest of the reply is read under.
 #
-# The reason travels with it. Turns are what the re-send is quadratic in, so a
-# turn spent on one file is not one round trip's worth of waste but one file's
-# worth on every turn after it - and a model told only "you may" batches
-# timidly, as this one already did.
-READ_FILE = ToolDefinition(
-    name=READ_FILE_TOOL,
-    description=(
-        "Read one file's entire contents. Call it several times in the same "
-        "turn when you want several files - every result comes back together, "
-        "and a turn spent on one file re-sends everything you have read so "
-        "far. Read a file before you rewrite it - what you submit replaces "
-        "what is there, so a file you did not read is a file you are "
-        "overwriting blind."
-    ),
-    properties={
-        PATH_ARGUMENT: {
-            "type": "string",
-            "description": "The file's path from the repository root."
-        }
-    },
-    required=[PATH_ARGUMENT]
+# Without it a model spends its last call asking for one more file, and
+# everything it read is thrown away as no fix proposed - which reads as a
+# verdict on code nobody finished looking at. It costs more here than in the
+# investigation, because the turns being discarded are whole files.
+_ONE_CALL_LEFT: Final = (
+    "\n\nThis is your last call: there is no budget for another read. Submit "
+    "the fix now, from what you have already seen, or say there is nothing to "
+    "change."
 )
-
-SEARCH_BY_MEANING = ToolDefinition(
-    name=SEARCH_BY_MEANING_TOOL,
-    description=(
-        "Find code by describing what it does, when you have no exact text to "
-        "search for. Answers with passages of the service's source - each one "
-        "'path:start-end' and the lines themselves - nearest in meaning to "
-        f"your description. Use this where {SEARCH_TOOL} cannot help: the "
-        "investigation described a behaviour ('the discount is divided by a "
-        "count that can be zero') and the repository may not contain any of "
-        "those words. Describe the behaviour and the mistake, not an "
-        "identifier. Worth using alongside the other search rather than "
-        "instead of it - one matches characters, this matches meaning."
-    ),
-    properties={
-        DESCRIPTION_ARGUMENT: {
-            "type": "string",
-            "description": (
-                "What the code you are looking for does, in a sentence - the "
-                "behaviour and what is wrong with it, as you would describe "
-                "it to another engineer."
-            )
-        }
-    },
-    required=[DESCRIPTION_ARGUMENT]
-)
-
-
-def tools_for(settings: FixSettings) -> list[ToolDefinition]:
-    """The tools this deployment offers the model, in the order it meets them.
-
-    Both implementations stay present whichever is chosen - what configuration
-    decides is what the model is *offered*, not what this module can do. A
-    channel switched off is one definition missing from a list, so a benchmark
-    run comparing retrievers is running the same code either way.
-
-    Searching comes first because the opening message tells the model to start
-    there, and a list whose order contradicts its instructions is one more
-    thing to be resolved by whichever the model is most used to.
-    """
-    searching = {
-        CodeSearch.GREP: [SEARCH],
-        CodeSearch.MEANING: [SEARCH_BY_MEANING],
-        CodeSearch.BOTH: [SEARCH, SEARCH_BY_MEANING]
-    }
-
-    return [
-        *searching[settings.code_search],
-        LIST_FILES,
-        READ_FILE,
-        SUBMIT_FIX,
-        REPORT_NOTHING_TO_CHANGE
-    ]
 
 
 def fixes_over(read: McpClient,
@@ -529,7 +312,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     """
     tools = tools_for(settings)
     transcript: list[Exchange] = [
-        Ask(text=_the_opening_message(
+        Ask(text=the_opening_message(
             hypothesis, settings, index_notice, list_files
         ))
     ]
@@ -603,7 +386,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
 
         transcript.append(_what_it_is_told_next(
             [
-                _answer(
+                the_answer_to(
                     call, settings, search, search_by_meaning, list_files, read_file
                 )
                 for call in turn.tool_calls
@@ -759,77 +542,6 @@ def _the_submission_in(turn: Turn) -> SubmittedFix | None:
         return None
 
 
-def _answer(call: ToolCall,
-            settings: FixSettings,
-            search: SourceSearcher,
-            search_by_meaning: MeaningSearcher,
-            list_files: FileLister,
-            read_file: FileReader) -> ToolResult:
-    """One tool call, answered - including when answering it failed.
-
-    A failure comes back as a result the model reads rather than as an
-    exception the loop dies on. What it did wrong is usually recoverable in one
-    turn, and what it cannot recover from it will simply fail to submit after,
-    which is already an answer this loop knows how to report.
-    """
-    try:
-        return ToolResult(
-            call_id=call.id,
-            content=_ran(
-                call, settings, search, search_by_meaning, list_files, read_file
-            )
-        )
-    except Exception as error:
-        return ToolResult(
-            call_id=call.id,
-            content=f"{type(error).__name__}: {error}",
-            failed=True
-        )
-
-
-def _ran(call: ToolCall,
-         settings: FixSettings,
-         search: SourceSearcher,
-         search_by_meaning: MeaningSearcher,
-         list_files: FileLister,
-         read_file: FileReader) -> str:
-    if call.name == SEARCH_BY_MEANING_TOOL:
-        near = search_by_meaning(
-            str(call.arguments.get(DESCRIPTION_ARGUMENT, "")),
-            settings.github_base_branch
-        )
-
-        # Answered in words for the reason the substring channel is, and with
-        # more at stake: an empty answer here is ambiguous between an index
-        # that holds nothing like this and an index that holds nothing at all,
-        # and a model left to guess picks the reading that ends the work.
-        return "\n\n".join(near) if near else (
-            "no passage in the repository reads like that - try describing the "
-            "behaviour differently, or search for an exact string instead"
-        )
-
-    if call.name == SEARCH_TOOL:
-        found = search(
-            str(call.arguments.get(QUERY_ARGUMENT, "")), settings.github_base_branch
-        )
-
-        # Said rather than left as an empty answer. A model handed nothing
-        # reads it as a tool that failed and tries again with the same query;
-        # told the repository does not contain the string, it searches for
-        # something else, which is the move that finds the file.
-        return "\n".join(found) if found else "no line in the repository matches that"
-
-    if call.name == LIST_FILES_TOOL:
-        return "\n".join(list_files(settings.github_base_branch))
-
-    if call.name == READ_FILE_TOOL:
-        return read_file(
-            str(call.arguments.get(PATH_ARGUMENT, "")), settings.github_base_branch
-        )
-
-    return f"there is no tool called {call.name}"
-
-
 def _a_branch_for(incident_id: str) -> str:
     """The branch a fix is written to, named for the incident that caused it.
 
@@ -838,163 +550,6 @@ def _a_branch_for(incident_id: str) -> str:
     where it came from.
     """
     return f"argus/fix-{incident_id}"
-
-
-def _what_it_concluded(hypothesis: Hypothesis | None) -> str:
-    """The finding in a sentence, or that there was none.
-
-    Said rather than left blank, because the agent is asked either way: a walk
-    that reached here having concluded nothing is still worth reading the code
-    over, and "I looked and found nothing" is a different answer from "I never
-    looked". An empty line after "the investigation concluded" reads as the
-    second while claiming to be the first.
-    """
-    if hypothesis is None:
-        return "nothing - no cause was identified, so read the code on its own terms"
-
-    return hypothesis.summary
-
-
-def _and_what_it_rests_on(hypothesis: Hypothesis | None) -> list[str]:
-    """The evidence behind the conclusion, quoted rather than summarised.
-
-    The summary says what broke; the evidence says where. This service's error
-    boundary records the innermost frame, so one of these lines is a log line
-    naming the file and the line the fault was raised on - and an agent handed
-    only the sentence goes searching for a location it was already holding.
-
-    Quoted as the investigation wrote them, because they are quotations: a log
-    line restated in the model's own words is no longer something it can search
-    the repository for.
-
-    Empty where the investigation recorded none, and empty is right - a heading
-    over nothing invites the model to wonder what it is missing.
-    """
-    if hypothesis is None or not hypothesis.supporting_evidence:
-        return []
-
-    return [
-        "",
-        "What that rests on:",
-        *(f"  - {found.claim}" for found in hypothesis.supporting_evidence)
-    ]
-
-
-def _how_to_start_looking(settings: FixSettings) -> str:
-    """Which search to reach for when the conclusion names no file to open.
-
-    A fallback rather than an opening move. It said "start by searching" once,
-    unconditionally, and the model did as it was told even where the sentence
-    above already carried the file and the line - then read every candidate
-    the search returned, one round trip each. Where to begin is the brief's to
-    say now; what this answers is which tool, and only for the case where
-    there is genuinely nothing named to begin from.
-
-    Named in terms of the tools this deployment actually offers, because
-    pointing a model at a search it was not given is the one way to make an
-    opening message worse than none.
-    """
-    if settings.code_search is CodeSearch.MEANING:
-        return (
-            f"If the conclusion names no file, describe the broken behaviour and "
-            f"{SEARCH_BY_MEANING_TOOL} for it - the answer is the passages "
-            f"nearest that description."
-        )
-
-    if settings.code_search is CodeSearch.GREP:
-        return (
-            f"If the conclusion names no file, take what it does name - the flag, the "
-            f"function, the message - and {SEARCH_TOOL} for it."
-        )
-
-    return (
-        f"If the conclusion names no file, {SEARCH_TOOL} for what it does name "
-        f"- the flag, "
-        f"the function, the message - or, where it describes a behaviour "
-        f"instead, {SEARCH_BY_MEANING_TOOL} with that description."
-    )
-
-
-def _what_the_repository_holds(settings: FixSettings,
-                               list_files: FileLister) -> list[str]:
-    """Every path in the repository, handed over rather than left to be asked for.
-
-    Asked once before the conversation starts, as the index notice is. The
-    model called `list_repository_files` first in seven of eleven recorded
-    walks and not at all in the other four, so this replaces a round trip about
-    two thirds of the time and costs some sixty tokens against a prompt already
-    carrying fourteen thousand.
-
-    Here rather than in the standing brief, though every incident wants it: the
-    listing changes whenever the repository does, and a `system` block that
-    varied per incident would invalidate the cached prefix - for every agent,
-    not only this one - each time it varied.
-
-    Empty for an empty listing, for the reason the evidence is: a heading over
-    nothing tells the model there is something it has failed to see - and empty
-    for a listing that could not be fetched at all, which is the same sentence
-    to the model and a very different one to the walk. This call is made while
-    the message is being built, before the conversation exists, and the walk
-    reads anything escaping `propose_fix` as "no fix could be proposed". So a
-    raise here would spend the whole attempt on one flaky call, where the same
-    failure a turn later costs a single tool result and a model that reads it.
-    """
-    try:
-        held = list_files(settings.github_base_branch)
-    except Exception:
-        return []
-
-    if not held:
-        return []
-
-    return ["", "The repository holds:", *(f"  {path}" for path in held)]
-
-
-def _what_is_known_about_the_index(settings: FixSettings,
-                                   index_notice: IndexNotice) -> list[str]:
-    """What the model has to know about searching by meaning before it does.
-
-    Empty when the index describes the commit being fixed, which is the
-    ordinary state: a warning printed every run is a warning nobody reads, and
-    that is how the run where it was true goes unnoticed.
-
-    Not asked at all where the channel is off. The answer would be true and
-    about a tool the model does not have, which is a paragraph spent teaching
-    it to distrust something it cannot use.
-    """
-    if settings.code_search is CodeSearch.GREP:
-        return []
-
-    notice = index_notice(settings.github_base_branch)
-
-    return ["", notice] if notice else []
-
-
-def _the_opening_message(hypothesis: Hypothesis | None,
-                         settings: FixSettings,
-                         index_notice: IndexNotice,
-                         list_files: FileLister) -> str:
-    """Everything about *this incident* Code-Fix is told before it reads anything.
-
-    This incident, and nothing standing. What is always true of fixing a fault
-    - that a mitigation has probably hidden the symptom, that the change which
-    exposed a fault is not the fault, that submitting nothing needs a reason -
-    is `STANDING_BRIEF`, and it travels as the request's `system`. It is the
-    same every time, so it belongs where the same thing every time can be read
-    back from cache instead of re-sent and re-billed once per incident.
-    """
-    return "\n".join([
-        "An incident has been investigated and traced to a cause in this "
-        "service's code. Your job is to fix that cause permanently.",
-        "",
-        f"What the investigation concluded: {_what_it_concluded(hypothesis)}",
-        *_and_what_it_rests_on(hypothesis),
-        *_what_the_repository_holds(settings, list_files),
-        *_what_is_known_about_the_index(settings, index_notice),
-        "",
-        f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
-        f"every file you are changing, in full."
-    ])
 
 
 def _the_case_for(submitted: SubmittedFix,
@@ -1013,7 +568,7 @@ def _the_case_for(submitted: SubmittedFix,
         "---",
         "",
         f"Proposed by Argus for incident `{incident_id}`.",
-        f"The investigation concluded: {_what_it_concluded(hypothesis)}",
+        f"The investigation concluded: {what_it_concluded(hypothesis)}",
         "",
         "This is a draft. Argus cannot merge it - review it as you would any "
         "change from somebody who has not run the service."

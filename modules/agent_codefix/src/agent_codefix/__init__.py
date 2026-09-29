@@ -19,11 +19,11 @@ anything here repairs a malformed answer.
 
 from __future__ import annotations
 
+from agent_codefix.budget import FixSettings
 from agent_codefix.prompting import SubmittedFix
 from agent_codefix.proposing import (
     FixDeclined,
     FixNotAnswered,
-    FixSettings,
     fixes_over,
     propose_fix,
 )

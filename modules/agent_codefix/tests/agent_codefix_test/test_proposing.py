@@ -18,20 +18,22 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
+from agent_codefix.budget import FixSettings
 from agent_codefix.proposing import (
-    READ_FILE_TOOL,
     BranchWriter,
-    FileLister,
-    FileReader,
     FixDeclined,
     FixNotAnswered,
-    FixSettings,
-    IndexNotice,
-    MeaningSearcher,
     PullRequestOpener,
-    SourceSearcher,
     propose_fix,
 )
+from agent_codefix.retrieval import (
+    FileLister,
+    FileReader,
+    IndexNotice,
+    MeaningSearcher,
+    SourceSearcher,
+)
+from agent_codefix.tools import READ_FILE_TOOL
 from argus_core.llm import (
     AnswerTruncated,
     Conversation,
