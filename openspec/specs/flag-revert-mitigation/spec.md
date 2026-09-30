@@ -148,6 +148,12 @@ judgement of whether a minute departs SHALL be the same one used to locate an
 onset, so that the two agents cannot disagree about whether the same minute was
 healthy.
 
+Where the minutes after the action are **absent** rather than elevated, this
+requirement does not apply and `unreadable-service-recovery` decides. A minute
+with no reading has no level to judge, and a window with no departure in it is not
+thereby a service that recovered - which is the one case in which reading levels
+gives a confident answer to a question nobody asked.
+
 #### Scenario: A recovered service confirms the hypothesis
 - **GIVEN** an action has been taken and the minutes after it sit at the
   service's baseline
@@ -171,6 +177,13 @@ healthy.
   baseline within the configured time
 - **WHEN** the verdict is formed
 - **THEN** it is `refuted`
+
+#### Scenario: Absent minutes are judged by the other rule
+- **GIVEN** an action has been taken and no minute at or after it carries a
+  reading at all
+- **WHEN** the verdict is formed
+- **THEN** it is decided by whether the readings return, not by whether anything
+  departs
 
 ### Requirement: A refuted action is undone
 
