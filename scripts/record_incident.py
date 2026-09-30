@@ -54,6 +54,7 @@ from argus_core.events import (
     ActionTaken,
     FixAttempted,
     HypothesisFormed,
+    PlatformUnavailable,
     SimilarIncidentsRecalled,
     VerdictReached,
 )
@@ -66,6 +67,7 @@ from tests.e2e.framework.argus import (
     RECORDED_AUTOSCALER_FLAPPING,
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_CACHE_MISCONFIGURED,
+    RECORDED_CONTROL_PLANE_UNREACHABLE,
     RECORDED_CPU_SATURATION,
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_TOGGLE,
@@ -168,6 +170,15 @@ _AN_ACTION_WAS_REFUSED: Final = _Published(ActionRefused)
 # walk that stopped for one of the other five.
 _AN_ACTION_WAS_RECOMMENDED: Final = _Published(ActionRecommended)
 _A_VERDICT_WAS_REACHED: Final = _Published(VerdictReached)
+# The walk found out, mid-incident, that a platform it acts through is not
+# answering. Held to for the one recording captured against a refusing platform,
+# because every other expectation that recording could be held to is satisfied by
+# a walk that never touched the platform at all: it would take an action, reach a
+# verdict, end mitigated and write a postmortem, having simply reverted the flag
+# first. That is a recording of the ordinary flag incident, stored under this
+# name, and the case replaying it would fail on the one assertion the corpus was
+# bought for.
+_A_PLATFORM_WENT_AWAY: Final = _Published(PlatformUnavailable)
 # Memory was searched during the walk and came back with something. Which record
 # it came back with is not checked here - the event carries a list, and this asks
 # only that the list exists, which is all a corpus can promise. The case that
@@ -478,6 +489,23 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         (_A_HYPOTHESIS_WAS_FORMED,
          _AN_ACTION_WAS_REFUSED,
          _AN_ACTION_WAS_RECOMMENDED)
+    ),
+    # The one incident staged against a platform that will not act. Two changes
+    # moved in the window and the closer of them is the deployment, so the walk
+    # is meant to reach for the rollback, be told the platform is unavailable,
+    # pass over the three other actions that go through it, and end on the flag
+    # revert - the only mitigation left to it.
+    #
+    # Captured under `both` alone, like the case that replays it: nothing in this
+    # claim varies by which tool found a file, and the walk is a dear one, since
+    # the refused rollback is a whole mitigation attempt before the action that
+    # settles the incident.
+    _Recording(
+        RECORDED_CONTROL_PLANE_UNREACHABLE,
+        "control-plane-unreachable",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_A_PLATFORM_WENT_AWAY, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
     )
 )
 

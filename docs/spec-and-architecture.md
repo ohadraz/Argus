@@ -625,7 +625,7 @@ Every action is tiered, and the tier determines how much autonomy the agent has:
 | Read-only | query logs, read Slack, read code | Fully autonomous |
 | Generic mitigation | toggle a flag back, restart a service, return a deployment to the revision it was running before, give a deployment more replicas than it was sized for | Autonomous, but announced in Slack immediately + logged, with whatever it left to put back recorded |
 | Outside the declared set | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
-| Give up / escalate | the investigation's budget binds before it names a cause, no mitigation Argus may take resolves the alert, or the cause is named and the declared set answers that kind of failure with nothing | Autonomous - pages a human with full context, doesn't keep guessing |
+| Give up / escalate | the investigation's budget binds before it names a cause, no mitigation Argus may take resolves the alert, the cause is named and the declared set answers that kind of failure with nothing, or the platform every remaining action would act through is not answering | Autonomous - pages a human with full context, doesn't keep guessing |
 | Admitted, but unconfirmable | a mitigation of a declared kind, aimed within the estate and inside the cap, on an incident nothing could judge a recovery on | **Never autonomous.** Argus names the action and leaves it for a person |
 
 What admits an action is **membership of a closed, declared set** - a kind of
@@ -735,6 +735,48 @@ must never do: passing one of those on would be telling a person to go and do
 the thing Argus was stopped from doing. The walk still continues to Code-Fix -
 nobody is taking the mitigation, so the fault it would have held off is the only
 thing anybody gets.
+
+**An action Argus may take unasked is one it can reach the platform for, and a
+platform that is not answering removes every action through it rather than one
+at a time.** Four of the five generic mitigations reach the estate through the
+deployment platform and one through the flag provider, so which platform an
+action acts through is a property of its kind - held beside the kind, and
+therefore answerable about candidates nothing has attempted. A tool reporting
+that the platform it acts through was not there to receive the request is
+reporting something about every other action sharing that platform, and the walk
+passes those over rather than spending a verification window each to establish
+what it already knows. It reports nothing about the actions on a platform that
+is still answering: an incident whose next candidate is a flag revert is one
+Argus can still mitigate, and narrowing to what is reachable is the difference
+between knowing this failure mode and knowing one incident of it.
+
+Reachability is learnt by reaching. Nothing polls a platform to ask whether it
+is up, because the only moment the answer matters is the moment an action is
+taken and a reading from before then describes a different world. Neither is the
+same request retried: a platform that did not answer this action will not answer
+the next one seconds later, and a retry against a dead plane buys a second
+identical failure.
+
+**A failure that lost the platform after something landed is still a failure to
+reach it, and says what it left behind.** Three of the four platform actions
+suspend the platform's own reconciliation before they act, so an outage arriving
+between the suspension and the action leaves an application un-reconciled and
+recorded nowhere. The descriptor is what answers that, not withholding the
+report: the failure names the platform *and* what has to be put back, so the
+walk narrows itself while a person is still told what changed. Reporting it as
+an ordinary failed action instead would make Argus's response depend on which
+call the outage happened to land on, which is a system that handles this mode
+only when the platform fails on the first request.
+
+**The exception is an action that may have taken effect and whose effect cannot
+be established.** A restart the platform accepted and then stopped confirming
+may be rolling or may have been dropped, and nothing Argus can read settles it.
+What that costs is not an unrecorded change but an unreliable verification:
+every measurement afterwards is taken against a service that may be recovering
+on its own, so the next action taken would be confirmed by the restart's work
+rather than its own, and the record would carry a hypothesis nothing
+established. Escalating is the honest report of a state Argus cannot describe,
+and a wrong verdict written down as a confirmed one is worse than a page.
 
 A mitigation in the set is still bounded. One kind may be applied to one subject
 only so many times within a single incident, because what a repeatable

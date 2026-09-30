@@ -14,6 +14,7 @@ that reached the provider with nothing measured after it, or nothing at all.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
@@ -23,11 +24,14 @@ from argus_core.events import (
     ActionTaken,
     IncidentEvent,
     MitigationResumed,
+    PlatformUnavailable,
     Publisher,
     VerdictReached,
     nobody,
 )
 from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
+    FLAG_PROVIDER,
     Action,
     Alert,
     FlagUndo,
@@ -36,9 +40,11 @@ from argus_core.models import (
     Outcome,
     RestartService,
     RevertFeatureFlag,
+    RollBackDeployment,
     UndoDescriptor,
     UnreadVerdict,
     Verdict,
+    the_actions_through,
 )
 from argus_incidents.withdrawal import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -214,6 +220,183 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
                                       already_taken=already_taken,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.ESCALATED))
+
+
+@pytest.mark.unit
+def test_an_unavailable_platform_is_published_where_the_walk_learnt_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Here because here is where it was learnt, and before the candidate that
+    # follows. The stream is read as a story in the order it happened, so an
+    # event explaining why later candidates went untried is only an explanation
+    # if it stands before them.
+    #
+    # Published by the walk rather than by the tier whose call failed: the tier
+    # reported a failed call, which is not yet the fact that a platform is
+    # unavailable to *this incident*, and a tier publishing against an incident
+    # would be publishing about work it cannot see the shape of.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(
+                take, Verdict.PLATFORM_UNREACHABLE
+            )),
+            a_rollback_taking_incident := _a_mitigating_incident(
+                proposing=_a_rollback_action()
+            )
+        ) \
+        .when(lambda: mitigation_node(a_rollback_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_platform_was_published_as_unavailable(
+            DEPLOYMENT_PLATFORM, the_actions_through(DEPLOYMENT_PLATFORM), published
+        ))
+
+
+@pytest.mark.unit
+def test_an_escalated_action_publishes_nothing_about_a_platform(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The half that keeps the claim above honest. A walk that published this on
+    # every failure would tell a reader four actions went away whenever one call
+    # was refused, and the record would be wrong about the only thing this event
+    # exists to say.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED)),
+            a_rollback_taking_incident := _a_mitigating_incident(
+                proposing=_a_rollback_action()
+            )
+        ) \
+        .when(lambda: mitigation_node(a_rollback_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_no_platform_was_published_as_unavailable(published))
+
+
+@pytest.mark.unit
+def test_an_unreachable_platform_is_recorded_against_the_walk(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The one fact this verdict carries that no other does, and the walk cannot
+    # re-derive it later: by the time the next candidate is chosen, all that is
+    # left of the attempt is a verdict, and a verdict does not say which platform
+    # failed to answer. So it is written down where it was learnt.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(
+                take, Verdict.PLATFORM_UNREACHABLE
+            )),
+            a_rollback_taking_incident := _a_mitigating_incident(
+                proposing=_a_rollback_action()
+            )
+        ) \
+        .when(lambda: mitigation_node(a_rollback_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(
+            _the_verdict_reported_is(Verdict.PLATFORM_UNREACHABLE),
+            _the_platforms_recorded_as_unreachable([DEPLOYMENT_PLATFORM])
+        ))
+
+
+@pytest.mark.unit
+def test_the_platform_recorded_is_the_one_the_action_acted_through(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Derived from the action, not named. The same verdict off a flag revert means
+    # the flag provider is what did not answer, and a node that wrote the
+    # deployment platform either way would have the walk pass over three
+    # candidates that were never affected - and keep reaching for the one that
+    # was.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(
+                take, Verdict.PLATFORM_UNREACHABLE
+            )),
+            a_flag_reverting_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(a_flag_reverting_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_platforms_recorded_as_unreachable([FLAG_PROVIDER]))
+
+
+@pytest.mark.unit
+def test_an_escalated_action_says_nothing_about_any_platform(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The half that keeps the two above honest. A node that recorded a platform on
+    # every failure would write one off whenever a single call was refused, and
+    # four mitigations would go out of reach on the strength of one rejection.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED)),
+            a_rollback_taking_incident := _a_mitigating_incident(
+                proposing=_a_rollback_action()
+            )
+        ) \
+        .when(lambda: mitigation_node(a_rollback_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_nothing_was_recorded_as_unreachable())
 
 
 @pytest.mark.unit
@@ -1456,6 +1639,121 @@ def _the_action_was_announced_as_a_dependency_of(expected: str | None,
             raise AssertionError(
                 f"Expected one action announced as a dependency of [{expected}], "
                 f"got {announced}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_rollback_action() -> RollBackDeployment:
+    """An action on the deployment platform, for the cases about which platform.
+
+    A rollback rather than the flag revert every other case here uses, because
+    that is the whole subject: the platform recorded has to be the one this
+    action acts through, and a suite that only ever attempted flag reverts would
+    pass with the platform hardcoded.
+    """
+    return RollBackDeployment(application="dont-care-application")
+
+
+def _the_platforms_recorded_as_unreachable(
+    expected: list[str]
+) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        recorded = updates.unreachable_platforms
+
+        if recorded != expected:
+            raise AssertionError(
+                f"Expected the walk to carry {expected} as unreachable, it "
+                f"carries {recorded}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_recorded_as_unreachable() -> Assertion[StateDelta]:
+    """The node said nothing about any platform, rather than said it was empty.
+
+    `model_fields_set` is the distinction, and it is the one that matters here for
+    the reason the field's own comment gives: a node that did not mention a field
+    must not overwrite what another node decided. An outcome that wrote an empty
+    list would clear a platform an earlier attempt had already found unreachable,
+    and the walk would go back to trying candidates it had passed over.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if "unreachable_platforms" in updates.model_fields_set:
+            raise AssertionError(
+                f"Expected the node to say nothing about unreachable platforms, "
+                f"it set {updates.unreachable_platforms}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_platform_published_as_unavailable(
+    published: list[IncidentEvent]
+) -> PlatformUnavailable | None:
+    """The one event about a platform, if exactly one was published.
+
+    `None` where none was, and an assertion failure where more than one was:
+    "at least one" is not the claim - the fact is about the platform, and
+    repeating it per candidate teaches a reader to skim the sentence that
+    explains the outcome.
+    """
+    about_a_platform = [
+        event for event in published
+        if isinstance(event, PlatformUnavailable)
+    ]
+
+    if len(about_a_platform) > 1:
+        raise AssertionError(
+            f"Expected one event about the platform, {len(about_a_platform)} "
+            f"were published."
+        )
+
+    return about_a_platform[0]
+
+
+def _the_platform_was_published_as_unavailable(
+    platform: str, took_away: Sequence[str], published: list[IncidentEvent]
+) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        said = _the_platform_published_as_unavailable(published)
+
+        if said is None:
+            raise AssertionError(
+                f"Expected [{platform}] published as unavailable, and nothing "
+                f"about any platform was published."
+            )
+
+        if (said.platform, list(said.actions_unavailable)) != (
+            platform, list(took_away)
+        ):
+            raise AssertionError(
+                f"Expected [{platform}] published as having taken away "
+                f"{list(took_away)}, and what was published was "
+                f"[{said.platform}] taking away {list(said.actions_unavailable)}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_platform_was_published_as_unavailable(
+    published: list[IncidentEvent]
+) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        said = _the_platform_published_as_unavailable(published)
+
+        if said is not None:
+            raise AssertionError(
+                f"Expected nothing published about a platform, and {said} was."
             )
 
         return True

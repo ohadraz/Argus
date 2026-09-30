@@ -22,11 +22,16 @@ from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_MARKER,
+    UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     McpToolError,
+    PlatformUnreachable,
     an_exhausted_action,
+    an_unreachable_platform,
 )
 from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
     AutoscalerUndo,
     DeploymentRollbackUndo,
     MetricBucket,
@@ -94,6 +99,24 @@ THE_AUTOSCALER_HAS_NO_ROOM_LEFT = (
 )
 THE_PATCH_WAS_REFUSED = (
     f"the platform would not patch [{SOME_APPLICATION}]'s autoscaler"
+)
+# What the tier says when the platform was not there to be asked, and what it
+# says when the platform answered and said no. Two constants because the pair of
+# tests they belong to exists precisely to keep the two apart - a suite that used
+# one string for both would pass with the branches swapped.
+THE_PLATFORM_DID_NOT_ANSWER = "the deployment platform did not answer"
+THE_ROLLBACK_WAS_REFUSED = (
+    f"the platform would not roll [{SOME_APPLICATION}] back"
+)
+# What a rollback leaves behind when the platform goes after the suspension
+# landed: reconciliation suspended, the revision unmoved. A real descriptor
+# rather than an invented shape, because what is asserted is that this exact
+# value reaches the outcome.
+WHAT_THE_ROLLBACK_LEFT = DeploymentRollbackUndo(
+    application=SOME_APPLICATION,
+    was_on_history_id=41,
+    was_on_revision="0f1e2d3",
+    was_syncing_itself=True
 )
 
 # The two floors a pin moves between. Named separately from the replica counts
@@ -1134,6 +1157,175 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
 
 
 @pytest.mark.unit
+def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhausted() -> None:
+    # The third thing a write can come back with, and the one that is never about
+    # the action asked for. Four of the five generic mitigations reach the estate
+    # through this platform, so a platform that is not answering has taken four
+    # away at once - and what the walk does about that is pass over the other
+    # three and reach for whatever acts through something else.
+    #
+    # Not `ESCALATED`, for the reason an exhausted action is not: escalating here
+    # ends a walk whose next candidate is a flag revert on a provider that is
+    # still answering. Not `NOT_ATTEMPTED` either, and that distinction is the
+    # subtle one - that verdict says the tier answered and had nowhere left to
+    # go, where this says it could not ask at all. A record carrying it would
+    # report a bound that was never reached.
+    Scenario() \
+        .given(
+            the_platform_was_not_answering := _a_roller_that_cannot_reach_the_platform(
+                THE_PLATFORM_DID_NOT_ANSWER
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_was_not_answering),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.PLATFORM_UNREACHABLE),
+            _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
+            _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_refused_by_a_platform_that_answered_still_escalates() -> None:
+    # The half that decides whether the test above is worth having, and the one a
+    # single catch in the wrong order gets wrong in the other direction. A tier
+    # that read every refusal as an unreachable platform would satisfy the case
+    # above and have the walk write off four actions whenever one call was merely
+    # rejected - and a rollback can be rejected *after* reconciliation was
+    # suspended, which leaves the estate in a state nobody can name.
+    Scenario() \
+        .given(
+            the_platform_refused_it := _a_roller_that_cannot(THE_ROLLBACK_WAS_REFUSED)
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_refused_it),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_whose_platform_was_not_there_is_reported_the_same_way() -> None:
+    # One kind is not the claim. What the walk narrows itself on is that every
+    # action through this platform comes back the same way, so a second kind is
+    # what says the verdict belongs to the platform rather than to the rollback -
+    # and the pin is the one whose own tier already has two failure branches of
+    # its own to be confused with.
+    Scenario() \
+        .given(
+            the_platform_was_not_answering := _a_pinner_that_cannot_reach_the_platform(
+                THE_PLATFORM_DID_NOT_ANSWER
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_pin_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(pin=the_platform_was_not_answering),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.PLATFORM_UNREACHABLE),
+            _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+def test_a_platform_lost_after_the_suspension_still_narrows_and_says_what_it_left() -> None:
+    # Both facts, because a walk needs both. The platform is gone, so the other
+    # three actions through it are unavailable however far into this one the
+    # outage arrived - and an application is sitting un-reconciled, which nothing
+    # else records.
+    #
+    # The alternative was to escalate here, and it is wrong for the reason this
+    # whole change exists: it would narrow the walk or not depending on which
+    # call the outage happened to land on. A rollback suspends reconciliation
+    # first because the platform refuses otherwise, so "after the first write" is
+    # an ordinary place for an outage to arrive, not an exotic one.
+    Scenario() \
+        .given(
+            the_platform_went_mid_rollback := _a_roller_that_lost_the_platform_mid_action(
+                THE_PLATFORM_DID_NOT_ANSWER
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_went_mid_rollback),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.PLATFORM_UNREACHABLE),
+            _it_carries_back(WHAT_THE_ROLLBACK_LEFT)
+        ))
+
+
+@pytest.mark.unit
+def test_what_a_person_reads_of_a_lost_platform_is_not_the_payload() -> None:
+    # The descriptor rides in the same string the detail is built from, and the
+    # detail is what appears in the timeline, the postmortem and a Slack line. A
+    # JSON object in the middle of a sentence tells a reader nothing the verdict
+    # beside it has not already said.
+    Scenario() \
+        .given(
+            the_platform_went_mid_rollback := _a_roller_that_lost_the_platform_mid_action(
+                THE_PLATFORM_DID_NOT_ANSWER
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_went_mid_rollback),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
+            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+        ))
+
+
+@pytest.mark.unit
 def test_a_confirmed_pin_says_which_floor_it_raised_and_to_what() -> None:
     # Both numbers, because an account of a pin is a transition and one of them is
     # half of it. The floor it came from is what a withdrawal puts back. The floor
@@ -1546,6 +1738,46 @@ def _a_roller_returning(application: str) -> MagicMock:
     return roll_back
 
 
+def _a_roller_that_cannot_reach_the_platform(failure: str) -> MagicMock:
+    """Answers as the tier does when the platform was not there to be asked.
+
+    `PlatformUnreachable` rather than a bare error, because that is what the
+    transport raises when a tool's failure carries the marker - a case raising
+    anything else would exercise a failure production cannot produce. Marked the
+    way the tier marks it rather than with the token written out here, so this
+    stays true if the token changes.
+    """
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = PlatformUnreachable(
+        an_unreachable_platform(DEPLOYMENT_PLATFORM, failure)
+    )
+
+    return roll_back
+
+
+def _a_roller_that_cannot(failure: str) -> MagicMock:
+    """Answers as the tier does when the rollback itself was refused.
+
+    Unmarked, which is the whole of what it stands for: the same tier raises
+    this and an unreachable platform, and only the one that means every action
+    through the platform is unavailable carries that marker.
+    """
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = McpToolError(failure)
+
+    return roll_back
+
+
+def _a_pinner_that_cannot_reach_the_platform(failure: str) -> MagicMock:
+    """The pin's version of `_a_roller_that_cannot_reach_the_platform`."""
+    pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
+    pin.side_effect = PlatformUnreachable(
+        an_unreachable_platform(DEPLOYMENT_PLATFORM, failure)
+    )
+
+    return pin
+
+
 def _the_scale_out_asked_for(scale_out: MagicMock,
                              application: str) -> Assertion[Outcome]:
     def assertion(dont_care_outcome: Outcome) -> bool:
@@ -1715,3 +1947,35 @@ def _a_pinner_holding_it_at(application: str, floor_asked_for: int) -> MagicMock
     )
 
     return pin
+
+
+def _a_roller_that_lost_the_platform_mid_action(failure: str) -> MagicMock:
+    """The platform went after reconciliation was suspended.
+
+    The half of the rollback that changed something. What it left behind is one
+    boolean, this tier put it there, and the descriptor that puts it back travels
+    on the failure - so the caller is told both that the platform is gone and
+    that an application is sitting un-reconciled.
+    """
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = PlatformUnreachable(
+        an_unreachable_platform(
+            DEPLOYMENT_PLATFORM, failure, undo_descriptor=WHAT_THE_ROLLBACK_LEFT
+        ),
+        WHAT_THE_ROLLBACK_LEFT
+    )
+
+    return roll_back
+
+
+def _it_carries_back(expected: UndoDescriptor) -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.undo_descriptor != expected:
+            raise AssertionError(
+                f"Expected the outcome to carry {expected!r} as what has to be "
+                f"put back, it carried {outcome.undo_descriptor!r}."
+            )
+
+        return True
+
+    return assertion

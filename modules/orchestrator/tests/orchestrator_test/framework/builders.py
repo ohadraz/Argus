@@ -6,6 +6,7 @@ import string
 from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_DEPLOYMENT,
     ActionIdentity,
     ActionType,
     Alert,
@@ -85,6 +86,17 @@ def putting_back(flag: str) -> ActionIdentity:
 def restarting(service: str) -> ActionIdentity:
     """Restarting a service, as the walk identifies it."""
     return an_identity(RESTART_SERVICE, service)
+
+
+def rolling_back(application: str) -> ActionIdentity:
+    """Rolling a deployment back, as the walk identifies it.
+
+    Here beside the other two because the same rule is asked about it: what the
+    walk passes over, and now also which platform an action reaches the estate
+    through - and a suite naming the identity its own way would be testing
+    neither.
+    """
+    return an_identity(ROLL_BACK_DEPLOYMENT, application)
 
 
 def the_incident_was_withdrawn() -> IsStillWanted:

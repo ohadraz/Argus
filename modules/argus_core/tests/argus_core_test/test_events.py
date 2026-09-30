@@ -22,6 +22,7 @@ from argus_core.events import (
     IncidentEvent,
     LogsRetrieved,
     MitigationResumed,
+    PlatformUnavailable,
     Publisher,
     RetrievalRequested,
     SimilarIncidentsRecalled,
@@ -30,6 +31,14 @@ from argus_core.events import (
     publish,
 )
 from argus_core.ids import new_id
+from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
+    PIN_AUTOSCALER,
+    RESTART_SERVICE,
+    ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
+    the_actions_through,
+)
 from argus_core.models.action import Verdict
 from argus_core.models.actor import Actor
 from argus_core.models.fix import FixOutcome
@@ -42,6 +51,9 @@ from pydantic import ValidationError
 
 SOME_WINDOW_START = "2026-08-30T10:02:00Z"
 SOME_WINDOW_END = "2026-08-30T10:12:00Z"
+# A spelling no `ActionType` has. Named rather than written inline so the case
+# reads as being about the vocabulary rather than about one typo.
+SOME_KIND_NOBODY_DECLARED = "drain-node"
 
 
 @pytest.mark.unit
@@ -122,6 +134,58 @@ def test_an_event_read_back_is_the_event_that_was_published() -> None:
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
         .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_an_unavailable_platform_carries_what_it_took_away() -> None:
+    # Self-describing, which is what every event here is for: an incident read
+    # months later is read without the code that published it, so a platform's
+    # name alone would leave the reader to work out which of Argus's actions
+    # went with it - from a mapping that may have changed since.
+    #
+    # Carried rather than derived, even though the mapping is right there. The
+    # two are the same answer today and the event is the one that has to stay
+    # true: a sixth mitigation added next year changes what the platform carries
+    # *now*, and must not change what an incident from last year says it carried
+    # then.
+    Scenario() \
+        .given(
+            published := PlatformUnavailable(
+                incident_id=new_id(),
+                platform=DEPLOYMENT_PLATFORM,
+                actions_unavailable=the_actions_through(DEPLOYMENT_PLATFORM)
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(all_of(
+            _it_is(published),
+            _it_took_away([
+                RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER
+            ])
+        ))
+
+
+@pytest.mark.unit
+def test_an_unavailable_platform_refuses_an_action_kind_nobody_declared() -> None:
+    # The vocabulary already has a name in this codebase, so the event carries
+    # the value rather than the spelling - and a kind nobody declared is refused
+    # where it is read rather than reaching a renderer that cannot match it.
+    #
+    # Read back rather than built, because a row is where such a value comes
+    # from: nothing in Python can hand this field an undeclared kind without the
+    # type checker objecting first, and the case worth holding is the one where a
+    # spelling that was legal when it was written no longer is.
+    Scenario() \
+        .given(SOME_KIND_NOBODY_DECLARED) \
+        .when(attempting(lambda: parse_event({
+            "kind": "platform-unavailable",
+            "id": new_id(),
+            "incident_id": new_id(),
+            "at": "2026-08-30T10:02:00Z",
+            "platform": DEPLOYMENT_PLATFORM,
+            "actions_unavailable": [SOME_KIND_NOBODY_DECLARED]
+        }))) \
+        .then(_it_was_refused())
 
 
 @pytest.mark.unit
@@ -477,9 +541,9 @@ def _its_verdict_is(expected: Verdict) -> Assertion[object]:
 def _it_was_refused() -> Assertion[Exception | None]:
     """A value the event cannot carry does not become an event.
 
-    Said of the event rather than of any one field, because three cases ask it: a
-    verdict nothing defines, a refusal nothing defines, and a recall naming no
-    incident. A message naming one of those would be wrong about the other two,
+    Said of the event rather than of any one field, because four cases ask it: a
+    verdict nothing defines, a refusal nothing defines, a recall naming no
+    incident, and an action kind nothing declares. A message naming one of those
     and a reader chasing the failure would start at the wrong field.
 
     Refused where it is built rather than where it is read: an event that reached
@@ -544,6 +608,21 @@ def _it_carries_the_proposal(
         if carried != proposal:
             raise AssertionError(
                 f"Expected the attempt to carry [{proposal}], got [{carried}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_took_away(expected: list[str]) -> Assertion[IncidentEvent]:
+    def assertion(event: IncidentEvent) -> bool:
+        took_away = getattr(event, "actions_unavailable", None)
+
+        if took_away != expected:
+            raise AssertionError(
+                f"Expected the event to say {expected} went with the platform, "
+                f"it says {took_away}."
             )
 
         return True

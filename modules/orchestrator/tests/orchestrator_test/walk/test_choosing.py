@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
     Alert,
     Evidence,
     FailureMode,
@@ -35,11 +36,17 @@ from argus_core.models import (
     IncidentStatus,
     RestartService,
     RevertFeatureFlag,
+    the_actions_through,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
 from orchestrator.walk.deltas import StateDelta
-from orchestrator.walk.routes import FIXING_ROUTE, INVESTIGATING_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.routes import (
+    ESCALATED_ROUTE,
+    FIXING_ROUTE,
+    INVESTIGATING_ROUTE,
+    MITIGATING_ROUTE,
+)
 from orchestrator.walk.state import IncidentState, status_after
 
 from orchestrator_test.framework.assertions import the_updates_carry
@@ -183,6 +190,70 @@ def test_a_walk_that_has_used_every_round_ends() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_walk_goes_to(FIXING_ROUTE, a_walk))
+
+
+@pytest.mark.unit
+def test_a_walk_with_nothing_left_on_a_reachable_platform_escalates() -> None:
+    # Not another investigation and not a permanent fix, which are the two
+    # endings this node had. A further round would re-read the same evidence and
+    # arrive at candidates on the same dead platform, and a permanent fix is not
+    # what an incident needs when what failed is how Argus acts at all.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_whose_platform_went(
+                incident_id, [a_determined_hypothesis(incident_id)]
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(_the_walk_goes_to(ESCALATED_ROUTE, a_walk))
+
+
+@pytest.mark.unit
+def test_an_escalation_over_a_platform_names_it_and_what_it_took_away() -> None:
+    # What a person is handed. The difference between "the rollback failed" and
+    # "the deployment platform is not answering, so the restart, the rollback,
+    # the scale-out and the pin are all unavailable" is the difference between
+    # looking at one action and looking at the platform - and only the second
+    # sends them to the right place.
+    #
+    # The actions are named rather than left to be looked up: a reader told only
+    # a platform's name has to go and work out which of Argus's five went with
+    # it, which is the thing saying anything at all exists to prevent.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_whose_platform_went(
+                incident_id, [a_determined_hypothesis(incident_id)]
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _what_it_said_names(DEPLOYMENT_PLATFORM),
+            _what_it_said_names(*the_actions_through(DEPLOYMENT_PLATFORM))
+        ))
+
+
+@pytest.mark.unit
+def test_an_escalation_over_a_platform_does_not_claim_the_evidence_ran_out() -> None:
+    # The sentence this node would otherwise reach for, and it is false here.
+    # "No explanation left to try" and "the evidence offers nothing further" say
+    # the investigation is exhausted, where in fact the evidence is fine and
+    # untried explanations are still on the list - what is gone is the means of
+    # acting on them. A postmortem built on that would describe the wrong
+    # incident.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_whose_platform_went(
+                incident_id, [a_determined_hypothesis(incident_id)]
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(_what_it_said_does_not_name("the evidence offers nothing further"))
 
 
 @pytest.mark.unit
@@ -456,6 +527,62 @@ def _nothing_was_narrated() -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected no narration where the incident moved nowhere, it "
                 f"said [{updates.narration.action}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_walk_whose_platform_went(incident_id: str,
+                                candidates: list[Hypothesis]) -> IncidentState:
+    """A walk past its last candidate, with the deployment platform down.
+
+    Past the last one on purpose. This node is reached with a platform down long
+    before the list is spent - the rollback fails, the flag revert is still ahead
+    - and that case is about which candidate comes next. This one is about the
+    other ending: the platform took away everything that was left.
+    """
+    return _a_walk_at(incident_id, candidates, index=len(candidates) - 1) \
+        .model_copy(update={"unreachable_platforms": [DEPLOYMENT_PLATFORM]})
+
+
+def _what_it_said_names(*wanted: str) -> Assertion[StateDelta]:
+    """The narration mentions each of these, wherever it puts them.
+
+    Matched on substrings rather than on a whole sentence, because what is being
+    held is which facts a person is given and not the prose around them. A test
+    pinning the wording would fail on every rewording and pass a sentence that
+    dropped a fact while keeping the shape.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        said = "" if updates.narration is None else (
+            f"{updates.narration.action} {updates.narration.detail}"
+        )
+        missing = [one for one in wanted if one not in said]
+
+        if missing:
+            raise AssertionError(
+                f"Expected what the walk said to name {missing}, and it said "
+                f"[{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_it_said_does_not_name(*unwanted: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        said = "" if updates.narration is None else (
+            f"{updates.narration.action} {updates.narration.detail}"
+        )
+        present = [one for one in unwanted if one in said]
+
+        if present:
+            raise AssertionError(
+                f"Expected what the walk said not to name {present}, and it said "
+                f"[{said}]."
             )
 
         return True

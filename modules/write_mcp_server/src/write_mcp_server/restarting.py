@@ -35,7 +35,10 @@ from typing import Any, Final, Protocol
 
 import httpx
 from argus_core import SettingsSlice
-from argus_core.models import RestartedService
+from argus_core.mcp_transport import an_unreachable_platform
+from argus_core.models import DEPLOYMENT_PLATFORM, RestartedService
+
+from write_mcp_server.argocd import could_not_be_reached
 
 # The action Argo CD runs, by the name it is registered under. A vendor's own
 # vocabulary, so it is named once here rather than spelled at the call.
@@ -140,6 +143,31 @@ class ServiceNotRestarted(Exception):
     """
 
 
+def _not_restarted(said: str, error: Exception) -> ServiceNotRestarted:
+    """This module's failure, marked where the platform was never reached.
+
+    One exception still, because what a caller does about this restart is
+    unchanged: it did not happen. What the mark adds is about the other three
+    actions, not this one - the platform they share is not answering either, so
+    reaching for them costs a request each to learn what is already known.
+
+    Reached only from before the action is accepted, and that is the whole of
+    why it needs no flag saying so. The other three actions mark a failure that
+    came after they changed something and send the descriptor with it; a restart
+    cannot, and the reason is verification rather than undo. Once the platform
+    has taken the action, pods may be rolling this second and nothing here can
+    establish whether they are - so a walk that narrowed to another action would
+    measure its recovery against a service that may be coming back on its own,
+    and confirm a hypothesis the restart had answered. The failures after that
+    point raise `ServiceNotRestarted` plainly and escalate, which is the honest
+    report of a state Argus cannot describe.
+    """
+    if could_not_be_reached(error):
+        return ServiceNotRestarted(an_unreachable_platform(DEPLOYMENT_PLATFORM, said))
+
+    return ServiceNotRestarted(said)
+
+
 def the_pod_start_time(settings: RestartSettings,
                        get: HttpGet = httpx.get) -> ObserveStartTime:
     """Reads when the process now serving a service came up, from the platform.
@@ -225,7 +253,17 @@ def restart_service(
     the start time moved. There is no undo descriptor and no field for one: a
     restart changes no persistent state, so there is nothing to put back (§13).
     """
-    was_started_at = observe(service)
+    try:
+        was_started_at = observe(service)
+    except Exception as error:
+        # The first thing a restart does is ask what is serving, so on a
+        # platform that is down this is where it finds out - and an action that
+        # never reached the request would otherwise report nothing about the
+        # platform at all. Nothing has been asked for yet, so the mark is honest.
+        raise _not_restarted(
+            f"could not read what is serving [{service}]: {error}", error
+        ) from error
+
     url = f"{settings.argocd_base_url}{_restart_path(settings, service)}"
 
     try:
@@ -237,8 +275,8 @@ def restart_service(
         )
         response.raise_for_status()
     except Exception as error:
-        raise ServiceNotRestarted(
-            f"could not restart [{service}] at [{url}]: {error}"
+        raise _not_restarted(
+            f"could not restart [{service}] at [{url}]: {error}", error
         ) from error
 
     return RestartedService(

@@ -34,7 +34,12 @@ from unittest.mock import MagicMock, create_autospec
 
 import httpx
 import pytest
-from argus_core.mcp_transport import EXHAUSTED_ACTION_MARKER
+from argus_core.mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_MARKER,
+    UNREACHABLE_PLATFORM_MARKER,
+    what_was_left_behind,
+)
 from argus_core.models import AutoscalerUndo, AutoscalingRestored
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from write_mcp_server.pinning import (
@@ -634,6 +639,138 @@ def test_an_autoscaler_with_no_room_refuses_in_a_way_a_caller_can_recognise() ->
         .then(_the_refusal_says_the_action_is_exhausted())
 
 
+@pytest.mark.unit
+def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() -> None:
+    # A pin begins by asking the platform what the application is made of, so on
+    # a platform that is down this is where it finds out. Nothing has been
+    # touched, which is what makes the report honest.
+    platform = a_platform()
+    platform.get.side_effect = httpx.ConnectError("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachable() -> None:
+    # The suspension is the first thing a pin changes, so a platform that will
+    # not take it has left the estate as it found it.
+    platform = a_platform()
+    platform.put.side_effect = None
+    platform.put.return_value = _answering(503)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_platform_that_died_before_a_pin_that_changed_nothing_is_unreachable() -> None:
+    # An application nobody was reconciling needs no suspension, so the patch is
+    # the first write - and a platform that stopped answering before it took
+    # nothing with it.
+    platform = a_platform(reconciling_itself=False)
+    platform.post.side_effect = httpx.ConnectError("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_pin_that_left_sync_suspended_says_so_and_still_reports_the_platform() -> None:
+    # The last of the three. The platform is gone and the floor never moved, so
+    # what is left behind is the suspension alone - and it travels on the
+    # failure, so the walk can narrow itself and still know an application is
+    # sitting un-reconciled.
+    #
+    # `min_replicas_asked_for` is the ceiling only while the arrangement's
+    # ceiling is at or below the most replicas Argus may ask for. It is six here,
+    # so the two coincide; a case that raised the ceiling past that cap would
+    # have to name the cap instead.
+    platform = a_platform(reconciling_itself=True)
+    platform.post.side_effect = httpx.ConnectError("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            _it_is_reported_as_an_unreachable_platform(),
+            _it_says_what_it_left_behind(AutoscalerUndo(
+                application=SOME_APPLICATION,
+                was_min_replicas=THE_FLOOR,
+                min_replicas_asked_for=THE_CEILING,
+                was_syncing_itself=True
+            ))
+        ))
+
+
+@pytest.mark.unit
+def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -> None:
+    # Reachable, and this patch is what it would not take. The restart and the
+    # scale-out are still worth reaching for, and what a person has to look at
+    # is the refusal rather than the platform.
+    platform = a_platform(reconciling_itself=False)
+    platform.post.side_effect = None
+    platform.post.return_value = _answering(400)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
+
+
+def _answering(status: int) -> httpx.Response:
+    """One of the platform's own answers, as `raise_for_status` will read it."""
+    return httpx.Response(
+        status_code=status,
+        json={},
+        request=httpx.Request("PUT", DONT_CARE_URL)
+    )
+
+
+def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, PinRefused):
+            raise AssertionError(
+                f"Expected the pin to be refused, and what was raised was "
+                f"{raised!r}."
+            )
+
+        if UNREACHABLE_PLATFORM_MARKER not in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to report a platform that could not be "
+                f"reached, and it reported [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, PinRefused):
+            raise AssertionError(
+                f"Expected the pin to be refused, and what was raised was "
+                f"{raised!r}."
+            )
+
+        if UNREACHABLE_PLATFORM_MARKER in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to be reported as this action's own, and "
+                f"it reported a platform that could not be reached: [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
     """The refusal carries the marker the transport turns into a type.
 
@@ -922,6 +1059,35 @@ def _it_reports_restored(floor: bool,
             raise AssertionError(
                 f"Expected the floor put back to be [{floor}] and automated "
                 f"sync to be [{automated_sync}], and it reported {reported}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_what_it_left_behind(
+    expected: AutoscalerUndo
+) -> Assertion[Exception | None]:
+    """The refusal carries the descriptor, and carries the right one.
+
+    The third of the three, for the same reason and with the same shape. Not
+    lifted anywhere shared: each compares a different descriptor type, and one
+    version would take the union and stop telling a pin's from a scale-out's.
+    """
+    def assertion(raised: Exception | None) -> bool:
+        if LEFT_BEHIND_MARKER not in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to say what it left behind, and it said "
+                f"[{raised}]."
+            )
+
+        carried = what_was_left_behind(str(raised))
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the refusal to leave {expected!r} to be put back, it "
+                f"left {carried!r}."
             )
 
         return True

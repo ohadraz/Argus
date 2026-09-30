@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
     Alert,
     FailureMode,
     FlagUndo,
@@ -166,6 +167,83 @@ def test_a_walk_out_of_candidates_and_rounds_looks_for_a_permanent_fix() -> None
         ) \
         .then(
             _the_status_is(IncidentStatus.FIXING)
+        )
+
+
+@pytest.mark.unit
+def test_a_walk_out_of_reachable_candidates_escalates_rather_than_investigating() -> None:
+    # Another round would re-read the same evidence and arrive at candidates on
+    # the same dead platform, so what looks like a walk with rounds left is a walk
+    # with nothing left to do. The rounds are there, and they cannot help.
+    Scenario() \
+        .given(
+            a_walk_whose_platform_is_down := _an_incident(
+                candidates=[_a_candidate(), _a_candidate()],
+                candidate_index=2,
+                action_outcome="platform-unreachable",
+                unreachable_platforms=[DEPLOYMENT_PLATFORM],
+                rounds=1
+            )
+        ) \
+        .when(
+            lambda: status_after(a_walk_whose_platform_is_down, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.ESCALATED)
+        )
+
+
+@pytest.mark.unit
+def test_a_walk_with_a_reachable_candidate_left_is_still_mitigating() -> None:
+    # The case that decides where this belongs, and the one the obvious
+    # implementation gets wrong. At the moment the rollback comes back, the
+    # platform is down and nothing is confirmed - both true - and the flag revert
+    # is still ahead at a valid index. A branch asked before the walk's own
+    # arithmetic returns `escalated` here and ends the incident this whole change
+    # exists to mitigate.
+    #
+    # Which is why the platform turns the past-the-end tail into an escalation
+    # rather than standing in front of the index check: a rule that cannot fire
+    # while a reachable candidate remains cannot make this mistake.
+    Scenario() \
+        .given(
+            a_walk_with_the_flag_still_ahead := _an_incident(
+                candidates=[_a_candidate(), _a_candidate()],
+                candidate_index=1,
+                action_outcome="platform-unreachable",
+                unreachable_platforms=[DEPLOYMENT_PLATFORM],
+                rounds=1
+            )
+        ) \
+        .when(
+            lambda: status_after(a_walk_with_the_flag_still_ahead, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.MITIGATING)
+        )
+
+
+@pytest.mark.unit
+def test_a_platform_that_went_down_does_not_undo_a_confirmed_mitigation() -> None:
+    # The walk reached the flag revert, it worked, and the platform is still down.
+    # The incident is mitigated: what an unreachable platform took away is actions
+    # nobody needs any more, and a status derived from it here would report the
+    # one ending this scenario exists to reach as an escalation.
+    Scenario() \
+        .given(
+            a_walk_the_flag_revert_saved := _an_incident(
+                candidates=[_a_candidate(), _a_candidate()],
+                candidate_index=2,
+                action_outcome="confirmed",
+                unreachable_platforms=[DEPLOYMENT_PLATFORM],
+                rounds=1
+            )
+        ) \
+        .when(
+            lambda: status_after(a_walk_the_flag_revert_saved, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.MITIGATED)
         )
 
 

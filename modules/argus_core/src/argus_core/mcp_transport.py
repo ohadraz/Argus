@@ -31,15 +31,19 @@ event loop per call raised the moment a caller already had one.
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
+from contextlib import suppress
 from types import TracebackType
 from typing import Any, Final, Self
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, TextContent
+
+from argus_core.models.undo_descriptor import UndoDescriptor, parse_undo_descriptor
 
 # MCP's own vocabulary, not Argus's. A tool answering with something that is not
 # already a JSON object - a list of log lines, a list of buckets - has it wrapped
@@ -59,6 +63,27 @@ SHUTDOWN_SECONDS: Final = 5.0
 # sentence somebody will rewrite; and prefixed with the project's own name so that
 # nothing a tool says by accident can be read as saying this.
 EXHAUSTED_ACTION_MARKER: Final = "argus:action-exhausted"
+
+# The same convention for the other thing a write tool can report without having
+# failed at what it was asked: that the platform it acts through was not there to
+# be asked. Its own token rather than a second reading of the one above, because
+# the two mean opposite things to a caller - one action is spent, against every
+# action through that platform being unavailable.
+UNREACHABLE_PLATFORM_MARKER: Final = "argus:platform-unreachable"
+
+# What precedes the description of a change a failing action left behind, where
+# it left one. Its own token rather than a position in the sentence, because what
+# follows the marker above is prose somebody will rewrite and a payload found by
+# counting words is a payload lost the first time one is added.
+#
+# The descriptor follows it as plain JSON, read out of the content block's own
+# text rather than out of the `repr` of it that the failure's message is built
+# from. The distinction is not cosmetic: a `repr` escapes a quote, so a revision
+# message with an apostrophe in it arrives as `o\'brien` and no longer parses -
+# and the payload is only ever inside a `repr` because one line below chose to
+# display it that way. Read where it is structured and the problem is not there
+# to be encoded around.
+LEFT_BEHIND_MARKER: Final = "argus:left-behind="
 
 
 class McpToolError(RuntimeError):
@@ -92,8 +117,70 @@ class ActionExhausted(McpToolError):
     """
 
 
+class PlatformUnreachable(McpToolError):
+    """A tool was reached, and the platform it acts through was not.
+
+    The other refusal that is not a fault of the action. The tier was there, it
+    understood what was asked, and the thing it would have asked on Argus's
+    behalf did not answer - refused the connection, took longer than the request
+    may take, or reported that its own API is unavailable. Nothing was changed,
+    so there is nothing to undo and nothing to judge.
+
+    What makes it worth its own type rather than a message is that it is never
+    about one action. Four of the five generic mitigations act through the
+    deployment platform, so a platform that is not answering has taken four
+    actions away at once - and a caller's right next move is to pass over the
+    rest of them and reach for whatever acts through something else, which is a
+    different move from either trying again or waking somebody.
+
+    Carries no platform of its own. Which platform an action acts through is a
+    property of its kind (`argus_core.models.action`), so a caller holding the
+    action it just attempted can already say it - and a name parsed back out of
+    a marker would be a second source for a fact that is already derivable, free
+    to disagree with the first. The platform is named in what is *said*, for
+    whoever reads the failure.
+
+    It does carry `undo_descriptor`, and that is the one thing a caller cannot
+    derive. Two of the four actions through the deployment platform suspend its
+    reconciliation before doing what they were asked, so a platform lost after
+    that point has taken every action through it away *and* left an application
+    un-reconciled. A caller told only the first would pass over the remaining
+    candidates believing the estate untouched.
+
+    `None` where nothing landed, which is most of the time. The field means
+    "this is what I left behind", not "something may have been left behind" - a
+    descriptor invented where none was sent would have the walk record a change
+    nobody made.
+
+    The descriptor describes a change this tier *believes* it made, not one the
+    platform confirmed: a suspension whose response was lost is reported here
+    exactly as one that never landed. Restoring reconciliation to the state it
+    is already in costs nothing and fails harmlessly, so the two are
+    indistinguishable and it does not matter today. It would matter for a
+    descriptor whose undo is not idempotent, and there is none yet.
+
+    A subclass of `McpToolError` for `ActionExhausted`'s reason: a caller that
+    does not know about this catches it exactly as it always did.
+
+    Recognised here rather than in the tier's own client, because this is the
+    point where `isError` becomes an exception, and a distinction drawn anywhere
+    later would be a second reading of the same field.
+    """
+
+    def __init__(self, said: str,
+                 undo_descriptor: UndoDescriptor | None = None) -> None:
+        super().__init__(said)
+        self.undo_descriptor = undo_descriptor
+
+
 class McpUnreachable(RuntimeError):
-    """No session to the server could be had at all."""
+    """No session to the server could be had at all.
+
+    Not `PlatformUnreachable`, and the difference is what a caller does next. If
+    no session can be had, every action is unavailable whatever platform it acts
+    through and there is nothing left to narrow to; if a platform is down, the
+    actions on the other platform are still there to be tried.
+    """
 
 
 def an_exhausted_action(said: str) -> str:
@@ -110,6 +197,96 @@ def an_exhausted_action(said: str) -> str:
     holding a copy each is how a wire word comes to be spelled two ways.
     """
     return f"{EXHAUSTED_ACTION_MARKER} {said}"
+
+
+def an_unreachable_platform(platform: str, said: str,
+                            undo_descriptor: UndoDescriptor | None = None) -> str:
+    """`said`, marked so a caller recognises a platform that was not there.
+
+    For a tool to wrap the words of a failure it raises when the platform it acts
+    through did not answer. Unlike `an_exhausted_action`, this is *not* restricted
+    to a failure that changed nothing: an action that suspended reconciliation and
+    then lost the platform passes what it left behind as `undo_descriptor`, and
+    the caller is told both facts. Restricting it would mean the walk narrowed
+    itself or not depending on which call the outage happened to land on.
+
+    Two clauses replace that restriction, and the second is the load-bearing one.
+    A marked failure **says what it left behind**. And an action that may have
+    taken effect, and whose effect cannot be established, **does not mark at all**
+    - not for want of a descriptor, but because every verification after it is
+    unreliable: a service that may be restarting makes the next action's recovery
+    unattributable, and a hypothesis confirmed against it would be confirmed
+    wrongly.
+
+    `platform` is named in the message rather than carried on the exception, for
+    the reason `PlatformUnreachable` gives: what a caller branches on comes from
+    the action's kind, and this is what a person reads.
+    """
+    marked = f"{UNREACHABLE_PLATFORM_MARKER} {platform} {said}"
+
+    if undo_descriptor is None:
+        return marked
+
+    return (
+        f"{marked} {LEFT_BEHIND_MARKER}"
+        f"{undo_descriptor.model_dump_json(exclude_none=True)}"
+    )
+
+
+def what_was_left_behind(spoken: str) -> UndoDescriptor | None:
+    """The descriptor a failure carried, or `None` where it carried none.
+
+    Given what the tool actually *said* - the content block's own text - and not
+    a `repr` of it. A `repr` escapes the quotes inside, so a revision message
+    with an apostrophe would arrive as `o\\'brien` and stop being JSON.
+
+    The descriptor runs to the end of the message, because JSON is not
+    self-terminating in a way a split can find: an object with a space inside it
+    would be cut in half by taking the first word. Nothing follows it, which is
+    what makes that safe, and what `an_unreachable_platform` guarantees by
+    appending it last.
+
+    A payload that will not parse is treated as no payload rather than raised on.
+    What is in hand at this point is already a failure, and replacing a caller's
+    "the platform did not answer" with "the descriptor did not parse" would lose
+    the fact the caller acts on in order to report one it cannot.
+    """
+    _, _, payload = spoken.partition(LEFT_BEHIND_MARKER)
+
+    if not payload:
+        return None
+
+    with suppress(Exception):
+        return parse_undo_descriptor(json.loads(payload))
+
+    return None
+
+
+def _the_words_of(result: CallToolResult) -> str:
+    """Everything the tool said, joined, with nothing escaped on the way.
+
+    A failed call comes back as content blocks rather than as a string, and only
+    the text ones carry words. Anything else it returned is not a sentence and
+    has no marker in it.
+    """
+    return " ".join(
+        block.text for block in result.content if isinstance(block, TextContent)
+    )
+
+
+def without_the_payload(said: str) -> str:
+    """`said` with the encoded descriptor taken out of it.
+
+    Because the same string is what a person reads - in the timeline, in the
+    postmortem, in a Slack line - and a paragraph of base64 in the middle of a
+    sentence tells them nothing the outcome beside it has not already said.
+
+    Here rather than at each caller, because the encoding is this module's and a
+    caller cannot strip what it was never told the shape of.
+    """
+    before, _, _ = said.partition(LEFT_BEHIND_MARKER)
+
+    return before.strip()
 
 
 class McpClient:
@@ -390,9 +567,18 @@ def _answered(name: str, result: CallToolResult) -> object:
     """What the tool said, unwrapped, or the error it reported instead."""
     if result.isError:
         said = f"MCP tool call [{name}] failed: {result.content!r}"
+        # What the tool said, rather than how the line above displays it. The
+        # two differ by a `repr`, which escapes the quotes inside a payload and
+        # would have a descriptor carrying an apostrophe arrive as something
+        # that is no longer JSON. The markers are looked for here for the same
+        # reason: one reading of one string, not one of each.
+        spoken = _the_words_of(result)
 
-        if EXHAUSTED_ACTION_MARKER in said:
+        if EXHAUSTED_ACTION_MARKER in spoken:
             raise ActionExhausted(said)
+
+        if UNREACHABLE_PLATFORM_MARKER in spoken:
+            raise PlatformUnreachable(said, what_was_left_behind(spoken))
 
         raise McpToolError(said)
 

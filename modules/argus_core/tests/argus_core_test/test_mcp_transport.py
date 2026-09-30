@@ -25,7 +25,9 @@ from argus_core.mcp_transport import (
     McpClient,
     McpToolError,
     McpUnreachable,
+    PlatformUnreachable,
 )
+from argus_core.models import DeploymentRollbackUndo, UndoDescriptor
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from pydantic import TypeAdapter
@@ -45,6 +47,21 @@ A_COUNT = TypeAdapter(int)
 
 NOTHING_IS_LISTENING_HERE = "http://127.0.0.1:8199/mcp"
 DONT_CARE_TOOL = "say_something"
+# The platform the double's refusal names. A value the test owns rather than the
+# production spelling imported, because what is asserted is that whatever the
+# tier names travels intact - not that both sides agree with one constant.
+PLATFORM = "some-deployment-platform"
+# What the double leaves behind when it loses the platform mid-action, and the
+# words it says about it. A real descriptor rather than an invented shape,
+# because what is asserted is that this exact value survives the crossing - and a
+# shape production never produces would prove nothing about the one it does.
+WHAT_THE_TIER_SAID = "stopped answering after reconciliation was suspended"
+WHAT_WAS_LEFT_BEHIND = DeploymentRollbackUndo(
+    application="some-application",
+    was_on_history_id=41,
+    was_on_revision="0f1e2d3",
+    was_syncing_itself=True
+)
 
 
 @pytest.fixture
@@ -193,6 +210,158 @@ def test_a_server_that_cannot_be_reached_is_reported_as_unreachable() -> None:
         .then(
             an_error_was_raised(McpUnreachable)
         )
+
+
+@pytest.mark.component
+def test_a_refusal_the_server_marked_as_an_unreachable_platform_says_so() -> None:
+    """A tool that could not reach the platform it acts through is its own answer.
+
+    The distinction the walk narrows itself on. Four of the five generic
+    mitigations act through one deployment platform, so a platform that is not
+    answering has taken four actions away at once - and a caller that read that
+    as this one action failing would escalate while a flag it could revert in
+    seconds sat untried. The marker crosses the wire and arrives as a type, for
+    the reason an exhausted action does: the alternative is matching on the words
+    of a sentence somebody will rewrite.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_as_an_unreachable_platform)) \
+            .then(all_of(
+                _what_was_raised_was(PlatformUnreachable),
+                _what_was_said_names(PLATFORM)
+            ))
+
+
+@pytest.mark.component
+def test_an_ordinary_refusal_is_not_read_as_an_unreachable_platform(
+    running_double: RunningDouble
+) -> None:
+    """A broken tool is still a broken tool.
+
+    The other half, and the one that decides whether the first is worth having: a
+    transport that read every refusal as an unreachable platform would pass the
+    test above and quietly have the walk write off four actions whenever one tool
+    was merely broken.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(_asking(running_double, _refusing_once_and_counting)) \
+        .then(all_of(
+            _what_was_raised_was(McpToolError),
+            _what_was_raised_was_not(PlatformUnreachable)
+        ))
+
+
+@pytest.mark.component
+def test_an_unreachable_platform_is_not_reported_as_an_unreachable_server() -> None:
+    """A reachable server whose platform is down is not a server that is gone.
+
+    They look alike and mean opposite things. If the write server is gone, every
+    action is unavailable whatever platform it acts through and there is nothing
+    left to narrow to; if a platform is down, the actions on the other platform
+    are still there to be tried. The types cannot collapse - one is an
+    `McpToolError` and the other a `RuntimeError` - so what this holds is the
+    reporting: the platform is named when it is the platform, and not named when
+    the session itself could not be had.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_as_an_unreachable_platform)) \
+            .then(all_of(
+                _what_was_raised_was_not(McpUnreachable),
+                _what_was_said_names(PLATFORM)
+            ))
+
+
+@pytest.mark.component
+def test_a_server_that_could_not_be_reached_names_no_platform() -> None:
+    """And the other direction: nothing was reached, so nothing is known.
+
+    Separate from the test above it rather than folded in, because this one needs
+    no server and that one needs a running double - and a single test that both
+    starts a double and points at a dead port would be two arrangements holding
+    one claim.
+    """
+    Scenario() \
+        .given(NOTHING_IS_LISTENING_HERE) \
+        .when(attempting(_asking_a_client_at(NOTHING_IS_LISTENING_HERE))) \
+        .then(all_of(
+            an_error_was_raised(McpUnreachable),
+            _nothing_was_said_about_a_platform()
+        ))
+
+
+@pytest.mark.component
+def test_a_platform_lost_after_something_landed_carries_what_it_left_behind() -> None:
+    """The failure that is both: the platform is gone and the estate changed.
+
+    Two of the four actions through this platform change something before the
+    thing they were asked for - they suspend its reconciliation first, because it
+    refuses otherwise. A platform that stops answering after that point has taken
+    every action through it away *and* left an application un-reconciled, and a
+    caller has to be told both: it narrows itself on the first, and something has
+    to put back the second.
+
+    Carried on the failure because there is nowhere else. A tool that failed
+    returns no structured content, so the one string a failure may carry is the
+    only channel there is - which is the problem the marker already solved, doing
+    a little more work.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(
+                double, _refusing_as_an_unreachable_platform_that_changed_something
+            )) \
+            .then(all_of(
+                _what_was_raised_was(PlatformUnreachable),
+                _what_it_left_behind_is(WHAT_WAS_LEFT_BEHIND),
+                _what_was_said_names(PLATFORM)
+            ))
+
+
+@pytest.mark.component
+def test_a_platform_lost_before_anything_landed_carries_nothing_to_put_back() -> None:
+    """The ordinary case, and the one that says the field means something.
+
+    Most of the time the platform is gone before the first write, so there is
+    nothing to put back and the failure says so by carrying nothing. A transport
+    that filled this in regardless would have every walk record a change nobody
+    made.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_as_an_unreachable_platform)) \
+            .then(all_of(
+                _what_was_raised_was(PlatformUnreachable),
+                _it_left_nothing_behind()
+            ))
+
+
+@pytest.mark.component
+def test_what_a_person_reads_is_not_the_payload() -> None:
+    """The descriptor travels in the words and must not be read as words.
+
+    Whatever encodes it is in the same string a human is shown - the timeline,
+    the postmortem, a Slack line - so the sentence has to survive being carried
+    on. Asserted here rather than left to whoever strips the marker, because the
+    encoding is this module's and a caller cannot strip what it was never told
+    about.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(
+                double, _refusing_as_an_unreachable_platform_that_changed_something
+            )) \
+            .then(all_of(
+                _what_was_said_names(PLATFORM),
+                _what_was_said_names(WHAT_THE_TIER_SAID)
+            ))
 
 
 @pytest.mark.component
@@ -435,3 +604,113 @@ def _refusing_as_exhausted(client: McpClient) -> _Attempt:
         return _Attempt(raised=refusal)
 
     return _Attempt()
+
+
+def _refusing_as_an_unreachable_platform(client: McpClient) -> _Attempt:
+    try:
+        client.call("refuse_as_unreachable_platform", SOMETHING.validate_python)
+    except Exception as refusal:
+        return _Attempt(raised=refusal)
+
+    return _Attempt()
+
+
+def _what_was_said_names(platform: str) -> Assertion[_Attempt]:
+    """The platform is in the words, for whoever reads the failure.
+
+    Asserted separately from the type because the two carry different halves: the
+    type is what a walk branches on, and the words are what a person reads. A
+    platform named only in the type would leave the message saying which action
+    failed and not which platform took it away.
+    """
+    def assertion(attempt: _Attempt) -> bool:
+        if platform not in str(attempt.raised):
+            raise AssertionError(
+                f"Expected the failure to name {platform!r}, "
+                f"and it said: {attempt.raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_said_about_a_platform() -> Assertion[Exception | None]:
+    """A server that was never reached names no platform, because none is known.
+
+    The half that makes the claim above worth having. A transport that reported
+    every unreachable thing the same way would satisfy every assertion about the
+    platform and tell a walk that its four platform actions were gone when what
+    was actually gone was the write server and all five with it.
+
+    Takes what `attempting` yields - an `Exception | None` - rather than an
+    `_Attempt`, because the step it judges is the one that points at a dead port
+    and has no client to come back through.
+    """
+    def assertion(raised: Exception | None) -> bool:
+        if PLATFORM in str(raised):
+            raise AssertionError(
+                f"Expected a server that could not be reached to name no "
+                f"platform, and it said: {raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _refusing_as_an_unreachable_platform_that_changed_something(
+    client: McpClient
+) -> _Attempt:
+    try:
+        client.call(
+            "refuse_as_unreachable_platform_mid_action", SOMETHING.validate_python
+        )
+    except Exception as refusal:
+        return _Attempt(raised=refusal)
+
+    return _Attempt()
+
+
+def _what_it_left_behind_is(expected: UndoDescriptor) -> Assertion[_Attempt]:
+    """The descriptor arrived, and arrived as itself.
+
+    Compared as a value rather than checked for presence, because the whole point
+    of carrying it is that somebody can act on it: a descriptor that survived the
+    crossing with a field lost would put back something other than what was
+    changed, and would look right in every assertion short of this one.
+    """
+    def assertion(attempt: _Attempt) -> bool:
+        carried = getattr(attempt.raised, "undo_descriptor", None)
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the failure to carry {expected!r} as what it left "
+                f"behind, it carries {carried!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_left_nothing_behind() -> Assertion[_Attempt]:
+    """Nothing to put back, said as nothing rather than as an empty something.
+
+    The half that keeps the claim above meaningful. A transport that invented a
+    descriptor where none was sent would satisfy a presence check, and the walk
+    would then record a change nobody made against an action that changed
+    nothing.
+    """
+    def assertion(attempt: _Attempt) -> bool:
+        carried = getattr(attempt.raised, "undo_descriptor", None)
+
+        if carried is not None:
+            raise AssertionError(
+                f"Expected the failure to carry nothing to put back, it carries "
+                f"{carried!r}."
+            )
+
+        return True
+
+    return assertion

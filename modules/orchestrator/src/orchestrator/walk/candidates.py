@@ -16,8 +16,10 @@ from argus_core.models import (
     Attempt,
     FlagChange,
     Hypothesis,
+    Platform,
     WhatWouldBeTried,
     the_identity_of,
+    the_platform_of,
 )
 
 
@@ -65,7 +67,10 @@ def what_each_would_do(candidates: Sequence[Hypothesis],
 
 
 def the_next_worth_trying(
-    candidates: Sequence[WhatWouldBeTried], attempts: Sequence[Attempt], start: int
+    candidates: Sequence[WhatWouldBeTried],
+    attempts: Sequence[Attempt],
+    start: int,
+    unreachable_platforms: Sequence[Platform] = ()
 ) -> tuple[int, Hypothesis] | None:
     """The first candidate from `start` onwards that is worth an experiment,
     with the index it sits at - or `None` when the list is spent.
@@ -93,13 +98,38 @@ def the_next_worth_trying(
     prose about the symptom. A restart already tried therefore disqualified
     nothing, and the gate's cap was the only thing standing between the walk
     and restarting the same service once per candidate.
+
+    A third thing disqualifies one, and it is the only one that is not about the
+    candidate at all: the platform its action would act through is not answering.
+    Four of the five generic mitigations reach the estate through the deployment
+    platform, so a platform that failed one of them has failed every candidate
+    that needs it - and trying the next of them buys a second failure and a
+    verification window. What it does not do is end the walk: the flag revert
+    acts through something else, and an incident whose next candidate is one is
+    still an incident Argus can mitigate.
+
+    `unreachable_platforms` is empty until something has actually failed, which is
+    the only way it can be right. Nothing asks a platform in advance whether it is
+    up, because the answer would be about a moment other than the one an action is
+    taken in.
+
+    A candidate nothing would be done about is passed over here as it always was,
+    by `is_actionable`, and never asked which platform it acts through - there is
+    no action to ask about, and asking anyway is the crash this ordering avoids.
     """
     already_tried = {attempt.identity for attempt in attempts}
+    unreachable = set(unreachable_platforms)
 
     for index in range(start, len(candidates)):
         entry = candidates[index]
 
-        if entry.candidate.is_actionable() and entry.identity not in already_tried:
-            return index, entry.candidate
+        if not entry.candidate.is_actionable() or entry.identity in already_tried:
+            continue
+
+        if entry.identity is not None and \
+                the_platform_of(entry.identity.action_type) in unreachable:
+            continue
+
+        return index, entry.candidate
 
     return None

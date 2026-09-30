@@ -631,6 +631,152 @@ def _a_rollout_that_stopped_half_way(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+# The two changes that moved in the control-plane scenario's window, as the
+# platform and the provider report them. Real values rather than invented ones:
+# the revision pair is what `/argocd/io-shop` serves for that scenario, and a
+# rehearsal naming a revision the platform does not hold would have the rollback
+# refused for having nothing to roll back to - an ending that looks like this
+# case's and is reached for the wrong reason.
+THE_REVISION_THAT_WENT_OUT: Final = "5e07d73148d0a704b8fefe5f379bc652bb773655"
+THE_REVISION_BEFORE_IT: Final = "70dbcfde2b549d110a3817d92d60b6dd9786e78b"
+THE_FLAG_THAT_WENT_ON: Final = "monthly-spend-feature"
+
+
+def _a_deployment_ranked_above_a_flag(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by two candidates in a fixed order.
+
+    The one rehearsal here whose rewrite is about the *order* rather than the
+    conclusion. What the case replaying it asserts is that Argus reaches for the
+    rollback, is told the platform cannot carry it, passes over the other actions
+    that go through that platform, and ends on the flag revert - and none of that
+    happens unless the deployment outranks the flag. So both candidates are
+    named, deployment first, and the confidences are close enough that the order
+    is a judgement rather than a formality.
+
+    Borrowed from the flag walk rather than the deployment one, because the
+    answers *after* this are what decide which set is replayable: this world ends
+    with a flag reverted and a fault still in the code, so the fix the borrowed
+    walk proposes is the fix this walk would propose, and the postmortem is
+    written about the same incident. The deployment walk ends with no patch at
+    all and would run the queue dry at Code-Fix.
+
+    What it cannot prove is the thing it fabricates. A real model looking at this
+    window might rank the flag first, which is a legitimate reading - the flag
+    change is corroborated and the revert is cheaper - and 7.2 exists to find out.
+    A green replay of this set says the walk narrows correctly *given* that
+    ranking, and says nothing whatever about whether the ranking is what comes
+    back.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.71,
+                            "failure_mode": "bad-deployment",
+                            "faulting_service": None,
+                            "from_state": THE_REVISION_BEFORE_IT,
+                            "subject": (
+                                f"revision {THE_REVISION_THAT_WENT_OUT} "
+                                f"(spend_summary.py)"
+                            ),
+                            "summary": (
+                                f"Two changes reached the account page in the "
+                                f"same window and this is the closer of them: "
+                                f"revision {THE_REVISION_THAT_WENT_OUT} went out "
+                                f"at the onset minute and reworks the code path "
+                                f"the failing pages run. The error rate steps "
+                                f"from the shop's 1% baseline to a third while "
+                                f"every quantile and both resource gauges hold "
+                                f"flat, which is a code path that fails rather "
+                                f"than one that slows. Returning the deployment "
+                                f"to {THE_REVISION_BEFORE_IT} is the more "
+                                f"specific move of the two available."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": "2026-09-28T21:38:00Z",
+                                    "claim": (
+                                        f"deployed revision "
+                                        f"{THE_REVISION_THAT_WENT_OUT}, from "
+                                        f"deploy"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-28T21:38:00Z",
+                                    "claim": (
+                                        "account page request failed - "
+                                        "ZeroDivisionError: division by zero at "
+                                        "src/io_shop/spend_summary.py:47"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-28T21:39:00Z",
+                                    "claim": (
+                                        "error rate 0.01 -> 0.33 with p50/p95/p99 "
+                                        "and cpu_used_cores unmoved"
+                                    )
+                                }
+                            ],
+                            "to_state": THE_REVISION_THAT_WENT_OUT
+                        },
+                        {
+                            "confidence": 0.63,
+                            "failure_mode": "feature-flag-toggle",
+                            "faulting_service": None,
+                            "from_state": "off",
+                            "subject": THE_FLAG_THAT_WENT_ON,
+                            "summary": (
+                                f"The runner-up, and the same symptom from the "
+                                f"other direction: {THE_FLAG_THAT_WENT_ON} was "
+                                f"switched on for two in five account pages in "
+                                f"the same window, and the shop's own "
+                                f"evaluations move with the failures. It is "
+                                f"ranked second because a flag at 40% and an "
+                                f"error rate at a third agree only "
+                                f"approximately, where the deploy lands on the "
+                                f"onset minute exactly - but switching it back "
+                                f"off would end the incident either way."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": "2026-09-28T21:38:00Z",
+                                    "claim": (
+                                        f"feature flag {THE_FLAG_THAT_WENT_ON} "
+                                        f"was switched on"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-28T21:39:00Z",
+                                    "claim": (
+                                        f"{THE_FLAG_THAT_WENT_ON}=off 120 / on "
+                                        f"80 - 200 evaluations"
+                                    )
+                                }
+                            ],
+                            "to_state": "on"
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answer has to be rewritten, by the set being fabricated, and which tool
 # call marks it. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -664,7 +810,11 @@ _THE_ANSWER_THAT_HAS_TO_DIFFER: Final[
     # `both` alone, for the reason above it: the two cases that replay this are
     # collected in that mode only.
     "both-half-finished-rollout": (THE_TOOL_THAT_ANSWERS,
-                                   _a_rollout_that_stopped_half_way)
+                                   _a_rollout_that_stopped_half_way),
+    # `both` alone, for the reason above it: the case that replays this is
+    # collected in that mode only.
+    "both-control-plane-unreachable": (THE_TOOL_THAT_ANSWERS,
+                                       _a_deployment_ranked_above_a_flag)
 }
 
 

@@ -9,6 +9,7 @@ from argus_core.events import (
     ActionTaken,
     AgentInvoked,
     MitigationResumed,
+    PlatformUnavailable,
     Publisher,
     VerdictReached,
     nobody,
@@ -20,7 +21,9 @@ from argus_core.models import (
     IncidentStatus,
     UnreadVerdict,
     leaves_something_to_put_back,
+    the_actions_through,
     the_direction_of,
+    the_platform_of,
     the_service_addressed_by,
     the_subject_of,
 )
@@ -164,6 +167,45 @@ def mitigation_node(
     # because the flag really was set and something has to put it back.
     if state.hypothesis is not None and result.verdict is not Verdict.WITHDRAWN:
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
+
+    if result.verdict is Verdict.PLATFORM_UNREACHABLE:
+        # Recorded here because here is the only place that holds both halves:
+        # the verdict, and the action it came back from. Which platform an
+        # action acts through is a property of its kind, so the platform is
+        # derived from the action rather than named - the same verdict off a
+        # flag revert means the flag provider is what did not answer, and a
+        # node that wrote the deployment platform either way would have the
+        # walk pass over three candidates that were never affected.
+        #
+        # Added to what the walk already carries rather than replacing it, so a
+        # second platform failing does not forget the first.
+        platform = the_platform_of(state.proposed_action.action_type)
+        # Published here because here is where it was learnt, and before the
+        # candidate that follows - the stream is read as a story in the order it
+        # happened, and an event explaining why later candidates went untried is
+        # only an explanation if it stands before them.
+        #
+        # By the walk rather than by the tier whose call failed. The tier
+        # reported a failed call, which is not yet the fact that a platform is
+        # unavailable to *this incident*, and a tier publishing against an
+        # incident would be publishing about work it cannot see the shape of.
+        #
+        # Once, not once per candidate passed over: the fact is about the
+        # platform, and this is the only place it is learnt.
+        publish(
+            PlatformUnavailable(
+                incident_id=state.incident_id,
+                platform=platform,
+                actions_unavailable=the_actions_through(platform)
+            ),
+            publisher
+        )
+
+        return StateDelta(
+            action_outcome=outcome,
+            unreachable_platforms=[*state.unreachable_platforms, platform],
+            narration=Narration(action="mitigation attempted", detail=result.detail)
+        )
 
     return StateDelta(
         action_outcome=outcome,

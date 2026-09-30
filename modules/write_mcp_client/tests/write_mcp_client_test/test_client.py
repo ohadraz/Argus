@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 from argus_core import WriteMcpEndpoint, get_settings
-from argus_core.mcp_transport import McpClient
+from argus_core.mcp_transport import McpClient, PlatformUnreachable
 from argus_core.models import (
     DeploymentRestored,
     DeploymentRollbackUndo,
@@ -15,7 +15,7 @@ from argus_core.models import (
     UndoDescriptor,
 )
 from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario, calling
+from argus_testkit.scenario import Scenario, attempting, calling
 from write_mcp_client import (
     get_recent_flag_changes,
     restart_service,
@@ -249,6 +249,43 @@ def test_restoring_a_configuration_reaches_the_platform_through_the_real_write_s
                 running_write_mcp_over_a_platform, THE_HISTORY_RUNNING_NOW
             )
         ))
+
+
+@pytest.mark.integration
+def test_an_unreachable_platform_arrives_as_its_own_type_through_the_client(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The whole of what the typed client owes this change, which is nothing. The
+    # marker is recognised once, where a tool's reported error becomes an
+    # exception, so by the time the call returns here the type is already right
+    # and the client has only to stay out of the way. A client that re-read the
+    # failure to classify it would be a second reading of the same field, and
+    # this test fails the day one is added - it catches the type, and a re-wrap
+    # into anything else does not satisfy it.
+    running_write_mcp_over_a_platform.unavailable = True
+
+    Scenario() \
+        .when(
+            attempting(
+                _asking_the_server(lambda client: roll_back_deployment(
+                    SOME_APPLICATION, client=client
+                ))
+            )
+        ) \
+        .then(all_of(_it_came_back_as_an_unreachable_platform()))
+
+
+def _it_came_back_as_an_unreachable_platform() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, PlatformUnreachable):
+            raise AssertionError(
+                f"Expected the call to raise an unreachable platform, and what "
+                f"was raised was {raised!r}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _undoing(undo_descriptor: UndoDescriptor,

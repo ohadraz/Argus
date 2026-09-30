@@ -42,6 +42,7 @@ from argus_core.events import (
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
+    PlatformUnavailable,
     PostmortemWritten,
     RecoveryChecked,
     RememberingFailed,
@@ -51,6 +52,8 @@ from argus_core.events import (
     VerdictReached,
 )
 from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
+    FLAG_PROVIDER,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -72,6 +75,7 @@ from argus_core.models import (
     RetrievalChannel,
     Undone,
     Verdict,
+    the_actions_through,
 )
 from argus_narration.narrating import NarrationLine, build_narration
 from argus_testkit import Assertion, Scenario, all_of
@@ -419,6 +423,78 @@ def test_a_recommendation_names_the_action_somebody_should_take() -> None:
         .then(all_of(
             _the_only_line_marks(some_flag),
             _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_an_unavailable_platform_says_which_actions_went_with_it() -> None:
+    # Without this line an incident mitigated by the one action on a live
+    # platform reads as though Argus preferred that action - which is the record
+    # misstating the reasoning it exists to hold.
+    #
+    # The actions are said rather than only the platform. A reader told a
+    # platform's name has to go and work out which of Argus's five went with it,
+    # from a mapping they may not have; and the answer is what they actually
+    # want, because it says what Argus could not do about the incident they are
+    # now holding.
+    some_outage = PlatformUnavailable(
+        incident_id=new_id(),
+        platform=DEPLOYMENT_PLATFORM,
+        actions_unavailable=the_actions_through(DEPLOYMENT_PLATFORM)
+    )
+
+    Scenario() \
+        .given(some_outage) \
+        .when(lambda: build_narration([some_outage])) \
+        .then(all_of(
+            _the_only_line_marks(DEPLOYMENT_PLATFORM),
+            _the_only_line_says(
+                "restarting", "rolling", "scaling", "autoscaler"
+            ),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_an_unavailable_platform_says_only_the_actions_it_actually_took() -> None:
+    # The half that makes the line worth reading. A sentence naming every action
+    # Argus has would tell a reader the flag revert was gone too - and the flag
+    # revert is the one that ended this incident, so the line would contradict
+    # the line after it.
+    #
+    # Read from the event rather than from the mapping, which is what makes an
+    # old incident still legible: the event says what went away then, and the
+    # mapping says what would go away now.
+    some_outage = PlatformUnavailable(
+        incident_id=new_id(),
+        platform=DEPLOYMENT_PLATFORM,
+        actions_unavailable=the_actions_through(DEPLOYMENT_PLATFORM)
+    )
+
+    Scenario() \
+        .given(some_outage) \
+        .when(lambda: build_narration([some_outage])) \
+        .then(_the_only_line_does_not_say("putting"))
+
+
+@pytest.mark.unit
+def test_a_platform_that_took_one_action_says_that_one() -> None:
+    # Generated from what the event carries rather than written for the platform
+    # that happens to carry four. A line hard-wired to the deployment platform's
+    # phrasing would read as four actions lost whenever the flag provider was the
+    # one that went - and that is the incident where nothing is left to narrow
+    # to, which is the one a reader most needs told accurately.
+    some_outage = PlatformUnavailable(
+        incident_id=new_id(),
+        platform=FLAG_PROVIDER,
+        actions_unavailable=the_actions_through(FLAG_PROVIDER)
+    )
+
+    Scenario() \
+        .given(some_outage) \
+        .when(lambda: build_narration([some_outage])) \
+        .then(all_of(
+            _the_only_line_marks(FLAG_PROVIDER),
+            _the_only_line_says("putting"),
+            _the_only_line_does_not_say("restarting", "rolling", "scaling")))
 
 
 @pytest.mark.unit
@@ -1477,6 +1553,50 @@ def _the_only_line_does_not_mention(unwanted: str) -> Assertion[list[NarrationLi
 
         if unwanted in line.text:
             raise AssertionError(f"Expected no [{unwanted}] in [{line.text}].")
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_says(*wanted: str) -> Assertion[list[NarrationLine]]:
+    """The one line mentions each of these, wherever it puts them.
+
+    Substrings rather than a whole sentence, because what is held is which facts
+    a reader is given and not the prose around them: a test pinning the wording
+    fails on every rewording and passes a sentence that quietly dropped a fact.
+    """
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+        missing = [one for one in wanted if one not in line.text]
+
+        if missing:
+            raise AssertionError(
+                f"Expected the line to say {missing}, and it said [{line.text}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_does_not_say(*unwanted: str) -> Assertion[list[NarrationLine]]:
+    """The pair to the assertion above, for the lines that are as much about what
+    they leave out.
+
+    Its own helper rather than a flag on that one, because the two are different
+    claims and a case usually makes both: what the line has to tell a reader, and
+    what it must not tell them that is false.
+    """
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+        present = [one for one in unwanted if one in line.text]
+
+        if present:
+            raise AssertionError(
+                f"Expected the line not to say {present}, and it said "
+                f"[{line.text}]."
+            )
 
         return True
 

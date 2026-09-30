@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import pytest
 from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
+    FLAG_PROVIDER,
+    PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -41,9 +44,11 @@ from argus_core.models import (
     UnreadVerdict,
     Verdict,
     leaves_something_to_put_back,
+    the_actions_through,
     the_direction_of,
     the_identity_of,
     the_identity_recorded,
+    the_platform_of,
 )
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 
@@ -308,6 +313,82 @@ def test_a_scale_out_leaves_something_a_withdrawal_has_to_put_back() -> None:
         .then(_it_leaves_something_to_put_back(True))
 
 
+@pytest.mark.unit
+def test_the_four_actions_that_reach_the_estate_through_the_deploy_platform_share_it() -> None:
+    # The fact the walk narrows itself on. A platform that is not answering has
+    # taken all four away at once, which is a different thing from one action
+    # failing - and it is only knowable in advance because the kind says which
+    # platform it would act through, without the action having been tried.
+    Scenario() \
+        .given([RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER]) \
+        .when(lambda: [
+            the_platform_of(RESTART_SERVICE),
+            the_platform_of(ROLL_BACK_DEPLOYMENT),
+            the_platform_of(SCALE_OUT),
+            the_platform_of(PIN_AUTOSCALER)
+        ]) \
+        .then(_they_all_act_through(DEPLOYMENT_PLATFORM))
+
+
+@pytest.mark.unit
+def test_a_flag_revert_acts_through_something_else() -> None:
+    # The half that makes the test above worth having. If every kind named one
+    # platform, a platform that went down would take the whole declared set with
+    # it and there would be nothing to narrow to - so what this holds is that
+    # one action survives it.
+    Scenario() \
+        .given(REVERT_FEATURE_FLAG) \
+        .when(lambda: the_platform_of(REVERT_FEATURE_FLAG)) \
+        .then(all_of(
+            _it_acts_through(FLAG_PROVIDER),
+            _it_does_not_act_through(DEPLOYMENT_PLATFORM)
+        ))
+
+
+@pytest.mark.unit
+def test_the_deployment_platform_carries_four_of_the_five_actions() -> None:
+    # What an escalation and a narrated line both have to say: not that a
+    # platform is down, but what it took away. A reader told only the platform's
+    # name has to go and look up which of Argus's actions went with it, which is
+    # the thing saying it at all exists to prevent.
+    Scenario() \
+        .given(DEPLOYMENT_PLATFORM) \
+        .when(lambda: the_actions_through(DEPLOYMENT_PLATFORM)) \
+        .then(_they_are([
+            RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER
+        ]))
+
+
+@pytest.mark.unit
+def test_the_flag_provider_carries_the_one_action_that_survives_it() -> None:
+    # The half that makes the other worth having. Four and one, so a walk that
+    # loses the deployment platform still has somewhere to go - and a reader of
+    # the escalation can see that what is left is the flag revert rather than
+    # nothing.
+    Scenario() \
+        .given(FLAG_PROVIDER) \
+        .when(lambda: the_actions_through(FLAG_PROVIDER)) \
+        .then(_they_are([REVERT_FEATURE_FLAG]))
+
+
+@pytest.mark.unit
+def test_every_kind_is_accounted_for_by_one_platform_or_the_other() -> None:
+    # The claim that keeps the two above from drifting apart as kinds are added.
+    # A sixth mitigation appearing in neither list would be an action nothing
+    # says is unavailable when its platform goes down, and nothing here would
+    # fail - the lists would simply be quietly incomplete.
+    Scenario() \
+        .given([DEPLOYMENT_PLATFORM, FLAG_PROVIDER]) \
+        .when(lambda: sorted(
+            the_actions_through(DEPLOYMENT_PLATFORM)
+            + the_actions_through(FLAG_PROVIDER)
+        )) \
+        .then(_they_are(sorted([
+            REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT,
+            SCALE_OUT, PIN_AUTOSCALER
+        ])))
+
+
 def _it_carries_no_replica_count() -> Assertion[set[str]]:
     def assertion(fields: set[str]) -> bool:
         counts = {field for field in fields if "replica" in field}
@@ -475,6 +556,81 @@ def _it_leaves_something_to_put_back(expected: bool) -> Assertion[bool]:
             raise AssertionError(
                 f"Expected leaving something to put back to be [{expected}], "
                 f"and it was [{leaves}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_acts_through(platform: str) -> Assertion[str]:
+    def assertion(named: str) -> bool:
+        if named != platform:
+            raise AssertionError(
+                f"Expected the action to act through [{platform}], and it acts "
+                f"through [{named}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_does_not_act_through(platform: str) -> Assertion[str]:
+    """Said separately from what it does act through, and not redundant with it.
+
+    The two would be one assertion if there were two platforms for ever. What
+    this catches is the day a third is added and the flag revert is quietly
+    given the deployment platform's name by a mapping that grew a default.
+    """
+    def assertion(named: str) -> bool:
+        if named == platform:
+            raise AssertionError(
+                f"Expected the action not to act through [{platform}], and it "
+                f"does - so nothing survives that platform going down."
+            )
+
+        return True
+
+    return assertion
+
+
+def _they_all_act_through(platform: str) -> Assertion[list[str]]:
+    """Every kind named, and named the same.
+
+    One assertion over the four rather than four tests, because what is claimed
+    is not that each has a platform - it is that they share one. A walk passes
+    over the rest of a platform's candidates by comparing what it derives for
+    each against what failed, and four kinds that each named a platform of their
+    own would pass four separate assertions and narrow nothing.
+    """
+    def assertion(named: list[str]) -> bool:
+        wrong = sorted({one for one in named if one != platform})
+
+        if wrong:
+            raise AssertionError(
+                f"Expected all four to act through [{platform}], and "
+                f"{wrong} was named instead."
+            )
+
+        return True
+
+    return assertion
+
+
+def _they_are(expected: list[str]) -> Assertion[list[str]]:
+    """The kinds named, and named in full.
+
+    Order compared as well as membership, because this list is read out to a
+    person in an escalation and in a narrated line: a set would let the sentence
+    reorder itself between two runs of the same incident, which reads as two
+    different facts.
+    """
+    def assertion(named: list[str]) -> bool:
+        if named != expected:
+            raise AssertionError(
+                f"Expected the actions through that platform to be {expected}, "
+                f"and they are {named}."
             )
 
         return True

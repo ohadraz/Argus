@@ -5,6 +5,7 @@ from unittest.mock import create_autospec
 
 import httpx
 import pytest
+from argus_core.mcp_transport import UNREACHABLE_PLATFORM_MARKER
 from argus_core.models import RestartedService
 from argus_testkit import (
     Assertion,
@@ -484,6 +485,127 @@ def test_a_pod_whose_creation_time_cannot_be_read_reports_none() -> None:
         .then(_the_start_time_read_is(None))
 
 
+@pytest.mark.unit
+def test_a_platform_that_could_not_be_read_before_the_action_is_unreachable() -> None:
+    # The first thing a restart does is ask what is serving, so on a platform
+    # that is down this is where it finds out. Nothing has been asked for yet,
+    # which is what makes the report honest.
+    platform = a_platform_that_cannot_say_what_is_running()
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_platform_that_never_received_the_action_is_unreachable() -> None:
+    platform = a_platform_that_cannot_be_reached()
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_platform_reporting_its_own_api_unavailable_is_unreachable() -> None:
+    platform = a_platform_answering_that_it_is_unavailable()
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_platform_that_refused_the_action_is_not_reported_as_unreachable() -> None:
+    # A credential this platform will not accept for this action. It is
+    # answering, so the scale-out and the pin are still worth reaching for, and
+    # what a person has to look at is this refusal rather than the platform.
+    platform = a_platform_that_refuses_the_action()
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_restart_that_could_not_be_confirmed_is_not_reported_as_unreachable() -> None:
+    # The restriction the marker carries. The platform took the action and then
+    # stopped answering, so a restart may well be rolling right now - and a walk
+    # told only that the platform is unavailable would pass over the remaining
+    # actions believing the estate untouched.
+    platform = a_platform_whose_gauge_fails_after_the_action()
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_process_that_never_changed_is_not_reported_as_unreachable() -> None:
+    # The platform answered everything it was asked and the rollout did not
+    # arrive. Nothing here is evidence about reachability, and reporting it as
+    # such would take three other actions away over a restart that stalled.
+    platform = a_platform_whose_process_never_changes()
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
+
+
+def _restarting(platform: _Platform) -> RestartedService:
+    return restart_service(
+        DONT_CARE_SERVICE,
+        settings=some_settings(),
+        post=platform.post,
+        observe=platform.observe,
+        sleep=dont_care_sleep
+    )
+
+
+def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, ServiceNotRestarted):
+            raise AssertionError(
+                f"Expected the restart to be refused, and what was raised was "
+                f"{raised!r}."
+            )
+
+        if UNREACHABLE_PLATFORM_MARKER not in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to report a platform that could not be "
+                f"reached, and it reported [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, ServiceNotRestarted):
+            raise AssertionError(
+                f"Expected the restart to be refused, and what was raised was "
+                f"{raised!r}."
+            )
+
+        if UNREACHABLE_PLATFORM_MARKER in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to be reported as this action's own, and "
+                f"it reported a platform that could not be reached: [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_action_asked_for_is(expected: dict[str, str],
                              platform: _Platform) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
@@ -714,6 +836,32 @@ def a_platform_that_refuses_the_action() -> _Platform:
 def a_platform_that_cannot_be_reached() -> _Platform:
     platform = a_platform()
     platform.post.side_effect = httpx.ConnectError("connection refused")
+
+    return platform
+
+
+def a_platform_answering_that_it_is_unavailable() -> _Platform:
+    """A platform whose API server is not serving, as its ingress reports it."""
+    platform = a_platform()
+    platform.post.return_value = httpx.Response(
+        status_code=503,
+        json={"error": "upstream connect error"},
+        request=httpx.Request("POST", DONT_CARE_URL)
+    )
+
+    return platform
+
+
+def a_platform_that_cannot_say_what_is_running() -> _Platform:
+    """A platform that is already gone when the first reading is taken.
+
+    The one that matters most and is easiest to miss. A restart begins by asking
+    what is serving now, so on a platform that is down this is what fails - and
+    an action that never reached the request would report nothing about the
+    platform at all unless this reading says so.
+    """
+    platform = a_platform()
+    platform.observe.side_effect = httpx.ConnectError("connection refused")
 
     return platform
 

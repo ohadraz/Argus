@@ -19,6 +19,11 @@ from unittest.mock import MagicMock, create_autospec
 
 import httpx
 import pytest
+from argus_core.mcp_transport import (
+    LEFT_BEHIND_MARKER,
+    UNREACHABLE_PLATFORM_MARKER,
+    what_was_left_behind,
+)
 from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from write_mcp_server.rolling_back import (
@@ -281,6 +286,136 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
         .then(_it_reports_restored(revision=False, automated_sync=False))
 
 
+@pytest.mark.unit
+def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() -> None:
+    # Nothing has been touched when this fails, which is what makes the report
+    # honest: the walk is told that four actions are unavailable and told
+    # nothing about a state somebody has to put back.
+    platform = a_platform()
+    platform.get.side_effect = httpx.ConnectError("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachable() -> None:
+    # The suspension is the first thing a rollback changes, so a platform that
+    # refuses it has left the estate exactly as it found it.
+    platform = a_platform()
+    platform.put.return_value = _answering(503)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+
+@pytest.mark.unit
+def test_a_platform_that_died_before_a_rollback_that_changed_nothing_is_unreachable() -> None:
+    # An application nobody was reconciling needs no suspension, so the rollback
+    # request is the first write - and a platform that stopped answering before
+    # it took nothing with it.
+    platform = a_platform(reconciling_itself=False)
+    platform.post.side_effect = httpx.ConnectError("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+
+@pytest.mark.unit
+def test_a_rollback_that_left_sync_suspended_says_so_and_still_reports_the_platform() -> None:
+    # Both, and the reason it is both is the reason this mode exists at all. The
+    # platform is gone, so every action through it is unavailable - and that is
+    # true however far into this one the outage arrived. Reporting it as this
+    # action's own failure would narrow the walk or not depending on which call
+    # the outage landed on, which is learning the scenario rather than the mode.
+    #
+    # The suspension landed and the revision never moved, so what is left behind
+    # is one boolean this tier put there. It travels on the failure, which is
+    # what makes marking safe: the earlier rule refused the mark because a
+    # suspension was recorded nowhere, and now it is recorded here.
+    platform = a_platform(reconciling_itself=True)
+    platform.post.side_effect = httpx.ConnectError("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(
+            _it_is_reported_as_an_unreachable_platform(),
+            _it_says_what_it_left_behind(DeploymentRollbackUndo(
+                application=SOME_APPLICATION,
+                was_on_history_id=THE_ENTRY_RUNNING,
+                was_on_revision=THE_REVISION_RUNNING,
+                was_syncing_itself=True
+            ))
+        ))
+
+
+@pytest.mark.unit
+def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -> None:
+    # The distinction the change rests on. This platform is reachable and this
+    # rollback is what it would not do, so the other actions through it are
+    # still worth trying.
+    platform = a_platform(reconciling_itself=False)
+    platform.post.return_value = _answering(400)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
+
+
+def _answering(status: int) -> httpx.Response:
+    """One of the platform's own answers, as `raise_for_status` will read it."""
+    return httpx.Response(
+        status_code=status,
+        json={},
+        request=httpx.Request("PUT", DONT_CARE_URL)
+    )
+
+
+def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, RollbackRefused):
+            raise AssertionError(
+                f"Expected the rollback to be refused, and what was raised was "
+                f"{raised!r}."
+            )
+
+        if UNREACHABLE_PLATFORM_MARKER not in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to report a platform that could not be "
+                f"reached, and it reported [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, RollbackRefused):
+            raise AssertionError(
+                f"Expected the rollback to be refused, and what was raised was "
+                f"{raised!r}."
+            )
+
+        if UNREACHABLE_PLATFORM_MARKER in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to be reported as this action's own, and "
+                f"it reported a platform that could not be reached: [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_descriptor(was_syncing_itself: bool) -> DeploymentRollbackUndo:
     return DeploymentRollbackUndo(
         application=SOME_APPLICATION,
@@ -394,6 +529,35 @@ def _it_reports_restored(revision: bool,
                 f"automated_sync={automated_sync}, and it reported "
                 f"revision={restored.revision_put_back} "
                 f"automated_sync={restored.automated_sync_put_back}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_what_it_left_behind(
+    expected: DeploymentRollbackUndo
+) -> Assertion[Exception | None]:
+    """The refusal carries the descriptor, and carries the right one.
+
+    Compared as a value rather than checked for presence, because a descriptor
+    that reached the walk with a field lost would put back something other than
+    what was changed - and would satisfy every assertion short of this one.
+    """
+    def assertion(raised: Exception | None) -> bool:
+        if LEFT_BEHIND_MARKER not in str(raised):
+            raise AssertionError(
+                f"Expected the refusal to say what it left behind, and it said "
+                f"[{raised}]."
+            )
+
+        carried = what_was_left_behind(str(raised))
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the refusal to leave {expected!r} to be put back, it "
+                f"left {carried!r}."
             )
 
         return True

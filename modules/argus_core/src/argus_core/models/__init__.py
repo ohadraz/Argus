@@ -11,6 +11,8 @@ saying the same thing.
 """
 
 from argus_core.models.action import (
+    DEPLOYMENT_PLATFORM,
+    FLAG_PROVIDER,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -24,6 +26,7 @@ from argus_core.models.action import (
     DeploymentRestored,
     Outcome,
     PinAutoscaler,
+    Platform,
     RestartedService,
     RestartService,
     RevertFeatureFlag,
@@ -32,9 +35,11 @@ from argus_core.models.action import (
     UnreadVerdict,
     Verdict,
     leaves_something_to_put_back,
+    the_actions_through,
     the_direction_of,
     the_identity_of,
     the_identity_recorded,
+    the_platform_of,
     the_service_addressed_by,
     the_subject_of,
 )
@@ -89,6 +94,11 @@ from argus_core.models.undo_descriptor import (
 from argus_core.models.undone import Undone
 
 __all__ = [
+    "DEPLOYMENT_PLATFORM",
+    "FLAG_PROVIDER",
+    "Platform",
+    "the_actions_through",
+    "the_platform_of",
     "RESTART_SERVICE",
     "REVERT_FEATURE_FLAG",
     "ROLL_BACK_DEPLOYMENT",

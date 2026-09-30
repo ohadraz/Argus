@@ -41,11 +41,17 @@ from typing import Any, Final
 
 import httpx
 from argus_core import SettingsSlice
-from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
+from argus_core.mcp_transport import an_unreachable_platform
+from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
+    DeploymentRestored,
+    DeploymentRollbackUndo,
+)
 
 from write_mcp_server.argocd import (
     REQUEST_TIMEOUT_SECONDS,
     a_sync_policy,
+    could_not_be_reached,
     headers_for,
     is_reconciling_itself,
     the_url_of,
@@ -97,6 +103,34 @@ class RollbackRefused(Exception):
     """The platform would not perform the rollback."""
 
 
+def _refusing(said: str, error: Exception,
+              left_behind: DeploymentRollbackUndo | None = None
+              ) -> RollbackRefused:
+    """This module's refusal, marked where the platform was never reached.
+
+    The mark is what lets a caller tell four actions being unavailable from this
+    rollback being rejected, without reading the words of either. It is this
+    module's to apply rather than `argocd`'s, for the reason that module gives
+    for holding no exception policy: what a response means is the platform's
+    vocabulary, and what to raise about it is the action's own.
+
+    `left_behind` is what the failure cost, where it cost anything. A platform
+    that disappears after reconciliation was suspended has left this application
+    un-reconciled and recorded nowhere, and the mark used to be withheld for
+    exactly that reason - a caller told only that the platform was unavailable
+    would narrow to another action believing the estate untouched. Saying what
+    was left behind answers that without withholding the fact the caller needs,
+    and withholding it meant the mode was handled only when the platform failed
+    on the first call.
+    """
+    if could_not_be_reached(error):
+        return RollbackRefused(
+            an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
+        )
+
+    return RollbackRefused(said)
+
+
 def roll_back_deployment(
     application: str,
     settings: RollbackSettings,
@@ -134,14 +168,25 @@ def roll_back_deployment(
     if was_syncing_itself:
         _stop_reconciling(application, settings, put)
 
-    _ask_for_the_rollback(application, previous[_HISTORY_ID], settings, post)
-
-    return DeploymentRollbackUndo(
+    # Built before the action rather than after it, because it describes what
+    # has already been changed: where sync was suspended, this is what a caller
+    # has to put back whether the rollback then lands or the platform vanishes.
+    undo = DeploymentRollbackUndo(
         application=application,
         was_on_history_id=running[_HISTORY_ID],
         was_on_revision=running[_REVISION],
         was_syncing_itself=was_syncing_itself
     )
+
+    _ask_for_the_rollback(
+        application,
+        previous[_HISTORY_ID],
+        settings,
+        post,
+        left_behind=undo if was_syncing_itself else None
+    )
+
+    return undo
 
 
 def restore_deployment(descriptor: DeploymentRollbackUndo,
@@ -164,7 +209,14 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     """
     revision = _tried(
         lambda: _ask_for_the_rollback(
-            descriptor.application, descriptor.was_on_history_id, settings, post
+            descriptor.application,
+            descriptor.was_on_history_id,
+            settings,
+            post,
+            # Nothing reads the refusal on this path - `_tried` turns it into a
+            # `False` the caller reports - and a descriptor here would describe
+            # putting back a change this call is itself the putting back of.
+            left_behind=None
         )
     )
 
@@ -209,8 +261,8 @@ def _the_application(application: str,
         response.raise_for_status()
         state: dict[str, Any] = response.json()
     except Exception as error:
-        raise RollbackRefused(
-            f"could not read [{application}] from [{url}]: {error}"
+        raise _refusing(
+            f"could not read [{application}] from [{url}]: {error}", error
         ) from error
 
     return state
@@ -245,16 +297,19 @@ def _set_sync_policy(application: str,
         )
         response.raise_for_status()
     except Exception as error:
-        raise RollbackRefused(
+        raise _refusing(
             f"could not change the sync policy of [{application}] at [{url}]: "
-            f"{error}"
+            f"{error}",
+            error
         ) from error
 
 
 def _ask_for_the_rollback(application: str,
                           to_history_id: int,
                           settings: RollbackSettings,
-                          post: HttpPost) -> None:
+                          post: HttpPost,
+                          *,
+                          left_behind: DeploymentRollbackUndo | None) -> None:
     url = the_url_of(
         settings.argocd_base_url, settings.argocd_rollback_path, application
     )
@@ -268,9 +323,11 @@ def _ask_for_the_rollback(application: str,
         )
         response.raise_for_status()
     except Exception as error:
-        raise RollbackRefused(
+        raise _refusing(
             f"[{application}] could not be rolled back to history entry "
-            f"[{to_history_id}] at [{url}]: {error}"
+            f"[{to_history_id}] at [{url}]: {error}",
+            error,
+            left_behind
         ) from error
 
 

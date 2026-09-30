@@ -22,7 +22,12 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, Field, TypeAdapter
 
 from argus_core.ids import UuidStr, new_id
-from argus_core.models.action import ActionIdentity, ActionType, Verdict
+from argus_core.models.action import (
+    ActionIdentity,
+    ActionType,
+    Platform,
+    Verdict,
+)
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
@@ -350,6 +355,37 @@ class ActionRecommended(_Event):
     subject: str | None
 
 
+class PlatformUnavailable(_Event):
+    """A platform Argus acts through did not answer, and what went with it.
+
+    The account of a thing that is never about one action. Four of the five
+    generic mitigations reach the estate through the deployment platform, so a
+    platform that is not answering has taken four away at once - and an incident
+    that was then mitigated by the one action on a live platform reads, without
+    this, as though Argus simply preferred that action. Which is the record
+    misstating the reasoning it exists to hold.
+
+    One per incident and not one per candidate passed over. The fact is about the
+    platform, and repeated against each candidate it teaches a reader to skim
+    exactly the sentence that explains the outcome.
+
+    Named for the platform rather than for the exception a tool raised.
+    `PlatformUnreachable` is that exception and lives in `mcp_transport`; this is
+    what the incident's record says happened, and one name for both is one a
+    reader will eventually take for the other.
+
+    `actions_unavailable` is carried rather than looked up from the mapping that
+    holds it, though the two agree today. An event is read months later without
+    the code that published it, and a sixth mitigation added in between changes
+    what the platform carries *now* - it must not change what an incident from
+    before it says went away then.
+    """
+
+    kind: Literal["platform-unavailable"] = "platform-unavailable"
+    platform: Platform
+    actions_unavailable: list[ActionType]
+
+
 class MitigationResumed(_Event):
     """A restarted walk found this candidate's verdict already recorded.
 
@@ -581,6 +617,7 @@ type IncidentEvent = Annotated[
         | CandidateSelected
         | ActionRefused
         | ActionRecommended
+        | PlatformUnavailable
         | ActionTaken
         | VerdictReached
         | MitigationResumed

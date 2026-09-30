@@ -20,7 +20,13 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.mcp_transport import EXHAUSTED_ACTION_MARKER, ActionExhausted
+from argus_core.mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
+    UNREACHABLE_PLATFORM_MARKER,
+    ActionExhausted,
+    PlatformUnreachable,
+    without_the_payload,
+)
 from argus_core.models import (
     AutoscalerUndo,
     DeploymentRollbackUndo,
@@ -198,6 +204,37 @@ def take_action(action: Action,
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_marker(exhausted)}"
             ),
+        )
+    except PlatformUnreachable as unreachable:
+        # Caught before the broad handler for the reason above it is: this is an
+        # `McpToolError` too, so a broader `except` reached first swallows it into
+        # an escalation and this branch never runs.
+        #
+        # Not `ESCALATED`, because Argus has not run out of moves - it has run
+        # out of *this platform's* moves. Four of the five generic mitigations
+        # act through the deployment platform, so a platform that is not
+        # answering has taken four away at once and left the fifth; escalating
+        # here ends a walk whose next candidate is a flag revert on a provider
+        # that is still answering.
+        #
+        # Not `NOT_ATTEMPTED`, which is the distinction worth holding: that says
+        # the tier answered and had nowhere left to go - a deployment already at
+        # its cap, a floor already at its ceiling - where this says nothing was
+        # there to answer. A record carrying it would report a bound that was
+        # never reached.
+        # Carries what the action left behind, where it left anything. Two of
+        # the four actions through the deployment platform suspend its
+        # reconciliation before doing what they were asked, so a platform lost
+        # after that point leaves an application un-reconciled - and the row
+        # this outcome writes is the only record of it. `None` on the ordinary
+        # failure, which is the platform going before the first write.
+        return Outcome(
+            verdict=Verdict.PLATFORM_UNREACHABLE,
+            detail=(
+                f"did not {_what_it_would_have_done(action)} - "
+                f"{_without_the_platform_marker(unreachable)}"
+            ),
+            undo_descriptor=unreachable.undo_descriptor,
         )
     except Exception as error:
         return Outcome(
@@ -381,6 +418,31 @@ def _without_the_marker(exhausted: ActionExhausted) -> str:
     to match on the token still can.
     """
     return str(exhausted).replace(EXHAUSTED_ACTION_MARKER, "").strip()
+
+
+def _without_the_platform_marker(unreachable: PlatformUnreachable) -> str:
+    """The failure's own words, without the token that classified it and without
+    the descriptor it carried.
+
+    `_without_the_marker`'s reasoning, for the other marker, and one more thing
+    to take out. This failure may carry what the action left behind, and that
+    travels as JSON in the same string - so a detail built from it raw would put
+    an object in the middle of a sentence a person reads in the timeline, the
+    postmortem and a Slack line. The descriptor is on the outcome, where
+    something can act on it; here it is noise.
+
+    The payload is removed by `argus_core.mcp_transport` rather than here,
+    because the shape of it is that module's and a caller cannot strip what it
+    was never told the shape of.
+
+    Kept as its own function rather than one taking a token, because the two are
+    typed on what they strip: a single helper would take an `McpToolError` and
+    could then be handed either exception with either marker, which is precisely
+    the mix-up the two branches above exist to prevent.
+    """
+    return without_the_payload(
+        str(unreachable).replace(UNREACHABLE_PLATFORM_MARKER, "")
+    ).strip()
 
 
 def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,

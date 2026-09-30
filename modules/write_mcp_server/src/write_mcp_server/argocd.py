@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+import httpx
+
 # Argo CD's own wire vocabulary for the parts of an application both actions read
 # and write. Named once rather than spelled at each lookup: they are another
 # project's field names, and a typo in one is a silent `None` rather than an error.
@@ -25,6 +27,11 @@ SYNC_POLICY: Final = "syncPolicy"
 AUTOMATED: Final = "automated"
 
 REQUEST_TIMEOUT_SECONDS = 10.0
+
+# The lowest status a server uses to say the failure is its own rather than the
+# request's. Below it the platform has read what was asked and rejected it, which
+# is the platform working.
+_THE_SERVERS_OWN_FAULT: Final = 500
 
 
 def the_url_of(base_url: str, path_template: str, application: str) -> str:
@@ -39,6 +46,37 @@ def the_url_of(base_url: str, path_template: str, application: str) -> str:
 def headers_for(auth_token: str) -> dict[str, str]:
     """No token means no header at all, as every Argo CD adapter here does."""
     return {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
+
+
+def could_not_be_reached(error: Exception) -> bool:
+    """Whether a failed request means the platform was not there to receive it.
+
+    Three failures and one answer, because the question a caller is asking is
+    not what went wrong but whether anything can still be acted through this. A
+    refused connection, a request that ran out of time and the platform
+    reporting its own API unavailable are the same answer to that: no, and not
+    for any reason to do with the action that happened to be carrying it.
+
+    A status of the platform's own rather than a list of them. `502` and `503`
+    are the same outage seen at different hops, `504` is it seen through a proxy
+    that waited, and which one arrives is a fact about how the platform is
+    fronted. What separates them from everything below is whose fault the
+    server says it is.
+
+    Anything that is not the platform failing to answer is not this - a rejected
+    action, an application it has never heard of, and a bug of Argus's own
+    reading a response it did not expect. The last is the one worth guarding:
+    read as unreachability it would pass over four actions because a parse went
+    wrong here.
+
+    Vocabulary and not policy, so this decides what the platform said and raises
+    nothing. Each action names its own failure, and that name is what the
+    action's callers catch.
+    """
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code >= _THE_SERVERS_OWN_FAULT
+
+    return isinstance(error, httpx.TransportError)
 
 
 def is_reconciling_itself(application_state: dict[str, Any]) -> bool:

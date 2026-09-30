@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
     ActionIdentity,
     Attempt,
     FlagChange,
@@ -39,11 +40,13 @@ from orchestrator_test.framework.builders import (
     an_undetermined_hypothesis,
     putting_back,
     restarting,
+    rolling_back,
 )
 
 SOME_FLAG = "monthly-spend-feature"
 ANOTHER_FLAG = "legacy-checkout-fallback"
 SOME_SERVICE = "io-shop"
+ANOTHER_SERVICE = "io-shop-payments"
 DONT_CARE_MOMENT = "2026-09-10T09:12:00+00:00"
 
 type Chosen = tuple[int, Hypothesis] | None
@@ -276,6 +279,123 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_whose_platform_is_unreachable_is_passed_over() -> None:
+    # The whole of what a platform failure buys. Four of the five generic
+    # mitigations act through the deployment platform, so a platform that is not
+    # answering has taken four candidates away at once - and the walk's right move
+    # is to reach for the one that acts through something else rather than to end.
+    #
+    # Passed over rather than refuted: nothing was attempted, so nothing was
+    # tested, and a record saying otherwise would have the postmortem report that
+    # the evidence ruled a cause out when nothing ruled it out.
+    some_incident_id = a_random_id()
+    the_flag_is_still_revertible = a_candidate_blaming(some_incident_id, SOME_FLAG)
+
+    Scenario() \
+        .given(
+            some_candidates := [
+                _a_candidate_answered_by(
+                    a_candidate_blaming(some_incident_id, SOME_SERVICE),
+                    rolling_back(SOME_SERVICE)
+                ),
+                _a_candidate_answered_by(
+                    the_flag_is_still_revertible, putting_back(SOME_FLAG)
+                )
+            ]
+        ) \
+        .when(
+            lambda: the_next_worth_trying(
+                some_candidates, [], start=0,
+                unreachable_platforms=[DEPLOYMENT_PLATFORM]
+            )
+        ) \
+        .then(all_of(
+            _the_candidate_taken_up_is(the_flag_is_still_revertible),
+            _it_sits_at(1)
+        ))
+
+
+@pytest.mark.unit
+def test_a_list_whose_every_candidate_needs_the_unreachable_platform_is_spent() -> None:
+    # The other ending, and the one the walk has to tell from the first. Nothing
+    # here is worth trying while the platform is down, and no further
+    # investigation would change that - a later round re-reads the same evidence
+    # and arrives at candidates on the same dead platform.
+    some_incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            every_candidate_needs_the_platform := _answered_by_a_rollback_each(
+                [SOME_SERVICE, ANOTHER_SERVICE], some_incident_id
+            )
+        ) \
+        .when(
+            lambda: the_next_worth_trying(
+                every_candidate_needs_the_platform, [], start=0,
+                unreachable_platforms=[DEPLOYMENT_PLATFORM]
+            )
+        ) \
+        .then(_nothing_is_worth_trying())
+
+
+@pytest.mark.unit
+def test_a_candidate_is_not_passed_over_while_its_platform_answers() -> None:
+    # The half that decides whether the two above are worth having. A walk that
+    # passed over the deployment platform's candidates whenever anything had
+    # failed would satisfy both and quietly stop rolling anything back.
+    some_incident_id = a_random_id()
+    the_rollback_is_still_worth_trying = a_candidate_blaming(
+        some_incident_id, SOME_SERVICE
+    )
+
+    Scenario() \
+        .given(
+            some_candidates := [
+                _a_candidate_answered_by(
+                    the_rollback_is_still_worth_trying, rolling_back(SOME_SERVICE)
+                ),
+                _a_candidate_answered_by(
+                    a_candidate_blaming(some_incident_id, SOME_FLAG),
+                    putting_back(SOME_FLAG)
+                )
+            ]
+        ) \
+        .when(
+            lambda: the_next_worth_trying(
+                some_candidates, [], start=0, unreachable_platforms=[]
+            )
+        ) \
+        .then(all_of(
+            _the_candidate_taken_up_is(the_rollback_is_still_worth_trying),
+            _it_sits_at(0)
+        ))
+
+
+@pytest.mark.unit
+def test_a_candidate_nothing_would_be_done_about_survives_an_unreachable_platform() -> None:
+    # It acts through nothing, so no platform can take it away. Worth its own case
+    # because the obvious implementation asks an absent action which platform it
+    # would act through, and the walk that does it crashes rather than skipping -
+    # on the one candidate shape that is already the odd one out everywhere else.
+    some_incident_id = a_random_id()
+    nothing_would_be_done_about_it = an_undetermined_hypothesis(some_incident_id)
+
+    Scenario() \
+        .given(
+            some_candidates := [
+                _a_candidate_answered_by(nothing_would_be_done_about_it, None)
+            ]
+        ) \
+        .when(
+            lambda: the_next_worth_trying(
+                some_candidates, [], start=0,
+                unreachable_platforms=[DEPLOYMENT_PLATFORM]
+            )
+        ) \
+        .then(_nothing_is_worth_trying())
+
+
+@pytest.mark.unit
 def test_a_walk_past_the_end_of_the_list_is_spent() -> None:
     # The ordinary way the last candidate's refutation arrives here.
     some_incident_id = a_random_id()
@@ -463,3 +583,19 @@ def _nothing_is_worth_trying() -> Assertion[Chosen]:
         return True
 
     return assertion
+
+
+def _answered_by_a_rollback_each(applications: list[str],
+                                 incident_id: str) -> list[WhatWouldBeTried]:
+    """Candidates every one of which acts through the deployment platform.
+
+    For the case about a list with nothing left on a reachable platform. Distinct
+    applications, so that nothing is passed over for having been tried - the only
+    reason anything is skipped here is the platform.
+    """
+    return [
+        _a_candidate_answered_by(
+            a_candidate_blaming(incident_id, application), rolling_back(application)
+        )
+        for application in applications
+    ]

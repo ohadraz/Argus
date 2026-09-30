@@ -58,12 +58,13 @@ from typing import Any, Final
 
 import httpx
 from argus_core import SettingsSlice
-from argus_core.mcp_transport import an_exhausted_action
-from argus_core.models import CapacityRestored, ReplicaUndo
+from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
+from argus_core.models import DEPLOYMENT_PLATFORM, CapacityRestored, ReplicaUndo
 
 from write_mcp_server.argocd import (
     REQUEST_TIMEOUT_SECONDS,
     a_sync_policy,
+    could_not_be_reached,
     headers_for,
     is_reconciling_itself,
     the_url_of,
@@ -150,6 +151,31 @@ class ScaleRefused(Exception):
     """The platform would not report the size, or would not change it."""
 
 
+def _refusing(said: str, error: Exception,
+              left_behind: ReplicaUndo | None = None) -> ScaleRefused:
+    """This module's refusal, marked where the platform was never reached.
+
+    The mark is what lets a caller tell four actions being unavailable from this
+    scale-out being rejected, without reading the words of either. It is applied
+    here rather than in `argocd` for the reason that module holds no exception
+    policy: what a response means is the platform's vocabulary, and what to raise
+    about it is the action's own.
+
+    `left_behind` is what the failure cost, where it cost anything. This is the
+    action most likely to lose the platform part-way - it reads, suspends, and
+    only then acts - so withholding the mark on a failure after the suspension
+    would have meant handling this mode only when the platform happened to fail
+    on the first call. Saying what was left behind lets the caller narrow itself
+    and still know a deployment is sitting un-reconciled.
+    """
+    if could_not_be_reached(error):
+        return ScaleRefused(
+            an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
+        )
+
+    return ScaleRefused(said)
+
+
 def scale_out(application: str,
               settings: ScaleSettings,
               get: HttpGet = httpx.get,
@@ -187,13 +213,24 @@ def scale_out(application: str,
     if was_syncing_itself:
         _set_sync_policy(application, reconciling=False, settings=settings, put=put)
 
-    _ask_for(application, _twice(running), settings, post)
-
-    return ReplicaUndo(
+    # Built before the action rather than after it, because it describes what
+    # has already been changed: where sync was suspended, this is what a caller
+    # has to put back whether the count then moves or the platform vanishes.
+    undo = ReplicaUndo(
         application=application,
         was_replicas=running,
         was_syncing_itself=was_syncing_itself
     )
+
+    _ask_for(
+        application,
+        _twice(running),
+        settings,
+        post,
+        left_behind=undo if was_syncing_itself else None
+    )
+
+    return undo
 
 
 def restore_replica_count(descriptor: ReplicaUndo,
@@ -224,7 +261,14 @@ def restore_replica_count(descriptor: ReplicaUndo,
     """
     count = _tried(
         lambda: _ask_for(
-            descriptor.application, descriptor.was_replicas, settings, post
+            descriptor.application,
+            descriptor.was_replicas,
+            settings,
+            post,
+            # Nothing reads the refusal on this path - `_tried` turns it into a
+            # `False` the caller reports - and a descriptor here would describe
+            # putting back a change this call is itself the putting back of.
+            left_behind=None
         )
     )
 
@@ -317,7 +361,7 @@ def _read(url: str,
         response.raise_for_status()
         body: dict[str, Any] = response.json()
     except Exception as error:
-        raise ScaleRefused(f"{what_failed} from [{url}]: {error}") from error
+        raise _refusing(f"{what_failed} from [{url}]: {error}", error) from error
 
     return body
 
@@ -339,16 +383,19 @@ def _set_sync_policy(application: str,
         )
         response.raise_for_status()
     except Exception as error:
-        raise ScaleRefused(
+        raise _refusing(
             f"could not change the sync policy of [{application}] at [{url}]: "
-            f"{error}"
+            f"{error}",
+            error
         ) from error
 
 
 def _ask_for(application: str,
              replicas: int,
              settings: ScaleSettings,
-             post: HttpPost) -> None:
+             post: HttpPost,
+             *,
+             left_behind: ReplicaUndo | None) -> None:
     url = the_url_of(
         settings.argocd_base_url, settings.argocd_resource_action_path, application
     )
@@ -362,9 +409,11 @@ def _ask_for(application: str,
         )
         response.raise_for_status()
     except Exception as error:
-        raise ScaleRefused(
+        raise _refusing(
             f"[{application}] could not be scaled to [{replicas}] replicas at "
-            f"[{url}]: {error}"
+            f"[{url}]: {error}",
+            error,
+            left_behind
         ) from error
 
 

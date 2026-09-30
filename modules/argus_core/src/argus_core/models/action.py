@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any, Final, Literal, assert_never
+from typing import Annotated, Any, Final, Literal, assert_never, get_args
 
 from pydantic import BaseModel, Field, GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
@@ -43,6 +43,16 @@ class Verdict(StrEnum):
 
     So it says what is true - the action could not be taken, and the cause is
     still open - and the walk moves to its next candidate on those terms.
+
+    `PLATFORM_UNREACHABLE` is the fifth, and the only one that is not about the
+    action at all. The tier was reached and the platform it would have acted
+    through was not, so nothing was asked and nothing was changed. It keeps the
+    walk moving like `NOT_ATTEMPTED`, and says something `NOT_ATTEMPTED` cannot:
+    that every *other* action through that platform is unavailable too, which is
+    what lets a walk pass over three candidates and reach for the fourth instead
+    of ending. Folded into `NOT_ATTEMPTED` it would make that member cover two
+    reasons - a bound reached, and a platform that never answered - and a
+    postmortem reading it would report a bound nothing ever hit.
     """
 
     CONFIRMED = "confirmed"
@@ -50,6 +60,7 @@ class Verdict(StrEnum):
     ESCALATED = "escalated"
     WITHDRAWN = "withdrawn"
     NOT_ATTEMPTED = "not-attempted"
+    PLATFORM_UNREACHABLE = "platform-unreachable"
 
 
 class UnreadVerdict(str):
@@ -317,6 +328,17 @@ SCALE_OUT: Final = "scale-out"
 PIN_AUTOSCALER: Final = "pin-autoscaler"
 
 
+# What an action reaches the estate through. A role rather than a vendor, for
+# the reason the read tier's Argo CD adapter is a `deploy` source and not an
+# `argocd` one: nothing above the retrieval boundary learns which product
+# answered, and a walk that narrowed itself by the word "argo" would have to be
+# rewritten by whoever replaces it.
+type Platform = Literal["deployment-platform", "flag-provider"]
+
+DEPLOYMENT_PLATFORM: Final = "deployment-platform"
+FLAG_PROVIDER: Final = "flag-provider"
+
+
 class RestartedService(BaseModel):
     """What a restart did, as the tier that performed it saw it.
 
@@ -571,6 +593,63 @@ def leaves_something_to_put_back(action_type: ActionType) -> bool:
     a change nobody has accounted for.
     """
     return action_type in _LEAVE_SOMETHING_TO_PUT_BACK
+
+
+def the_platform_of(action_type: ActionType) -> Platform:
+    """What an action of this kind reaches the estate through.
+
+    Asked of kinds that have not been attempted, which is what decides
+    everything about its shape. A platform that did not answer one action has
+    taken every action through it away at once, and a walk finding that out
+    has to say which of its remaining candidates are still worth reaching for -
+    so this has to be answerable about an action nobody has performed, and
+    cannot be derived by watching one fail.
+
+    A `match` rather than a mapping, and the difference is the whole reason this
+    is a function. A `dict` answers a sixth kind with a `KeyError` at walk time
+    or, worse, with a default that quietly files it under the platform that
+    happens to be commonest - and the walk would then pass over a candidate that
+    was never on the failed platform at all. Here `assert_never` makes a kind
+    nobody has placed a type error, before anything runs.
+
+    Matched on the literals rather than on the constants above, which is not the
+    duplication it looks like: `case REVERT_FEATURE_FLAG` is a capture pattern
+    and would match everything. The literals are what mypy checks the union
+    against, so a misspelling here fails the build rather than the walk.
+    """
+    match action_type:
+        case "revert-feature-flag":
+            return FLAG_PROVIDER
+        case "restart-service" | "roll-back-deployment" | "scale-out" \
+                | "pin-autoscaler":
+            return DEPLOYMENT_PLATFORM
+
+    assert_never(action_type)
+
+
+def the_actions_through(platform: Platform) -> list[ActionType]:
+    """Every kind of action that reaches the estate through `platform`.
+
+    The question `the_platform_of` answers backwards, and it has two askers that
+    must agree: the escalation raised when an unreachable platform leaves nothing
+    to try, and the line an incident's record is narrated as. Both have to say
+    what the platform *took away* rather than only that it is down - a reader
+    told a platform's name has to go and look up which of Argus's actions went
+    with it, which is the thing saying it at all exists to prevent.
+
+    Derived from the same mapping rather than listed here, which is what makes a
+    sixth mitigation safe: the kind has to be placed in `the_platform_of` or the
+    type check fails, and once placed it appears here without anybody adding it.
+    A second list would be a second thing to forget.
+
+    Ordered as `ActionType` declares them, not as a set, because this is read out
+    to a person: a sentence whose actions reorder between two runs of the same
+    incident reads as two different facts.
+    """
+    return [
+        action_type for action_type in get_args(ActionType.__value__)
+        if the_platform_of(action_type) == platform
+    ]
 
 
 class Outcome(BaseModel):

@@ -17,6 +17,7 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    Platform,
     Reading,
     ServiceDependency,
     Verdict,
@@ -46,6 +47,15 @@ class IncidentState(BaseModel):
     # investigation as evidence - it is the one thing a second round knows that
     # the first could not.
     attempts: list[Attempt] = []
+    # The platforms an attempt found were not answering. Carried rather than
+    # re-derived, because by the time the next candidate is chosen all that is
+    # left of the attempt is a verdict, and a verdict does not say which platform
+    # failed - only the action that was in hand at the time could.
+    #
+    # A list rather than one platform, and not because two are expected: a walk
+    # that held only the latest would forget the first the moment a second
+    # failed, and go back to trying candidates it had already passed over.
+    unreachable_platforms: list[Platform] = []
     # What earlier rounds of this incident retrieved - which channel, over which
     # window. Carried so that a later round can be told what the one before it
     # saw: it may read the same window again, since that evidence is not in its
@@ -190,6 +200,21 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # test, and this function never re-runs the search that produced it.
     if state.candidate_index < len(state.candidates):
         return IncidentStatus.MITIGATING
+
+    # Past the end of the list with a platform that is not answering, which is a
+    # different ending from being past the end having tried everything. Another
+    # round would re-read the same evidence and arrive at candidates on the same
+    # dead platform, and a permanent fix is not what an incident needs when the
+    # thing that failed is how Argus acts at all.
+    #
+    # Asked *after* the index check and not before it, which is the whole of why
+    # this is here rather than beside `recommended_action` above. "A platform is
+    # down and nothing is confirmed" is true the instant the first action on it
+    # comes back - at which point a candidate on a reachable platform may still
+    # be ahead, and the incident is mitigating. A rule that can only fire once
+    # the list is spent cannot make that mistake.
+    if state.unreachable_platforms:
+        return IncidentStatus.ESCALATED
 
     if state.rounds < max_rounds:
         return IncidentStatus.INVESTIGATING

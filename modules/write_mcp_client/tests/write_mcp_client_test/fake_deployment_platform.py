@@ -92,7 +92,30 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     sync_policies_written: list[dict[str, Any]] = []
     replicas: int = THE_COUNT_RUNNING
 
+    # Whether this platform's API server is serving at all. Off by default: an
+    # unavailable platform is something a test stages, and a fake that had to be
+    # told it is up in every other test would be a fake nobody could read.
+    unavailable: bool = False
+
+    def _refused_for_being_unavailable(self) -> bool:
+        """Answers as a platform whose own API is not serving, where staged.
+
+        Every route at once, and without reading the request. That is what a
+        downed API server is: nothing reaches the thing that would have acted,
+        so what was asked for never mattered.
+        """
+        if not self.unavailable:
+            return False
+
+        self.send_response(503)
+        self.end_headers()
+
+        return True
+
     def do_GET(self) -> None:
+        if self._refused_for_being_unavailable():
+            return
+
         if self.path.endswith("/resource-tree"):
             self._respond_with(self._the_resource_tree())
         elif self.path.endswith("/resource"):
@@ -129,6 +152,9 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         }
 
     def do_PUT(self) -> None:
+        if self._refused_for_being_unavailable():
+            return
+
         if not self.path.endswith("/spec"):
             self.send_response(404)
             self.end_headers()
@@ -144,6 +170,9 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         self._respond_with({})
 
     def do_POST(self) -> None:
+        if self._refused_for_being_unavailable():
+            return
+
         if self.path.endswith("/rollback"):
             self._roll_back()
             return
@@ -315,6 +344,10 @@ def a_running_platform() -> Iterator[type[FakeDeploymentPlatformHandler]]:
     flag provider's is one: mypy identifies a module by its filename, so a
     second `conftest` anywhere under `modules/` collides with the first.
     """
+    # Cleared per run, because it is class state on a handler the process
+    # reuses: a test that staged an unavailable platform would otherwise leave
+    # every test after it asking a platform that answers nothing.
+    FakeDeploymentPlatformHandler.unavailable = False
     platform = HTTPServer(("127.0.0.1", FAKE_PLATFORM_PORT), FakeDeploymentPlatformHandler)
     platform_thread = Thread(target=platform.serve_forever, daemon=True)
     platform_thread.start()

@@ -27,7 +27,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
-from argus_core.mcp_transport import an_exhausted_action
+from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
+from argus_core.models import DeploymentRollbackUndo
 from mcp.server.fastmcp import FastMCP
 
 TRANSPORT_DOUBLE_PORT = 8194
@@ -75,6 +76,41 @@ def build_double(port: int) -> FastMCP:
         does.
         """
         raise RuntimeError(an_exhausted_action("this tool has nothing left to do"))
+
+    @server.tool()
+    def refuse_as_unreachable_platform() -> list[str]:
+        """Refuses the way a tier refuses when the platform is not answering.
+
+        Raised through the server's own helper for `refuse_as_exhausted`'s
+        reason: this double refuses exactly the way `argus-write-mcp` refuses
+        rather than the way a test imagines it does. The platform is named in
+        what is said, because naming it is the tier's job and a double that
+        left it out would let a transport that dropped the name pass.
+        """
+        raise RuntimeError(an_unreachable_platform(
+            "some-deployment-platform", "did not answer"
+        ))
+
+    @server.tool()
+    def refuse_as_unreachable_platform_mid_action() -> list[str]:
+        """Refuses the way a tier refuses when the platform went after a write.
+
+        The rollback's shape: reconciliation was suspended, which is itself a
+        change, and the platform stopped answering before the revision moved. So
+        what is reported is an unreachable platform *and* the descriptor that
+        puts the suspension back.
+        """
+        raise RuntimeError(an_unreachable_platform(
+            "some-deployment-platform",
+            "stopped answering after reconciliation was suspended",
+            undo_descriptor=DeploymentRollbackUndo(
+                application="some-application",
+                was_on_history_id=41,
+                was_on_revision="0f1e2d3",
+                was_syncing_itself=True
+            )
+        ))
+
 
     @server.tool()
     async def dawdle(seconds: float) -> list[str]:

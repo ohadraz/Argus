@@ -53,12 +53,17 @@ from typing import Any, Final
 
 import httpx
 from argus_core import SettingsSlice
-from argus_core.mcp_transport import an_exhausted_action
-from argus_core.models import AutoscalerUndo, AutoscalingRestored
+from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
+from argus_core.models import (
+    DEPLOYMENT_PLATFORM,
+    AutoscalerUndo,
+    AutoscalingRestored,
+)
 
 from write_mcp_server.argocd import (
     REQUEST_TIMEOUT_SECONDS,
     a_sync_policy,
+    could_not_be_reached,
     headers_for,
     is_reconciling_itself,
     the_url_of,
@@ -177,6 +182,31 @@ class PinRefused(Exception):
     """The platform would not report the bounds, or would not change them."""
 
 
+def _refusing(said: str, error: Exception,
+              left_behind: AutoscalerUndo | None = None) -> PinRefused:
+    """This module's refusal, marked where the platform was never reached.
+
+    The mark is what lets a caller tell four actions being unavailable from this
+    pin being rejected, without reading the words of either. It is applied here
+    rather than in `argocd` for the reason that module holds no exception policy:
+    what a response means is the platform's vocabulary, and what to raise about
+    it is the action's own.
+
+    `left_behind` is what the failure cost, where it cost anything. Where the
+    suspension landed and the floor did not move, that suspension travels on the
+    failure - so a caller can narrow itself to a reachable platform and still
+    know an application is sitting un-reconciled. Withholding the mark instead
+    would have meant this mode was handled only when the platform failed on the
+    first call.
+    """
+    if could_not_be_reached(error):
+        return PinRefused(
+            an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
+        )
+
+    return PinRefused(said)
+
+
 def pin_autoscaler(application: str,
                    settings: PinSettings,
                    get: HttpGet = httpx.get,
@@ -219,16 +249,26 @@ def pin_autoscaler(application: str,
     if was_syncing_itself:
         _set_sync_policy(application, reconciling=False, settings=settings, put=put)
 
-    _ask_for_a_floor_of(
-        autoscaler, application, the_floor_to_ask_for, settings, post
-    )
-
-    return AutoscalerUndo(
+    # Built before the action rather than after it, because it describes what
+    # has already been changed: where sync was suspended, this is what a caller
+    # has to put back whether the floor then moves or the platform vanishes.
+    undo = AutoscalerUndo(
         application=application,
         was_min_replicas=floor,
         min_replicas_asked_for=the_floor_to_ask_for,
         was_syncing_itself=was_syncing_itself
     )
+
+    _ask_for_a_floor_of(
+        autoscaler,
+        application,
+        the_floor_to_ask_for,
+        settings,
+        post,
+        left_behind=undo if was_syncing_itself else None
+    )
+
+    return undo
 
 
 def restore_autoscaler_floor(descriptor: AutoscalerUndo,
@@ -260,7 +300,11 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
             descriptor.application,
             descriptor.was_min_replicas,
             settings,
-            post
+            post,
+            # Nothing reads the refusal on this path - `_tried` turns it into a
+            # `False` the caller reports - and a descriptor here would describe
+            # putting back a change this call is itself the putting back of.
+            left_behind=None
         )
     )
 
@@ -395,7 +439,7 @@ def _read(url: str,
         response.raise_for_status()
         body: dict[str, Any] = response.json()
     except Exception as error:
-        raise PinRefused(f"{what_failed} from [{url}]: {error}") from error
+        raise _refusing(f"{what_failed} from [{url}]: {error}", error) from error
 
     return body
 
@@ -417,9 +461,10 @@ def _set_sync_policy(application: str,
         )
         response.raise_for_status()
     except Exception as error:
-        raise PinRefused(
+        raise _refusing(
             f"could not change the sync policy of [{application}] at [{url}]: "
-            f"{error}"
+            f"{error}",
+            error
         ) from error
 
 
@@ -427,7 +472,9 @@ def _ask_for_a_floor_of(autoscaler: _TheAutoscaler,
                         application: str,
                         replicas: int,
                         settings: PinSettings,
-                        post: HttpPost) -> None:
+                        post: HttpPost,
+                        *,
+                        left_behind: AutoscalerUndo | None) -> None:
     url = the_url_of(
         settings.argocd_base_url, settings.argocd_resource_path, application
     )
@@ -445,9 +492,11 @@ def _ask_for_a_floor_of(autoscaler: _TheAutoscaler,
         )
         response.raise_for_status()
     except Exception as error:
-        raise PinRefused(
+        raise _refusing(
             f"[{application}]'s autoscaler floor could not be raised to "
-            f"[{replicas}] at [{url}]: {error}"
+            f"[{replicas}] at [{url}]: {error}",
+            error,
+            left_behind
         ) from error
 
 

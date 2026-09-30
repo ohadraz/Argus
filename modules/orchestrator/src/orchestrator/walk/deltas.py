@@ -27,6 +27,7 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    Platform,
     Reading,
     ServiceDependency,
     Verdict,
@@ -80,6 +81,12 @@ class StateDelta(BaseModel):
     candidates: list[Hypothesis] | None = None
     candidate_index: int | None = None
     attempts: list[Attempt] | None = None
+    # Set only by a node that actually learnt a platform was unreachable. Left
+    # unmentioned otherwise, for the reason `flag_changes` below is optional: a
+    # node that wrote an empty list here would clear a platform an earlier
+    # attempt had found down, and the walk would go back to reaching for
+    # candidates it had passed over.
+    unreachable_platforms: list[Platform] | None = None
     already_read: list[Reading] | None = None
     rounds: int | None = None
     # Set explicitly to `None` by the node that could not read the provider, so

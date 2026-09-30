@@ -46,6 +46,7 @@ from argus_core.events import (
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
+    PlatformUnavailable,
     PostmortemWritten,
     RecoveryChecked,
     RememberingFailed,
@@ -459,6 +460,25 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # something failed.
             emphasis = event.refusal
             text = f"Could not file what was tried - {emphasis}"
+        case PlatformUnavailable():
+            who = _ARGUS
+            # The platform is set apart rather than the actions, because it is
+            # the half somebody has to go and look at: the actions are what it
+            # cost this incident, and the platform is what is broken.
+            emphasis = event.platform
+            # Said from what the event carries rather than from the mapping that
+            # holds it today. An incident read months later has to say what went
+            # away then - and a line generated from the current mapping would
+            # quietly re-describe an old incident every time a mitigation is
+            # added.
+            #
+            # Named one by one rather than counted. "Four actions" tells a reader
+            # how much was lost and not what, and what is the half that says
+            # whether the thing they are holding could have been acted on at all.
+            text = (
+                f"Could not reach {emphasis} - "
+                f"{_and_then_some(event.actions_unavailable)} unavailable"
+            )
         case CommunicationFailed():
             who = _COMMUNICATOR
             # The one line on the page about the page's own rival: everything
@@ -720,6 +740,29 @@ def _an_action_said(action_type: ActionType) -> str:
             return "Raised the autoscaler floor of"
 
     assert_never(action_type)
+
+
+def _and_then_some(action_types: Sequence[ActionType]) -> str:
+    """The actions a platform carries, said as a list a person reads.
+
+    Each named through `what_the_action_does`, so a line about a platform that
+    went down says an action the same way the line demoting a candidate does. A
+    reader matching the two should not have to read two spellings.
+
+    The subject is the platform's own word rather than a service or a flag,
+    because there is no subject: nothing was attempted, and what is being said is
+    which *kinds* of thing could not be done. "Restarting anything" is the honest
+    reading of a restart nobody could address.
+    """
+    said = [
+        what_the_action_does(action_type, "anything")
+        for action_type in action_types
+    ]
+
+    if len(said) == 1:
+        return f"{said[0]} was"
+
+    return f"{', '.join(said[:-1])} and {said[-1]} were"
 
 
 def what_the_action_does(action_type: ActionType, subject: str) -> str:
