@@ -99,7 +99,9 @@ def investigator_node(
     # but the action that answers it, and that question cannot be asked before
     # the history is in hand - so it is read at the top of the round, once, and
     # carried to everything in the round that needs it.
-    flag_changes = _what_the_provider_recorded(state, fetch_flag_changes, publisher)
+    flag_changes = _what_the_provider_recorded(
+        state, findings.readings_cover_the_incident, fetch_flag_changes, publisher
+    )
     # The estate this incident is allowed to reach into, read in the same
     # breath. Nothing in this round uses it: it is read here because it is
     # read *once*, and the node that needs it is a gate two steps away that
@@ -205,6 +207,11 @@ def investigator_node(
         # Everything read across this incident, not only this round's, so a
         # third round is told about the first as well as the second.
         already_read=[*state.already_read, *findings.already_read],
+        # This round's reading of the window, not the incident's accumulated one:
+        # every round re-reads, and what the gate needs to know is whether the
+        # evidence in front of the walk now says anything about the incident's own
+        # minutes.
+        readings_cover_the_incident=findings.readings_cover_the_incident,
         rounds=state.rounds + 1,
         confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,
@@ -213,6 +220,7 @@ def investigator_node(
 
 
 def _what_the_provider_recorded(state: IncidentState,
+                                readings_cover_the_incident: bool,
                                 fetch_flag_changes: FetchFlagChanges,
                                 publisher: Publisher) -> list[FlagChange] | None:
     """What the flag provider says changed, or `None` where it would not say.
@@ -240,7 +248,17 @@ def _what_the_provider_recorded(state: IncidentState,
         # The onset the alert stated, or nothing - which is what every alert
         # that measured its own says, and what leaves the window ending where
         # it always ended.
-        flag_changes = fetch_flag_changes(onset=state.alert.stated_onset)
+        #
+        # Nothing, too, where no reading covers the incident's own minutes. A
+        # stated onset is ordinarily the minute the incident began; where the
+        # readings stop at it, it is the last one there was, and what ended them
+        # is the change - so the change lies at or after that minute and a window
+        # ending there holds none of it. Asking for the present is then the right
+        # question for the reason it is the wrong one for a weekly check: this
+        # incident is happening now, and the flag is still where it was moved to.
+        flag_changes = fetch_flag_changes(
+            onset=state.alert.stated_onset if readings_cover_the_incident else None
+        )
     except Exception as unanswered:
         # No minute, because there is none to name: this is the window the round
         # asked about rather than a minute being judged, and a field filled in to

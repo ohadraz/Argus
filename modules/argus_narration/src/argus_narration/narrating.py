@@ -295,7 +295,16 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             )
         case MetricsRetrieved():
             who = _INVESTIGATOR
-            text = f"Read back {len(event.buckets)} minutes of metrics"
+            # A count where the rows run on, and an absence where they stop. The
+            # count is true either way and it describes the wrong thing in the
+            # second case: every minute it counts is from before the incident, and
+            # the incident is that there are none after.
+            text = (
+                f"Read the service's metrics - they stop at {event.window_end} and "
+                f"nothing covers the minutes since"
+                if event.stopped_before_the_alert else
+                f"Read back {len(event.buckets)} minutes of metrics"
+            )
         case LogsRetrieved():
             who = _INVESTIGATOR
             text = f"Read back {len(event.lines)} log lines"

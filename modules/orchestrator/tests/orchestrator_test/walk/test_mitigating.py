@@ -64,6 +64,7 @@ from orchestrator_test.framework.builders import (
 DONT_CARE_FLAG = "dont-care-flag"
 SOME_FLAG_THE_CANDIDATE_BLAMES = "monthly-spend-feature"
 SOME_MOMENT_THE_CLAIM_WAS_WRITTEN = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
+SOME_ONSET_THE_ALERT_STATED = datetime(2026, 9, 4, 21, 48, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -1213,6 +1214,109 @@ def test_a_flag_put_back_is_announced_as_nobodys_dependency(
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_action_was_announced_as_a_dependency_of(None, published))
+
+
+@pytest.mark.unit
+def test_the_minute_the_alert_dated_the_incident_to_reaches_the_agent(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Mitigation judges an incident whose minutes were never published by whether
+    # readings come back rather than by whether a level does, and the minute it
+    # asks that about is the one the alert dated the incident to. The agent cannot
+    # derive it - nothing it is handed says when the incident began - so a walk
+    # that keeps the minute to itself leaves the judgement keyed on `None` and the
+    # blind case silently judged on levels it does not have.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_its_alert_dated := _a_mitigating_incident_dated_at(
+                SOME_ONSET_THE_ALERT_STATED
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_its_alert_dated,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_onset_handed_over_is(SOME_ONSET_THE_ALERT_STATED, take))
+
+
+@pytest.mark.unit
+def test_an_incident_no_alert_dated_hands_over_no_minute(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Every incident whose onset was measured rather than stated, which is almost
+    # all of them. `None` is what keeps the new judgement from reaching them: a
+    # measured onset came from minutes that therefore exist, so the question the
+    # minute selects does not arise.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_nothing_dated := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_nothing_dated,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_onset_handed_over_is(None, take))
+
+
+def _a_mitigating_incident_dated_at(onset: datetime) -> IncidentState:
+    """A mitigating incident whose alert states when the incident began.
+
+    The alert is the only thing that ever states one, and it states one only where
+    it knows something no series carries - so this is the shape of an incident
+    found by a reconciliation or by an absence rather than by a rule watching a
+    graph.
+    """
+    state = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
+
+    return state.model_copy(
+        update={"alert": state.alert.model_copy(update={"stated_onset": onset})}
+    )
+
+
+def _the_onset_handed_over_is(expected: datetime | None,
+                              take: MagicMock) -> Assertion[object]:
+    """What minute the agent was asked to judge the incident from.
+
+    Read off the call rather than from anything the node returns, because handing
+    it over is the whole of what this node does with it - the judgement itself
+    belongs to the agent, and a test that asserted the verdict would be asserting
+    the agent's behaviour through a mock of the agent.
+    """
+    def assertion(_: object) -> bool:
+        handed_over = take.call_args.kwargs.get("onset")
+
+        if handed_over != expected:
+            raise AssertionError(
+                f"Expected the agent to be handed onset [{expected}], and it was "
+                f"handed [{handed_over}] - so the minute the incident was dated to "
+                f"never reaches the wait that has to judge it."
+            )
+
+        return True
+
+    return assertion
 
 
 def _an_incident_in(status: IncidentStatus) -> IncidentState:

@@ -75,6 +75,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_HALF_FINISHED_ROLLOUT,
     RECORDED_LARGE_CODE_FIX,
+    RECORDED_MONITORING_BLIND_SPOT,
     RECORDED_PRICING_SERVICE_DEGRADED,
     RECORDED_RESOURCE_LEAK,
     RECORDED_SILENT_DATA_CORRUPTION,
@@ -507,6 +508,27 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "HighErrorRate",
         IncidentStatus.MITIGATED,
         (_A_PLATFORM_WENT_AWAY, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The other incident the shop pages about itself, and the only one whose
+    # evidence is an absence. A revision renames the port the shop's metrics are
+    # served on, so `/metrics` carries no row from that minute on and no rule
+    # watching a series fires at all - what pages is the rule that notices a
+    # series which was reporting has stopped. The alert cannot be written here
+    # for the reason the corruption's cannot: it states the last sample as its
+    # onset, and that minute is the whole of what dates the incident.
+    #
+    # Held to the action and the verdict rather than the ending alone. The
+    # cause here lies *after* the onset - the change is what ended the
+    # readings - so a walk that reached the right hypothesis and still found
+    # no change to reverse would escalate, which is the ending this scenario
+    # had before the change window learned to reach past a stated onset. A
+    # terminal status would not tell those two apart.
+    _Recording(
+        RECORDED_MONITORING_BLIND_SPOT,
+        "monitoring-blind-spot",
+        None,
+        IncidentStatus.MITIGATED,
+        (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
     )
 )
 

@@ -349,7 +349,8 @@ def _a_mitigating_incident(proposing: Action | None = None,
                            about: Hypothesis | None = None,
                            already_tried: list[Attempt] | None = None,
                            listing: list[ServiceDependency] | None = None,
-                           dated_by_the_alert: datetime | None = None
+                           dated_by_the_alert: datetime | None = None,
+                           whose_minutes_were_read: bool = True
                            ) -> IncidentState:
     some_alert = Alert(
         service="kuki-service",
@@ -363,7 +364,8 @@ def _a_mitigating_incident(proposing: Action | None = None,
             "hypothesis": about or a_determined_hypothesis(state.incident_id),
             "proposed_action": proposing,
             "attempts": already_tried or [],
-            "dependencies": listing or []
+            "dependencies": listing or [],
+            "readings_cover_the_incident": whose_minutes_were_read
         }
     )
 
@@ -885,6 +887,36 @@ def test_an_action_on_an_incident_its_own_series_measured_is_let_through(
             )
         ) \
         .when(lambda: tier_gate_node(an_ordinary_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(all_of(_the_gate_changed_nothing(),
+                     _no_outcome_was_recorded(record_outcome)))
+
+
+@pytest.mark.unit
+def test_an_action_on_an_incident_nobody_could_read_is_let_through(
+    record_outcome: MagicMock
+) -> None:
+    # The other alert-dated shape, and the one the refusal above must not reach.
+    # Its onset is stated for the same reason - no series departed, so none could
+    # be measured - and the inference that nothing could confirm an action stops
+    # holding at the last step. A channel can be watched coming back in two ways,
+    # a level falling or a reading existing, and this incident is waiting on the
+    # second: no reading covers its minutes yet, and the readings arriving is what
+    # would say the action worked.
+    #
+    # Refused here, the walk recommends a flag revert it could have taken in
+    # seconds and confirmed within a minute - and the incident reads as handled.
+    Scenario() \
+        .given(
+            an_incident_nobody_could_read := _a_mitigating_incident(
+                proposing=_a_proposed_action(),
+                dated_by_the_alert=datetime(2026, 9, 22, 9, 19, 43, tzinfo=UTC),
+                whose_minutes_were_read=False
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_nobody_could_read,
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \

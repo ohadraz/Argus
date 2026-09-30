@@ -144,10 +144,12 @@ def tier_gate_node(
         state.attempts,
         attempts_per_subject,
         state.hypothesis.failure_mode if state.hypothesis is not None else None,
-        # Whether this incident was dated by the alert rather than measured from
-        # the service's own series - which is what decides whether anything
-        # could confirm an action taken on it.
-        state.alert.stated_onset is not None
+        # The two facts confirmability is read off. Dated by the alert rather
+        # than measured from the service's own series, and whether any reading
+        # covers the incident's minutes - both properties of the evidence, and
+        # neither a judgement about the action.
+        state.alert.stated_onset is not None,
+        state.readings_cover_the_incident
     )
 
     if refusal is None:
@@ -219,7 +221,8 @@ def _why_the_action_cannot_proceed(action: Action | None,
                                    attempts: Sequence[Attempt],
                                    attempts_per_subject: int,
                                    failure_mode: FailureMode | None,
-                                   dated_by_the_alert: bool) -> Refusal | None:
+                                   dated_by_the_alert: bool,
+                                   readings_cover_the_incident: bool) -> Refusal | None:
     """Which refusal this is, or `None` when there is none to give.
 
     Five rejections reach the same status for different reasons, and a human
@@ -265,13 +268,27 @@ def _why_the_action_cannot_proceed(action: Action | None,
     Reporting that ahead of the others would tell somebody their register is
     fine and their declared set is fine about an action that was neither.
 
-    `dated_by_the_alert` is how that is known, and it is one inference rather
-    than a policy: an onset stated by the alert means the metrics measured none,
-    which means no series departed, which means recovery has nothing to be
-    judged on. The only thing that would answer is whatever raised the alert,
-    running again on a schedule Argus does not control - days away, or never. An
-    action taken there would be taken, reported, and never judged, which is
-    worse than one not taken, because the incident looks handled.
+    It is known from two facts about the evidence, and it is still one inference
+    rather than a policy with a knob. An onset stated by the alert means the
+    metrics measured none, which means no series departed - so there is no level
+    to watch coming back down. That much has always held. What it does not settle
+    on its own is whether the channel can be watched coming back *at all*,
+    because a channel returns in two ways: a level falling, or a reading
+    existing.
+
+    So the second fact is whether any reading covers the incident's minutes.
+    Where they do, the channel is already saying everything it will ever say and
+    will say the same thing after the change goes back; the only thing that would
+    answer is whatever raised the alert, running again on a schedule Argus does
+    not control - days away, or never. Where they do not, the channel is saying
+    nothing yet and will say something, and its saying anything is the
+    confirmation.
+
+    An action taken with nothing to judge it would be taken, reported and never
+    judged, which is worse than one not taken because the incident looks handled.
+    An action *refused* where the readings would have returned is the same cost
+    the other way round: a change Argus could have made and confirmed within a
+    minute, left as a recommendation, on an incident that reads as handled.
     """
     if action is None:
         # A mode nobody determined is not a mode nothing answers. There was
@@ -292,7 +309,7 @@ def _why_the_action_cannot_proceed(action: Action | None,
     if _times_already_tried(action, attempts) >= attempts_per_subject:
         return Refusal.ALREADY_TRIED_ENOUGH
 
-    if dated_by_the_alert:
+    if dated_by_the_alert and readings_cover_the_incident:
         return Refusal.NOTHING_COULD_CONFIRM_IT
 
     return None

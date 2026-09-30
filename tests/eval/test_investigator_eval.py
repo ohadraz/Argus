@@ -86,6 +86,8 @@ CASE_THE_LEAK = "resource-leak-is-told-from-demand-saturation"
 CASE_THE_FLAPPING_AUTOSCALER = "autoscaling-pathology-is-told-from-demand-saturation"
 CASE_THE_STOPPED_ROLLOUT = "in-flight-compatibility-break-is-told-from-a-bad-deployment"
 CASE_THE_SILENT_CORRUPTION = "silent-data-corruption-is-told-from-a-flag-toggle"
+CASE_THE_STOPPED_READINGS = "monitoring-blind-spot-is-told-from-a-bad-deployment"
+CASE_A_WINDOW_THAT_STOPS = "a-window-that-stops-is-not-read-as-a-well-service"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -166,7 +168,15 @@ MUST_IDENTIFY_THE_STOPPED_ROLLOUT = 9  # UNMEASURED - no pooled samples yet
 # the more expensive of the two - it reports a service that failed, in a window
 # a reader can see was well from end to end.
 MUST_IDENTIFY_THE_SILENT_CORRUPTION = 9  # UNMEASURED - no pooled samples yet
-
+# Two bars on one batch, and the only place in this file where they differ on
+# purpose. Naming the mode is a judgement about which of two readings an
+# absence is, and it is allowed a lapse for the reason every case here is.
+# Reading the shop as well is not a lapse in judgement, it is never having
+# looked at the edge of the window - so it is held at every run, unmeasured
+# like its siblings but written where a single failure is a finding rather
+# than noise.
+MUST_IDENTIFY_THE_STOPPED_READINGS = 9  # UNMEASURED - no pooled samples yet
+MUST_NOT_READ_A_STOPPED_WINDOW_AS_WELL = 10  # UNMEASURED - no pooled samples yet
 # How sure a model may sound about a cause the evidence does not carry.
 #
 # The two "nothing explains this" fixtures and the upstream one are a matched
@@ -325,6 +335,30 @@ WHAT_THE_REWRITTEN_SUM_SHIPPED = [
     "  +    )"
 ]
 A_LOG_LEVEL_BUMP = "checkout: raise the structured-log level from info to debug"
+
+# The minute the metrics channel last said anything, and so the onset the
+# absence alert states. Named once because three things have to agree on it -
+# where the window ends, what the alert reports, and where the deployment sits
+# relative to both - and a fixture whose alert and buckets disagreed by a
+# minute would be measuring arithmetic rather than judgement.
+THE_LAST_MINUTE_ANYBODY_REPORTED = -12
+
+# The third revision, and the one that broke nothing. It renames the port the
+# metrics are served on, which is a value in the same file the cache port lives
+# in and a change of an entirely different kind: that one moved a dependency
+# out of the service's reach and this one moves the service out of the
+# monitor's. Nothing on the request path is touched, which is why the logs go
+# on reporting an ordinary shop across every minute the rows are missing.
+THE_REVISION_THAT_RENAMED_THE_METRICS_PORT = "b71a304"
+WHAT_THE_RENAMED_METRICS_PORT_SHIPPED = [
+    f"Deployment of revision {THE_REVISION_THAT_RENAMED_THE_METRICS_PORT} to "
+    f"io-shop, compared against e283ba3 - the revision deployed before it.",
+    "modified deploy/values-production.yaml",
+    "  @@ -31,4 +31,4 @@ metrics:",
+    "     path: /metrics",
+    "  -  portName: metrics",
+    "  +  portName: http-metrics"
+]
 
 # The deploy that explains nothing, named once so the fixture that stages it and
 # the assertion that refuses it cannot come to mean different deploys.
@@ -859,6 +893,54 @@ def test_data_that_went_wrong_silently_is_told_from_a_flag_that_broke_the_servic
         )
 
 
+@pytest.mark.eval
+@needs_the_real_api
+def test_a_window_whose_rows_stop_is_not_read_as_a_healthy_service() -> None:
+    # Two cases off one batch, which no other test here does. They are two
+    # claims about the same ten investigations rather than two experiments, and
+    # a second batch would spend a second real investigation apiece to ask a
+    # question the first one already answered.
+    #
+    # They come apart because the wrong answers are different mistakes. Naming
+    # `bad-deployment` is a model that saw the absence, weighed it, and got the
+    # mode wrong; naming nothing is a model that never saw it - it read forty
+    # calm minutes, found no fault in any of them, and did not notice the
+    # channel had stopped answering twelve minutes ago. The first is a bad
+    # judgement and the second is a service nobody can see being closed as
+    # well, so the bar on the second is the higher of the two.
+    #
+    # This is also the one case here where abstention fails. Everywhere else a
+    # model that will not commit is being honest about evidence that does not
+    # decide; here the evidence decides and the silence is the error.
+    some_incident = an_incident_where_the_readings_stopped()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            all_of(
+                _scored(
+                    CASE_THE_STOPPED_READINGS,
+                    MUST_IDENTIFY_THE_STOPPED_READINGS,
+                    _a_run_where(
+                        the_cause_was_identified_as(
+                            FailureMode.MONITORING_BLIND_SPOT
+                        )
+                    )
+                ),
+                _scored(
+                    CASE_A_WINDOW_THAT_STOPS,
+                    MUST_NOT_READ_A_STOPPED_WINDOW_AS_WELL,
+                    _a_run_where_the_service_was_not_read_as_well()
+                )
+            )
+        )
+
+
 @dataclass(frozen=True)
 class Incident:
     """One pinned incident, as the six retrieval channels would serve it.
@@ -1229,6 +1311,62 @@ def an_incident_where_the_totals_stopped_keeping_up() -> Incident:
         changes=[a_flag_change_at(-a_week_in_minutes, "monthly-spend-feature")]
     )
 
+
+def an_incident_where_the_readings_stopped() -> Incident:
+    """A deployment that changed what a monitor can reach, and nothing else.
+
+    The third fixture whose window holds no departure, and the only one whose
+    window holds no minutes either. Its two neighbours are why it is hard: the
+    corruption case above is a window that is present and flat, and a model
+    that has learned "silent window, read the alert" from that one arrives here
+    ready to look for a reconciliation finding no alert carries.
+
+    Three things decide it, and all three are in front of the model.
+
+    The rows end twelve minutes before the alert fires. Nothing in the rows
+    that exist is abnormal, so a model that scores the window rather than its
+    edge sees a healthy service and stops.
+
+    The logs answer across the gap. Ordinary trade, in minutes the metrics do
+    not cover, which is the corroboration the mode rests on: the shop served
+    every request correctly while nothing could see it doing so.
+
+    And the deployment is *after* the last row rather than at it. That is not
+    an accident of the fixture, it is what this mode always looks like - the
+    rows stop because of the change, so the change cannot be at the minute they
+    stopped. A model applying the rule the other deploy cases reward, that a
+    change later than the onset did not cause it, discards the only candidate
+    here.
+
+    The diff is served because the real channel serves it, and it is what
+    separates this from a bad deployment: a port renamed in the values file,
+    touching no source and no request path. A model that reads it and still
+    answers `bad-deployment` has claimed a shop broke whose every log line says
+    it did not.
+    """
+    return _an_incident(
+        alert=an_absence_alert(),
+        buckets=_a_window_that_stops(),
+        log_lines=[
+            a_log_line_at(THE_LAST_MINUTE_ANYBODY_REPORTED - 1, A_SUCCESS),
+            a_log_line_at(THE_LAST_MINUTE_ANYBODY_REPORTED + 1, A_SUCCESS),
+            a_log_line_at(-6, A_SUCCESS),
+            a_log_line_at(-1, A_SUCCESS)
+        ],
+        changes=[
+            a_deploy_at(
+                THE_LAST_MINUTE_ANYBODY_REPORTED + 1,
+                THE_REVISION_THAT_RENAMED_THE_METRICS_PORT,
+                _as_a_deploy_is_actually_summarised(
+                    THE_REVISION_THAT_RENAMED_THE_METRICS_PORT
+                )
+            )
+        ],
+        what_each_deployment_changed={
+            THE_REVISION_THAT_RENAMED_THE_METRICS_PORT:
+                WHAT_THE_RENAMED_METRICS_PORT_SHIPPED
+        }
+    )
 
 def an_incident_underway_before_the_window_opens() -> Incident:
     """Every retrieved minute is inside the incident, and the cause is outside.
@@ -1933,6 +2071,36 @@ def _a_run_where(satisfy: Assertion[Hypothesis]) -> Assertion[Run]:
     return all_of(_of_the_best_candidate(satisfy), _the_budget_was_not_exhausted())
 
 
+def _a_run_where_the_service_was_not_read_as_well() -> Assertion[Run]:
+    """That the model did not conclude there was nothing wrong.
+
+    The weaker of the two claims a stopped window is scored on, and the one
+    that matters more. Naming the wrong mode is a model that read an absence
+    and misjudged it; naming nothing at all is a model that read the rows it
+    was given, found every one of them calm, and never noticed the channel had
+    stopped answering - which in production closes an incident on a service
+    nobody can see.
+
+    Abstention is the failure here, which is the reverse of every other claim
+    in this file: elsewhere a model that will not commit is being honest about
+    evidence that does not decide, and here the evidence decides and the
+    silence is the mistake. Which cause it names is the other case's question.
+    """
+    def assertion(run: Run) -> bool:
+        best = run.findings.candidates[0]
+
+        if best.failure_mode is None:
+            raise AssertionError(
+                f"Expected a window whose rows stop twelve minutes before the "
+                f"alert to be read as something being wrong, and no cause was "
+                f"named at all. Model said: {best.summary}"
+            )
+
+        return True
+
+    return all_of(assertion, _the_budget_was_not_exhausted())
+
+
 def _a_run_where_the_logs_were_read_before(instant: str) -> Assertion[Run]:
     """As `_a_run_where`, for a claim about the reading rather than the verdict."""
     return all_of(_the_logs_were_read_before(instant), _the_budget_was_not_exhausted())
@@ -2009,6 +2177,33 @@ def an_integrity_alert() -> Alert:
     )
 
 
+def an_absence_alert() -> Alert:
+    """The rule that fires on a series which stopped, and dates the incident by
+    the last thing that series said.
+
+    The second alert here that states its own onset, and it states it for the
+    opposite reason to the integrity check's. That one is dated late because a
+    check ran long after the writing went wrong; this one is dated late because
+    there is nothing left to measure an onset from - the departure a rule would
+    anchor on is the rows ending, and a window cannot report the minute it
+    stopped having minutes in.
+
+    The onset is therefore the *last* sample rather than the first bad one, and
+    that is what makes the cause later than the onset: whatever stopped the rows
+    necessarily acted after the last one was written. Every other case in this
+    file rewards looking at the onset minute and discarding what came after it.
+    """
+    return Alert(
+        service="checkout",
+        alert_name="MetricsAbsent",
+        severity="critical",
+        summary="no samples received for 12 minutes; the series was reporting "
+                "normally until then and the last sample arrived at "
+                f"{_minute(THE_LAST_MINUTE_ANYBODY_REPORTED)}",
+        stated_onset=ONSET + timedelta(minutes=THE_LAST_MINUTE_ANYBODY_REPORTED)
+    )
+
+
 def a_flag_change_at(offset_minutes: int, flag: str) -> ChangeEvent:
     """One flag switched on, as the change channel would serve it.
 
@@ -2037,3 +2232,27 @@ def _a_window_in_which_nothing_happened() -> list[MetricBucket]:
     slowed, so whatever the alert is about left no operational trace.
     """
     return [a_bucket_at(minute, CALM_ERROR_RATE) for minute in range(-45, 3)]
+
+
+def _a_window_that_stops() -> list[MetricBucket]:
+    """Half an hour of a well service, and then no rows at all.
+
+    The one window here whose evidence is what it does not contain. Every
+    minute it holds is calm - the same calm as the window above, deliberately,
+    so nothing in the rows that exist marks the incident - and then they end
+    twelve minutes before the alert fires and do not resume.
+
+    The trap is that a model reading only the rows it was served sees a
+    perfectly healthy service and has read the whole channel. What says
+    otherwise is the *edge*: the newest row is twelve minutes old against an
+    alert firing now, and this is the only case in this file where the last
+    bucket's age is the finding.
+
+    Not zeros, and the distinction is the whole mode. A zeroed minute is a
+    window that is flat, which is the corruption case two fixtures up; a minute
+    that is not there at all is nobody reporting.
+    """
+    return [
+        a_bucket_at(minute, CALM_ERROR_RATE)
+        for minute in range(-45, THE_LAST_MINUTE_ANYBODY_REPORTED + 1)
+    ]

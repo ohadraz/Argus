@@ -129,6 +129,28 @@ class FailureMode(StrEnum):
     # what is left afterwards is not only a patch but a repair of what the fault
     # already wrote, and no mitigation Argus can take reaches either.
     SILENT_DATA_CORRUPTION = "silent-data-corruption"
+    # The service is well and nobody can see that it is. Its availability, its
+    # speed, its capacity and what it has written are all exactly as they should
+    # be; what stopped is the reporting, so the minutes a monitor would read are
+    # missing rather than wrong. The first mode in this set whose subject is the
+    # watching rather than the thing watched, and the first whose correct reading
+    # of the evidence is that nothing can be read.
+    #
+    # It earns a value while bringing no action of its own, as the half-finished
+    # rollout does, and for a sharper reason than that one: both readings a
+    # careless reader reaches for cost something real. Called a flag toggle, the
+    # incident says the shop misbehaved and closes with a defect filed against
+    # code that has none, while nothing anywhere records that the organisation
+    # spent that window blind. Called an outage, a healthy service is rolled back
+    # and people are paged for it.
+    #
+    # Not one mode with the corruption above, though the metrics say nothing in
+    # either. There every minute is present and sitting at its baseline, and the
+    # fault is in what was written; here the minutes are absent, and nothing was
+    # ever wrong with the shop at all. What is left to fix afterwards is neither
+    # code nor a value but an instrumentation gap, and the alert rule that found
+    # it is the only thing that worked.
+    MONITORING_BLIND_SPOT = "monitoring-blind-spot"
 
     def meaning(self) -> str:
         """What this mode is, in the words the model weighing it reads.
@@ -160,7 +182,12 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "silent-data-corruption when putting the flag back is the whole of the "
         "answer - the flag changed how the service behaves and left nothing "
         "written behind it. The two arrive identically, as one flag moved at "
-        "the onset, and the flag history cannot separate them"
+        "the onset, and the flag history cannot separate them. Choose it over "
+        "monitoring-blind-spot when what got worse is the service rather than "
+        "the reporting of it: there the shop serves every request correctly and "
+        "the minutes a monitor would read are the thing that is wrong, so a "
+        "window with rows in it that step is this mode and a window whose rows "
+        "stop is that one"
     ),
     FailureMode.BAD_DEPLOYMENT: (
         "a deployment shipped new or changed source code and the service got "
@@ -169,7 +196,11 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "every replica on the revision that landed. The two arrive the same way, "
         "as one deployment at the onset, and are answered the same way, so the "
         "deploy history cannot separate them: it records that a revision was "
-        "deployed and never whether that revision finished arriving"
+        "deployed and never whether that revision finished arriving. Choose it "
+        "over monitoring-blind-spot on whether the service or the reporting of "
+        "it stopped: a revision can change what a monitor can reach without "
+        "touching a single request, and there the shop serves everything "
+        "correctly while the minutes that would show it go missing"
     ),
     FailureMode.RESOURCE_LEAK: (
         "consumption climbs while traffic does not - a heap never released, a "
@@ -270,6 +301,35 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "feature-flag-toggle and bad-deployment even where a flag moved or a "
         "revision landed at that minute: they may well be the cause, and what "
         "separates the modes is that putting the change back stops the drift "
-        "and repairs nothing already written"
+        "and repairs nothing already written. Choose it over "
+        "monitoring-blind-spot on whether the minutes are there: here every "
+        "minute of the window is present and sitting at its baseline, and there "
+        "the minutes are missing altogether because nothing was reporting them"
+    ),
+    FailureMode.MONITORING_BLIND_SPOT: (
+        "the service is well and nothing can see that it is - every request is "
+        "served correctly, at the speed it always was, and what stopped is the "
+        "reporting. So the window's rows run up to a minute and then stop, and "
+        "the minutes after it are missing rather than flat or zeroed. Read rows "
+        "that stop as the shape of the fault rather than as a window that is "
+        "merely short: the alert says a series that was reporting has stopped, "
+        "and the distance between its firing and the last row is how much of the "
+        "service nobody can account for. The logs are what corroborate it - they "
+        "answer normally across the very minutes the metrics are missing, which "
+        "is what says the shop behind them is fine. Expect the change that "
+        "caused it to land after the last row rather than at it: the rows stop "
+        "because of the change, so the change is necessarily later than the last "
+        "one written, and a candidate is not too late to be the cause here. "
+        "Expect the service to be untouched around it too - a revision or a flag "
+        "that landed while every request went on being served correctly is not "
+        "evidence against it, because a shop that is well across the change is "
+        "exactly what this mode is. Choose this over feature-flag-toggle and "
+        "bad-deployment even where a flag moved or a revision landed there: they "
+        "are very likely the cause, and what separates the modes is that what "
+        "got worse was the watching rather than the service. Choose it over "
+        "silent-data-corruption, the other mode no "
+        "series speaks for, on whether the minutes exist at all - there they are "
+        "all present and at baseline with a reconciliation finding to date them, "
+        "and here they are simply not there"
     )
 }

@@ -64,6 +64,8 @@ from agent_investigator_test.framework.builders.configuration import (
 )
 from agent_investigator_test.framework.builders.incident import (
     A_STATED_ONSET,
+    A_STATED_ONSET_OF_AN_ABSENCE,
+    AN_ALERT_TIME,
     CALM_CPU_CAPACITY_CORES,
     CALM_CPU_CORES,
     CALM_ERROR_RATE,
@@ -71,6 +73,7 @@ from agent_investigator_test.framework.builders.incident import (
     a_steady_window,
     a_window_of,
     a_window_that_starts_calm,
+    a_window_that_stops_reporting,
     an_alert,
     the_onset_of,
 )
@@ -626,6 +629,138 @@ def test_the_model_is_told_when_no_series_corroborates_the_onset() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_told_the_rows_stop_and_when_they_stopped() -> None:
+    # A window that stops is the one shape a model misreads without prompting. An
+    # empty table provokes a question; a plausible window that merely ends provokes
+    # none, and the natural reading is that Argus retrieved a short span.
+    #
+    # So the message says where the rows stop and how far that is from the alert.
+    # Both figures are Argus's - the model has the firing time and no idea what
+    # time it is now - and a subtraction it was never given both halves of is not a
+    # judgement it can make.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+    the_window_that_stops = a_window_that_stops_reporting()
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(the_window_that_stops))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=A_STATED_ONSET_OF_AN_ABSENCE)
+            )
+        ) \
+        .then(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                the_window_that_stops[-1].bucket_id,
+                to_iso(AN_ALERT_TIME),
+                "stop"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_not_told_a_window_that_stops_is_all_there_is_to_ask_for() -> None:
+    # The sentence that would do the most damage here, and it is in the paragraph
+    # about the rows rather than the one about the onset. It tells the model there
+    # is no more of this channel to ask for - about the one channel whose return is
+    # what ends this incident, over a window that is missing most of what it
+    # describes.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_stops_reporting()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=A_STATED_ONSET_OF_AN_ABSENCE)
+            )
+        ) \
+        .then(
+            _what_was_asked_first_avoids(
+                investigation.model,
+                "there is no more of this channel to ask for",
+                "none of them departs from its baseline"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_window_that_was_read_throughout_is_described_exactly_as_it_was() -> None:
+    # The guard on the other two. A flat window is FM-26's, its wording was written
+    # for it, and every scenario built before this change walks that branch - so it
+    # keeps both sentences a window that stops has to lose.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=A_STATED_ONSET))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model,
+                    "no series departs",
+                    "the whole span the metrics source keeps"
+                ),
+                _what_was_asked_first_avoids(investigation.model, "stop")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_investigation_whose_window_stops_says_the_incident_was_never_read() -> None:
+    # The fact the gate needs and cannot get. It refuses an action as unconfirmable
+    # where the alert dated the incident, on the inference that an alert-dated
+    # incident had no series depart and so has nothing to be watched coming back.
+    # That holds for a window read throughout and fails here: a channel can be
+    # watched coming back by a reading existing as well as by a level falling.
+    #
+    # Measured here because this is the only place holding both the onset and the
+    # window, and carried on the findings because they already cross the boundary
+    # the gate sits behind.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_stops_reporting()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=A_STATED_ONSET_OF_AN_ABSENCE)
+            )
+        ) \
+        .then(
+            _the_readings_cover_the_incident(False)
+        )
+
+
+@pytest.mark.unit
+def test_an_investigation_whose_window_was_read_throughout_says_so() -> None:
+    # The other alert-dated shape, and the reason the refusal exists. Silent data
+    # corruption's window carries every minute of the incident and holds them all
+    # flat - so the channel has already said everything it is going to say, and it
+    # will say the same thing after the flag goes back. Nothing here may change.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=A_STATED_ONSET))
+        ) \
+        .then(
+            _the_readings_cover_the_incident(True)
+        )
+
+
+@pytest.mark.unit
 def test_the_change_channels_are_read_at_the_stated_onset() -> None:
     # The whole of what a stated onset buys. An alert raised by a check that
     # runs weekly fires long after the writing went wrong, so a window anchored
@@ -1148,6 +1283,29 @@ def test_a_pin_already_tried_is_described_as_a_pin() -> None:
                 investigation.model, f"set {some_pinned_application}"
             )
         ))
+
+
+def _the_readings_cover_the_incident(expected: bool) -> Assertion[Findings]:
+    """Whether the findings report any reading of the incident's own minutes.
+
+    The gate decides confirmability on this and cannot work it out: it holds the
+    onset and never the window. So the investigation has to say, and what it says
+    is a property of the evidence rather than a judgement about it - a window with
+    readings from the onset on, or a window with none.
+    """
+    def assertion(findings: Findings) -> bool:
+        if findings.readings_cover_the_incident != expected:
+            raise AssertionError(
+                f"Expected the findings to report the incident's minutes as "
+                f"{'read' if expected else 'unread'}, and they report them as "
+                f"{'read' if findings.readings_cover_the_incident else 'unread'} - "
+                f"so the gate decides whether anything could confirm an action on "
+                f"the wrong fact."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_candidates_say(*summaries: str) -> Assertion[Findings]:

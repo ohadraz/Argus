@@ -38,6 +38,17 @@ AN_ALERT_TIME = datetime(2026, 8, 20, 11, 8, tzinfo=UTC)
 # check that reconciles stored values against the records behind them finds what
 # went wrong long after the writing did, and the minute it dates is one no
 # retrievable series covers. A week is what a weekly check implies.
+# How long a shop that stopped reporting got to report first, and therefore where
+# its window stops. Shorter than the calm stretch above, so the last row lands
+# well before the alert - which is the whole of the evidence that anything is
+# missing, since nothing in front of the model says what time it is now.
+MINUTES_BEFORE_THE_SHOP_WENT_QUIET = 6
+# The minute an absence began: the first one with no reading, which is the minute
+# after the last one that has a reading. Not the last minute that reported - that
+# one is a minute the shop was well and said so.
+A_STATED_ONSET_OF_AN_ABSENCE = WINDOW_START + timedelta(
+    minutes=MINUTES_BEFORE_THE_SHOP_WENT_QUIET
+)
 A_STATED_ONSET = WINDOW_START - timedelta(days=7)
 
 A_SERVICE = "kuki"
@@ -76,6 +87,17 @@ def a_window_that_starts_mid_incident() -> list[MetricBucket]:
     """Already elevated at its earliest minute, so the onset is only a lower
     bound - the incident began before anything Argus can see."""
     return a_window_of([0.30, 0.28, 0.25, 0.21, 0.20, 0.19])
+
+
+def a_window_that_stops_reporting() -> list[MetricBucket]:
+    """Calm minutes that simply stop, well before the alert fired.
+
+    The shape of a monitoring blind spot, and not a short window: the minutes
+    before the onset are all there and all ordinary, and every minute from the
+    onset on is missing rather than flat or zeroed. Nothing departs anywhere,
+    because the minutes that would have departed are the absent ones.
+    """
+    return a_window_of([CALM_ERROR_RATE] * MINUTES_BEFORE_THE_SHOP_WENT_QUIET)
 
 
 def a_steady_window() -> list[MetricBucket]:

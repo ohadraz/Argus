@@ -37,7 +37,8 @@ def a_dispatcher(reads_metrics: Mock | None = None,
                  reads_dependencies: Mock | None = None,
                  reads_a_deployment: Mock | None = None,
                  reads_the_rollout: Mock | None = None,
-                 alert_time: str | None = AN_ALERT_TIME) -> Dispatcher:
+                 alert_time: str | None = AN_ALERT_TIME,
+                 readings_cover_the_incident: bool = True) -> Dispatcher:
     """A dispatcher whose unnamed channels answer with nothing.
 
     Each test names the one channel it is about; the others must not be the
@@ -51,11 +52,16 @@ def a_dispatcher(reads_metrics: Mock | None = None,
     `alert_time` is a parameter rather than a constant because its absence is a
     real case - an alert that never said when it started - and it changes where
     a default log window ends.
+
+    `readings_cover_the_incident` is a parameter for the same reason: a window
+    that stops before the incident's own minutes dates the onset off the last
+    reading there was, and it changes where a default change window ends.
     """
     return Dispatcher(
         service=A_SERVICE,
         onset=AN_ONSET,
         alert_time=alert_time,
+        readings_cover_the_incident=readings_cover_the_incident,
         settings=some_investigation_settings(),
         fetch_metrics=reads_metrics or create_autospec(
             MetricsFetcher, instance=True, return_value=[]

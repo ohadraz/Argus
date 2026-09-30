@@ -32,3 +32,18 @@ class Findings:
 
     candidates: list[Hypothesis]
     already_read: list[Reading]
+    # Whether any reading covers the minutes from the incident's onset onwards.
+    #
+    # Here rather than derived where it is used, because only an investigation
+    # holds both halves: the gate that reads it has the onset and never the
+    # window. What it decides is whether an action on this incident could be
+    # confirmed - a channel already reporting every minute of the incident will
+    # report the same minutes afterwards, and one reporting none of them has a
+    # return to show.
+    #
+    # A property of the window and never of the mode. Any incident whose minutes
+    # were not published is judged this way, whatever the cause turns out to be.
+    #
+    # `True` by default because that is what every incident before this field
+    # existed was: a window with readings throughout, either departing or flat.
+    readings_cover_the_incident: bool = True

@@ -88,6 +88,11 @@ class StateDelta(BaseModel):
     # candidates it had passed over.
     unreachable_platforms: list[Platform] | None = None
     already_read: list[Reading] | None = None
+    # Whether any reading covers the minutes from this incident's onset onwards,
+    # as the round that read the evidence found it. Travels because the gate
+    # decides confirmability on it and holds the onset alone - see `Findings`,
+    # where it is measured.
+    readings_cover_the_incident: bool | None = None
     rounds: int | None = None
     # Set explicitly to `None` by the node that could not read the provider, so
     # that "nobody could say" reaches the rest of the round as itself.

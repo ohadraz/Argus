@@ -169,6 +169,134 @@ def test_the_mode_whose_damage_outlives_its_cause_says_so() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_the_mode_that_is_about_the_watching_and_not_the_service_says_so() -> None:
+    # The sixth pair, and the first in which one member is not about the service
+    # at all. Both arrive as a flag that moved at the onset, both are answered by
+    # putting that flag back, and the flag history describes the two identically.
+    # What differs is what got worse: the shop, or the account of the shop.
+    #
+    # The cost of the wrong reading is a false record in either direction. Read as
+    # a toggle, a blind spot is closed with a defect filed against code that has
+    # none, and nothing anywhere says the organisation spent that window unable to
+    # see itself. Read the other way, a real fault in the shop is written up as an
+    # instrumentation gap and left in place.
+    Scenario() \
+        .given(the_pair := (
+            FailureMode.FEATURE_FLAG_TOGGLE,
+            FailureMode.MONITORING_BLIND_SPOT
+        )) \
+        .when(lambda: the_pair) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_what_stopped_reporting()
+        ))
+
+
+@pytest.mark.unit
+def test_the_two_modes_no_series_speaks_for_say_what_separates_them() -> None:
+    # The seventh pair, and the one whose evidence agrees most nearly of all: in
+    # both of these the metrics carry nothing about the fault. A model that has
+    # learned from one of them that a window saying nothing means read the alert
+    # will read the other the same way and reach for a reconciliation finding no
+    # alert here carries.
+    #
+    # What separates them is whether the minutes are there at all. Silent
+    # corruption has every minute, each sitting at its baseline; a blind spot is
+    # missing them, and the rows simply stop. So this is something to look at
+    # rather than a judgement to make - which is the only kind of distinction
+    # worth giving a model when the two readings are otherwise this close.
+    Scenario() \
+        .given(the_pair := (
+            FailureMode.SILENT_DATA_CORRUPTION,
+            FailureMode.MONITORING_BLIND_SPOT
+        )) \
+        .when(lambda: the_pair) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_whether_the_minutes_are_there()
+        ))
+
+
+@pytest.mark.unit
+def test_the_two_things_a_revision_at_the_onset_could_have_broken_say_what_separates_them() -> None:
+    # The eighth pair, and the one a deploy history describes most identically of
+    # all: a revision landed, and the question is whether it broke the shop or
+    # broke the sight of the shop. Nothing in the deploy channel distinguishes
+    # them - both record a revision at the onset, both are answered by returning
+    # it, and a diff that renames a port and a diff that breaks an endpoint read
+    # the same from here.
+    #
+    # It is the reverse reading that costs the more. A blind spot read as a bad
+    # deployment is a defect filed against a service that behaved correctly
+    # throughout, and the window in which the organisation could not see itself
+    # goes unrecorded - while the rollback, being the same call, succeeds and
+    # makes the wrong account look confirmed.
+    Scenario() \
+        .given(the_pair := (
+            FailureMode.BAD_DEPLOYMENT,
+            FailureMode.MONITORING_BLIND_SPOT
+        )) \
+        .when(lambda: the_pair) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_what_stopped_reporting()
+        ))
+
+
+@pytest.mark.unit
+def test_the_mode_whose_cause_lands_after_its_own_onset_says_so() -> None:
+    # The one mode whose change cannot be at the onset, and so the one where a
+    # model reading the change channels correctly reaches the wrong conclusion.
+    # The onset is the last row, because a stopped series gives nothing else to
+    # date it from; the change that stopped the rows landed after that row was
+    # written. A model applying the rule every other mode teaches it - the change
+    # at the onset is the suspect, a change after it is not - discards the only
+    # candidate there is.
+    #
+    # The service holding still across that change is the same trap from the
+    # other side. Everywhere else a revision that landed and left the shop
+    # serving exactly as before is evidence it was innocent; here it is the mode
+    # itself, because the shop is well and always was.
+    #
+    # Both are about how to read evidence the model will certainly have, rather
+    # than about which mode to name - which is why they sit apart from the pairs
+    # above and are asserted on the one meaning rather than on two.
+    Scenario() \
+        .given(the_blind_spot := FailureMode.MONITORING_BLIND_SPOT) \
+        .when(lambda: the_blind_spot.meaning()) \
+        .then(all_of(
+            _it_says_the_change_lands_after_the_last_row(),
+            _it_says_the_service_staying_well_is_the_mode()
+        ))
+
+
+class _Meaning:
+    """The assertions about one mode's meaning, which all need to name it.
+
+    A class rather than a run of functions each taking the mode again: the
+    failure message has to say whose meaning fell short, and threading that
+    through every helper is how it comes to be left out of one of them.
+    """
+
+    def __init__(self, cause: FailureMode) -> None:
+        self._cause = cause
+
+    def says_when_to_prefer_it_to(self, other: FailureMode) -> Assertion[str]:
+        def assertion(meaning: str) -> bool:
+            if other.value not in meaning:
+                raise AssertionError(
+                    f"The meaning of [{self._cause.value}] never mentions "
+                    f"[{other.value}], so nothing tells a model looking at "
+                    f"evidence that fits both which of the two it is looking "
+                    f"at."
+                )
+
+            return True
+
+        return assertion
+
+
 def _what_it_means(cause: FailureMode) -> str:
     """The meaning, or the empty string where asking for one fails.
 
@@ -233,32 +361,6 @@ def _the_meaning_of(cause: FailureMode) -> _Meaning:
     class spelled to make it work is a class named against the convention.
     """
     return _Meaning(cause)
-
-
-class _Meaning:
-    """The assertions about one mode's meaning, which all need to name it.
-
-    A class rather than a run of functions each taking the mode again: the
-    failure message has to say whose meaning fell short, and threading that
-    through every helper is how it comes to be left out of one of them.
-    """
-
-    def __init__(self, cause: FailureMode) -> None:
-        self._cause = cause
-
-    def says_when_to_prefer_it_to(self, other: FailureMode) -> Assertion[str]:
-        def assertion(meaning: str) -> bool:
-            if other.value not in meaning:
-                raise AssertionError(
-                    f"The meaning of [{self._cause.value}] never mentions "
-                    f"[{other.value}], so nothing tells a model looking at "
-                    f"evidence that fits both which of the two it is looking "
-                    f"at."
-                )
-
-            return True
-
-        return assertion
 
 
 def _each_of_the_pair_names_the_other() -> Assertion[tuple[FailureMode, FailureMode]]:
@@ -434,6 +536,129 @@ def _the_pair_is_told_apart_by_what_the_change_left_behind() -> Assertion[
                 f"model is told there is a distinction and not that putting the "
                 f"flag back ends one of the pair and repairs nothing in the "
                 f"other."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_what_stopped_reporting() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to say whether the service or its reporting is what broke.
+
+    Naming the other mode is not enough, for the reason it is not enough of any
+    pair above. What a model has in front of it is a flag that moved at the onset,
+    which both of these have, and the flag history cannot decide between them: it
+    records that somebody turned something on and says nothing about whether what
+    followed was the shop getting worse or the shop going quiet.
+
+    So a meaning that does not send the model to what stopped reporting leaves it
+    choosing between a service that misbehaved and a service nobody can see, on
+    evidence that describes the two identically.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "reporting" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without saying whether it is the service or the reporting of it "
+                f"that stopped - so the model is told there is a distinction and "
+                f"not that one of the pair leaves the shop entirely well."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_whether_the_minutes_are_there() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to say whether the window's minutes exist.
+
+    Naming the other mode is not enough, and here it is least enough of anywhere
+    in the taxonomy: these two are the only modes about which the metrics say
+    nothing, so a model has already been told by one of them that a silent window
+    is the shape of the fault rather than a sign there is nothing to find.
+
+    What decides it is whether the silence is rows at baseline or no rows at all.
+    A meaning that does not say which leaves a model reading a window whose rows
+    stop as one whose rows are flat - and the mode it then names comes with a
+    reconciliation finding, a date read off stored data, and a repair nobody here
+    owes.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "missing" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without saying whether the window's minutes are present and "
+                f"flat or missing altogether - so the model is left to judge "
+                f"between the two silences where it could have looked."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_change_lands_after_the_last_row() -> Assertion[str]:
+    """The meaning has to say the cause is later than the onset it is dated from.
+
+    Every other mode in the taxonomy is dated by a departure and answered by
+    whatever moved at that minute, so a model that has read the taxonomy arrives
+    looking for a change at the onset and discarding the ones after it. Here the
+    onset is the last row a stopped series wrote, and a change that stopped the
+    rows is necessarily later than the last one written - there is no other
+    order it could have happened in.
+
+    Left unsaid, the rule the model brought with it eliminates the only
+    candidate there is, and does so on reasoning that is sound everywhere else.
+    """
+    def assertion(meaning: str) -> bool:
+        if "after the last row" not in meaning:
+            raise AssertionError(
+                "The meaning of [monitoring-blind-spot] never says the change "
+                "that caused it lands after the last row, so a model dating the "
+                "incident from that row rules out the one candidate it has for "
+                "arriving too late to be the cause."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_service_staying_well_is_the_mode() -> Assertion[str]:
+    """The meaning has to say an unaffected service is the prediction, not an alibi.
+
+    The second half of the same trap. Everywhere else in the taxonomy a change
+    that landed and left the shop serving exactly as before is evidence the
+    change was innocent, and a model weighing candidates on that rule is right
+    to. Here it is what the mode predicts: the shop is well, was always well,
+    and the only thing the change touched is what can be seen of it.
+
+    So a meaning that says only what the mode *is* leaves the model with a
+    candidate its own reasoning keeps acquitting - and the acquittal reads as
+    diligence rather than as the mistake it is.
+    """
+    def assertion(meaning: str) -> bool:
+        if "not evidence against" not in meaning:
+            raise AssertionError(
+                "The meaning of [monitoring-blind-spot] never says that a "
+                "service going on serving correctly across the change is not "
+                "evidence against that change, so the model clears the cause "
+                "with the rule every other mode taught it."
             )
 
         return True

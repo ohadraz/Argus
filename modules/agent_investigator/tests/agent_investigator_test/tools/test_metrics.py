@@ -18,6 +18,7 @@ from agent_investigator.tools.metrics import metrics_tool
 from argus_core.models import MetricBucket, ToolDefinition, ToolResult
 from argus_testkit import Assertion, Scenario
 
+from agent_investigator_test.framework.assertions.tool_results import the_result_failed
 from agent_investigator_test.framework.builders.dispatcher import (
     AN_ALERT_TIME,
     a_call_to,
@@ -97,6 +98,42 @@ def test_the_metrics_tool_offers_no_window_to_narrow() -> None:
         ) \
         .then(
             _the_tool_takes_no_arguments()
+        )
+
+
+@pytest.mark.unit
+def test_a_metrics_tier_that_would_not_answer_costs_one_channel_not_the_walk() -> None:
+    # The one channel whose reader lets a failure out. Logs, changes and
+    # dependencies each catch what their fetch raises and come back as a result
+    # the model can read and recover from; metrics does not, so a read tier that
+    # will not answer leaves `dispatch` by exception, leaves `investigate` with
+    # it, and ends the run - with every minute already retrieved thrown away and
+    # the incident stranded mid-walk, no verdict and nothing said about why.
+    #
+    # The same read failing *before* the conversation is already handled: it
+    # comes back as an investigation with one candidate and no turn bought. So
+    # this is the identical failure treated two ways depending on when it lands,
+    # and the later one is the expensive way round.
+    #
+    # `logs.py` gives the reason in as many words: a tier that would not answer
+    # is the least of the reasons to throw an investigation away, because it says
+    # nothing about the incident at all. Measured on the stack, this ended 2 of 3
+    # walks.
+    some_fetch_metrics = create_autospec(
+        MetricsFetcher,
+        instance=True,
+        side_effect=TimeoutError("the read tier did not answer in time")
+    )
+
+    Scenario() \
+        .given(
+            some_dispatcher := a_dispatcher(reads_metrics=some_fetch_metrics)
+        ) \
+        .when(
+            lambda: some_dispatcher.dispatch(a_call_to(METRICS_TOOL))
+        ) \
+        .then(
+            the_result_failed()
         )
 
 

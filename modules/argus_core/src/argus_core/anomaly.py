@@ -283,15 +283,50 @@ def has_recovered_since(buckets: Sequence[MetricBucket],
     are the one stretch that cannot say.
     """
     still_the_incident = _minutes_still_at_the_incidents_level(buckets, thresholds)
-    from_index = next(
-        (index for index, bucket in enumerate(buckets) if bucket.bucket_id >= moment),
-        None
-    )
+    from_index = _first_index_at_or_after(buckets, moment)
 
     if from_index is None:
         return False
 
     return _stays_clear_of_the_incident(still_the_incident, from_index, thresholds)
+
+
+def has_a_reading_since(buckets: Sequence[MetricBucket], moment: str) -> bool:
+    """Whether any minute at or after `moment` was read at all.
+
+    The other half of the question above, and the half it cannot answer. A `False`
+    from `has_recovered_since` covers two states that mean opposite things: the
+    service was watched and has not come back, or nobody watched it. Collapsed,
+    a service nobody can see reads as a service still failing - and a caller
+    acting on that refutes an explanation nothing measured, undoes the change that
+    fixed it, and strikes the cause off the list.
+
+    So this is asked first wherever the difference matters, and what it reports is
+    about the window rather than about the service: not whether the minutes are
+    well, but whether they exist. Inclusive of `moment` itself, matching the
+    recovery question asked of the same window, because a reading taken at the
+    minute asked about is a reading of it.
+
+    No thresholds, and the absence is the point: nothing here judges a level, so
+    there is nothing for a bar to be drawn against. A window either covers those
+    minutes or it does not, and that is true whatever anybody's idea of quiet is.
+    """
+    return _first_index_at_or_after(buckets, moment) is not None
+
+
+def _first_index_at_or_after(buckets: Sequence[MetricBucket],
+                             moment: str) -> int | None:
+    """Where in the window `moment` falls, or `None` if the window ends first.
+
+    Shared by the two questions above so that they cannot come to disagree about
+    which minutes count as *since* - the whole value of asking them together is
+    that one narrows the other's answer, which it cannot do if each does its own
+    arithmetic.
+    """
+    return next(
+        (index for index, bucket in enumerate(buckets) if bucket.bucket_id >= moment),
+        None
+    )
 
 
 def find_recovery(buckets: Sequence[MetricBucket],
@@ -535,25 +570,12 @@ def _minutes_still_at_the_incidents_level(
     if not buckets:
         return []
 
-    error_rates = [bucket.error_rate for bucket in buckets]
-    medians = [float(bucket.p50_ms) for bucket in buckets]
-    latencies = [float(bucket.p95_ms) for bucket in buckets]
-    tails = [float(bucket.p99_ms) for bucket in buckets]
-    memory = [float(bucket.memory_used_bytes) for bucket in buckets]
-    error_rate_ceiling = _subsided_threshold(error_rates, thresholds)
-    median_ceiling = _subsided_threshold(medians, thresholds)
-    latency_ceiling = _subsided_threshold(latencies, thresholds)
-    tail_ceiling = _subsided_threshold(tails, thresholds)
-    memory_ceiling = _subsided_threshold(memory, thresholds)
-
-    return [
-        bucket.error_rate > error_rate_ceiling
-        or bucket.p50_ms > median_ceiling
-        or bucket.p95_ms > latency_ceiling
-        or bucket.p99_ms > tail_ceiling
-        or bucket.memory_used_bytes > memory_ceiling
-        for bucket in buckets
+    each_series = [
+        _minutes_above(values, _subsided_threshold(values, thresholds))
+        for values in _the_five_series(buckets)
     ]
+
+    return [any(minute) for minute in zip(*each_series, strict=True)]
 
 
 def _subsided_threshold(values: Sequence[float],
@@ -584,47 +606,80 @@ def _subsided_threshold(values: Sequence[float],
     contributes nothing to whether the incident is still going on - which is
     what the reasoning above always meant.
 
-    "Never reached it" has to be read to the precision the series has, and this
-    is the one comparison in the module where both sides answer the same
-    question - did this signal ever depart - so a difference smaller than the
-    series can resolve is not a departure. Compared exactly, it was: an error
-    rate idling at half a percent has a bar of `0.005 + 3 * 0.01`, which in
-    binary floating point is 0.034999999999999996, and a minute reporting seven
-    failures in two hundred requests is 0.035. That series departed by seven
-    attounits, escaped this exclusion, and was handed a ceiling its own worst
-    minute cleared by the same nothing - which refuted a flag revert that had
-    worked and escalated an incident Argus had already ended.
+    Whether it reached that level is the onset's question, and it is asked the
+    onset's way: a run of departed minutes long enough to be a state. §16 says
+    this is the one question the section asks twice - once to date an onset, once
+    to exclude a series from recovery - so the two answers have to agree, and
+    anything else here is a second spelling of a rule stated elsewhere.
 
-    The margin is one step of what the quiet stretch resolves, which leaves this
-    bar deliberately one step above the one `_departures` reads. The two do not
-    agree at that step, and are not meant to: a single step apart is what two
-    otherwise identical minutes look like when one of them caught one more
-    failure, which is the position `_WITHIN_THE_NOISE_OF_ITS_OWN_STEPS` already
-    takes when it floors the spread at two of them. A margin picked to make the
-    two agree exactly would put the boundary back where the tie above put it -
-    decided by which way a sum of floats happened to round, which is the one
-    thing this is here to stop deciding anything.
+    It was spelled a second way, and the difference is what a maximum is. Asking
+    whether the series' worst minute cleared the bar by more than the series can
+    resolve made the exclusion turn on one sample, and a maximum is the one
+    statistic a single sample moves arbitrarily far. A shop drawing one to four
+    failures in two hundred requests draws eight occasionally; that minute lifted
+    the maximum past the margin, admitted a series with no incident in it, and
+    left recovery judged against a ceiling a fifth of the way up from the bar to
+    that outlier - which ordinary jitter sits above. Every rollback was then
+    refused for as long as the minute took to leave the window: six hours, on 21%
+    of clock positions against the fixture, and on any incident that leaves one
+    of the five judged signals flat.
 
-    Asked of the quiet minutes rather than of the whole window, for the reason
-    `_what_the_series_resolves` is: across a whole window the nearest two distinct
-    values may be the calm level and the incident's.
+    The margin is not missed. It already lives in the departure bar, where
+    `_WITHIN_THE_NOISE_OF_ITS_OWN_STEPS` floors the spread at two of whatever the
+    quiet stretch resolves, so a minute inside its own noise does not depart in
+    the first place and never reaches the run this asks about.
 
-    A stretch of identical readings resolves nothing, so the comparison there is
-    exact again. That case is a different fault and not this one: with no step to
-    go on the spread falls back to a fraction of the baseline, which can put the
-    bar *inside* one step of the series, so a one-step jitter reads as an
-    incident however this comparison is written.
+    Deliberately not `find_onset`'s allowance for a run still going when the
+    window ends. That allowance credits a final run of any length, so one noisy
+    last minute would admit an otherwise-flat series - this same defect at the
+    tail instead of the middle. What the strict bar trades for that is named
+    rather than hidden: a relapse that is one minute old when the confirming poll
+    lands is not credited here. The departed side's own allowance in
+    `_stays_clear_of_the_incident` already lets that minute pass, and the
+    reassurance offered there - that a real relapse is a run of two by the next
+    poll - covers a verdict being denied and not one being granted, because
+    `CONFIRMED` leaves the loop and there is no next poll. That is a known limit
+    of the recovery end, not of this exclusion.
+
+    A run is compared by length rather than by value, so where a sum of floats
+    happens to round decides nothing here. A minute a thousandth of a step above
+    the bar departs, and one departed minute is not an incident whatever its
+    arithmetic came to.
+
+    The ceiling below is still read off the worst minute, and that is the same
+    statistic this exclusion stopped trusting. It decides how far a signal has to
+    have fallen rather than whether it fell at all, so a spike raises it and
+    confirms early where it used to lower it and refuse - the mirror of the defect
+    above, unmeasured, and left for a change that measures it.
     """
     departed = _departure_threshold(values, thresholds, _THE_QUIETEST_MINUTES)
     at_its_worst = max(values, default=departed)
-    resolves = _what_the_series_resolves(_THE_QUIETEST_MINUTES.minutes(values))
 
-    if at_its_worst <= departed + resolves:
+    if not _departs_for_long_enough_to_be_the_incident(
+        _minutes_above(values, departed), thresholds
+    ):
         return inf
 
     subsided = thresholds.recovery_fraction_of_the_rise
 
     return max(departed, at_its_worst - subsided * (at_its_worst - departed))
+
+
+def _minutes_above(values: Sequence[float], ceiling: float) -> list[bool]:
+    """Which of one series' minutes are above `ceiling`, in window order.
+
+    The one place a reading is compared to a bar, and that is the point of it.
+    Both questions this module asks about a signal - did it depart, and has it
+    fallen back - are asked of the same comparison, and they were spelled
+    separately: `_departures` ored five inline comparisons and kept no record of
+    which series departed, so the exclusion had to derive the fact again from a
+    maximum. The two spellings then disagreed, and the disagreement was the bug.
+
+    One series rather than five, because who wants the five ored together is the
+    caller's question and not this one's. `_departures` ors them; the exclusion
+    asks about the single series it is being asked about.
+    """
+    return [value > ceiling for value in values]
 
 
 def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool],
@@ -677,29 +732,27 @@ def _departures(buckets: Sequence[MetricBucket],
     if not buckets:
         return []
 
-    error_rate_ceiling = _departure_threshold(
-        [bucket.error_rate for bucket in buckets], thresholds, calm
-    )
-    median_ceiling = _departure_threshold(
-        [float(bucket.p50_ms) for bucket in buckets], thresholds, calm
-    )
-    latency_ceiling = _departure_threshold(
-        [float(bucket.p95_ms) for bucket in buckets], thresholds, calm
-    )
-    tail_ceiling = _departure_threshold(
-        [float(bucket.p99_ms) for bucket in buckets], thresholds, calm
-    )
-    memory_ceiling = _departure_threshold(
-        [float(bucket.memory_used_bytes) for bucket in buckets], thresholds, calm
-    )
+    each_series = [
+        _minutes_above(values, _departure_threshold(values, thresholds, calm))
+        for values in _the_five_series(buckets)
+    ]
 
+    return [any(minute) for minute in zip(*each_series, strict=True)]
+
+
+def _the_five_series(buckets: Sequence[MetricBucket]) -> list[list[float]]:
+    """One window read as the five series a departure can appear in.
+
+    Named once, because every question about whether a signal moved is asked of
+    these same five and an answer derived from four of them would be a different
+    rule wearing this one's name.
+    """
     return [
-        bucket.error_rate > error_rate_ceiling
-        or bucket.p50_ms > median_ceiling
-        or bucket.p95_ms > latency_ceiling
-        or bucket.p99_ms > tail_ceiling
-        or bucket.memory_used_bytes > memory_ceiling
-        for bucket in buckets
+        [bucket.error_rate for bucket in buckets],
+        [float(bucket.p50_ms) for bucket in buckets],
+        [float(bucket.p95_ms) for bucket in buckets],
+        [float(bucket.p99_ms) for bucket in buckets],
+        [float(bucket.memory_used_bytes) for bucket in buckets]
     ]
 
 

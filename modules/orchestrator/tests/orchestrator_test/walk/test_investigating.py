@@ -162,6 +162,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
                     already_read=[],
+                    readings_cover_the_incident=True,
                     rounds=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
@@ -170,6 +171,52 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
             ),
             assert_that(record_hypothesis).was_called_with(some_hypothesis)
         ))
+
+
+@pytest.mark.unit
+def test_whether_the_incident_was_read_at_all_is_carried_to_the_gate(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The gate decides whether an action on this incident could ever be confirmed,
+    # and it holds the onset and never the window - so a fact measured where both
+    # are has to travel. Carried like the flag history and the register beside it:
+    # read once, in the round that read the evidence, and handed to the node that
+    # acts on it.
+    an_investigating_incident = _an_investigating_incident()
+    some_hypothesis = a_determined_hypothesis(an_investigating_incident.incident_id)
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_found_the_incident_unread(
+                investigate, some_hypothesis
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            the_result_is(
+                StateDelta(
+                    hypothesis=some_hypothesis,
+                    candidates=[some_hypothesis],
+                    candidate_index=0,
+                    flag_changes=WHAT_THE_PROVIDER_RECORDED,
+                    dependencies=WHAT_THE_REGISTER_LISTS,
+                    already_read=[],
+                    readings_cover_the_incident=False,
+                    rounds=1,
+                    confidence=some_hypothesis.confidence,
+                    nothing_worth_trying=False,
+                    narration=Narration(action="hypothesis formed")
+                )
+            )
+        )
 
 
 @pytest.mark.unit
@@ -232,6 +279,49 @@ def test_an_alert_that_states_no_onset_asks_the_flag_history_for_the_present(
         ) \
         .when(
             lambda: investigator_node(an_ordinary_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            assert_that(fetch_flag_changes).was_called_with(onset=None)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_minutes_nothing_read_asks_the_flag_history_for_the_present(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # A stated onset is ordinarily the minute the incident began, and the history
+    # is asked about it. Where no reading covers the incident's own minutes it is
+    # instead the last reading there was - and what ended the readings is the
+    # change, so the change lies at or after that minute and a window ending
+    # there holds none of it. Mitigation is then handed an empty history and
+    # proposes nothing, on the one incident whose only mitigation is putting back
+    # the flag that blinded it.
+    a_stated_onset = datetime(2026, 9, 22, 14, 10, tzinfo=UTC)
+    an_incident_nothing_saw = an_incident_state(
+        Alert(
+            service=SOME_SERVICE,
+            alert_name="NoMetricsReceived",
+            stated_onset=a_stated_onset
+        ),
+        IncidentStatus.INVESTIGATING
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_found_the_incident_unread(
+                investigate, a_determined_hypothesis(
+                    an_incident_nothing_saw.incident_id
+                )
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_incident_nothing_saw,
                                       investigate=investigate,
                                       recall_similar=_nothing_like_it_has_happened(),
                                       record_hypothesis=record_hypothesis,
@@ -317,6 +407,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
                     already_read=[],
+                    readings_cover_the_incident=True,
                     rounds=1,
                     confidence=None,
                     nothing_worth_trying=True,
@@ -1199,6 +1290,22 @@ def _the_investigation_returned(investigate: MagicMock,
                                 *candidates: Hypothesis) -> None:
     investigate.return_value = agent_investigator.Findings(
         candidates=list(candidates), already_read=[]
+    )
+
+
+def _the_investigation_found_the_incident_unread(investigate: MagicMock,
+                                                *candidates: Hypothesis) -> None:
+    """An investigation whose window said nothing about the incident's minutes.
+
+    The shape a monitoring blind spot produces: readings up to the onset and none
+    after it. What matters to this node is only that the findings say so and that
+    the saying reaches the gate, which is where the fact is finally asked a
+    question.
+    """
+    investigate.return_value = agent_investigator.Findings(
+        candidates=list(candidates),
+        already_read=[],
+        readings_cover_the_incident=False
     )
 
 

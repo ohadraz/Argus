@@ -449,7 +449,14 @@ DEFAULT_STRATEGIES: Strategies = {
     # kind of failure at all, and the incident then ends saying a person is
     # needed without saying what for. Named here so there is something to
     # recommend.
-    FailureMode.SILENT_DATA_CORRUPTION: RevertFeatureFlagStrategy()
+    FailureMode.SILENT_DATA_CORRUPTION: RevertFeatureFlagStrategy(),
+    # The fourth mode returning a deployment, and the only one where what comes
+    # back is the sight of the service rather than its behaviour. Nothing about
+    # the service got worse; a revision changed what reaches the scrape, and
+    # returning it is what puts the readings back. So what confirms this action
+    # is the rows existing again rather than a level coming down, which is the
+    # one place in this table where the action and what judges it come apart.
+    FailureMode.MONITORING_BLIND_SPOT: RollBackDeploymentStrategy()
 }
 
 

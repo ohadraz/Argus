@@ -103,6 +103,10 @@ class Dispatcher:
                  fetch_dependencies: DependencyFetcher,
                  fetch_what_a_deployment_changed: DeploymentDiffFetcher,
                  fetch_rollout: RolloutFetcher,
+                 # Whether any reading covers the minutes from the onset on.
+                 # Defaulted to the covered case so that every construction which
+                 # does not say otherwise keeps the window it had.
+                 readings_cover_the_incident: bool = True,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
                  having_read: Sequence[Reading] = (),
@@ -111,6 +115,7 @@ class Dispatcher:
         self._onset = onset
         self._settings = settings
         self._alert_time = alert_time
+        self._readings_cover_the_incident = readings_cover_the_incident
         self._narrator = narrator if narrator is not None else Narrator("", nobody)
         self._replay = replay if replay is not None else Replay("")
         self._clock = clock
@@ -227,7 +232,8 @@ class Dispatcher:
 
         if call.name == CHANGES_TOOL:
             return read_changes(
-                call, self._service, self._onset, self._fetch_change_events,
+                call, self._service, self._onset, self._alert_time,
+                self._readings_cover_the_incident, self._fetch_change_events,
                 self._readings, self._narrator, self._settings
             )
 

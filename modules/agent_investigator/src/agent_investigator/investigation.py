@@ -16,13 +16,15 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any, Final, assert_never
 
-from argus_core import to_iso
+from argus_core import parse_iso, to_iso, to_iso_minute
 from argus_core.anomaly import (
     AnomalyThresholds,
     earliest_bucket_is_anomalous,
     find_onset,
+    has_a_reading_since,
 )
 from argus_core.events import (
     ChannelsUnread,
@@ -181,6 +183,7 @@ first is tried first, and the rest are tried in turn if it does not help.\
 """
 
 _MILLISECONDS_PER_SECOND: Final = 1000
+_SECONDS_IN_A_MINUTE: Final = 60
 
 _A_TURN_THAT_ANSWERED_NOTHING: Final = (
     "That turn asked for nothing and answered nothing. Ask for the evidence you need, "
@@ -294,7 +297,10 @@ def investigate(
         MetricsRetrieved,
         window_start=metric_buckets[0].bucket_id if metric_buckets else None,
         window_end=metric_buckets[-1].bucket_id if metric_buckets else None,
-        buckets=metric_buckets
+        buckets=metric_buckets,
+        # Measured here and said here, because the alert's firing time is not in
+        # the event and the story is told from the event alone.
+        stopped_before_the_alert=_where_the_rows_stop(metric_buckets, alert) is not None
     )
     # The one retrieval the dispatcher never sees, and so the one it cannot
     # write down. Recorded here and now rather than at the end of the
@@ -336,11 +342,22 @@ def investigate(
 
     narrator.say(OnsetDetected, onset=onset)
 
+    # Whether the window says anything at all about the incident's own minutes.
+    # Measured here because here is the only place holding both the onset and the
+    # buckets, and carried out on the findings because what reads it - the gate
+    # deciding whether an action could ever be confirmed - has the onset alone.
+    the_incident_was_read = has_a_reading_since(metric_buckets, onset)
+
     dispatcher = Dispatcher(
         service=alert.service,
         onset=onset,
         alert_time=alert_time,
         settings=settings,
+        # The same measurement the findings carry, handed here because it decides
+        # a window as well as a gate: where no reading covers the incident's
+        # minutes the onset is the last one before the evidence stopped, and what
+        # stopped it lies at or after it.
+        readings_cover_the_incident=the_incident_was_read,
         narrator=narrator,
         # The same `Replay` the metrics read above went through, so that every
         # call one investigation made reaches one place: what the model was
@@ -377,7 +394,13 @@ def investigate(
             # alert. The message says which, because the two ask the model for
             # different readings of the same flat rows: evidence it has already
             # seen, or evidence it does not have.
-            corroborated=measured_onset is not None
+            corroborated=measured_onset is not None,
+            # The last minute the window carries, where it carries none as late as
+            # the alert. A measurement rather than prose for the reason the
+            # elevation above is one: the model is told when the alert fired and
+            # never what time it is now, so rows that stop early are invisible to
+            # it and the gap is Argus's to state.
+            rows_stop_at=_where_the_rows_stop(metric_buckets, alert)
         ))
     ]
 
@@ -399,9 +422,15 @@ def investigate(
             # it and this is where it goes back.
             spend.record(cut_short.billed)
 
-            return _cut_short(alert, incident_id, metric_buckets, dispatcher, narrator)
+            return replace(
+                _cut_short(alert, incident_id, metric_buckets, dispatcher, narrator),
+                readings_cover_the_incident=the_incident_was_read
+            )
         except ModelRefused:
-            return _declined(alert, incident_id, metric_buckets, dispatcher, narrator)
+            return replace(
+                _declined(alert, incident_id, metric_buckets, dispatcher, narrator),
+                readings_cover_the_incident=the_incident_was_read
+            )
 
         spend.record(turn)
         transcript.append(turn)
@@ -413,7 +442,11 @@ def investigate(
 
             narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
 
-            return Findings(candidates=answered, already_read=dispatcher.readings)
+            return Findings(
+                candidates=answered,
+                already_read=dispatcher.readings,
+                readings_cover_the_incident=the_incident_was_read
+            )
 
         results = [
             *([answered] if answered is not None else []),
@@ -422,7 +455,12 @@ def investigate(
 
         reached = spend.bounds_reached()
         if reached:
-            return _ran_out(alert, incident_id, metric_buckets, reached, dispatcher, narrator)
+            return replace(
+                _ran_out(
+                    alert, incident_id, metric_buckets, reached, dispatcher, narrator
+                ),
+                readings_cover_the_incident=the_incident_was_read
+            )
 
         transcript.append(_what_the_model_is_told_next(results, spend.is_on_its_last_call()))
 
@@ -734,7 +772,8 @@ def _the_opening_message(alert: Alert,
                          already_refuted: Sequence[Attempt],
                          already_read: Sequence[Reading],
                          opened_already_elevated: bool,
-                         corroborated: bool) -> str:
+                         corroborated: bool,
+                         rows_stop_at: str | None = None) -> str:
     """Everything about *this incident* the model is told before it decides.
 
     This incident, and nothing standing. What the Investigator is and what its
@@ -766,17 +805,7 @@ def _the_opening_message(alert: Alert,
         f"summary: {alert.summary or 'none given'}",
         "",
         "## Onset",
-        f"The incident began at {onset}, measured from the per-minute metrics below: "
-        f"it is the first minute that departs from the service's own baseline and "
-        f"stays departed."
-        if corroborated else
-        f"The incident began at {onset}, stated by the alert rather than measured: "
-        f"no series departs from its baseline anywhere in the window below, so the "
-        f"metrics carry no evidence about this incident at all. Read that flatness "
-        f"as the shape of the fault rather than as the service being well - "
-        f"whatever raised this knows something no series does, and the minute it "
-        f"gives is long before the alert fired. The change that caused it is at "
-        f"that minute, not at this one."
+        _the_onset_paragraph(alert, onset, corroborated, rows_stop_at)
     ]
 
     if opened_already_elevated:
@@ -791,19 +820,11 @@ def _the_opening_message(alert: Alert,
     # from; where it was stated they are what says the flatness is real, and a
     # model told they are the minutes a departure was found in would be reading
     # rows that contradict the sentence above them.
-    what_the_rows_are = (
-        "These are the minutes the onset was measured from"
-        if corroborated else
-        "These are what the service reported around the alert, and none of them "
-        "departs from its baseline"
-    )
-
     said.extend([
         "",
         "## Per-minute metrics",
         f"One row per minute, in time order, comma-separated under the header. "
-        f"{what_the_rows_are}, and they are the whole span the metrics source "
-        f"keeps - there is no more of this channel to ask for. An empty cell is a "
+        f"{_what_the_rows_are(corroborated, rows_stop_at)} An empty cell is a "
         f"reading this service does not have at all, which is not the same as a "
         f"reading of zero.",
         _the_minutes_as_rows(metric_buckets)
@@ -833,6 +854,130 @@ def _the_opening_message(alert: Alert,
         ])
 
     return "\n".join(said)
+
+
+def _where_the_rows_stop(metric_buckets: list[MetricBucket],
+                         alert: Alert) -> str | None:
+    """The window's last minute, where the window ends before the alert fired.
+
+    `None` for every window that runs on to the alert, which is every window a
+    service still reporting produces - so the sentences this selects are reached
+    only by a service that stopped, and no existing incident's message moves.
+
+    Measured against the alert rather than against the onset, because what makes
+    the stopping legible is the distance from something the model was given. The
+    onset is the other end of the same gap and tells it nothing it does not
+    already have.
+    """
+    if not metric_buckets or alert.started_at is None:
+        return None
+
+    last_minute = metric_buckets[-1].bucket_id
+
+    return last_minute if last_minute < to_iso_minute(alert.started_at) else None
+
+
+def _the_onset_paragraph(alert: Alert,
+                         onset: str,
+                         corroborated: bool,
+                         rows_stop_at: str | None) -> str:
+    """What the model is told about the minute it is working from.
+
+    Three cases rather than two, and the third is the one a model gets wrong
+    unprompted. A measured onset is evidence the model can see for itself. A
+    stated onset over a window that was read throughout is testimony about rows
+    that are all present and all flat. A stated onset over a window whose rows
+    *stop* is testimony about rows that are not there - and the rows that are
+    there describe the time before the fault, which is exactly what makes them
+    misleading.
+
+    The first two are left as they were. Every incident built before a window
+    could stop walks one of them, and the flat wording was written for a window
+    that is flat.
+    """
+    if corroborated:
+        return (
+            f"The incident began at {onset}, measured from the per-minute metrics "
+            f"below: it is the first minute that departs from the service's own "
+            f"baseline and stays departed."
+        )
+
+    if rows_stop_at is not None:
+        return (
+            f"The incident began at {onset}, stated by the alert rather than "
+            f"measured, and the metrics below stop at {rows_stop_at} - "
+            f"{_how_far_apart(rows_stop_at, alert)}. Nothing covers the minutes "
+            f"between, so the rows below describe the service before this began and "
+            f"say nothing whatever about it. That the rows stop is what was alerted "
+            f"on: read it as the service having gone unreported rather than as a "
+            f"window that is merely short, and expect the cause at the minute they "
+            f"stop rather than at the minute the alert fired."
+        )
+
+    return (
+        f"The incident began at {onset}, stated by the alert rather than measured: "
+        f"no series departs from its baseline anywhere in the window below, so the "
+        f"metrics carry no evidence about this incident at all. Read that flatness "
+        f"as the shape of the fault rather than as the service being well - "
+        f"whatever raised this knows something no series does, and the minute it "
+        f"gives is long before the alert fired. The change that caused it is at "
+        f"that minute, not at this one."
+    )
+
+
+def _how_far_apart(rows_stop_at: str, alert: Alert) -> str:
+    """The distance from the last row to the alert, said in minutes.
+
+    Worked out here because Argus holds both figures and the model holds one: it
+    is told when the alert fired and never what time it is now, so the rows
+    stopping early is invisible to it as arithmetic. The same reason the window's
+    opening elevation is measured and passed in rather than described.
+    """
+    if alert.started_at is None:
+        return "and the alert does not say when it fired"
+
+    minutes = int(
+        (alert.started_at - parse_iso(rows_stop_at)).total_seconds() // _SECONDS_IN_A_MINUTE
+    )
+
+    return (
+        f"the alert fired at {to_iso(alert.started_at)}, {minutes} minute"
+        f"{'' if minutes == 1 else 's'} later"
+    )
+
+
+def _what_the_rows_are(corroborated: bool, rows_stop_at: str | None) -> str:
+    """What the rows below are evidence *of*, which is three questions not one.
+
+    The sentence this replaces told a model over any uncorroborated window that
+    none of the rows departs and that there is no more of the channel to ask for.
+    Both are true of a flat window. Over a window that stops, the first is
+    vacuously true of the minutes that are present and silent about the ones that
+    are not, and the second is said about the one channel whose return is what
+    ends the incident.
+    """
+    if corroborated:
+        return (
+            "These are the minutes the onset was measured from, and they are the "
+            "whole span the metrics source keeps - there is no more of this channel "
+            "to ask for."
+        )
+
+    if rows_stop_at is not None:
+        return (
+            f"These are the minutes the service reported before it stopped "
+            f"reporting, and none of the minutes it does carry departs from its "
+            f"baseline - which says the service was well up to {rows_stop_at} and "
+            f"says nothing at all about the minutes after it, because there are no "
+            f"rows for them. What is missing here is whole minutes rather than "
+            f"readings within a minute."
+        )
+
+    return (
+        "These are what the service reported around the alert, and none of them "
+        "departs from its baseline, and they are the whole span the metrics source "
+        "keeps - there is no more of this channel to ask for."
+    )
 
 
 def _the_minutes_as_rows(metric_buckets: list[MetricBucket]) -> str:

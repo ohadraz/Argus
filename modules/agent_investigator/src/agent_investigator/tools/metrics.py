@@ -16,7 +16,13 @@ from argus_core.events import MetricsRetrieved, Narrator, RetrievalRequested
 from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
 
 from agent_investigator.retrieval import MetricsFetcher
-from agent_investigator.tools.results import Served, could_not_serve, served, was_already_read
+from agent_investigator.tools.results import (
+    Served,
+    could_not_be_read,
+    could_not_serve,
+    served,
+    was_already_read,
+)
 
 METRICS_TOOL: Final = "get_metrics"
 
@@ -59,7 +65,32 @@ def read_metrics(call: ToolCall,
         ))
 
     narrator.say(RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time)
-    buckets = fetch_metrics(alert_time)
+
+    try:
+        buckets = fetch_metrics(alert_time)
+    except Exception as error:
+        # Reported rather than raised, exactly as the other channels report it,
+        # and this one was the exception among them. A read that fails here
+        # leaves the model mid-conversation with turns left and every minute it
+        # has already retrieved still paid for - so letting it out ends the walk
+        # over the one kind of failure that says nothing about the incident at
+        # all. The same read failing before the conversation is already handled
+        # this way, and treating it as fatal only once a model is listening is
+        # the expensive way round.
+        #
+        # Said as a failure to read rather than as an empty window, because a
+        # channel that answered with no minutes is a finding about the service
+        # and this is the absence of one - opposite claims that would otherwise
+        # arrive identically.
+        return could_not_be_read(
+            call,
+            (f"the metrics could not be read, so nothing here says what the "
+             f"service's per-minute figures were - it is not that the window was "
+             f"empty: {error}"),
+            what_was_asked="the service's metrics",
+            because=str(error)
+        )
+
     narrator.say(
         MetricsRetrieved,
         window_start=buckets[0].bucket_id if buckets else None,

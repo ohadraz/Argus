@@ -108,12 +108,21 @@ class MetricsRetrieved(_Event):
     The span is the one the buckets actually cover rather than one asked for -
     the read is anchored, not bounded - so it is absent exactly when nothing
     came back, which is a span no answer has.
+
+    `stopped_before_the_alert` is the other thing a reader needs and the span
+    cannot say. A window ending well before the alert fired is a service that
+    stopped reporting, and a count of the minutes it did report is a true figure
+    about the time before the incident - so the count alone reads as a short
+    window in the three places this event is narrated to. Carried beside the span
+    rather than inferred from it, because the alert's own firing time is not in
+    this event and a reader comparing one to the other would need both.
     """
 
     kind: Literal["metrics-retrieved"] = "metrics-retrieved"
     window_start: str | None = None
     window_end: str | None = None
     buckets: list[MetricBucket]
+    stopped_before_the_alert: bool = False
 
 
 class LogsRetrieved(_Event):

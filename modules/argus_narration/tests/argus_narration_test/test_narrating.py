@@ -162,6 +162,47 @@ def test_a_metrics_retrieval_carries_the_minutes_it_read_back() -> None:
 
 
 @pytest.mark.unit
+def test_a_metrics_read_whose_rows_stop_is_said_as_an_absence() -> None:
+    # The count is true and it is a count of the wrong thing. Six minutes were
+    # read back, and all six are from before the incident: what the story has to
+    # say is that the rows stop and that nothing covers the minutes since, which
+    # is the incident rather than a detail of it.
+    #
+    # One line, and it reaches the dashboard, Slack and the postmortem together -
+    # so a count here is a short window reported in three places.
+    some_read = MetricsRetrieved(
+        incident_id=new_id(),
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        buckets=[_a_bucket(AN_EARLIER_MINUTE), _a_bucket(SOME_MINUTE)],
+        stopped_before_the_alert=True
+    )
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("stop"),
+                     _the_only_line_mentions(SOME_MINUTE[11:16])))
+
+
+@pytest.mark.unit
+def test_a_metrics_read_that_ran_to_the_alert_is_said_as_a_count() -> None:
+    # The guard on the case above. Every incident before a window could stop is
+    # this one, and what its line says has not changed.
+    some_read = MetricsRetrieved(
+        incident_id=new_id(),
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        buckets=[_a_bucket(AN_EARLIER_MINUTE), _a_bucket(SOME_MINUTE)]
+    )
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_mentions("2 minutes"))
+
+
+@pytest.mark.unit
 def test_a_changes_retrieval_carries_what_changed_on_the_service() -> None:
     # What changed is what a cause actually is, so it travels on the line that
     # read it rather than being summarised away.

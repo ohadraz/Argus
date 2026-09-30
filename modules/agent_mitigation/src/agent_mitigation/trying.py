@@ -8,11 +8,16 @@ the change back where the answer refutes the hypothesis it was taken on.
 from __future__ import annotations
 
 import time
-from datetime import timedelta
+from collections.abc import Sequence
+from datetime import datetime, timedelta
 from typing import NamedTuple, Protocol, assert_never
 
 from argus_core import to_iso_minute, utc_now
-from argus_core.anomaly import AnomalyThresholds, has_recovered_since
+from argus_core.anomaly import (
+    AnomalyThresholds,
+    has_a_reading_since,
+    has_recovered_since,
+)
 from argus_core.events import (
     AwaitingRecovery,
     Publisher,
@@ -32,6 +37,7 @@ from argus_core.models import (
     AutoscalerUndo,
     DeploymentRollbackUndo,
     FlagUndo,
+    MetricBucket,
     PinAutoscaler,
     ReplicaUndo,
     RestartService,
@@ -131,6 +137,7 @@ def take_action(action: Action,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody,
                 *,
+                onset: datetime | None = None,
                 writes: PerformingWrites,
                 undo: UndoChange) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
@@ -259,7 +266,7 @@ def take_action(action: Action,
 
     settled = _what_watching_the_service_settled(
         fetch_metrics, now, sleep, still_wanted, settings, thresholds,
-        incident_id, publisher
+        incident_id, publisher, onset
     )
 
     if settled is Verdict.CONFIRMED:
@@ -495,8 +502,38 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
                                        settings: MitigationSettings,
                                        thresholds: AnomalyThresholds,
                                        incident_id: str | None = None,
-                                       publisher: Publisher = nobody) -> Verdict:
+                                       publisher: Publisher = nobody,
+                                       onset: datetime | None = None) -> Verdict:
     """What the service did after the action, within the time allowed.
+
+    Two questions rather than one, and which of them decides is read off the
+    window rather than off the incident's mode. Where the minutes an incident is
+    about were never published, the action was taken to restore the *sight* of the
+    service, and what answers it is readings existing again - not readings sitting
+    at a baseline, because a window nobody could read has no baseline to return to.
+    Everywhere else the levels decide, exactly as they always have.
+
+    The distinction is drawn over the span between the onset and the action, which
+    is historical and settled by the time this runs. Asked of the minutes *after*
+    the action instead it would answer the same for every incident on the first
+    pass - no minute has finished yet - and asked of the window as a whole it would
+    be overturned by the readings the action itself brought back, which arrive
+    within the minute.
+
+    An onset of `None` is every incident whose onset was measured rather than
+    stated, and a measured onset means the window held a departure to measure it
+    from. So the question does not arise there, and it is vacuous wherever an
+    incident was dated and watched - silent data corruption among them, whose
+    window carries every minute and merely holds them flat.
+
+    `None` also means *nobody handed one over*, and the two are indistinguishable
+    here by construction. That is safe only while every caller that has an onset
+    passes it: `assembling.py` binds this function directly for exactly that
+    reason, where the package's own `mitigate()` composes through `ActionTaker`,
+    whose signature is one argument wide and deliberately carries no
+    configuration. Route the walk through that instead and a blind spot would be
+    judged on levels it does not have, with nothing anywhere saying so - which is
+    the one way this parameter can fail quietly.
 
     `REFUTED` on expiry rather than an error, because that is a real answer
     about the world: the action was taken, the service was looked at, and it did
@@ -547,6 +584,10 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     # and found it still bad is a refutation, and a window that ran out having
     # read nothing is not a verdict at all.
     anything_was_read = False
+    # Whether this incident's own minutes were ever published, which decides which
+    # of the two questions above is asked. `None` until a read answers, because it
+    # is measured from a window rather than declared by a caller.
+    the_sight_was_absent: bool | None = None
 
     while True:
         # A read that cannot be taken costs this pass and nothing more. The loop
@@ -587,6 +628,17 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             continue
 
         anything_was_read = True
+        # Measured on the first pass that answered and not revisited: the span it
+        # asks about ended when the action was taken, so a later pass would be
+        # answering about a window the action itself has already changed.
+        if the_sight_was_absent is None:
+            the_sight_was_absent = _nothing_was_seen_between(
+                buckets, onset, first_whole_minute
+            )
+
+        if the_sight_was_absent and has_a_reading_since(buckets, first_whole_minute):
+            return Verdict.CONFIRMED
+
         recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
         if incident_id is not None:
             say(RecoveryChecked(
@@ -609,6 +661,30 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             return Verdict.REFUTED
 
         sleep(_SECONDS_BETWEEN_METRIC_READS)
+
+
+def _nothing_was_seen_between(buckets: Sequence[MetricBucket],
+                              onset: datetime | None,
+                              first_whole_minute: str) -> bool:
+    """Whether the incident ran its course with none of it published.
+
+    The minutes from the onset up to the action, asked of the readings that
+    describe them. An incident anybody could watch has those minutes - they are
+    what its onset was measured from - and one nobody could watch has none of
+    them, which is the whole of what a monitoring blind spot is.
+
+    False for an undated incident rather than unknown. An onset arrives here only
+    where an alert stated one, and a stated onset is the only kind this question
+    can be asked about: a measured one was derived from minutes that therefore
+    exist.
+    """
+    if onset is None:
+        return False
+
+    return not has_a_reading_since(
+        [bucket for bucket in buckets if bucket.bucket_id < first_whole_minute],
+        to_iso_minute(onset)
+    )
 
 
 def _undone(performed: Performed, undo: UndoChange) -> Outcome:

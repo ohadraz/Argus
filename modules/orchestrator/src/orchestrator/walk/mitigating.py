@@ -127,11 +127,16 @@ def mitigation_node(
     # question of whether anybody still wants it: that wait is the one stretch
     # long enough for somebody to give up on it, and the only place in the walk
     # where a withdrawal is noticed anywhere but a node boundary.
+    # The minute the alert dated the incident to travels with them, because the
+    # wait has one more question to answer than a level: whether any of this
+    # incident's own minutes were ever published. Read off the alert rather than
+    # derived here, since the alert is the only thing that ever states one.
     result = take(
         state.proposed_action,
         still_wanted=partial(still_wanted, state.incident_id),
         incident_id=state.incident_id,
-        publisher=publisher
+        publisher=publisher,
+        onset=state.alert.stated_onset
     )
     outcome = result.verdict
 

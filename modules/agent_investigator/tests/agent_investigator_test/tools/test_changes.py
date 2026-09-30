@@ -21,6 +21,7 @@ from argus_testkit import Assertion, Scenario, all_of
 from agent_investigator_test.framework.assertions.tool_results import the_result_failed
 from agent_investigator_test.framework.builders.dispatcher import (
     A_SERVICE,
+    AN_ALERT_TIME,
     AN_ONSET,
     a_call_to,
     a_dispatcher,
@@ -82,6 +83,35 @@ def test_a_change_source_that_cannot_be_reached_is_reported_rather_than_raised()
             the_result_failed(),
             _the_result_says_the_window_could_not_be_read()
         ))
+
+
+@pytest.mark.unit
+def test_a_change_call_whose_window_stops_at_the_incident_ends_at_the_alert() -> None:
+    # An onset dated off a window that stops is the last reading before the
+    # evidence ran out, which bounds the beginning from below rather than naming
+    # it - and what ended the readings is the change, so the change lies at or
+    # after it. Ending at the onset excludes by construction the only change that
+    # could explain the incident. Asked as whether the minutes were read rather
+    # than whether the onset was measured, because a weekly integrity check
+    # states an onset nothing measured too, about minutes the window covers.
+    some_fetch_changes = create_autospec(ChangeFetcher, instance=True, return_value=[])
+    the_default_start = to_iso(
+        parse_iso(AN_ONSET)
+        - timedelta(minutes=get_settings().change_lookback_minutes)
+    )
+
+    Scenario() \
+        .given(
+            some_dispatcher := a_dispatcher(
+                reads_changes=some_fetch_changes, readings_cover_the_incident=False
+            )
+        ) \
+        .when(
+            lambda: some_dispatcher.dispatch(a_call_to(CHANGES_TOOL))
+        ) \
+        .then(
+            _the_changes_read_were(some_fetch_changes, the_default_start, AN_ALERT_TIME)
+        )
 
 
 def _the_changes_read_were(reader: Mock,

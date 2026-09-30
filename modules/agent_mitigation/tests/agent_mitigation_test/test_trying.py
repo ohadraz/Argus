@@ -47,14 +47,19 @@ from argus_testkit import Assertion, Scenario, all_of, dont_care_sleep
 from agent_mitigation_test.framework.assertions import the_verdict_is
 from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
+    CALM_RATE,
     DONT_CARE_FLAG,
+    FAILING_RATE,
+    THE_ONSET,
     a_clock_frozen_at,
     a_clock_that_runs_out_after_one_look,
     a_recovered_window,
     a_still_failing_window,
     a_window_ending_at_the_action,
+    a_window_that_stops_at_the_onset,
     a_window_where_memory_never_fell,
     a_window_where_memory_was_reclaimed,
+    a_window_whose_readings_return_at,
     an_action_restarting,
     an_action_setting,
     an_undo_descriptor_for,
@@ -1006,7 +1011,7 @@ def test_taking_a_rollback_asks_for_the_application_and_the_entry() -> None:
                 undo=an_undo_nobody_calls()
             )
         ) \
-            .then(
+        .then(
             _the_rollback_asked_for(roll_back, SOME_APPLICATION)
         )
 
@@ -1030,7 +1035,7 @@ def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
                 undo=an_undo_nobody_calls()
             )
         ) \
-            .then(
+        .then(
             the_verdict_is(Verdict.CONFIRMED)
         )
 
@@ -1057,7 +1062,7 @@ def test_a_rollback_carries_a_way_back_where_a_restart_carries_none() -> None:
                 undo=_an_undo_that_restores(SOME_APPLICATION)
             )
         ) \
-            .then(
+        .then(
             _it_carries_a_way_back()
         )
 
@@ -1462,6 +1467,142 @@ def test_a_confirmed_pin_says_which_floor_it_raised_and_to_what() -> None:
             _the_detail_mentions(f"to [{THE_FLOOR_IT_WAS_HELD_AT}]"),
             _the_detail_does_not_mention("its ceiling")
         ))
+
+
+@pytest.mark.unit
+def test_a_service_nobody_could_see_is_refuted_when_the_readings_never_return() -> None:
+    # Nothing was seen between the onset and the action, and nothing is seen after
+    # it either. The action did not restore the sight, which is what it was for, so
+    # it is refuted on a measurement rather than on silence: the window was read
+    # every pass and carried no minute of the incident at all.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_readings_never_come_back := a_window_that_stops_at_the_onset()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=(set_state := _a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    ))
+                ),
+                fetch_metrics=metrics_reading(the_readings_never_come_back),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.REFUTED)
+        )
+
+
+@pytest.mark.unit
+def test_readings_returning_confirms_the_action_that_restored_them() -> None:
+    # The sight came back, which is the whole of what the action was for. Confirmed
+    # on the minutes existing rather than on their levels - they happen to be calm
+    # here, and the next case is the one that proves the levels are not what
+    # decided it.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_readings_come_back := a_window_whose_readings_return_at(CALM_RATE)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=metrics_reading(the_readings_come_back),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_readings_that_return_unwell_still_confirm_the_sight_was_restored() -> None:
+    # The case the levels rule gets wrong. The minutes came back departed - the
+    # shop is unwell for some reason nobody could have seen until now, because
+    # until now nobody could see anything. Judged on levels this refutes, which
+    # undoes the revert, blinds the shop again, and strikes off the one cause that
+    # was right. What was mitigated was the blindness, and the blindness is over.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_readings_come_back_bad := a_window_whose_readings_return_at(
+                FAILING_RATE
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=metrics_reading(the_readings_come_back_bad),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_an_onset_whose_minutes_were_all_read_is_judged_on_the_levels_as_before() -> None:
+    # The guard that keeps the rule vacuous everywhere else. An incident may carry
+    # a stated onset and still have been watched throughout - silent data
+    # corruption is exactly that, a window with every minute present and flat - and
+    # such an incident is judged on its levels as it always was. What selects the
+    # new rule is the minutes being missing, never the onset being stated.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_service_never_recovers := a_still_failing_window()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=(set_state := _a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    ))
+                ),
+                fetch_metrics=metrics_reading(the_service_never_recovers),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.REFUTED)
+        )
 
 
 def _an_action_is_taken(metrics: list[MetricBucket],

@@ -115,6 +115,13 @@ class TakeAction(Protocol):
     # the agent, and the agent below asks without knowing which incident it is
     # asking about. The arity is the whole difference - neither is the other
     # spelt wrong.
+    #
+    # `onset` rides here for the same reason, and carries the least of the four: a
+    # minute the alert stated, which the wait needs because an incident whose own
+    # minutes were never published is judged by whether readings come back rather
+    # than by whether a level does. The agent cannot derive it - nothing else it is
+    # handed says when the incident began - and `None`, which is every incident
+    # whose onset was measured, leaves the judgement exactly as it was.
     def __call__(
         self,
         action: Action,
@@ -122,7 +129,8 @@ class TakeAction(Protocol):
         *,
         still_wanted: StillWanted = ...,
         incident_id: str | None = None,
-        publisher: Publisher = nobody
+        publisher: Publisher = nobody,
+        onset: datetime | None = None
     ) -> Outcome: ...
 
 

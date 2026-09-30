@@ -317,6 +317,35 @@ def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it
 
 
 @pytest.mark.unit
+def test_a_monitoring_blind_spot_is_answered_by_rolling_the_deployment_back() -> None:
+    # The fourth mode reaching this strategy, and the only one where what the
+    # rollback restores is the sight of the service rather than its behaviour.
+    # Nothing about the shop got worse - what got worse is what can be seen of
+    # it - so what says the action worked is the readings existing again rather
+    # than a level coming back down.
+    #
+    # A flag is handed in and must not be acted on. The blind spot is staged by
+    # a revision that stopped the rows reaching the scrape, and a flag that
+    # happened to move while that revision was running is a coincidence: a
+    # revert would put back something that was never the cause, and would then
+    # be judged against readings that are still absent.
+    #
+    # Registered rather than left out, for the reason silent data corruption is:
+    # a mode absent from this mapping answers `None`, which is refused as
+    # nothing answering the kind of failure at all - so an incident Argus had
+    # diagnosed correctly, and could have ended in seconds by returning one
+    # deployment, would escalate to a person with no action named.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.MONITORING_BLIND_SPOT)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.MONITORING_BLIND_SPOT),
+            flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
+            service=SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
 def test_an_in_flight_compatibility_break_is_answered_by_rolling_the_deployment_back() -> None:
     # The third mode reaching this strategy, and the first whose reason is not
     # that the revision carried the fault. Neither revision did - each one alone

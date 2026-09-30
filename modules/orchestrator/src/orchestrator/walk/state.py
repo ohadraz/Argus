@@ -62,6 +62,10 @@ class IncidentState(BaseModel):
     # own transcript, but it should know it would be re-reading rather than
     # reaching somewhere new.
     already_read: list[Reading] = []
+    # Whether any reading covers the minutes from the onset onwards, as the round
+    # that investigated found them. `True` until an investigation says otherwise,
+    # which is what every incident before a window could stop was.
+    readings_cover_the_incident: bool = True
     # How many times this incident has been investigated. What bounds the walk,
     # because what buys a later round is the refutation rather than the window:
     # an attempt that failed is evidence no amount of reading produces, and a

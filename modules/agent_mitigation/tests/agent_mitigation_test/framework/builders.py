@@ -46,6 +46,10 @@ EARLIER_IN_THE_WINDOW = "2026-08-20T11:02:00Z"
 LATER_IN_THE_WINDOW = "2026-08-20T11:05:00Z"
 
 CALM_RATE = 0.01
+# The minute a blind spot began: the first one that carries no reading, which is
+# the minute after the last one that does. Stated by the alert rather than
+# measured, because the minutes that would carry a departure are the missing ones.
+THE_ONSET = WINDOW_START + timedelta(minutes=CALM_MINUTES)
 FAILING_RATE = CALM_RATE * 30
 CALM_P50_MS = 80
 CALM_P95_MS = 200
@@ -235,6 +239,48 @@ def a_window_of(error_rates: list[float],
             zip(error_rates, memory, strict=True)
         )
     ]
+
+
+def a_window_of_minutes(readings: dict[int, float]) -> list[MetricBucket]:
+    """A window with only the minutes named in it, keyed by offset from the start.
+
+    The other window builders take a rate per consecutive minute, which cannot
+    express a window with a hole in it - and a hole is the whole of what a
+    monitoring blind spot looks like from here. So the minutes are given by offset
+    and the ones left out are genuinely absent, rather than present at zero.
+    """
+    return [
+        bucket
+        for offset, bucket in enumerate(
+            a_window_of([readings.get(minute, 0.0) for minute in range(max(readings) + 1)])
+        )
+        if offset in readings
+    ]
+
+
+def a_window_that_stops_at_the_onset() -> list[MetricBucket]:
+    """Calm minutes, and then nothing at all - the shop stopped publishing.
+
+    Every minute from the onset onwards is missing, the action included, so
+    nothing in this window says anything about the service after the onset. It is
+    not a service that was watched and stayed bad; it is a service nobody saw.
+    """
+    return a_window_of_minutes({minute: CALM_RATE for minute in range(CALM_MINUTES)})
+
+
+def a_window_whose_readings_return_at(rate: float) -> list[MetricBucket]:
+    """Calm minutes, a dark stretch over the incident, and readings again after.
+
+    The two minutes at the end are the first anybody has seen since the onset,
+    which is what a restored telemetry pipeline looks like from the outside. The
+    rate they carry is the caller's, because the whole question is whether the
+    verdict turns on it.
+    """
+    returned = CALM_MINUTES + FAILING_MINUTES
+    return a_window_of_minutes(
+        {minute: CALM_RATE for minute in range(CALM_MINUTES)}
+        | {returned: rate, returned + 1: rate}
+    )
 
 
 def nobody_wants_it_any_more() -> StillWanted:

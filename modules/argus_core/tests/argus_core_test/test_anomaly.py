@@ -8,6 +8,7 @@ from argus_core.anomaly import (
     earliest_bucket_is_anomalous,
     find_onset,
     find_recovery,
+    has_a_reading_since,
     has_recovered_since,
 )
 from argus_core.models.metrics import MetricBucket
@@ -498,6 +499,48 @@ def test_a_signal_that_never_departed_does_not_hold_recovery_open() -> None:
         .given(some_window) \
         .when(lambda: has_recovered_since(
             some_window, the_minute_the_median_came_back, SOME_THRESHOLDS
+        )) \
+        .then(_the_answer_is(True))
+
+
+@pytest.mark.unit
+def test_one_noisy_minute_does_not_hold_recovery_open_for_the_whole_window() -> None:
+    # The third of these siblings, and the case the other two let through. The
+    # error rate jitters in half-percent steps the whole way and never departs;
+    # one minute early in the window catches eight failures in two hundred
+    # requests where the shop ordinarily catches one to four. That single sample
+    # lifts the series' maximum past the margin the exclusion allows, so a signal
+    # with no incident in it is admitted as one that departed - and recovery is
+    # then judged against a ceiling the ordinary jitter sits above.
+    #
+    # The window is long because a six-hour one is: the shop serves 360 minutes,
+    # so it holds 360 chances to contain a minute like this, and the refusal
+    # stands for as long as that minute takes to slide out of the window. Every
+    # rollback in those six hours is refused. Measured against the fixture at 21%
+    # of clock positions, on the scenario whose error rate never moves at all.
+    a_jitter = [0.005, 0.01, 0.005, 0.015, 0.01, 0.005, 0.02, 0.01, 0.015, 0.005]
+    a_minute_that_caught_eight_failures = 8 / 200
+    an_error_rate_that_only_jitters = (
+        a_jitter * 2
+        + [a_minute_that_caught_eight_failures]
+        + a_jitter[1:]
+        + a_jitter
+        + [0.01] * 10
+    )
+    a_latency_that_departed_and_came_back = (
+        [CALM_P95_MS] * 40 + [CALM_P95_MS * 10] * 4 + [CALM_P95_MS] * 6
+    )
+    some_window = a_window_of(
+        an_error_rate_that_only_jitters,
+        p95_ms_values=a_latency_that_departed_and_came_back
+    )
+
+    the_minute_the_latency_came_back = some_window[44].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: has_recovered_since(
+            some_window, the_minute_the_latency_came_back, SOME_THRESHOLDS
         )) \
         .then(_the_answer_is(True))
 
@@ -1095,6 +1138,139 @@ def test_recovery_is_not_held_open_by_utilisation_that_stayed_high() -> None:
         .given(some_window) \
         .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
         .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
+
+
+@pytest.mark.unit
+def test_a_window_whose_minutes_stop_before_the_moment_has_no_reading_since_it() -> None:
+    # The state the recovery question cannot express. A window whose minutes stop
+    # before the moment asked about says nothing about what happened after it -
+    # not that the service is still bad, and not that it is well. Nobody looked.
+    some_window = a_window_of([CALM_ERROR_RATE] * CALM_MINUTES)
+    a_minute_after_the_window_ends = _the_minute_after(some_window[-1].bucket_id)
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_a_reading_since(some_window, a_minute_after_the_window_ends)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_reaching_the_moment_has_a_reading_since_it() -> None:
+    # Inclusive of the minute itself, matching the recovery question asked of the
+    # same window: a reading taken *at* the minute asked about is a reading of it.
+    some_window = a_window_of([CALM_ERROR_RATE] * CALM_MINUTES)
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_a_reading_since(some_window, some_window[-1].bucket_id)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_with_no_minutes_in_it_has_no_reading_since_anything() -> None:
+    # The degenerate case, and the one a monitoring blind spot reaches: nothing
+    # was published, so there is no minute to be before or after anything.
+    dont_care_minute = to_iso_minute(datetime(2026, 1, 1, tzinfo=UTC))
+    no_window: list[MetricBucket] = []
+
+    Scenario() \
+        .given(
+            no_window
+        ) \
+        .when(
+            lambda: has_a_reading_since(no_window, dont_care_minute)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
+
+
+@pytest.mark.unit
+def test_nothing_read_and_nothing_recovered_are_told_apart() -> None:
+    # The whole reason the question exists. Both of these answer `False` to
+    # "has it recovered", and they are opposite claims about the service: one is a
+    # shop still failing where somebody is watching, the other a shop nobody can
+    # see. A caller that cannot separate them either refutes a mitigation nobody
+    # measured or waits out a service that already answered.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    still_failing = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + [some_degradation_rate] * 3
+    )
+    the_action = still_failing[-2].bucket_id
+
+    nobody_watching = a_window_of([some_steady_rate] * CALM_MINUTES)
+    the_same_action_unwatched = _the_minute_after(nobody_watching[-1].bucket_id)
+
+    Scenario() \
+        .given(
+            (still_failing, nobody_watching)
+        ) \
+        .when(
+            lambda: {
+                "recovered while watched": has_recovered_since(
+                    still_failing, the_action, SOME_THRESHOLDS
+                ),
+                "read while watched": has_a_reading_since(still_failing, the_action),
+                "recovered while unwatched": has_recovered_since(
+                    nobody_watching, the_same_action_unwatched, SOME_THRESHOLDS
+                ),
+                "read while unwatched": has_a_reading_since(
+                    nobody_watching, the_same_action_unwatched
+                )
+            }
+        ) \
+        .then(
+            _the_two_silences_are_not_one()
+        )
+
+
+def _the_two_silences_are_not_one() -> Assertion[dict[str, bool]]:
+    """Neither window has recovered, and only one of them was ever read.
+
+    Asserted together rather than as two tests, because what is being claimed is
+    a difference: separately, each half is satisfied by a function that always
+    answers the same thing.
+    """
+    def assertion(answers: dict[str, bool]) -> bool:
+        if answers["recovered while watched"] or answers["recovered while unwatched"]:
+            raise AssertionError(
+                f"Both windows were built so that nothing has recovered, and the "
+                f"recovery question answered {answers} - so this test is no longer "
+                f"comparing the two silences it was written to compare."
+            )
+
+        if not answers["read while watched"]:
+            raise AssertionError(
+                f"A window carrying minutes at and after the action was reported as "
+                f"having no reading since it, which would leave a service that is "
+                f"plainly still failing indistinguishable from one nobody watched: "
+                f"{answers}."
+            )
+
+        if answers["read while unwatched"]:
+            raise AssertionError(
+                f"A window whose minutes stop before the action was reported as "
+                f"having a reading since it, so a mitigation nobody measured would "
+                f"be refuted on the evidence of a window that never covered it: "
+                f"{answers}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _no_minute_read_as_a_recovery() -> Assertion[dict[str, bool]]:
