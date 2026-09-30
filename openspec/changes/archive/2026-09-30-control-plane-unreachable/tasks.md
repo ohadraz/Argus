@@ -158,5 +158,5 @@ Tasks are ordered so that everything before §7 is free to verify.
       a note about this scenario.
 - [x] 8.2 Update `docs/failure-modes-backlog.md`: FM-30 in the family table,
       and remove it from "what is worth building next".
-- [ ] 8.3 One-line commit message, approved before committing. Archive as a
+- [x] 8.3 One-line commit message, approved before committing. Archive as a
       second separate commit.
