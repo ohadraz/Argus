@@ -637,8 +637,13 @@ def _a_rollout_that_stopped_half_way(was: dict[str, Any]) -> dict[str, Any]:
 # rehearsal naming a revision the platform does not hold would have the rollback
 # refused for having nothing to roll back to - an ending that looks like this
 # case's and is reached for the wrong reason.
-THE_REVISION_THAT_WENT_OUT: Final = "5e07d73148d0a704b8fefe5f379bc652bb773655"
-THE_REVISION_BEFORE_IT: Final = "70dbcfde2b549d110a3817d92d60b6dd9786e78b"
+# A pair that moves whenever the scenario restages, which is the one thing to
+# check before borrowing this recipe again: the demo app names them in
+# `scenarios.py` as `THE_COMMIT_THAT_MOVED_THE_MONTH_BOUNDARY` and the commit
+# before it, and a copy here that has fallen behind fabricates a walk against a
+# deployment that is not the one staged.
+THE_REVISION_THAT_WENT_OUT: Final = "3398e10e131ea6c16f468f1bc1ac0fa6426d1b0c"
+THE_REVISION_BEFORE_IT: Final = "f0bcdb929bc6e89981742d03b02f36a40cd19ca0"
 THE_FLAG_THAT_WENT_ON: Final = "monthly-spend-feature"
 
 
@@ -660,12 +665,14 @@ def _a_deployment_ranked_above_a_flag(was: dict[str, Any]) -> dict[str, Any]:
     written about the same incident. The deployment walk ends with no patch at
     all and would run the queue dry at Code-Fix.
 
-    What it cannot prove is the thing it fabricates. A real model looking at this
-    window might rank the flag first, which is a legitimate reading - the flag
-    change is corroborated and the revert is cheaper - and 7.2 exists to find out.
-    A green replay of this set says the walk narrows correctly *given* that
-    ranking, and says nothing whatever about whether the ranking is what comes
-    back.
+    What it cannot prove is the thing it fabricates, and that was established the
+    expensive way. Staged against a revision that reworked some other function, a
+    real model ranked the flag first and said why: a deploy whose diff cannot
+    reach the failing call path is not a better explanation for being nearer in
+    time. The scenario was restaged so the deploy owns that path, and only then
+    did the ranking come back the way this recipe assumes. So a green replay of a
+    fabricated set says the walk narrows correctly *given* the ranking, and never
+    that the ranking is what a model returns.
     """
     answered = False
     content = []
@@ -683,20 +690,23 @@ def _a_deployment_ranked_above_a_flag(was: dict[str, Any]) -> dict[str, Any]:
                             "from_state": THE_REVISION_BEFORE_IT,
                             "subject": (
                                 f"revision {THE_REVISION_THAT_WENT_OUT} "
-                                f"(spend_summary.py)"
+                                f"(the month boundary the average divides by)"
                             ),
                             "summary": (
                                 f"Two changes reached the account page in the "
-                                f"same window and this is the closer of them: "
-                                f"revision {THE_REVISION_THAT_WENT_OUT} went out "
-                                f"at the onset minute and reworks the code path "
-                                f"the failing pages run. The error rate steps "
+                                f"same window and this is the one that owns the "
+                                f"failing path: revision "
+                                f"{THE_REVISION_THAT_WENT_OUT} went out at the "
+                                f"onset minute and moves the boundary deciding "
+                                f"which purchases fall in this month, which is "
+                                f"the divisor the monthly average divides by. "
+                                f"The error rate steps "
                                 f"from the shop's 1% baseline to a third while "
                                 f"every quantile and both resource gauges hold "
                                 f"flat, which is a code path that fails rather "
                                 f"than one that slows. Returning the deployment "
-                                f"to {THE_REVISION_BEFORE_IT} is the more "
-                                f"specific move of the two available."
+                                f"to {THE_REVISION_BEFORE_IT} puts the boundary "
+                                f"back."
                             ),
                             "supporting_evidence": [
                                 {
@@ -737,11 +747,11 @@ def _a_deployment_ranked_above_a_flag(was: dict[str, Any]) -> dict[str, Any]:
                                 f"switched on for two in five account pages in "
                                 f"the same window, and the shop's own "
                                 f"evaluations move with the failures. It is "
-                                f"ranked second because a flag at 40% and an "
-                                f"error rate at a third agree only "
-                                f"approximately, where the deploy lands on the "
-                                f"onset minute exactly - but switching it back "
-                                f"off would end the incident either way."
+                                f"ranked second because it explains which pages "
+                                f"reach the failing path and not why that path "
+                                f"fails: the flag exposed code the deploy had "
+                                f"just changed. Switching it back off ends the "
+                                f"incident either way."
                             ),
                             "supporting_evidence": [
                                 {

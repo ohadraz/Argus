@@ -1929,9 +1929,14 @@ _THE_PIN_CASE: Final = "tests/e2e/test_a_flapping_autoscaler_is_pinned.py"
 # it proves is a walk narrowing itself to the one platform still answering - the
 # rollback reached for and refused, the three other platform candidates passed
 # over, the flag revert taken - and none of that is touched by which tool the
-# model found a file with. Its walk is also a dear one to capture: the refused
-# rollback is a whole mitigation attempt before the action that ends the
-# incident, so a capture bills for two the way the pin's does.
+# model found a file with.
+#
+# Not for the pin's second reason, and the difference is worth stating because it
+# is the opposite of what the shape suggests: a refused rollback costs nothing to
+# capture. The platform refuses the action, so the walk moves to the next
+# candidate without asking the model anything - one investigation, not two. What
+# this scenario bills for is the investigation and the fix, exactly as the
+# cheapest case here does.
 _THE_UNREACHABLE_PLATFORM_CASE: Final = (
     "tests/e2e/test_an_unreachable_platform_is_narrowed_around.py"
 )
@@ -2046,10 +2051,12 @@ def _the_cases_for(mode: str) -> list[str]:
     platform still answering. Nothing in any of those varies by which tool the model
     found a file with, and the walks that do differ per mode are covered by their
     siblings - so recording them three times would buy three recordings of one
-    assertion, at a real investigation each, on every re-record for ever. Two of
-    them are dearer still: the pin's near-miss and the unreachable platform's
-    refused rollback are each a whole mitigation attempt before the one that
-    settles the incident, so one capture bills for two.
+    assertion, at a real investigation each, on every re-record for ever. The
+    pin's is the dearest: its near-miss is a whole mitigation attempt, answered by
+    the model and then refuted, so one capture bills for two. The unreachable
+    platform's is not, though it looks it - a platform that refuses an action ends
+    that attempt without the model being asked anything, so its walk is one
+    investigation like any other.
     """
     left_out = []
 

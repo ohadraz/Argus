@@ -497,9 +497,10 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
     # revert - the only mitigation left to it.
     #
     # Captured under `both` alone, like the case that replays it: nothing in this
-    # claim varies by which tool found a file, and the walk is a dear one, since
-    # the refused rollback is a whole mitigation attempt before the action that
-    # settles the incident.
+    # claim varies by which tool found a file. The two attempts cost what one
+    # does - a platform that refuses an action ends that attempt without the model
+    # being asked anything - so what this bills for is the investigation and the
+    # fix, like the cheapest walk here.
     _Recording(
         RECORDED_CONTROL_PLANE_UNREACHABLE,
         "control-plane-unreachable",

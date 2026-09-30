@@ -10,8 +10,18 @@ nothing to do with the incident.
 
 The world is staged so that the one thing Argus cannot do is the first thing it
 should want to do. A revision went out and a flag was switched on in the same
-window; the revision is the closer and more specific change, so the rollback
-ranks first. It fails. What is left is the flag revert, which lives with a
+window, and the revision is what ranks first: its diff moves the boundary
+deciding which purchases fall in this month, which is the divisor the failing
+page divides by. So the deploy owns the call path that is throwing, and the flag
+merely exposed it.
+
+That is the whole of why the rollback ranks above the revert, and it is worth
+stating because the obvious version does not work. Staged against a revision
+that changed some *other* function, a real model ranked the flag first and was
+right to: a deploy whose diff cannot reach the failing path is not a better
+explanation for being nearer in time. The ranking has to be earned by the diff.
+
+What is left when the rollback fails is the flag revert, which lives with a
 different provider, is still answering, and does end the incident.
 
 Three things this case pins that no other one can.
@@ -86,8 +96,9 @@ from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_event
 from tests.framework.assertions import some_confidence_was_given
 
 # What the shop's own monitoring pages on here. The flag is what is breaking the
-# account page, so this is an error-rate incident and not a latency one - the
-# deployment in the window is a plausible cause rather than the cause.
+# account page, so this is an error-rate incident and not a latency one - and the
+# deployment in the window is a real candidate rather than a decoy: its diff owns
+# the divisor the failing page divides by.
 AN_ERROR_RATE_ALERT = "HighErrorRate"
 
 THE_SCENARIO = "control-plane-unreachable"
