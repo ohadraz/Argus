@@ -23,6 +23,7 @@ from agent_investigator.retrieval import (
     MetricsFetcher,
     RolloutFetcher,
 )
+from agent_investigator.tools import DEPENDENCIES_TOOL
 from argus_core import new_id, parse_iso, to_iso
 from argus_core.events import (
     ChannelsUnread,
@@ -32,8 +33,10 @@ from argus_core.events import (
     MetricsRetrieved,
     OnsetDetected,
     RetrievalRequested,
+    RetrievalUnanswered,
 )
 from argus_core.llm import a_conversation_recorded_for
+from argus_core.mcp_transport import McpToolError
 from argus_core.models import (
     PIN_AUTOSCALER,
     RESTART_SERVICE,
@@ -1714,6 +1717,97 @@ def test_a_channel_that_came_back_empty_is_not_published_as_unread() -> None:
 
 
 @pytest.mark.unit
+def test_a_read_that_would_not_answer_is_published_as_having_gone_unanswered() -> None:
+    # The third silence, and the one the two tests above set up without
+    # covering. A channel nobody asked about is published as unread; a channel
+    # that was asked and came back empty is deliberately not. A channel that was
+    # asked and would not answer is neither of those, and with no line of its
+    # own it reads on the page as the second - as a finding about the service
+    # rather than a gap in what Argus was able to find out.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(DEPENDENCIES_TOOL),
+            a_turn_answering(an_explanation())
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(investigation.the_register_failed(
+                McpToolError("MCP tool call [get_dependencies] failed: timed out")
+            ))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(
+            _the_reads_said_to_have_gone_unanswered(published, "the service register")
+        )
+
+
+@pytest.mark.unit
+def test_a_tool_the_model_invented_is_not_published_as_a_read_that_would_not_answer() -> None:
+    # The half that makes the line worth having at all. "There is no tool called
+    # that" comes back by the same route a channel that would not answer does -
+    # a failed result the model corrects on its next turn - so a line published
+    # on that route alone would put a gap in the account of the incident whose
+    # only cause was the model misreading the tool list it was given.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling("get_everything_at_once"),
+            a_turn_answering(an_explanation())
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(
+            _the_reads_said_to_have_gone_unanswered(published)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_already_read_is_not_published_as_a_read_that_would_not_answer() -> None:
+    # The same distinction on the case that looks most like the thing it is not.
+    # A repeat is refused because those lines are already in front of the model,
+    # which means the channel answered and the investigation declined to pay for
+    # the same minutes twice - the opposite of a channel that would not answer,
+    # and indistinguishable from it to anything that looks only at whether the
+    # result came back failed.
+    some_window_start = "2026-08-20T10:30:00Z"
+    some_window_end = "2026-08-20T11:00:00Z"
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: some_window_start,
+                                       WINDOW_END_ARG: some_window_end}),
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: some_window_start,
+                                       WINDOW_END_ARG: some_window_end}),
+            a_turn_answering(an_explanation())
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(
+            _the_reads_said_to_have_gone_unanswered(published)
+        )
+
+
+@pytest.mark.unit
 def test_an_investigation_nobody_is_listening_to_concludes_the_same_thing() -> None:
     # Narration is an account of the work, never a participant in it. The
     # investigation with a publisher and the one without must reach the same
@@ -2064,6 +2158,39 @@ def _the_recorded_read_carries(recorded: Kept[ReplayEntry],
 
         if missing:
             raise AssertionError(f"Expected the entry to carry {missing}, got {answered}.")
+
+        return True
+
+    return assertion
+
+
+def _the_reads_said_to_have_gone_unanswered(
+    published: list[IncidentEvent], *what_was_asked: str
+) -> Assertion[Findings]:
+    """Every read the investigation announced it could not be given, in order.
+
+    What this refuses matters as much as what it expects, which is why the
+    expectation is exact and naming none means none. A call the model got wrong
+    - a tool nobody offers, a window it had already read - was not a channel
+    that would not answer, and announcing one as though it were puts a gap in
+    the account of the incident where all that happened was a model correcting
+    itself on its next turn.
+
+    Compared by what was asked for rather than by count, because the two
+    failures this could have are telling the wrong subject and telling none -
+    and a count agrees with both.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        said = [
+            event.what_was_asked for event in published
+            if isinstance(event, RetrievalUnanswered)
+        ]
+
+        if said != list(what_was_asked):
+            raise AssertionError(
+                f"Expected {list(what_was_asked)} to have been said to have gone "
+                f"unanswered, got {said}."
+            )
 
         return True
 

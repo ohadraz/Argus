@@ -22,7 +22,7 @@ from typing import Final
 from argus_core.models import ServiceDependency, ToolCall, ToolDefinition
 
 from agent_investigator.retrieval import DependencyFetcher
-from agent_investigator.tools.results import Served, answered, could_not_serve
+from agent_investigator.tools.results import Served, answered, could_not_be_read
 
 DEPENDENCIES_TOOL: Final = "get_service_dependencies"
 
@@ -72,10 +72,13 @@ def read_dependencies(call: ToolCall,
     try:
         dependencies = fetch_dependencies(service)
     except Exception as error:
-        return could_not_serve(call, (
-            f"the service register could not be read, so nothing here says "
-            f"whether a failing dependency belongs to this organisation: {error}"
-        ))
+        return could_not_be_read(
+            call,
+            (f"the service register could not be read, so nothing here says "
+             f"whether a failing dependency belongs to this organisation: {error}"),
+            what_was_asked="the service register",
+            because=str(error)
+        )
 
     if not dependencies:
         return answered(call, _NOTHING_REGISTERED)

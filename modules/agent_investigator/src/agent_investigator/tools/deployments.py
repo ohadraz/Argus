@@ -29,7 +29,7 @@ from typing import Any, Final
 from argus_core.models import ToolCall, ToolDefinition
 
 from agent_investigator.retrieval import DeploymentDiffFetcher
-from agent_investigator.tools.results import Served, answered, could_not_serve
+from agent_investigator.tools.results import Served, answered, could_not_be_read, could_not_serve
 
 DEPLOYMENT_DIFF_TOOL: Final = "get_what_a_deployment_changed"
 
@@ -107,11 +107,14 @@ def read_what_a_deployment_changed(
     try:
         said = fetch_what_a_deployment_changed(service, revision)
     except Exception as error:
-        return could_not_serve(call, (
-            f"what the deployment of [{revision}] changed could not be read, so "
-            f"nothing here says whether it shipped source code or a configuration "
-            f"value: {error}"
-        ))
+        return could_not_be_read(
+            call,
+            (f"what the deployment of [{revision}] changed could not be read, so "
+             f"nothing here says whether it shipped source code or a configuration "
+             f"value: {error}"),
+            what_was_asked=f"what the deployment of [{revision}] changed",
+            because=str(error)
+        )
 
     if not said:
         return answered(call, _NOTHING_CAME_BACK)

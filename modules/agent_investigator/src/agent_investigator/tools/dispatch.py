@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 
-from argus_core.events import Narrator, nobody
+from argus_core.events import Narrator, RetrievalUnanswered, nobody
 from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolResult
 from argus_core.replay import CallType, Replay
 
@@ -157,9 +157,24 @@ class Dispatcher:
         is no channel, a window that ends before it starts, a window already
         read, all come back without one - and a row for those would be a receipt
         for a call nobody made, in a table something later counts retrievals in.
+
+        A channel that would not answer is said here, at the one point every
+        call passes through, rather than at each channel that could discover it.
+        Which is a different question from the receipt above: a failed call is
+        not a retrieval and gets no row, and it is still a gap in the evidence
+        that a person reading the incident has to be able to see. What is said
+        is only that the channel did not answer - the loop goes on, because the
+        model has been told and may read something else instead.
         """
         started_at = self._clock()
         answer = self._serve(call)
+
+        if answer.unanswered is not None:
+            self._narrator.say(
+                RetrievalUnanswered,
+                what_was_asked=answer.unanswered.what_was_asked,
+                because=answer.unanswered.because
+            )
 
         if answer.reading is not None:
             self._readings.append(answer.reading)

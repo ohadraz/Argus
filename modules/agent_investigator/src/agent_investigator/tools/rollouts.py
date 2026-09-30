@@ -31,7 +31,7 @@ from typing import Final
 from argus_core.models import ToolCall, ToolDefinition
 
 from agent_investigator.retrieval import RolloutFetcher
-from agent_investigator.tools.results import Served, answered, could_not_serve
+from agent_investigator.tools.results import Served, answered, could_not_be_read
 
 ROLLOUT_TOOL: Final = "get_rollout_state"
 
@@ -83,10 +83,13 @@ def read_the_rollout(call: ToolCall,
     try:
         said = fetch_rollout(service)
     except Exception as error:
-        return could_not_serve(call, (
-            f"the rollout of [{service}] could not be read, so nothing here says "
-            f"whether the deployment that landed reached every replica: {error}"
-        ))
+        return could_not_be_read(
+            call,
+            (f"the rollout of [{service}] could not be read, so nothing here says "
+             f"whether the deployment that landed reached every replica: {error}"),
+            what_was_asked="how far the deployment had rolled out",
+            because=str(error)
+        )
 
     if not said:
         return answered(call, _NOTHING_CAME_BACK)
