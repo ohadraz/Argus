@@ -62,8 +62,11 @@ as having produced no answer, not as having finished.
 The system SHALL return a failed or nonsensical tool call to the model as a tool result
 describing what went wrong, rather than ending the investigation. A window that is
 inverted, empty, or wider than the configured maximum SHALL be reported back so the
-model can correct it. A failure of the underlying change source SHALL remain a failure
-of the investigation, as it is today.
+model can correct it. A channel whose source could not be reached SHALL be reported back
+the same way, saying that the window could not be read and that this is not the same as
+its having been empty - the distinction the raising source exists to draw survives in
+the text of a failed result, where the turns the model has left to spend on another
+channel do not survive an exception.
 
 #### Scenario: An invalid window is reported back to the model
 - **GIVEN** a model that requests a log window ending before it starts
@@ -77,11 +80,11 @@ of the investigation, as it is today.
 - **THEN** the lines returned are those of the clamped window, and the tool result says
   the requested span was clamped
 
-#### Scenario: An unreachable change source still fails the investigation
+#### Scenario: An unreachable change source is reported rather than raised
 - **GIVEN** a change source that cannot be reached
 - **WHEN** the model calls the change-events tool
-- **THEN** the investigation fails rather than continuing and reporting a cause drawn
-  from the other channels
+- **THEN** it returns a failed tool result saying the window could not be read and that
+  this is not the same as nothing having changed, and the investigation continues
 
 ### Requirement: The conversation is narrated as it happens
 
