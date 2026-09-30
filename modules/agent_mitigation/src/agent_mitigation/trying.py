@@ -205,6 +205,10 @@ def take_action(action: Action,
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_marker(exhausted)}"
             ),
+            # The same thing the paragraph above says in words, said where the
+            # candidate's row can read it: nothing was tested, so nothing about
+            # this explanation may be recorded as having been.
+            measured=False,
         )
     except PlatformUnreachable as unreachable:
         # Caught before the broad handler for the reason above it is: this is an
@@ -236,11 +240,21 @@ def take_action(action: Action,
                 f"{_without_the_platform_marker(unreachable)}"
             ),
             undo_descriptor=unreachable.undo_descriptor,
+            # The action was not taken, so the service was never watched for it.
+            # The candidate is passed over on this walk and the platform is what
+            # explains why - and it must be a candidate still worth trying when
+            # the platform comes back, not one the record says was ruled out.
+            measured=False,
         )
     except Exception as error:
         return Outcome(
             verdict=Verdict.ESCALATED,
             detail=f"could not {_what_it_would_have_done(action)}: {error}",
+            # Nothing was performed and so nothing was watched. This is the
+            # broadest of the three and the one most likely to be reached by
+            # something nobody foresaw, which is the best reason for it to say
+            # what it knows rather than let the verdict be read for it.
+            measured=False,
         )
 
     settled = _what_watching_the_service_settled(

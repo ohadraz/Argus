@@ -1207,6 +1207,7 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
         ) \
         .then(all_of(
             the_verdict_is(Verdict.NOT_ATTEMPTED),
+            _it_says_nothing_was_measured(),
             _the_detail_mentions(
                 f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
             ),
@@ -1249,6 +1250,7 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
+            _it_says_nothing_was_measured(),
             _the_detail_mentions(
                 f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
             ),
@@ -1291,6 +1293,7 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
         ) \
         .then(all_of(
             the_verdict_is(Verdict.PLATFORM_UNREACHABLE),
+            _it_says_nothing_was_measured(),
             _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
             _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
             _there_is_nothing_to_put_back()
