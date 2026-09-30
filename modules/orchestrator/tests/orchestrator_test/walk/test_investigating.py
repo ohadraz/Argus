@@ -1297,8 +1297,9 @@ def _the_investigation_found_the_incident_unread(investigate: MagicMock,
                                                 *candidates: Hypothesis) -> None:
     """An investigation whose window said nothing about the incident's minutes.
 
-    The shape a monitoring blind spot produces: readings up to the onset and none
-    after it. What matters to this node is only that the findings say so and that
+    The shape a monitoring blind spot produces: readings up to the minute before
+    the onset and none at or after it - the onset being the first minute nothing
+    reported. What matters to this node is only that the findings say so and that
     the saying reaches the gate, which is where the fact is finally asked a
     question.
     """

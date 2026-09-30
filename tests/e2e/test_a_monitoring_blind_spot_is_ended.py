@@ -177,7 +177,7 @@ def _the_rows_stopped_and_came_back() -> Assertion[httpx.Response]:
 
         if not gaps:
             raise AssertionError(
-                f"Expected the shop to have stopped publishing for a stretch, "
+                f"Expected the shop to have gone uncollected for a stretch, "
                 f"and every one of the {len(published)} rows is a minute after "
                 f"the one before it - so this window is of a shop that never "
                 f"went quiet, and the scenario staged nothing."

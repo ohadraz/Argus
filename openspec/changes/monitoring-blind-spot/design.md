@@ -1,3 +1,27 @@
+## What changed after this was written
+
+The cause was re-staged mid-change, from a feature flag that stopped the shop
+publishing to **a deployment that renames the port its metrics are served on**,
+answered by a rollback rather than a revert. No flag version is kept. The
+argument below for staging it behind a flag is the reasoning as it stood, and
+two things overturned it.
+
+Nobody gates telemetry on a feature flag. The flag version bought reversibility
+in seconds at the cost of an incident no operator has ever seen, and the whole
+point of the scenario is a change that looks like housekeeping and is not.
+
+And the split it produced did not come from the fixture. A paid walk ranked the
+mode at 0.78 with `feature-flag-toggle` second at 0.25 and no subject the leader
+could act on; the one fixture defect that could have explained it - an audit
+entry backdated differently from the onset - was fixed, the walk re-run, and the
+split survived unchanged. Under the deployment the model ranks the mode at 0.82
+and names `metrics.portName` as its subject, with `config-induced-failure` second
+at 0.45 *on that same subject*. The two candidates now disagree about which mode
+one agreed change is, rather than about what changed.
+
+The sections below are left as written. The delta specs beside this file
+describe the deployment staging and are what the main specs receive.
+
 ## Context
 
 Every mode Argus handles is a claim about a series. A rule fires on one, the

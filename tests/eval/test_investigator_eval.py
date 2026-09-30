@@ -336,12 +336,19 @@ WHAT_THE_REWRITTEN_SUM_SHIPPED = [
 ]
 A_LOG_LEVEL_BUMP = "checkout: raise the structured-log level from info to debug"
 
-# The minute the metrics channel last said anything, and so the onset the
-# absence alert states. Named once because three things have to agree on it -
-# where the window ends, what the alert reports, and where the deployment sits
-# relative to both - and a fixture whose alert and buckets disagreed by a
-# minute would be measuring arithmetic rather than judgement.
-THE_LAST_MINUTE_ANYBODY_REPORTED = -12
+# The first minute the shop published nothing - which is the minute the
+# revision landed, and the minute the alert states as its onset. One constant
+# because three things have to agree on it exactly: the window ends the minute
+# before, the deployment sits at it, and the alert names it.
+#
+# The *first silent* minute rather than the last reported one, and the
+# difference decides the case. `has_a_reading_since` asks whether any bucket
+# exists at or after the onset, and its answer is what tells the change channel
+# whether to bound its window at the onset or reach past it to the present. An
+# onset carrying a bucket of its own answers yes, the window stops there, and
+# the deployment that ended the rows - which is at or after that minute by
+# construction - falls outside every window the model can ask for.
+THE_MINUTE_THE_SHOP_WENT_QUIET = -12
 
 # The third revision, and the one that broke nothing. It renames the port the
 # metrics are served on, which is a value in the same file the cache port lives
@@ -1348,14 +1355,14 @@ def an_incident_where_the_readings_stopped() -> Incident:
         alert=an_absence_alert(),
         buckets=_a_window_that_stops(),
         log_lines=[
-            a_log_line_at(THE_LAST_MINUTE_ANYBODY_REPORTED - 1, A_SUCCESS),
-            a_log_line_at(THE_LAST_MINUTE_ANYBODY_REPORTED + 1, A_SUCCESS),
+            a_log_line_at(THE_MINUTE_THE_SHOP_WENT_QUIET - 1, A_SUCCESS),
+            a_log_line_at(THE_MINUTE_THE_SHOP_WENT_QUIET, A_SUCCESS),
             a_log_line_at(-6, A_SUCCESS),
             a_log_line_at(-1, A_SUCCESS)
         ],
         changes=[
             a_deploy_at(
-                THE_LAST_MINUTE_ANYBODY_REPORTED + 1,
+                THE_MINUTE_THE_SHOP_WENT_QUIET,
                 THE_REVISION_THAT_RENAMED_THE_METRICS_PORT,
                 _as_a_deploy_is_actually_summarised(
                     THE_REVISION_THAT_RENAMED_THE_METRICS_PORT
@@ -2199,8 +2206,8 @@ def an_absence_alert() -> Alert:
         severity="critical",
         summary="no samples received for 12 minutes; the series was reporting "
                 "normally until then and the last sample arrived at "
-                f"{_minute(THE_LAST_MINUTE_ANYBODY_REPORTED)}",
-        stated_onset=ONSET + timedelta(minutes=THE_LAST_MINUTE_ANYBODY_REPORTED)
+                f"{_minute(THE_MINUTE_THE_SHOP_WENT_QUIET - 1)}",
+        stated_onset=ONSET + timedelta(minutes=THE_MINUTE_THE_SHOP_WENT_QUIET)
     )
 
 
@@ -2254,5 +2261,5 @@ def _a_window_that_stops() -> list[MetricBucket]:
     """
     return [
         a_bucket_at(minute, CALM_ERROR_RATE)
-        for minute in range(-45, THE_LAST_MINUTE_ANYBODY_REPORTED + 1)
+        for minute in range(-45, THE_MINUTE_THE_SHOP_WENT_QUIET)
     ]

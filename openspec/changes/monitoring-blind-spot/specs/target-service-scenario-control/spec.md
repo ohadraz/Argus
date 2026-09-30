@@ -11,12 +11,13 @@ Publishing is a state the shop is in for the length of the incident rather than
 a property of one request, so it belongs with the other live conditions rather
 than in a control of its own. It is also the only way the state can already be
 true when the incident is investigated, which is what the walk has to meet: the
-minutes before the flag moved have to exist and the minutes after it have to
-not, and no per-request switch can produce a window shaped like that.
+minutes before the deployment landed have to exist and the minutes after it
+have to not, and no per-request switch can produce a window shaped like that.
 
-The condition SHALL be carried by the flag the scenario already stages, so
-seeding it is the same act as seeding any other flag scenario. No new flag role
-SHALL be introduced for it.
+The condition SHALL be carried by the deployment the scenario stages, so the
+state has a cause that can be returned. It SHALL begin at a minute and end at
+one, and rolling the deployment back SHALL end it - which is what makes the
+publishing resuming an answer to an action rather than a timer expiring.
 
 #### Scenario: Seeding stops the publishing
 - **GIVEN** no scenario is active and the shop publishes metrics
@@ -40,7 +41,7 @@ SHALL be introduced for it.
 The condition SHALL stop the metrics the shop publishes about itself and SHALL
 touch nothing else it does. While it holds, the Target Service SHALL go on
 serving its own requests, SHALL go on reporting its logs for every minute, and
-the flag provider SHALL go on answering and accepting changes.
+the deployment platform SHALL go on answering and accepting a rollback.
 
 All three are load-bearing, and for the same reason the control-plane scenario
 states its own: a condition that took anything else down with it would stage a
@@ -51,7 +52,7 @@ pass.
   the question this mode exists to ask would not arise.
 - Logs that stopped alongside would leave nothing saying the shop is well, and
   Argus would be right to escalate two dead channels rather than diagnose one.
-- A flag provider that stopped answering would take away the action, and the
+- A platform that stopped answering would take away the action, and the
   incident would end for that reason instead of this one.
 
 #### Scenario: The shop goes on serving
@@ -65,10 +66,10 @@ pass.
 - **THEN** they carry lines for every minute, including the minutes no bucket
   exists for
 
-#### Scenario: The flag provider is unaffected
+#### Scenario: The deployment platform is unaffected
 - **GIVEN** the condition holds
-- **WHEN** a flag is read and then changed
-- **THEN** the provider answers and the change takes effect
+- **WHEN** the deployment history is read and a rollback is asked for
+- **THEN** the platform answers and the rollback takes effect
 
 ### Requirement: The metrics route answers rather than failing
 

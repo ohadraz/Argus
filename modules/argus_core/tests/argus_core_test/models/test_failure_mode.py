@@ -172,8 +172,9 @@ def test_the_mode_whose_damage_outlives_its_cause_says_so() -> None:
 @pytest.mark.unit
 def test_the_mode_that_is_about_the_watching_and_not_the_service_says_so() -> None:
     # The sixth pair, and the first in which one member is not about the service
-    # at all. Both arrive as a flag that moved at the onset, both are answered by
-    # putting that flag back, and the flag history describes the two identically.
+    # at all. The blind spot is staged by a revision rather than a flag, so this
+    # is the looser of its two pairs - but a flag that moved during one is a
+    # coincidence a model will weigh, and the meanings have to send it somewhere.
     # What differs is what got worse: the shop, or the account of the shop.
     #
     # The cost of the wrong reading is a false record in either direction. Read as
@@ -549,11 +550,12 @@ def _the_pair_is_told_apart_by_what_stopped_reporting() -> Assertion[
     """Each meaning has to say whether the service or its reporting is what broke.
 
     Naming the other mode is not enough, for the reason it is not enough of any
-    pair above. What a model has in front of it is a flag that moved at the onset,
-    which both of these have, and the flag history cannot decide between them: it
-    records that somebody turned something on and says nothing about whether what
-    followed was the shop getting worse or the shop going quiet.
-
+    Naming the other mode is not enough, for the reason it is not enough of any
+    pair above. What a model has in front of it is one change at the onset -
+    a flag in one of the pairs this is asked of, a revision in the other - and
+    the channel that records it cannot decide either: it says somebody changed
+    something and says nothing about whether what followed was the shop getting
+    worse or the shop going quiet.
     So a meaning that does not send the model to what stopped reporting leaves it
     choosing between a service that misbehaved and a service nobody can see, on
     evidence that describes the two identically.

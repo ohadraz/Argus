@@ -259,7 +259,7 @@ def a_window_of_minutes(readings: dict[int, float]) -> list[MetricBucket]:
 
 
 def a_window_that_stops_at_the_onset() -> list[MetricBucket]:
-    """Calm minutes, and then nothing at all - the shop stopped publishing.
+    """Calm minutes, and then nothing at all - the rows simply stop.
 
     Every minute from the onset onwards is missing, the action included, so
     nothing in this window says anything about the service after the onset. It is

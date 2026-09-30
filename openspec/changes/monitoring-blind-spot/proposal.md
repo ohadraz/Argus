@@ -40,8 +40,8 @@ message. So the mode is the test of whether that work was a fix or a set of fixe
   rather than as a service going dark.
 
 - **The alert states the onset, and nothing new is needed to accept it.** What an
-  absence rule knows is the minute the last sample arrived, which is the onset
-  exactly - so the alert carries it in `stated_onset` and the machinery FM-26
+  absence rule knows is the first minute no sample arrived for, which is the
+  onset exactly - so the alert carries it in `stated_onset` and the machinery FM-26
   built answers this mode unchanged. A measured onset is impossible here by
   construction rather than by accident: the rows that would carry a departure are
   the ones that are missing.

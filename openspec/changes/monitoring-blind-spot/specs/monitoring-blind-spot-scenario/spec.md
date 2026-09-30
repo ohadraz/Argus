@@ -1,9 +1,9 @@
 ## ADDED Requirements
 
-### Requirement: A shop that goes on serving after it stops reporting
+### Requirement: A shop that goes on serving after it stops being collected from
 
-The Target Service SHALL stage a scenario in which its telemetry publishing
-stops while the shop itself stays well, so that every request is served
+The Target Service SHALL stage a scenario in which its telemetry stops being
+collected while the shop itself stays well, so that every request is served
 correctly and no minute of it is reported.
 
 Orders SHALL succeed, the account pages SHALL render the figures they render
@@ -29,21 +29,23 @@ the absence of evidence that there is nothing to find.
 
 ### Requirement: The window stops at the onset rather than being empty or flat
 
-`GET /metrics` SHALL carry a row for every minute before the flag moved and
-**no row for any minute at or after it**.
+`GET /metrics` SHALL carry a row for every minute before the revision landed
+and **no row for any minute at or after it**.
 
-The onset is the minute the flag moved, which is the first minute carrying no
-row - not the last minute that carries one. A minute the shop spent any part of
-not publishing has no full reading of itself, and the flag timeline already
-treats the minute containing a flip as flagged throughout, so this mode
-inherits the boundary every other flag scenario uses rather than inventing one
-a minute to its left.
+The onset is the minute the revision landed, which is the first minute carrying
+no row - not the last minute that carries one. A minute the shop spent any part
+of not being collected from has no full reading of itself, so the minute
+containing the change is withheld entire, and the onset is that minute rather
+than the one to its left.
 
-That is also what keeps the cause inside the evidence. The change channel
-bounds what it offers by the onset, so an onset placed at the last *heard*
-minute would put the flip a minute past the far edge and leave the one change
-that explains the incident outside every default window. An onset that precedes
-its own cause is the one shape this scenario must not have.
+That boundary is load-bearing rather than tidy, and one consumer decides it.
+Whether any reading covers the incident's own minutes is asked as "is there a
+bucket at or after the onset", and the answer is what tells the change channel
+whether to bound its window at the onset or reach past it. An onset placed at
+the last *heard* minute carries a bucket of its own, answers yes, and leaves
+the change that explains the incident outside every window the model can ask
+for. An onset that precedes its own cause is the one shape this scenario must
+not have.
 
 The minutes at or after the onset SHALL be genuinely absent. They SHALL NOT be
 present with readings of zero, and they SHALL NOT be present with readings at
@@ -99,15 +101,15 @@ observability outage - two channels down at once, with nothing left to say
 whether the shop behind them was alive - and Argus would be right to escalate
 it rather than diagnose it.
 
-The lines SHALL NOT mention telemetry, publishing, or their stopping. What
-makes the dark minutes legible is that they are ordinary, and a log line
-announcing the cause would put the answer in the one channel that still
-answers.
+The lines SHALL NOT mention telemetry, collection, the deployment, or their
+stopping. What makes the dark minutes legible is that they are ordinary, and a
+log line announcing the cause would put the answer in the one channel that
+still answers.
 
-They SHALL go on naming the flag exactly as every other flag scenario's lines
-do. A shop that logs which way its flags evaluated is a shop doing ordinary
-logging, not one confessing - and suppressing that here would make the dark
-minutes conspicuous in the one channel whose ordinariness is the evidence.
+They SHALL be indistinguishable from the lines any other scenario's shop
+serves. A shop that went quieter, or noisier, or started saying something new
+at the onset would make the dark minutes conspicuous in the one channel whose
+ordinariness is the evidence.
 
 #### Scenario: Logs answer for the minutes the metrics are missing
 - **GIVEN** a staged monitoring-blind-spot scenario
@@ -119,7 +121,7 @@ minutes conspicuous in the one channel whose ordinariness is the evidence.
 - **GIVEN** a staged monitoring-blind-spot scenario
 - **WHEN** the log lines for the minutes at and after the onset are read
 - **THEN** none of them reports a failure, and none mentions telemetry,
-  publishing or a flag
+  collection or a deployment
 
 ### Requirement: An absence held long enough to be an absence, and long enough to be seen
 
@@ -154,10 +156,11 @@ rather than merely difficult.
 - **GIVEN** a staged monitoring-blind-spot scenario
 - **WHEN** the alert it fired is read
 - **THEN** its name says a series is no longer reporting, and its summary says
-  the shop has stopped publishing rather than that anything it serves is wrong
+  the shop has stopped being collected from rather than that anything it serves
+  is wrong
 
 #### Scenario: A single missing minute pages nobody
-- **GIVEN** one absent minute and the shop publishing again
+- **GIVEN** one absent minute and the shop being collected from again
 - **WHEN** the absence rule is evaluated
 - **THEN** it does not fire
 
@@ -166,9 +169,9 @@ rather than merely difficult.
 - **WHEN** the minute it fired is compared to the last minute the metrics carry
 - **THEN** the alert is later by more than the absence the rule requires
 
-### Requirement: The alert carries the last sample's minute as the onset
+### Requirement: The alert carries the first silent minute as the onset
 
-The alert SHALL carry the minute of the last sample it received, in the same
+The alert SHALL carry the first minute it received no sample for, in the same
 annotation that already carries an onset a consumer has to do arithmetic with.
 
 What an absence rule knows is exactly that minute, and that minute is exactly
@@ -182,61 +185,68 @@ accident - the minutes that would carry a departure are the missing ones - so a
 later change that prefers measurement wherever it is available SHALL NOT leave
 this mode undatable.
 
-#### Scenario: The onset is the last minute that reported
+#### Scenario: The onset is the first minute that reported nothing
 - **GIVEN** a staged monitoring-blind-spot scenario whose alert has fired
 - **WHEN** the onset the alert states is compared to the metrics
-- **THEN** it is the minute of the last bucket the window carries
+- **THEN** it is the minute after the last bucket the window carries, and no
+  bucket exists at it
 
-#### Scenario: The cause is looked for at the stated onset
+#### Scenario: The cause is looked for from the stated onset onwards
 - **GIVEN** an incident whose alert states the onset of an absence
 - **WHEN** the investigation reads what changed
-- **THEN** it reads the flag and deploy histories around the stated onset
-  rather than around the minute the alert fired
+- **THEN** it reads the change histories from the stated onset to the present,
+  rather than in a window ending at that onset or around the minute the alert
+  fired
 
-### Requirement: A flag stopped the publishing, and putting it back restores the sight
+### Requirement: A deployment stopped the collecting, and returning it restores the sight
 
-The Target Service SHALL stage this scenario behind a flag, so that telemetry
-publishing stops while the flag is on and resumes when it is off. No new flag
-role SHALL be introduced: the flag world is two flags in opposite states at
-boot, and a third would move that world for every scenario that reads it.
+The Target Service SHALL stage this scenario behind a deployment: a revision
+that renames the port the shop's metrics are served on, so that the scrape no
+longer finds them. The revision SHALL change nothing else, and its commit
+message SHALL read as housekeeping - nobody ships a change meaning to go blind,
+and a revision announcing itself would put the answer in the change channel.
 
-Returning the flag SHALL restore publishing, and the minutes served after it
-SHALL carry buckets again. Those buckets SHALL report the same well shop the
-logs have been reporting throughout - there is no level to come back down to,
-because nothing ever went up.
+The revision SHALL be reachable as a real commit, with the revision before it
+deployed and recorded, so that a rollback has somewhere to go and a reader has
+a diff to read.
 
-The minutes lost while the flag was on SHALL stay lost. They were never
-published and nothing retains them, so putting the flag back restores the sight
-without restoring the record. That is what recovery means here, and it is the
-one thing this mode has in common with silent data corruption: the condition
-ends and something of what it cost does not come back.
+Rolling the deployment back SHALL restore the collecting, and the minutes
+served after it SHALL carry buckets again. Those buckets SHALL report the same
+well shop the logs have been reporting throughout - there is no level to come
+back down to, because nothing ever went up.
 
-#### Scenario: Returning the flag restores publishing
+The minutes lost while the revision was deployed SHALL stay lost. They were
+never collected and nothing retains them, so returning the deployment restores
+the sight without restoring the record. That is what recovery means here, and
+it is the one thing this mode has in common with silent data corruption: the
+condition ends and something of what it cost does not come back.
+
+#### Scenario: Rolling the deployment back restores the collecting
 - **GIVEN** a staged monitoring-blind-spot scenario
-- **WHEN** the flag is returned and a further minute is served
+- **WHEN** the deployment is rolled back and a further minute is served
 - **THEN** a bucket exists for that minute
 
 #### Scenario: The restored minutes report a healthy shop
-- **GIVEN** a monitoring-blind-spot scenario whose flag has been returned
+- **GIVEN** a monitoring-blind-spot scenario whose deployment has been returned
 - **WHEN** the buckets served after the return are read
 - **THEN** every judged series is at its baseline in each of them
 
 #### Scenario: The minutes it was blind for do not come back
-- **GIVEN** a monitoring-blind-spot scenario whose flag has been returned
+- **GIVEN** a monitoring-blind-spot scenario whose deployment has been returned
 - **WHEN** a window covering the incident is read
 - **THEN** the minutes between the onset and the return still carry no bucket
 
 ### Requirement: A restart is refuted, and the scenario makes that legible
 
-Restarting the shop SHALL change nothing. The flag is still on afterwards, the
-minutes are still missing, and the window a verification reads SHALL carry
-nothing at or after the action's minute.
+Restarting the shop SHALL change nothing. The revision is still deployed
+afterwards, the minutes are still missing, and the window a verification reads
+SHALL carry nothing at or after the action's minute.
 
 This is what an agent reaching for the process learns, and it is worth staging
 rather than merely permitting. A restart is the cheapest action Argus has and
 the one a thin diagnosis reaches for, and a mode where it silently appeared to
 work would teach the wrong lesson. Here it is refutable on the evidence, and
-the walk still has the flag revert ahead of it.
+the walk still has the rollback ahead of it.
 
 #### Scenario: A restart leaves the shop blind
 - **GIVEN** a staged monitoring-blind-spot scenario
@@ -245,14 +255,14 @@ the walk still has the flag revert ahead of it.
 
 #### Scenario: A restart leaves a candidate still to try
 - **GIVEN** a staged monitoring-blind-spot scenario whose restart has been tried
-- **WHEN** the flag is then returned and a further minute is served
+- **WHEN** the deployment is then rolled back and a further minute is served
 - **THEN** a bucket exists for that minute
 
 ### Requirement: Nothing offers the cause through a channel of its own
 
 The scenario SHALL be investigable from the channels that already exist. The
 absence SHALL arrive in the metrics read Argus already takes, the corroboration
-in the logs channel it already has, and the cause in the flag history it
+in the logs channel it already has, and the cause in the deploy history it
 already reads.
 
 No retrieval channel, tool or endpoint SHALL be added for this mode. Every
@@ -260,13 +270,13 @@ existing recording stays valid for exactly that reason, and a sixth channel
 would invalidate all of them to carry a fact three channels already carry
 between them.
 
-#### Scenario: The flag change is in the history Argus already reads
+#### Scenario: The deployment is in the history Argus already reads
 - **GIVEN** a staged monitoring-blind-spot scenario
-- **WHEN** the flag history around the stated onset is read
-- **THEN** it holds the change that stopped the publishing, at that minute
+- **WHEN** the deploy history from the stated onset onwards is read
+- **THEN** it holds the revision that stopped the collecting
 
-#### Scenario: No deploy is staged at the onset
+#### Scenario: No flag is staged at the onset
 - **GIVEN** a staged monitoring-blind-spot scenario
-- **WHEN** the deploy history for the window is read
-- **THEN** it is empty, so no rollback is ranked for an incident no rollback
-  answers
+- **WHEN** the flag history for the window is read
+- **THEN** it holds no change, so no flag revert is ranked for an incident no
+  flag caused

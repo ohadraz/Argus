@@ -26,7 +26,11 @@ fixture and is covered after the fact, not before.
 
 - [x] 2.1 Fire a `MetricsAbsent` alert in the existing Grafana shape, under its own
       rule name, from the same stand-in that fires every other alert
-- [x] 2.2 Carry the last sample's minute as the stated onset
+- [x] 2.2 Carry the first silent minute as the stated onset - the minute after
+      the last sample, and the minute the revision landed in. Not the last
+      sample's own minute: an onset carrying a bucket answers "the readings cover
+      this incident", which bounds the change window at the onset and leaves the
+      cause outside it
 - [x] 2.3 Fire it materially after that minute, and assert the distance. This is
       what makes the mode diagnosable rather than only what makes the rule correct:
       nothing in front of the model says what time it is now, so the only handle it
