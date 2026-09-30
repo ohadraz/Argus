@@ -5,10 +5,12 @@ millions where changes are a handful, and applying it here would silence the
 one channel that exists to reach past it - the lag between a change and the
 symptoms it produces is unbounded.
 
-A source that cannot be reached raises, and is meant to. It is the one
-retrieval failure the model cannot recover from: "nothing changed" is a
-conclusion something acts on, so a source that was never read must not arrive
-looking like one that was read and found empty.
+A source that cannot be reached raises, and is meant to - it is answered here
+rather than passed on. What the raising is for is a distinction, not an exit:
+"nothing changed" is a conclusion something acts on, so a source that was never
+read must not arrive looking like one that was read and found empty. A result
+saying which of the two it is keeps that whole, and keeps the turns the model
+has left to spend on another channel.
 """
 
 from __future__ import annotations
@@ -24,7 +26,13 @@ from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinitio
 
 from agent_investigator.budget import InvestigationSettings
 from agent_investigator.retrieval import ChangeFetcher
-from agent_investigator.tools.results import Served, could_not_serve, served, was_already_read
+from agent_investigator.tools.results import (
+    Served,
+    could_not_be_read,
+    could_not_serve,
+    served,
+    was_already_read,
+)
 from agent_investigator.tools.windows import window_of, window_properties
 
 CHANGES_TOOL: Final = "get_changes"
@@ -89,7 +97,29 @@ def read_changes(call: ToolCall,
         window_start=to_iso(start),
         window_end=to_iso(end)
     )
-    changes = fetch_change_events(service, to_iso(start), to_iso(end))
+    try:
+        changes = fetch_change_events(service, to_iso(start), to_iso(end))
+    except Exception as error:
+        # The source raises rather than answering emptily, and this is where that
+        # lands. What the raising is for is the distinction below: "nothing
+        # changed" is a conclusion something acts on, so a window nobody could
+        # ask about must never arrive looking like a window with nothing in it -
+        # and the text says which of the two this is, in as many words.
+        #
+        # Reported rather than passed on, though. Letting it through was a
+        # stronger claim than the one the raising makes: it ended the
+        # investigation, threw away every minute already paid for, and left
+        # nothing on the page saying why. The distinction survives a failed
+        # result; the investigation does not survive an exception.
+        return could_not_be_read(
+            call,
+            (f"the changes to {service} from {to_iso(start)} to {to_iso(end)} "
+             f"could not be read, so nothing here says what changed over that "
+             f"window - it is not that nothing did: {error}"),
+            what_was_asked=f"what changed on {service}",
+            because=str(error)
+        )
+
     narrator.say(
         ChangesRetrieved,
         window_start=to_iso(start),

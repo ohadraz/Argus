@@ -32,6 +32,7 @@ from argus_core.events import (
     OnsetDetected,
     Publisher,
     RetrievalRequested,
+    RetrievalUnanswered,
     nobody,
 )
 from argus_core.llm import (
@@ -268,7 +269,27 @@ def investigate(
         RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time
     )
     started_reading_at = time.monotonic()
-    metric_buckets = fetch_metrics(alert_time)
+
+    try:
+        metric_buckets = fetch_metrics(alert_time)
+    except Exception as unanswered:
+        # The one read no channel guard can absorb, because it happens before
+        # there is a model to tell. Every window the model could ask for is
+        # anchored on an onset, the onset is measured from these minutes, and
+        # without them there is nothing to converse about - so this ends where
+        # the empty window ends, with one candidate and no turn bought.
+        #
+        # Said first, though. Letting it out of here ended the walk with nothing
+        # anywhere saying which read failed, and the incident's only account of
+        # its own first act was the run's failure row.
+        narrator.say(
+            RetrievalUnanswered,
+            what_was_asked="the service's metrics",
+            because=str(unanswered)
+        )
+
+        return _nothing_could_be_read(alert, incident_id, narrator)
+
     narrator.say(
         MetricsRetrieved,
         window_start=metric_buckets[0].bucket_id if metric_buckets else None,
@@ -621,6 +642,36 @@ def _nothing_to_say(alert: Alert,
     """The outcome when the metrics show no incident to investigate."""
     undetermined = _undetermined(
         alert, incident_id, _reason_nothing_was_found(metric_buckets), metric_buckets
+    )
+    _say_formed(narrator, undetermined)
+
+    return Findings(candidates=[undetermined], already_read=[])
+
+
+def _nothing_could_be_read(alert: Alert,
+                           incident_id: str,
+                           narrator: Narrator) -> Findings:
+    """The outcome when the metrics could not be read at all.
+
+    The same shape as `_nothing_to_say` above and deliberately not the same
+    sentence. That one reports a window that was read and held no incident; this
+    reports a window nobody could ask about, and the two are opposite claims
+    about the service - one says it is well, the other says nothing about it. A
+    reader handed "no metrics were retrieved" for this would go looking for a
+    shop that turned out fine.
+
+    No buckets, because there are none: the account carries what was read, and
+    nothing was.
+    """
+    undetermined = _undetermined(
+        alert,
+        incident_id,
+        (
+            "the service's metrics could not be read, so nothing here says "
+            "whether any minute departed from its baseline - which is not the "
+            "same as none having departed"
+        ),
+        []
     )
     _say_formed(narrator, undetermined)
 

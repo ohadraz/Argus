@@ -499,6 +499,46 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
 
 
 @pytest.mark.unit
+def test_a_candidate_nothing_was_measured_for_is_not_recorded_as_tested(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The same claim as the test above it, arriving under a word that does not
+    # say so. An action whose window ran out with the service never once read
+    # escalates - and so does a refutation whose change could not be put back,
+    # which watched the service and found it still bad. One verdict, two
+    # opposite experiments, and only the second tested anything.
+    #
+    # So the row is decided on what the outcome says was measured rather than on
+    # the verdict. Marked tested, this candidate would be an explanation the
+    # incident claims to have ruled out on no reading at all - and what reads it
+    # afterwards is the memory that orders a later incident's candidates.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(
+                take, Verdict.ESCALATED, measured=False
+            )),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=a_determined_hypothesis(a_random_id())
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      complete_action=complete_action,
+                                      record_action=record_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_candidate_learned_nothing(record_outcome))
+
+
+@pytest.mark.unit
 def test_an_abandoned_action_still_records_what_would_put_it_back(
     take: MagicMock,
     record_action: MagicMock,
@@ -1210,10 +1250,12 @@ def _an_action_with_an_undo_descriptor() -> RevertFeatureFlag:
 
 def _the_action_came_back(take: MagicMock,
                           verdict: Verdict,
-                          undo_descriptor: UndoDescriptor | None = None) -> None:
+                          undo_descriptor: UndoDescriptor | None = None,
+                          measured: bool = True) -> None:
     take.return_value = Outcome(verdict=verdict,
                                 detail="dont care",
-                                undo_descriptor=undo_descriptor)
+                                undo_descriptor=undo_descriptor,
+                                measured=measured)
 
 
 def _this_walk_holds_the_claim(record_action: MagicMock) -> None:

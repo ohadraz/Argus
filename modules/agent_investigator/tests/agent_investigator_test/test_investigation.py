@@ -1847,6 +1847,44 @@ def test_a_log_read_the_tier_would_not_answer_is_said_rather_than_ending_the_wal
 
 
 @pytest.mark.unit
+def test_metrics_that_could_not_be_read_stop_the_investigation_at_its_first_act() -> None:
+    # The read that happens before the model is ever asked, and so the failure
+    # that costs the most: it ends the investigation at its first act, and
+    # nothing above it catches it - the walk dies, and the only account of why
+    # is the run's own failure.
+    #
+    # Ending here rather than carrying on is right, and stays. Every window the
+    # model could ask for is anchored on an onset, the onset is measured from
+    # these minutes, and without them there is nothing to converse about - so
+    # this ends the way an empty window does: one candidate, no cause named, no
+    # turn bought.
+    #
+    # What it must not borrow is that path's account. "No metrics were
+    # retrieved" is what an answer with nothing in it earns; a read nobody could
+    # take is the opposite claim, and the two arriving in the same sentence is
+    # exactly what this line exists to stop.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(a_turn_answering(an_explanation()))
+    )
+
+    Scenario() \
+        .given(
+            calling(raising(investigation.metrics_fetcher, McpToolError(
+                "MCP tool call [get_metrics_summary] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(all_of(
+            _the_reads_said_to_have_gone_unanswered(published, "the service's metrics"),
+            _the_only_candidate_says("could not be read"),
+            _the_model_was_never_asked(investigation.model)
+        ))
+
+
+@pytest.mark.unit
 def test_an_investigation_nobody_is_listening_to_concludes_the_same_thing() -> None:
     # Narration is an account of the work, never a participant in it. The
     # investigation with a publisher and the one without must reach the same
@@ -2229,6 +2267,33 @@ def _the_reads_said_to_have_gone_unanswered(
             raise AssertionError(
                 f"Expected {list(what_was_asked)} to have been said to have gone "
                 f"unanswered, got {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_candidate_says(expected: str) -> Assertion[Findings]:
+    """The one candidate a stopped investigation forms, and what it blames.
+
+    Asserted on the summary because that is the sentence a person picking the
+    incident up reads first, and the two silences this has to keep apart are a
+    phrase apart in it: "no metrics were retrieved" is what an empty answer
+    earns, and a read nobody could take must not borrow it.
+    """
+    def assertion(findings: Findings) -> bool:
+        summaries = [candidate.summary for candidate in findings.candidates]
+
+        if len(summaries) != 1:
+            raise AssertionError(
+                f"Expected one candidate from an investigation that stopped at "
+                f"its first act, got {summaries}."
+            )
+
+        if expected not in summaries[0]:
+            raise AssertionError(
+                f"Expected the candidate to say [{expected}], got [{summaries[0]}]."
             )
 
         return True

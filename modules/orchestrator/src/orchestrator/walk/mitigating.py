@@ -160,12 +160,25 @@ def mitigation_node(
     # list of explanations with no sign of which one the walk was on is a list
     # nobody can read the incident from.
     #
-    # Unless the attempt was abandoned, in which case nothing was measured and
-    # the candidate learns nothing. Marking it tested would leave the incident
-    # claiming an explanation was ruled out by an experiment that never
-    # finished. The action row above still carries the change and its undo,
-    # because the flag really was set and something has to put it back.
-    if state.hypothesis is not None and result.verdict is not Verdict.WITHDRAWN:
+    # Unless nothing was measured, in which case the candidate learns nothing.
+    # Marking it tested would leave the incident claiming an explanation was
+    # ruled out by an experiment that took no reading - an abandoned attempt, or
+    # a wait whose every look at the service went unanswered. The action row
+    # above still carries the change and its undo, because the flag really was
+    # set and something has to put it back.
+    #
+    # Two clauses, and they answer different questions. A withdrawal is
+    # unmeasured by definition - the walk was stopped, whatever the outcome says
+    # about itself - so the verdict settles it here and an outcome that forgot
+    # to say cannot talk the walk out of it. Everything else has to be asked,
+    # because the verdict does not tell: `ESCALATED` is the word for a wait that
+    # never saw the service *and* for a refutation whose change could not be put
+    # back, and the second of those measured it.
+    if (
+        state.hypothesis is not None
+        and result.verdict is not Verdict.WITHDRAWN
+        and result.measured
+    ):
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
 
     if result.verdict is Verdict.PLATFORM_UNREACHABLE:

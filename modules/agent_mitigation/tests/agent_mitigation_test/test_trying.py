@@ -736,6 +736,7 @@ def test_a_wait_that_never_read_the_service_reaches_no_verdict() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
+            _it_says_nothing_was_measured(),
             _nothing_was_put_back_through(undo),
             _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
         ))
@@ -2174,6 +2175,29 @@ def _nothing_was_put_back_through(undo: MagicMock) -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected nothing to be put back where nothing was measured, "
                 f"and the undo was called [{undo.call_count}] times."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_nothing_was_measured() -> Assertion[Outcome]:
+    """The outcome carrying the one fact its verdict cannot.
+
+    `ESCALATED` arrives from two opposite places. One is a refutation whose undo
+    could not be established - the service *was* watched, and a candidate that
+    stopped being marked tested there would lose a real experiment. The other is
+    this: an action taken and never looked at. The verdict is the same word for
+    both, so the thing a candidate's row has to be decided on is said beside it
+    rather than read out of it.
+    """
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.measured:
+            raise AssertionError(
+                "Expected the outcome to say nothing was measured, and it "
+                "claims the service was watched - so the candidate will be "
+                "marked tested by an experiment that took no reading."
             )
 
         return True

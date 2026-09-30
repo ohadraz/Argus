@@ -660,8 +660,27 @@ class Outcome(BaseModel):
     what the provider said about it. `undo_descriptor` is the one the write
     tier returned, which is the record of what was actually changed rather than
     what was intended; it is absent when nothing was changed at all.
+
+    `measured` is the second fact the verdict cannot carry, and it exists
+    because `ESCALATED` arrives from two opposite places. One is a refutation
+    whose undo could not be established: the service was watched, it did not
+    recover, and only putting the change back went wrong. The other is an action
+    whose window ran out without the service being read once. Both escalate,
+    both end the walk, and only the first tested anything - so the candidate's
+    row is decided on this rather than on a word that means both.
+
+    A field rather than a seventh `Verdict` member because nothing routes on it.
+    The status derived from either is the same, the walk ends either way, and
+    the only reader is the `tested` argument on the candidate's row. A member
+    would put the distinction into a stored vocabulary and give
+    `incident_memory` a value to order by, for a difference nobody branches on.
+
+    It defaults to true, which is the ordinary case: an action was taken and the
+    service was watched afterwards. Only the paths that know they watched
+    nothing say so.
     """
 
     verdict: Verdict
     detail: str
     undo_descriptor: UndoDescriptor | None = None
+    measured: bool = True

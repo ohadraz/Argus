@@ -271,6 +271,11 @@ def take_action(action: Action,
                 f"either way"
             ),
             undo_descriptor=performed.undo_descriptor,
+            # Said rather than left to the verdict, which is the same word here
+            # as it is for a refutation whose undo failed. What reads this is
+            # the candidate's row: a hypothesis marked tested by a wait that
+            # took no reading is one a later incident is taught to try last.
+            measured=False,
         )
 
     # Left where it is, carrying what would put it back. Undoing it here would
@@ -285,6 +290,11 @@ def take_action(action: Action,
                 f"service could answer for it"
             ),
             undo_descriptor=performed.undo_descriptor,
+            # Nothing was measured here either, and saying so rather than
+            # leaving the walk to recognise the word is what lets one fact
+            # decide the candidate's row instead of a list of verdicts that has
+            # to be kept in step with this one.
+            measured=False,
         )
 
     return _undone(performed, undo)
