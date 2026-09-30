@@ -51,6 +51,7 @@ from argus_core.events import (
     RecoveryChecked,
     RememberingFailed,
     RetrievalRequested,
+    RetrievalUnanswered,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
@@ -460,6 +461,31 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # something failed.
             emphasis = event.refusal
             text = f"Could not file what was tried - {emphasis}"
+        case RetrievalUnanswered():
+            who = _ARGUS
+            # Argus's voice for all three publishers, though one of them is a
+            # mitigation waiting on the service and another is a tool the model
+            # asked for. `PlatformUnavailable` below is credited the same way and
+            # for the same reason: the tier reported a call that failed, and what
+            # is said here is the walk's conclusion about what it therefore does
+            # not know.
+            #
+            # What was asked is set apart rather than the minute. The minute
+            # places the gap and what was asked is the thing somebody has to go
+            # and look at - the same division the two lines above draw.
+            emphasis = event.what_was_asked
+            # The minute only where there is one, and said as the thing being
+            # judged rather than as the moment of the read. A verification's
+            # failed pass is about a minute in the near future - the one being
+            # waited for - so "for" reads correctly and "at" would not.
+            about = (
+                "" if event.minute is None else f" for {a_minute(event.minute)}"
+            )
+            # The reason last, and only where there is one. It is the half a
+            # reader acts on, and it goes after the minute so that neither reads
+            # as qualifying the other.
+            why = "" if event.because is None else f" - {event.because}"
+            text = f"Could not read {emphasis}{about}{why}"
         case PlatformUnavailable():
             who = _ARGUS
             # The platform is set apart rather than the actions, because it is

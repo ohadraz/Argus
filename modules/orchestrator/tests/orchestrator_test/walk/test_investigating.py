@@ -36,6 +36,7 @@ from argus_core.events import (
     CandidatesReordered,
     FlagChangesRetrieved,
     IncidentEvent,
+    RetrievalUnanswered,
     SimilarIncidentsRecalled,
 )
 from argus_core.models import (
@@ -759,6 +760,46 @@ def test_a_flag_history_that_could_not_be_read_is_not_published_as_an_empty_one(
 
 
 @pytest.mark.unit
+def test_a_flag_history_that_could_not_be_read_is_said_to_have_gone_unanswered(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The other half of the test above it. That one refuses the wrong line - an
+    # empty history, which would state that nothing changed - and refusing it
+    # left the round with no line at all, which is its own misstatement: an
+    # unread channel and a channel that was asked and refused look identical in
+    # an account that says nothing about either.
+    #
+    # It is the provider's own failure and not the round's, so the round carries
+    # on: `flag_changes` is still `None`, the investigation still runs, and what
+    # this adds is only that a person reading the incident can see which of the
+    # two silences they are looking at.
+    published: Kept[IncidentEvent] = Kept()
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_provider_cannot_be_reached(fetch_flag_changes)),
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      publisher=published.take)
+        ) \
+        .then(all_of(
+            _the_provider_was_said_to_have_not_answered(published),
+            _no_history_was_published(published),
+            the_result_at("flag_changes", None)))
+
+
+@pytest.mark.unit
 def test_the_round_carries_what_the_register_says_this_service_calls(
     investigate: MagicMock, record_hypothesis: MagicMock,
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
@@ -1099,6 +1140,44 @@ def _no_history_was_published(published: Kept[IncidentEvent]
             raise AssertionError(
                 f"Expected an unreadable provider to publish no history, it "
                 f"published {read}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_provider_was_said_to_have_not_answered(
+    published: Kept[IncidentEvent]
+) -> Assertion[StateDelta]:
+    """One line saying the provider would not answer, carrying no minute.
+
+    The companion to `_no_history_was_published` above, and the two are the
+    whole claim between them: not an empty history, which would state that
+    nothing changed, *and* not silence either, which states nothing at all and
+    reads on the page as a channel nobody thought to try.
+
+    No minute, because there is none. A flag history is not about a minute the
+    way a verification's failed read is - it is the window the round asked
+    about - and a field filled in to look complete would put a moment on the
+    page that nothing here measured.
+    """
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        said = [event for event in published.taken
+                if isinstance(event, RetrievalUnanswered)]
+
+        if len(said) != 1:
+            raise AssertionError(
+                f"Expected one line saying the provider would not answer, and "
+                f"{len(said)} were published - so a reader cannot tell a "
+                f"provider that was asked and refused from one nobody asked."
+            )
+
+        if said[0].minute is not None:
+            raise AssertionError(
+                f"Expected no minute on a flag history that could not be read, "
+                f"and it names [{said[0].minute}] - which puts a moment on the "
+                f"page that nothing here measured."
             )
 
         return True

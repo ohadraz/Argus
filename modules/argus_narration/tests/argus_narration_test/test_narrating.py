@@ -47,6 +47,7 @@ from argus_core.events import (
     RecoveryChecked,
     RememberingFailed,
     RetrievalRequested,
+    RetrievalUnanswered,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
@@ -450,6 +451,39 @@ def test_an_unavailable_platform_says_which_actions_went_with_it() -> None:
             _the_only_line_says(
                 "restarting", "rolling", "scaling", "autoscaler"
             ),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_read_that_went_unanswered_names_what_was_asked_and_the_minute() -> None:
+    # The stretch of an incident with the least to show for itself is the wait
+    # after an action, and a pass that could not read the service leaves no
+    # trace in it at all: the looks that succeeded are published, and the one
+    # that failed used to be the reason the incident stopped. A reader then sees
+    # a confirmation that took longer than the window it was measured over and
+    # nothing saying why.
+    #
+    # The minute is the half that makes it about the verdict rather than about
+    # plumbing. "A read failed" is a fact about Argus; "the shop could not be
+    # read for the minute this action is being judged on" is a fact about the
+    # judgement, and only the second is worth a line on the page.
+    some_unanswered_read = RetrievalUnanswered(
+        incident_id=new_id(),
+        what_was_asked="the service's metrics",
+        because="timed out",
+        minute=SOME_MINUTE
+    )
+
+    Scenario() \
+        .given(some_unanswered_read) \
+        .when(lambda: build_narration([some_unanswered_read])) \
+        .then(all_of(
+            _the_only_line_says("metrics", "10:14", "timed out"),
+            # Argus's own voice, not Mitigation's, though this one is published
+            # from inside a mitigation. `PlatformUnavailable` is credited the
+            # same way and for the same reason: the tier reported a call that
+            # failed, and what is being said here is the walk's conclusion about
+            # what it therefore does not know.
             _the_lines_are_credited_to(["Argus"])))
 
 

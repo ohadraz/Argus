@@ -158,6 +158,47 @@ class ChannelsUnread(_Event):
     channels: list[RetrievalChannel]
 
 
+class RetrievalUnanswered(_Event):
+    """Something Argus asked for and could not be told.
+
+    The third silence, and the one `ChannelsUnread` above sets up without
+    covering. A channel nobody asked about and a channel that answered with
+    nothing already mean opposite things; a channel that was asked and would not
+    answer means a third, and without a line of its own it reads as the second -
+    as a finding about the service rather than a gap in what Argus knows.
+
+    Published from wherever the asking happens, which is three places that know
+    different amounts. So `what_was_asked` is a plain string rather than a tag:
+    its publishers speak three vocabularies - a tool the model named, a channel
+    the walk read, the shop's own metrics - and a single enumeration over them
+    would be a fourth vocabulary that none of them uses.
+
+    `minute` is the one a verdict is being judged on, where there is one. A read
+    that failed inside a verification window is not merely a read that failed:
+    it is the reason a confirmation took longer than the window it was measured
+    over, and a person reading the incident cannot work that out from a line
+    that names no minute. `None` everywhere else, for the reason
+    `RecoveryChecked` carries its own - the minute belongs to the judgement, not
+    to the asking.
+
+    It says nothing about what happens next, and must not: the same fact is a
+    pass of a poll that will be tried again, an investigation continuing without
+    one channel, and a model recovering on its next turn. Whoever asked decides,
+    and this is only the record that they were not answered.
+
+    `because` is what the asking failed with, kept apart from what was asked for
+    the reason `RememberingFailed` keeps its refusal apart: a read that timed out
+    and one that was refused are fixed by different people, and a subject with
+    the reason folded into it reads as neither ("the service's metrics: timed out
+    for 10:14" says the timing out lasted a minute).
+    """
+
+    kind: Literal["retrieval-unanswered"] = "retrieval-unanswered"
+    what_was_asked: str
+    because: str | None = None
+    minute: str | None = None
+
+
 class OnsetDetected(_Event):
     """The minute the incident is judged to have started, named as the bucket
     it was found in."""
@@ -618,6 +659,7 @@ type IncidentEvent = Annotated[
         | ActionRefused
         | ActionRecommended
         | PlatformUnavailable
+        | RetrievalUnanswered
         | ActionTaken
         | VerdictReached
         | MitigationResumed

@@ -17,6 +17,7 @@ from argus_core.events import (
     AwaitingRecovery,
     Publisher,
     RecoveryChecked,
+    RetrievalUnanswered,
     nobody,
     publish,
 )
@@ -478,7 +479,9 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     # two states together.
     first_whole_minute = to_iso_minute(started_at + timedelta(minutes=1))
 
-    def say(event: AwaitingRecovery | RecoveryChecked) -> None:
+    def say(
+        event: AwaitingRecovery | RecoveryChecked | RetrievalUnanswered
+    ) -> None:
         """Narrates the wait, where there is an incident to narrate it for."""
         if incident_id is not None:
             publish(event, publisher)
@@ -491,9 +494,39 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         ))
 
     while True:
-        recovered = has_recovered_since(
-            fetch_metrics(), first_whole_minute, thresholds
-        )
+        # A read that cannot be taken costs this pass and nothing more. The loop
+        # is already a poll against a deadline, so a reading that did not arrive
+        # is the one kind of failure it is built to absorb - and the alternative
+        # was the whole incident: nothing above this catches it, so the walk
+        # stopped mid-action, no verdict was recorded, and the incident kept
+        # whatever status it was walking under.
+        #
+        # Not a verdict of its own, and not `REFUTED`. The action may well have
+        # worked - both times this was seen against the real stack the service
+        # had in fact recovered - and calling a mitigation refuted because Argus
+        # could not look at it would be reporting a measurement nobody took.
+        try:
+            buckets = fetch_metrics()
+        except Exception as unanswered:
+            if incident_id is not None:
+                say(RetrievalUnanswered(
+                    incident_id=incident_id,
+                    what_was_asked="the service's metrics",
+                    because=str(unanswered),
+                    minute=first_whole_minute
+                ))
+
+            # The deadline still decides, and it is checked before sleeping for
+            # the reason the recovered case checks it: a window that has run out
+            # must not buy another interval by having failed rather than
+            # answered.
+            if now() >= deadline:
+                return Verdict.REFUTED
+
+            sleep(_SECONDS_BETWEEN_METRIC_READS)
+            continue
+
+        recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
         if incident_id is not None:
             say(RecoveryChecked(
                 incident_id=incident_id,

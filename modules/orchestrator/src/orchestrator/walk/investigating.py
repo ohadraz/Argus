@@ -17,6 +17,7 @@ from argus_core.events import (
     CandidatesReordered,
     FlagChangesRetrieved,
     Publisher,
+    RetrievalUnanswered,
     SimilarIncidentsRecalled,
     nobody,
     publish,
@@ -226,17 +227,33 @@ def _what_the_provider_recorded(state: IncidentState,
     Published from here, because this is where it is read. The account carries
     the whole basis of every action this round might propose - which flag
     moved, which way, and when - and by the time an action exists that history
-    has already been reduced to one decision about one flag. The failure is
-    deliberately unpublished: an empty history on the page would state that
-    nothing had changed, and the two look identical there while meaning
-    opposite things.
+    has already been reduced to one decision about one flag.
+
+    The failure is published as the thing it is, and never as an empty history:
+    an empty history on the page would state that nothing had changed, and the
+    two look identical there while meaning opposite things. Saying nothing at all
+    was the other way of getting it wrong - a channel that was asked and refused
+    then reads exactly like one nobody thought to try, which is the distinction
+    `ChannelsUnread` exists to draw and cannot draw on its own.
     """
     try:
         # The onset the alert stated, or nothing - which is what every alert
         # that measured its own says, and what leaves the window ending where
         # it always ended.
         flag_changes = fetch_flag_changes(onset=state.alert.stated_onset)
-    except Exception:
+    except Exception as unanswered:
+        # No minute, because there is none to name: this is the window the round
+        # asked about rather than a minute being judged, and a field filled in to
+        # look complete would put a moment on the page that nothing measured.
+        publish(
+            RetrievalUnanswered(
+                incident_id=state.incident_id,
+                what_was_asked="what the flag provider recorded changing",
+                because=str(unanswered)
+            ),
+            publisher
+        )
+
         return None
 
     publish(

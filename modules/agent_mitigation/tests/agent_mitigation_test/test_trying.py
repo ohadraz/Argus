@@ -19,7 +19,7 @@ from agent_mitigation.tools import (
 from agent_mitigation.trying import UndoChange
 from argus_core import new_id
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked
+from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_MARKER,
@@ -639,6 +639,60 @@ def test_each_look_at_the_service_is_published_with_what_it_saw() -> None:
         .then(
             _each_look_reported(published, True)
         )
+
+
+@pytest.mark.unit
+def test_a_read_that_could_not_be_answered_costs_one_pass_and_not_the_incident() -> None:
+    # The verification loop is a poll with a deadline, and a read that raises
+    # inside it used to end the incident rather than the pass: nothing catches
+    # it, so `take_action` never returns, no verdict is recorded, and the walk
+    # leaves the incident wherever it was. Twice observed against the real
+    # stack, both times a metrics read timing out seconds after a flag was
+    # reverted, and both times the shop had in fact recovered - so the incident
+    # that was stranded was one whose mitigation had worked.
+    #
+    # Two claims, and they belong together because either alone is the wrong
+    # behaviour. The pass is *said*, so a person reading the incident can see
+    # why the verdict took longer than the window; and the loop carries on, so
+    # the reading it could not take costs one pass of a poll that already has a
+    # deadline. Carrying on silently would be the same incident with a gap
+    # nobody can account for.
+    #
+    # Deliberately not a verdict of its own. The action here worked - the next
+    # read finds the service recovered - and a loop that gave up on the first
+    # unreadable pass would report a working mitigation as refuted, which is
+    # worse than the stranding it replaced.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=True
+                    )
+                ),
+                fetch_metrics=_a_read_that_fails_once_then_answers(
+                    a_recovered_window()
+                ),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_unanswered_read_was_said(
+                published, _THE_FIRST_WHOLE_MINUTE_AFTER
+            ),
+            _each_look_reported(published, True)
+        ))
 
 
 @pytest.mark.unit
@@ -1974,6 +2028,71 @@ def _it_carries_back(expected: UndoDescriptor) -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected the outcome to carry {expected!r} as what has to be "
                 f"put back, it carried {outcome.undo_descriptor!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_read_that_fails_once_then_answers(
+    window: list[MetricBucket]
+) -> Callable[[], list[MetricBucket]]:
+    """A metrics read that raises the first time and answers after.
+
+    The real failure this stands for is a read tier whose tool executed and
+    timed out - `McpToolError`, not a refused connection, which is the one the
+    transport already retries. Raised as that type rather than a bare
+    `Exception` so the test fails if the loop is narrowed to catch something
+    else and this stops being the shape that reaches it.
+    """
+    answered = False
+
+    def read() -> list[MetricBucket]:
+        nonlocal answered
+
+        if answered:
+            return window
+
+        answered = True
+        raise McpToolError(
+            "MCP tool call [get_metrics_summary] failed: timed out"
+        )
+
+    return read
+
+
+def _the_unanswered_read_was_said(published: list[IncidentEvent],
+                                  minute: str) -> Assertion[Outcome]:
+    """One line saying the shop could not be read, for the minute being judged.
+
+    The minute is the point of it. "A read failed" is a fact about Argus's
+    plumbing; "the shop could not be read for the minute this action is being
+    judged on" is a fact about the verdict, and it is the second that tells a
+    person why a confirmation took longer than the window it was measured over.
+
+    Exactly one, because the pass that failed is one pass. A loop that said it
+    every pass after the first would report a single unreadable minute as a
+    service nobody could read at all.
+    """
+    def assertion(_outcome: Outcome) -> bool:
+        said = [
+            event for event in published
+            if isinstance(event, RetrievalUnanswered)
+        ]
+
+        if len(said) != 1:
+            raise AssertionError(
+                f"Expected one line about a read that went unanswered, and "
+                f"{len(said)} were published - so either the failed pass is "
+                f"invisible, or every later pass is repeating it."
+            )
+
+        if said[0].minute != minute:
+            raise AssertionError(
+                f"Expected the unanswered read to name minute [{minute}], the "
+                f"one this action is being judged on, and it names "
+                f"[{said[0].minute}]."
             )
 
         return True
