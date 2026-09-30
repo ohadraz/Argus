@@ -255,6 +255,24 @@ def take_action(action: Action,
             undo_descriptor=performed.undo_descriptor,
         )
 
+    # Left where it is too, and for a reason of its own: nothing was measured,
+    # so there is nothing to act on. Putting the change back is what a
+    # refutation does, and doing it on no reading at all would reverse a
+    # mitigation that may well have worked - which is the shape this was
+    # actually seen in, a shop that had recovered while the tier that would have
+    # shown it was timing out. The undo goes with it, because what to do about a
+    # service nobody could read is a person's to decide.
+    if settled is Verdict.ESCALATED:
+        return Outcome(
+            verdict=Verdict.ESCALATED,
+            detail=(
+                f"{performed.said}, and the service could not be read once "
+                f"before the time allowed ran out - so nothing was measured "
+                f"either way"
+            ),
+            undo_descriptor=performed.undo_descriptor,
+        )
+
     # Left where it is, carrying what would put it back. Undoing it here would
     # be a second opinion about a decision the withdrawal makes once, for every
     # action the incident took and only where nobody else has been in there
@@ -457,9 +475,16 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     """What the service did after the action, within the time allowed.
 
     `REFUTED` on expiry rather than an error, because that is a real answer
-    about the world: the action was taken and did not visibly help in the time
-    it was given. Calling it an error would route an incident to a human over
-    what is ordinary evidence against a hypothesis.
+    about the world: the action was taken, the service was looked at, and it did
+    not visibly help in the time it was given. Calling it an error would route an
+    incident to a human over what is ordinary evidence against a hypothesis.
+
+    `ESCALATED` where the window ran out with the service never once read. That
+    is the same expiry and the opposite finding: the first is a measurement that
+    went against the hypothesis, this is no measurement at all, and only one of
+    them is evidence. They are separated on whether any reading ever landed
+    rather than on how the last pass went, because a wait that read the shop
+    nine times and failed on the tenth did measure it.
 
     `WITHDRAWN` where somebody stopped the walk while this was waiting. The loop
     already wakes every ten seconds to re-read the metrics, so asking here costs
@@ -493,6 +518,12 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             seconds_allowed=settings.mitigation_verification_timeout_seconds,
         ))
 
+    # Whether the service was ever actually looked at. What the expiry below
+    # means depends entirely on it: a window that ran out having read the shop
+    # and found it still bad is a refutation, and a window that ran out having
+    # read nothing is not a verdict at all.
+    anything_was_read = False
+
     while True:
         # A read that cannot be taken costs this pass and nothing more. The loop
         # is already a poll against a deadline, so a reading that did not arrive
@@ -500,11 +531,6 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         # was the whole incident: nothing above this catches it, so the walk
         # stopped mid-action, no verdict was recorded, and the incident kept
         # whatever status it was walking under.
-        #
-        # Not a verdict of its own, and not `REFUTED`. The action may well have
-        # worked - both times this was seen against the real stack the service
-        # had in fact recovered - and calling a mitigation refuted because Argus
-        # could not look at it would be reporting a measurement nobody took.
         try:
             buckets = fetch_metrics()
         except Exception as unanswered:
@@ -520,12 +546,23 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             # the reason the recovered case checks it: a window that has run out
             # must not buy another interval by having failed rather than
             # answered.
+            #
+            # What it decides, though, is not `REFUTED` where nothing was ever
+            # read. That word means the explanation was tested and did not hold,
+            # and acting on it undoes the change and strikes the candidate off -
+            # so a mitigation that worked would be reversed, the service broken
+            # again, and the cause that was right removed from the list, on a
+            # measurement nobody took. Both times this was seen against the real
+            # stack the service had in fact recovered. `ESCALATED` is the member
+            # that already means no verdict was reached at all, and the one this
+            # is: Argus cannot say, so a person is asked.
             if now() >= deadline:
-                return Verdict.REFUTED
+                return Verdict.REFUTED if anything_was_read else Verdict.ESCALATED
 
             sleep(_SECONDS_BETWEEN_METRIC_READS)
             continue
 
+        anything_was_read = True
         recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
         if incident_id is not None:
             say(RecoveryChecked(

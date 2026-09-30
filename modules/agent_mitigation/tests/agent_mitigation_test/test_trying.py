@@ -696,6 +696,52 @@ def test_a_read_that_could_not_be_answered_costs_one_pass_and_not_the_incident()
 
 
 @pytest.mark.unit
+def test_a_wait_that_never_read_the_service_reaches_no_verdict() -> None:
+    # A verdict is a measurement, and here there is none. Every read failing is
+    # not a rare shape: the load that makes the read tier time out is the
+    # polling that feeds this loop, so it lasts as long as the window does, and
+    # the window can run out with not one reading taken in it.
+    #
+    # Not `REFUTED`, and not only because the word is wrong. `REFUTED` marks the
+    # hypothesis tested, puts the change back and hands the walk to the next
+    # candidate - so a mitigation that worked is undone, the shop is broken
+    # again, and the explanation that was right is struck off, all on nothing
+    # anybody measured. Both times this was seen against the real stack the
+    # service had in fact recovered.
+    #
+    # `ESCALATED` already means what happened: no verdict was reached at all.
+    # The change stays where the action left it, carrying what would put it
+    # back, exactly as a withdrawn action's does - because what to do about a
+    # service nobody could read is a person's decision, and the one thing that
+    # must not happen is Argus making it by default.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            set_state := _a_flag_setter_changing_from(some_flag, was_enabled=some_old_state),
+            undo := an_undo_nobody_calls()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=_a_read_that_never_answers(),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _nothing_was_put_back_through(undo),
+            _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
+        ))
+
+
+@pytest.mark.unit
 def test_a_service_that_has_not_recovered_yet_is_published_as_not_recovered() -> None:
     # "Checked, and it is still bad" is the ordinary case for most of a wait,
     # and reporting only recovery would make a refuted action's whole
@@ -2093,6 +2139,41 @@ def _the_unanswered_read_was_said(published: list[IncidentEvent],
                 f"Expected the unanswered read to name minute [{minute}], the "
                 f"one this action is being judged on, and it names "
                 f"[{said[0].minute}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_read_that_never_answers() -> Callable[[], list[MetricBucket]]:
+    """A metrics read that fails every time it is asked.
+
+    The shape of the failure, and what makes it a different case from the one
+    above: a read tier under the load the polling itself creates does not
+    recover between passes, so a window bought to measure recovery can run out
+    with not one reading in it.
+    """
+    def read() -> list[MetricBucket]:
+        raise McpToolError("MCP tool call [get_metrics_summary] failed: timed out")
+
+    return read
+
+
+def _nothing_was_put_back_through(undo: MagicMock) -> Assertion[Outcome]:
+    """The change left exactly where the action put it.
+
+    The half of this that costs something. `REFUTED` puts the change back, and a
+    mitigation whose every read failed is the one most likely to have worked -
+    both times this was seen against the real stack the shop had in fact
+    recovered - so refuting it here would restore the fault to a service that was
+    well again, and call the grounds for doing so a measurement.
+    """
+    def assertion(_outcome: Outcome) -> bool:
+        if undo.call_count != 0:
+            raise AssertionError(
+                f"Expected nothing to be put back where nothing was measured, "
+                f"and the undo was called [{undo.call_count}] times."
             )
 
         return True

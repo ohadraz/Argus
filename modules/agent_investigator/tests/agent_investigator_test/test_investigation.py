@@ -52,7 +52,7 @@ from argus_core.models import (
     RetrievalChannel,
 )
 from argus_core.replay import CallType, ReplayEntry
-from argus_testkit import Assertion, Kept, Scenario, all_of, calling
+from argus_testkit import Assertion, Kept, Scenario, all_of, calling, raising
 
 from agent_investigator_test.framework.builders.budget import (
     a_budget,
@@ -1804,6 +1804,45 @@ def test_a_window_already_read_is_not_published_as_a_read_that_would_not_answer(
         ) \
         .then(
             _the_reads_said_to_have_gone_unanswered(published)
+        )
+
+
+@pytest.mark.unit
+def test_a_log_read_the_tier_would_not_answer_is_said_rather_than_ending_the_walk() -> None:
+    # The same failure as the mitigation's, one node earlier, and the path the
+    # read tier is actually most likely to time out on: the log channel is the
+    # expensive one, and the load that makes it time out is the polling that
+    # asks for it.
+    #
+    # Nothing caught this. The channel called its fetcher bare and no guard sat
+    # between it and the loop, so a tier that would not answer ended the whole
+    # investigation - throwing away every minute already read, and the model's
+    # remaining turns with them, over a gap the model is perfectly able to
+    # report around. The window it asked for is already on the page as a
+    # request; what was missing was the line saying it was never answered.
+    #
+    # The test passing at all is half the claim: an exception here would come
+    # out of `investigate` and fail this before any assertion ran.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL),
+            a_turn_answering(an_explanation())
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(raising(investigation.log_fetcher, McpToolError(
+                "MCP tool call [get_logs] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(
+            _the_reads_said_to_have_gone_unanswered(published, "the service's log lines")
         )
 
 

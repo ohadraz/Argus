@@ -19,7 +19,13 @@ from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinitio
 
 from agent_investigator.budget import InvestigationSettings
 from agent_investigator.retrieval import LogFetcher
-from agent_investigator.tools.results import Served, could_not_serve, served, was_already_read
+from agent_investigator.tools.results import (
+    Served,
+    could_not_be_read,
+    could_not_serve,
+    served,
+    was_already_read,
+)
 from agent_investigator.tools.windows import window_of, window_properties
 
 LOGS_TOOL: Final = "get_logs"
@@ -88,7 +94,29 @@ def read_logs(call: ToolCall,
         window_start=to_iso(start),
         window_end=to_iso(end)
     )
-    lines = fetch_logs(to_iso(start), to_iso(end))
+    try:
+        lines = fetch_logs(to_iso(start), to_iso(end))
+    except Exception as error:
+        # Reported rather than raised, for the reason an inverted window is:
+        # everything already retrieved has been paid for, and the model has
+        # turns left to spend on another channel. A tier that would not answer
+        # is the *least* of the reasons to throw an investigation away - it says
+        # nothing about the incident at all, where an inverted window at least
+        # said the model had misread something.
+        #
+        # Never an empty window. A channel that answered with no lines is a
+        # finding about the service, and the two are opposite claims that would
+        # otherwise arrive identically - which is why this says which it is, to
+        # the model in the result and to the page through `could_not_be_read`.
+        return could_not_be_read(
+            call,
+            (f"the log lines from {to_iso(start)} to {to_iso(end)} could not be "
+             f"read, so nothing here says what the service was reporting over "
+             f"that window - it is not that there was nothing: {error}"),
+            what_was_asked="the service's log lines",
+            because=str(error)
+        )
+
     narrator.say(
         LogsRetrieved,
         window_start=to_iso(start),
