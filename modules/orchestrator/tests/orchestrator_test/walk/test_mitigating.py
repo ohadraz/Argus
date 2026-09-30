@@ -1716,7 +1716,7 @@ def _the_platform_published_as_unavailable(
             f"were published."
         )
 
-    return about_a_platform[0]
+    return about_a_platform[0] if about_a_platform else None
 
 
 def _the_platform_was_published_as_unavailable(
