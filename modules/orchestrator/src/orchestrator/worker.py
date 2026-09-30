@@ -36,9 +36,16 @@ from argus_core import (
     get_settings,
     open_pool,
 )
+from argus_core.events import StatusChanged, publish
+from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
-from argus_incidents import IsStillWanted, events_into, wanted_via
-from argus_incidents.repository import runs
+from argus_incidents import (
+    IsStillWanted,
+    events_into,
+    events_into_connection,
+    wanted_via,
+)
+from argus_incidents.repository import incidents, runs
 from read_mcp_client import read_mcp
 from write_mcp_client import write_mcp
 
@@ -169,10 +176,65 @@ def take_one_run(conn: psycopg.Connection,
                          claimed.id, claimed.incident_id)
         _put_back_what_it_changed(unwind, claimed.incident_id)
         runs.fail(conn, claimed.id, f"{type(failure).__name__}: {failure}")
+        _the_incident_needs_a_person(conn, claimed.incident_id, failure)
     else:
         runs.finish(conn, claimed.id)
 
     return True
+
+
+def _the_incident_needs_a_person(conn: psycopg.Connection,
+                                 incident_id: str,
+                                 failure: Exception) -> None:
+    """Moves an incident whose walk stopped to `escalated`, and says why.
+
+    The run being marked failed is a fact about the queue, and nothing reads the
+    queue to find out how an incident is going. Without this the incident keeps
+    whatever status the walk had set on the way in - `mitigating`, most often,
+    since that is where the longest waits are - and a failed run is terminal, so
+    nothing re-claims it. That status is then not a phase the incident is passing
+    through. It is where the incident stays, reading as work in progress that
+    nothing is going to pick up.
+
+    `escalated` because it is what the walk already means by "a person is needed
+    and Argus has no move left", and an exception nobody planned for is the
+    plainest case of it. The alternative - a status of its own for a walk that
+    crashed - would be a sixth thing every reader has to learn in order to
+    discover that it means what `escalated` already means.
+
+    On the connection the run was failed on, so the queue's record and the
+    incident's account commit together or neither does. And the transition and
+    the sentence explaining it are one write for the reason `transition` gives:
+    the column says where the incident is, and the event is the only thing that
+    says what put it there.
+
+    The exception's type and message are the whole of the detail. A stack trace
+    is what the log is for; what a person reading the incident needs is which
+    kind of failure it was, because a refused model, a database that went away
+    and a bug in a node ask for three different responses.
+
+    Swallows its own failure, and has to: this runs inside the handler for a
+    walk that already failed, and a database that will not take the transition
+    would otherwise replace a recorded failure with an unrecorded one. The log
+    is the fallback, which is where this sat in its entirety before.
+    """
+    try:
+        publish(
+            StatusChanged(
+                incident_id=incident_id,
+                to_status=IncidentStatus.ESCALATED,
+                detail=f"the walk stopped without finishing: "
+                       f"{type(failure).__name__}: {failure}"
+            ),
+            events_into_connection(conn)
+        )
+        incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
+        conn.commit()
+    except Exception:
+        logger.exception(
+            "incident %s could not be marked escalated after its run failed, so "
+            "it still reads as work in progress", incident_id
+        )
 
 
 def _put_back_what_it_changed(unwind: Unwind, incident_id: str) -> None:

@@ -133,6 +133,65 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
 
 
 @pytest.mark.component
+def test_an_incident_whose_walk_failed_is_escalated_rather_than_left_mid_walk(
+    a_clean_database: None
+) -> None:
+    # The run is not the incident. Its neighbour above asserts the queue
+    # records the failure, which it does - and a person reading the incident
+    # sees none of that: the walk set `mitigating` on the way in, raised, and
+    # left it there. Nothing re-claims a failed run, so the status is not a
+    # phase the incident is passing through. It is where the incident stays.
+    #
+    # `escalated` because that is what the walk means by "a human is needed and
+    # Argus has no move left", and an exception nobody planned for is the
+    # clearest case of it. What is wrong with `mitigating` is not that it is
+    # untidy: it says Argus is acting, so the page offers no reason to look, and
+    # the one incident that needs a person is the one that does not ask for one.
+    #
+    # Staged at `mitigating` rather than at whatever `create` leaves behind,
+    # because that is the status the two observed failures stranded - a walk
+    # that had taken an action and was waiting for the service to answer when
+    # the read it was waiting on raised.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    # A bare exception from the walk seam, and deliberately not a failure of
+    # anything the walk does. A read that times out inside the verification
+    # window is the failure that prompted this, and it is going to stop being
+    # unhandled - so a test resting on it would be a test the next change
+    # rewrites. What this asserts is the backstop: whatever goes unhandled,
+    # wherever, the incident does not stay mid-walk.
+    something_nobody_planned_for = "a bug in a node nobody has written yet"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError(something_nobody_planned_for)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_failed(conn, incident_id,
+                                   something_nobody_planned_for),
+                _the_incident_is(conn, incident_id, IncidentStatus.ESCALATED)
+            ))
+
+
+@pytest.mark.component
 def test_a_run_that_failed_has_its_changes_put_back(a_clean_database: None) -> None:
     # The worst moment to fail is after Code-Fix has started, because a
     # mitigation has already been applied by then. A run that ends there
@@ -461,6 +520,35 @@ def _the_run_is_failed(conn: psycopg.Connection,
             raise AssertionError(
                 f"Expected the recorded reason to say [{reason}], got "
                 f"[{run.failure_reason}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_is(conn: psycopg.Connection,
+                     incident_id: str,
+                     expected: IncidentStatus) -> Assertion[bool]:
+    """The status a person reading the incident would see.
+
+    Stated positively, unlike `_the_incident_was_not_called_resolved` beside it.
+    That one rules out the single wrong answer a resolved incident would be, and
+    passes for every status including the one this exists to refuse - an
+    incident left in the phase its walk died in.
+    """
+    def assertion(_took_work: bool) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None:
+            raise AssertionError(f"No incident found with id [{incident_id}].")
+
+        if incident.status != expected:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to be [{expected}], and it "
+                f"is [{incident.status}] - so a walk that stopped without "
+                f"finishing has left it reading as work in progress that "
+                f"nothing is going to pick up."
             )
 
         return True
