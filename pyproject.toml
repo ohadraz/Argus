@@ -73,6 +73,15 @@ strict = true
 # pytest config
 [tool.pytest.ini_options]
 pythonpath = ["."]
+# LangSmith ships a pytest plugin that pytest auto-loads, and nothing here uses
+# it: it arrives as a transitive dependency of LangGraph. Loading it imports
+# `xxhash`, whose published `cp314-win_amd64` wheel Smart App Control began
+# refusing on this machine mid-session, which fails collection of every suite
+# before a single test runs. Disabling the plugin is not a workaround for the
+# block - it declines to import a plugin the suite never wanted, and the wheel is
+# untouched. See the `smart-app-control-blocks` skill for why there is no
+# install-side fix to reach for instead.
+addopts = "-p no:langsmith_plugin"
 markers = [
     "unit: one function or class, its collaborators doubled where it delegates",
     "component: one module entire, through its own front door, every collaborator real - Fowler's sociable test, whatever infrastructure it needs behind it",
