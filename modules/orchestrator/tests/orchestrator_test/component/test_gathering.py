@@ -37,6 +37,7 @@ from argus_core.events import (
     IncidentEvent,
     LogsRetrieved,
     OnsetDetected,
+    RecoveryChecked,
     StatusChanged,
 )
 from argus_core.llm import ClientFor, LLMClient
@@ -249,6 +250,40 @@ def test_an_incident_whose_onset_was_never_found_carries_none(a_clean_database: 
             ) \
             .then(
                 _carries_no_onset()
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_the_minute_the_recovery_was_recorded_at(
+        a_clean_database: None) -> None:
+    # The onset's counterpart, read off the account for the same reason. The
+    # minute was measured on the window the verification wait was polling, where
+    # the document reads a window bounded by the incident's close - so deriving
+    # it again there is the same rule over different minutes, and one incident
+    # ends up with two recovery times and nothing to say which Argus acted on.
+    #
+    # The two minutes the look carries are deliberately different. 12:09 is
+    # where the verdict was read from, which is a fact about Argus; 12:06 is
+    # when the shop came back, which is a fact about the shop. A fixture where
+    # they matched would pass whichever one the gathering picked up.
+    the_minute_the_verdict_was_read_from = "2026-09-02T12:09:00Z"
+    the_minute_it_came_back = "2026-09-02T12:06:00Z"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(
+                    conn, incident_id, RecoveryChecked(
+                        incident_id=incident_id,
+                        minute=the_minute_the_verdict_was_read_from,
+                        recovered=True,
+                        recovered_minute=the_minute_it_came_back))
+            ) \
+            .then(
+                _carries_the_recovery(parse_iso(the_minute_it_came_back))
             )
 
 
@@ -504,6 +539,18 @@ def _the_evidence_after_publishing(conn: psycopg.Connection,
     events.record(conn, event)
 
     return gather_evidence(conn, incident_id)
+
+
+def _carries_the_recovery(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.recorded_recovery_at != expected:
+            raise AssertionError(
+                f"Expected the recovery recorded at [{expected}], got "
+                f"[{evidence.recorded_recovery_at}].")
+
+        return True
+
+    return assertion
 
 
 def _carries_the_onset(expected: datetime) -> Assertion[IncidentEvidence]:

@@ -373,6 +373,33 @@ def test_a_look_that_found_something_different_is_a_line_of_its_own() -> None:
 
 
 @pytest.mark.unit
+def test_a_look_that_found_the_service_back_says_which_minute_it_came_back_at() -> None:
+    # The two minutes a look holds are different facts and only one is about the
+    # service. 10:14 is where the verdict is read from, which is about Argus and
+    # is already said by the line above this one; 10:13 is when the shop actually
+    # came back, and a reader never told it cannot see that the recovery preceded
+    # whatever Argus did about it. So the waited-from minute stays off the line
+    # for the reason it always has, and this one goes on.
+    some_incident = new_id()
+
+    Scenario() \
+        .given(
+            it_looked_and_the_service_was_back := RecoveryChecked(
+                incident_id=some_incident,
+                minute=SOME_MINUTE,
+                recovered=True,
+                recovered_minute=AN_EARLIER_MINUTE
+            )
+        ) \
+        .when(lambda: build_narration([it_looked_and_the_service_was_back])) \
+        .then(all_of(
+            _the_only_line_says("10:13"),
+            _the_only_line_does_not_say("10:14"),
+            _the_only_line_names_the_minute(AN_EARLIER_MINUTE)
+        ))
+
+
+@pytest.mark.unit
 def test_the_onset_line_names_the_minute_it_placed() -> None:
     # It names one minute out of ninety, and the account carries which one so
     # that a reader is never left to find it by eye. What a page then does with

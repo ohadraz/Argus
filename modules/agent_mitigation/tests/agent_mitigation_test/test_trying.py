@@ -56,6 +56,7 @@ from agent_mitigation_test.framework.builders import (
     a_recovered_window,
     a_still_failing_window,
     a_window_ending_at_the_action,
+    a_window_recovered_before_the_action,
     a_window_that_stops_at_the_onset,
     a_window_where_memory_never_fell,
     a_window_where_memory_was_reclaimed,
@@ -766,6 +767,31 @@ def test_a_service_that_has_not_recovered_yet_is_published_as_not_recovered() ->
         .then(
             _each_look_reported(published, False)
         )
+
+
+@pytest.mark.unit
+def test_a_service_that_came_back_before_the_action_is_recorded_at_that_minute() -> None:
+    # The minute recorded is a fact about the service, so it is neither the
+    # minute Argus acted in nor the minute it stopped watching. Here the shop
+    # came back at 11:08 on its own and the action followed at 11:10:30, so a
+    # record reading 11:11 would credit the action with a recovery that preceded
+    # it - the false attribution nothing in the account can show today.
+    the_minute_it_came_back = "2026-08-20T11:08:00Z"
+
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: _an_action_is_taken(
+                publisher=published.append,
+                metrics=a_window_recovered_before_the_action()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_recovery_was_recorded_at(published, the_minute_it_came_back)
+        ))
 
 
 @pytest.mark.unit
@@ -1898,6 +1924,40 @@ def _each_look_reported(published: list[IncidentEvent],
         if reported != recoveries:
             raise AssertionError(
                 f"Expected the looks to report {recoveries}, got {reported}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_recovery_was_recorded_at(published: list[IncidentEvent],
+                                  minute: str) -> Assertion[Outcome]:
+    """The look that confirmed carries the minute the metrics say the service
+    came back at.
+
+    Asked of that look rather than of all of them, because it is the only one
+    with a minute to carry: a look that found the service still failing has
+    nothing to date, and one that answers a minute anyway is answering about a
+    recovery it did not see.
+    """
+    def assertion(_outcome: Outcome) -> bool:
+        confirmed = [
+            event
+            for event in published
+            if isinstance(event, RecoveryChecked) and event.recovered
+        ]
+
+        if not confirmed:
+            raise AssertionError(
+                f"Expected a look reporting recovery at [{minute}], and no look "
+                f"reported any."
+            )
+
+        if confirmed[-1].recovered_minute != minute:
+            raise AssertionError(
+                f"Expected the recovery to be recorded at [{minute}], got "
+                f"[{confirmed[-1].recovered_minute}]."
             )
 
         return True

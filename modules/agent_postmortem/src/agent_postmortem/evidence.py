@@ -41,6 +41,18 @@ class IncidentEvidence(BaseModel):
     # `None` where nothing measured one, in which case the alert's own time is
     # the best available answer and the document is written from that.
     onset_at: datetime | None = None
+    # When the service came back, as Mitigation recorded it at the time - the
+    # onset's counterpart, read off the account for the same reason. The minute
+    # was measured on the window the verification wait was polling, and this
+    # document reads a window bounded by the incident's close, so deriving it
+    # again here would be deriving it over different minutes: one incident, two
+    # recovery times, and nothing to say which is the one Argus acted on.
+    #
+    # `None` wherever nothing recorded one - an incident that escalated, one
+    # nobody mitigated, or a confirmation nothing could date. The measurement
+    # then falls back to the series, which is the best available answer and the
+    # only one there is.
+    recorded_recovery_at: datetime | None = None
     alert_summary: str
     timeline: list[str]
     candidates: list[str]

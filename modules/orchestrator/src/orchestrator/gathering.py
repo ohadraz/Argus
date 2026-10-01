@@ -24,6 +24,7 @@ from argus_core.events import (
     FixAttempted,
     LogsRetrieved,
     OnsetDetected,
+    RecoveryChecked,
 )
 from argus_core.llm import ClientFor
 from argus_core.models import OpenedPullRequest, PostmortemDocument
@@ -92,6 +93,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         started_at=incident.created_at,
         ended_at=incident.ended_at,
         onset_at=_when_it_actually_began(conn, incident_id),
+        recorded_recovery_at=_when_it_came_back(conn, incident_id),
         alert_summary=_what_was_alerted(incident.alert_payload),
         timeline=_what_happened(conn, incident_id),
         candidates=_what_was_considered(conn, incident_id),
@@ -168,6 +170,38 @@ def _when_it_actually_began(conn: psycopg.Connection,
               if isinstance(event, OnsetDetected)]
 
     return parse_iso(onsets[0]) if onsets else None
+
+
+def _when_it_came_back(conn: psycopg.Connection,
+                       incident_id: str) -> datetime | None:
+    """The minute Mitigation recorded the recovery at, as it published it.
+
+    The onset's counterpart, and read the same way for the same reason: the
+    minute was measured while the incident was live, on the window the
+    verification wait was polling, and the document reads a window bounded by
+    the incident's close. One rule evaluated over two different spans of minutes
+    can disagree about which minute a service came back at, and then the page and
+    the write-up date the same incident differently - which is the whole of why
+    neither end of an incident is re-derived here.
+
+    The **last** one, where the onset above takes the first, and the two are not
+    inconsistent. An incident has one beginning: a second `OnsetDetected` is a
+    re-read of it, and the first is the measurement. An incident can have more
+    than one ending offered to it, because a walk that was refuted goes back and
+    mitigates again - so what stands is the confirmation the incident actually
+    ended on, which is the last.
+
+    `None` where no look ever carried a minute, which is three ordinary cases
+    rather than a failure: an incident that escalated, one nobody mitigated, and
+    a confirmation reached on a window with nothing in it to date. The document
+    measures its own answer from the series there.
+    """
+    recoveries = [event.recovered_minute
+                  for event in events.get_by_incident(conn, incident_id)
+                  if isinstance(event, RecoveryChecked)
+                  and event.recovered_minute is not None]
+
+    return parse_iso(recoveries[-1]) if recoveries else None
 
 
 def _what_was_alerted(alert_payload: dict[str, object]) -> str:

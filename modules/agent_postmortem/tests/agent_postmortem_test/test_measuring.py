@@ -31,6 +31,7 @@ from argus_testkit import Assertion, Kept, Scenario, all_of
 from agent_postmortem_test.framework.builders import (
     ENDED_AT,
     ONSET,
+    RECORDED_RECOVERY_AT,
     RECOVERED_AT,
     SOME_CURRENCY,
     SOME_OTHER_CURRENCY,
@@ -408,6 +409,32 @@ def test_an_incident_still_broken_when_the_metrics_run_out_reports_no_recovery()
             lambda: measure(evidence, some_sources())
         ) \
         .then(_it_never_recovered())
+
+
+@pytest.mark.unit
+def test_the_minute_mitigation_recorded_is_preferred_to_one_derived_here() -> None:
+    # C. One rule asked twice about two different windows is a rule that can
+    # disagree with itself: Mitigation judged recovery on the window it was
+    # polling, and this reads a window bounded by the incident's close, so a
+    # second derivation here is a second answer over different minutes. The
+    # recorded one wins outright - not corroborated against the series, because
+    # the series it would be checked against is not the series it was read off.
+    #
+    # The metrics here say the service came back at ONSET+10 and the record says
+    # ONSET+6, and they disagree deliberately: a test where the two agree passes
+    # whichever one is being used.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recorded_recovery_at=RECORDED_RECOVERY_AT
+            )
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(
+            _it_recovered_at(RECORDED_RECOVERY_AT)
+        )
 
 
 @pytest.mark.unit

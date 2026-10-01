@@ -169,6 +169,27 @@ def a_recovered_window() -> list[MetricBucket]:
     )
 
 
+def a_window_recovered_before_the_action() -> list[MetricBucket]:
+    """Calm, a departure just long enough to be a state, and calm again from
+    well before the action.
+
+    A service that came back on its own. The failing minutes end at 11:07 and
+    the action's first whole minute is 11:11, so the minute the metrics date the
+    recovery at sits three minutes before the minute the verdict is read from -
+    which is the only shape that tells the two apart. `a_recovered_window` cannot:
+    it comes back at 11:11, the action's own minute, so both answers are the same
+    string and a test on it would pass against either rule.
+    """
+    minutes_it_failed_for = 2
+    minutes_well_again = 5
+
+    return a_window_of(
+        [CALM_RATE] * CALM_MINUTES
+        + [FAILING_RATE] * minutes_it_failed_for
+        + [CALM_RATE] * minutes_well_again
+    )
+
+
 def a_still_failing_window() -> list[MetricBucket]:
     return a_window_of(
         [CALM_RATE] * CALM_MINUTES + [FAILING_RATE] * (FAILING_MINUTES + 2)

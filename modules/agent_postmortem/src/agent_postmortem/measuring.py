@@ -133,7 +133,9 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     # to the close would be two incidents on one page, which is the failure
     # this function exists to prevent.
     metrics = sources.metrics(began - BASELINE_WINDOW, evidence.ended_at)
-    recovered_at = _when_the_service_came_back(metrics, sources.thresholds)
+    recovered_at = _when_the_service_came_back(
+        evidence.recorded_recovery_at, metrics, sources.thresholds
+    )
     # The read has to end somewhere even when nothing says the service came
     # back, so it ends at the close - the boundary a query needs. What must
     # not happen is the substitution going unmarked, and `recovered_at` is the
@@ -236,20 +238,41 @@ def _loss(baseline_revenue: Decimal | None,
                         revenue_during, duration)
 
 
-def _when_the_service_came_back(metrics: list[MetricBucket],
+def _when_the_service_came_back(recorded: datetime | None,
+                                metrics: list[MetricBucket],
                                 thresholds: AnomalyThresholds) -> datetime | None:
-    """The instant the incident ended, or `None` where the metrics never said.
+    """The instant the incident ended, or `None` where nothing ever said.
 
-    Read off the series by the same rule Mitigation asks recovery by, so the
-    two cannot come to disagree about one window - the postmortem must not
-    date recovery at a minute Mitigation refused to confirm a mitigation on.
-    Never from the moment an action was applied, and never from the verdict
-    that confirmed it: those say when Argus acted, and a service does not
-    recover because somebody acted on it.
+    The minute Mitigation recorded, where it recorded one, and nothing is
+    checked against the series afterwards. That is the correction, and it is
+    about *windows* rather than about rules: the rule was always one rule, but
+    Mitigation asks it of the window it is polling and this asks it of a window
+    bounded by the incident's close, so two evaluations of one rule over two
+    spans of minutes could always disagree. They cannot disagree if the question
+    is only asked once, and the answer belongs to the party that was watching at
+    the time. The onset arrives the same way for the same reason (spec §16).
 
-    As an instant rather than the `bucket_id` the detector answers with,
-    because everything here subtracts it from another instant.
+    Corroborating the recorded minute against the series would put the
+    disagreement straight back, with the added defect of resolving it in favour
+    of the window that was not there: a service that recovered, was confirmed,
+    and relapsed afterwards would have its recovery withdrawn by minutes that
+    came after Argus had stopped looking.
+
+    Falling back to the series where nothing was recorded, which is not a
+    degenerate case but two ordinary ones: an incident that escalated, and one
+    nobody mitigated. Neither has a verification wait to have recorded anything,
+    and both get a postmortem.
+
+    Never from the moment an action was applied, and never from the moment a
+    verdict was reached. Those say when Argus acted and when it concluded, and a
+    service does not recover because somebody acted on it.
+
+    As an instant rather than the `bucket_id` the detector answers with, because
+    everything here subtracts it from another instant.
     """
+    if recorded is not None:
+        return recorded
+
     recovered = find_recovery(metrics, thresholds)
 
     return parse_iso(recovered) if recovered is not None else None

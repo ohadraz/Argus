@@ -15,6 +15,7 @@ from typing import NamedTuple, Protocol, assert_never
 from argus_core import to_iso_minute, utc_now
 from argus_core.anomaly import (
     AnomalyThresholds,
+    find_recovery,
     has_a_reading_since,
     has_recovered_since,
 )
@@ -640,11 +641,29 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             return Verdict.CONFIRMED
 
         recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
+        # Which minute the service came back at, asked only where it has come
+        # back - and asked of the whole window rather than of the minutes since
+        # the action. The two questions are different and only one of them is
+        # about Argus: whether this action worked is judged from the action, so
+        # a relapse after it refutes the action, where when the service recovered
+        # is a fact about the service and is true whenever it happened. Bounding
+        # the second question at the action would answer the action's own minute
+        # for every service that had already come back before Argus got there,
+        # which is the attribution this is recorded to make visible.
+        #
+        # `None` where nothing can be dated: the verdict is reached on a window
+        # whose departure need not have persisted, and a window with no incident
+        # in it has no recovery to report. The postmortem computes its own
+        # answer where this is absent, so an undatable confirmation costs the
+        # document nothing.
+        came_back_at = find_recovery(buckets, thresholds) if recovered else None
+
         if incident_id is not None:
             say(RecoveryChecked(
                 incident_id=incident_id,
                 minute=first_whole_minute,
                 recovered=recovered,
+                recovered_minute=came_back_at
             ))
 
         # Asked before the recovery is acted on, and it outranks it: an incident

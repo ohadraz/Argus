@@ -68,6 +68,14 @@ ENDED_AT = ONSET + timedelta(minutes=30)
 # is what made a rise in errors come back negative.
 RECOVERED_AT = ONSET + timedelta(minutes=10)
 
+# What Mitigation recorded the recovery at, deliberately not what the series
+# here would be read to say. The two have to differ or a test cannot tell which
+# of them an answer came from - and telling them apart is the whole point, since
+# the recorded minute was measured on the window the wait was polling and this
+# window is bounded by the incident's close.
+RECORDED_RECOVERY_AT = ONSET + timedelta(minutes=6)
+
+
 # The two clocks, kept apart on purpose. The first is how long the service was
 # broken and is what every impact figure is measured over; the second is how
 # long Argus held the incident, and measures the responder rather than the
@@ -125,6 +133,7 @@ NO_BANDS_NEEDED: Mapping[str, PayBand] = {}
 def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        ended_at: datetime = ENDED_AT,
                        onset_at: datetime | None = ONSET,
+                       recorded_recovery_at: datetime | None = None,
                        alert_summary: str = "dont care",
                        timeline: list[str] | None = None,
                        candidates: list[str] | None = None,
@@ -154,6 +163,7 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         started_at=started_at,
         ended_at=ended_at,
         onset_at=onset_at,
+        recorded_recovery_at=recorded_recovery_at,
         alert_summary=alert_summary,
         timeline=timeline if timeline is not None else ["dont care"],
         candidates=candidates if candidates is not None else ["dont care"],

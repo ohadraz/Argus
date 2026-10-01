@@ -352,20 +352,28 @@ def find_recovery(buckets: Sequence[MetricBucket],
     taken across them describes a service that was mostly fine. That is how a
     rise in errors came to be reported as *negative*.
 
-    Recovery is read off the metrics and nowhere else - not from the moment an
-    action was applied, and not from the verdict that confirmed it. Those say
-    when Argus acted, and a service does not recover because somebody acted on
-    it; taking them for this would put the same defect back at the other
-    boundary.
+    Recovery is read off the metrics rather than off Argus's own timeline - not
+    from the moment an action was applied, and not from the moment a verdict was
+    reached. Those say when Argus acted and when it concluded, and a service does
+    not recover because somebody acted on it; taking them for this would put the
+    same defect back at the other boundary. A verdict that carries a recovery
+    minute is no exception, because that minute was itself read off the metrics -
+    what it is not is the instant the verdict was reached.
 
-    The same rule Mitigation asks, so the two cannot come to disagree about one
-    window: a minute counts as the incident while it is still up at the
-    incident's own level - `_minutes_still_at_the_incidents_level`, the
-    hysteresis bar that sits above the departure bar - and the incident is over
-    at the first minute that falls below it and stays below it for longer than
-    this incident has ever paused. A single minute dipping and climbing back is
-    not the end of an incident, for the reason a single minute departing is not
-    the start of one.
+    The rule Mitigation's verdict is judged by, stated once here and called from
+    both: a minute counts as the incident while it is still up at the incident's
+    own level - `_minutes_still_at_the_incidents_level`, the hysteresis bar that
+    sits above the departure bar - and the incident is over at the first minute
+    that falls below it and stays below it for longer than this incident has ever
+    paused. A single minute dipping and climbing back is not the end of an
+    incident, for the reason a single minute departing is not the start of one.
+
+    Sharing the rule is worth doing, and it is not what stops the two callers
+    disagreeing. Every input the rule has is a function of the minutes handed to
+    it, so one rule over a window being polled and over a window bounded by an
+    incident's close is two answers. What makes them agree is that the question
+    is asked once: Mitigation calls this on the window it holds, records the
+    minute, and the write-up reads what was recorded rather than asking again.
 
     `None` where no minute was ever at the incident's level, because a window
     with no incident in it has no recovery to report and dating one at its
@@ -459,11 +467,12 @@ def _stays_clear_of_the_incident(still_the_incident: Sequence[bool],
     over rather than pausing.
 
     The one sentence both questions about recovery are asked through -
-    Mitigation's "has it recovered since I acted" and the postmortem's "which
-    minute did it recover at". Stated once and called twice, because two
-    spellings of it would eventually disagree about some window, and the
-    postmortem would then date recovery at a minute Mitigation had refused to
-    confirm a mitigation on.
+    Mitigation's "has it recovered since I acted" and "which minute did it come
+    back at". Stated once and called twice because two spellings of one judgement
+    drift apart, which is reason enough; it is not what keeps the answers
+    consistent. Every input here is a function of the minutes handed in, so the
+    same sentence over two spans is two answers - and what settles that is the
+    minute being measured once and recorded, not this being one function.
 
     The whole window comes in and the stretch is cut from it here, because the two
     halves of this read different things. What a run of clear minutes has to prove

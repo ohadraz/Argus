@@ -318,11 +318,30 @@ class RecoveryChecked(_Event):
     polls every few seconds over a couple of minutes, and storing the whole
     metrics window each time would record the same numbers a dozen times to
     say one thing that fits in a boolean.
+
+    Two minutes travel here and they are different facts. `minute` is the one
+    the verdict is read from - the first whole minute after the action, which is
+    about Argus - and `recovered_minute` is the one the metrics date the
+    recovery at, which is about the service. Keeping both is what lets a reader
+    see that a shop came back at 11:08 and Argus acted at 11:10, and the
+    write-up is the only place that difference can currently be seen at all.
+
+    `recovered_minute` is recorded rather than re-derived because it is the one
+    measurement nothing downstream can repeat. The postmortem reads a window
+    bounded by the incident's close, not the window this wait polled, so a
+    second answer computed there would be computed over different minutes - and
+    two windows are how one incident comes to carry two recovery times. Read
+    from the account, as the onset already is (spec §16).
+
+    Absent on every look that found the service still failing, since those have
+    nothing to date, and absent too on a confirmation nothing can date: the
+    verdict is reached on a window whose departure need not have persisted.
     """
 
     kind: Literal["recovery-checked"] = "recovery-checked"
     minute: str
     recovered: bool
+    recovered_minute: str | None = None
 
 
 class VerdictReached(_Event):

@@ -304,10 +304,16 @@ reaches persistence by definition, so counting it would have every window demand
 one more clear minute than the calm it opened with - which is most of the window
 and never available.
 
-Both questions about recovery SHALL be answered by this one rule - Mitigation's
-"has it recovered since I acted" and the postmortem's "which minute did it recover
-at" - so that the two cannot come to disagree about one window and date a recovery
-at a minute the other refused a mitigation on.
+Which minute the service came back at SHALL be measured once, by the party that
+was watching when it happened, and recorded with the verdict; a reader of that
+minute SHALL prefer the recorded one and SHALL derive its own only where none was
+recorded. Both questions about recovery SHALL be answered by this one rule, which
+keeps one judgement from being spelled two ways - but sharing the rule is not what
+makes the two answers agree. Every input the rule has is a function of the minutes
+it is given, so one rule evaluated over a window that is being polled and over a
+window bounded by an incident's close yields two answers, and the second is
+reached after the first has already closed the incident. Asking once is what
+settles it.
 
 #### Scenario: A step incident is recovered from on one clear minute
 - **GIVEN** a window in which the service departed, was acted on, and came back,

@@ -350,13 +350,18 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             )
         case RecoveryChecked():
             who = _MITIGATION
-            # Without the minute it is looking at. That minute is in the
-            # future when the look happens - it is the one being waited for -
-            # and a line stamped 19:21 that talks about 19:22 reads as a page
-            # that cannot tell the time. The line above it already says what
-            # is being waited for and for how long.
-            settled = "back at its baseline" if event.recovered else "not back at baseline yet"
-            text = f"Looked at the service - {settled}"
+            # Without the minute the look is judged *from* - `event.minute`.
+            # That one is in the future when the look happens, since it is the
+            # minute being waited for, and a line stamped 19:21 that talks about
+            # 19:22 reads as a page that cannot tell the time. The line above it
+            # already says what is being waited for and for how long.
+            #
+            # The minute the service came back at is the opposite case on every
+            # count, which is why it is said. It is in the past, it is the one
+            # thing here a reader cannot work out from the lines around it, and
+            # where it precedes the action it is the only place a reader can see
+            # that the service recovered before Argus touched it.
+            text = f"Looked at the service - {_what_the_look_settled(event)}"
         case VerdictReached():
             who = _MITIGATION
             # Red or green, and in capitals: this is the sentence the whole
@@ -538,7 +543,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         after_emphasis=after,
         moved_from=moved_from,
         moved_to=moved_to,
-        names_minute=event.onset if isinstance(event, OnsetDetected) else "",
+        names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
         buckets=(
             [a_bucket_row(bucket) for bucket in event.buckets]
@@ -620,6 +625,46 @@ def _also_carrying(line: NarrationLine, event: HypothesisFormed) -> NarrationLin
 
 def _how_many_candidates(formed: int) -> str:
     return f"Formed {formed} candidate cause{'s' if formed != 1 else ''}, best first:"
+
+
+def _the_minute_it_names(event: IncidentEvent) -> str:
+    """The one minute a line is about, where it is about one.
+
+    Two events name one: the onset names where the incident began, and a look
+    that found the service back names where it ended. Both are a single minute
+    picked out of a window of ninety, which is what a destination with a table
+    of minutes anchors on, and neither is reachable from the prose - the
+    sentence says `10:13` where the table is keyed by the whole instant.
+
+    A look that is still waiting names none, and a confirmation nothing could
+    date names none either: the field is the minute this line is *about*, and a
+    line with no minute in it must not offer a reader a row to jump to.
+    """
+    if isinstance(event, OnsetDetected):
+        return event.onset
+
+    if isinstance(event, RecoveryChecked) and event.recovered_minute is not None:
+        return event.recovered_minute
+
+    return ""
+
+
+def _what_the_look_settled(event: RecoveryChecked) -> str:
+    """What one look during a verification wait came to.
+
+    Three answers rather than two, because a recovery that can be dated and one
+    that cannot are different findings. The wait reaches its verdict on a window
+    whose departure need not have persisted, so a look can find the service back
+    and have nothing to date that by - and a line inventing a minute there would
+    be stating as measured the one thing nothing measured.
+    """
+    if not event.recovered:
+        return "not back at baseline yet"
+
+    if event.recovered_minute is None:
+        return "back at its baseline"
+
+    return f"back at its baseline since {a_minute(event.recovered_minute)}"
 
 
 def _the_address_it_names(event: IncidentEvent) -> str:
