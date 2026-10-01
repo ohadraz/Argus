@@ -281,12 +281,22 @@ def has_recovered_since(buckets: Sequence[MetricBucket],
     because how long a recovery has to hold for is read off the incident - see
     `_clear_minutes_a_recovery_has_to_show` - and the minutes since an action
     are the one stretch that cannot say.
+
+    `moment` is passed down as well, and for the opposite reason: the level the
+    incident is judged against comes from the minutes before the action, while
+    the verdict is evaluated over every minute since it. Two spans with two
+    jobs, which is already how the quiet stretch and the judged minutes relate.
+    See `_the_incidents_own_level` for what the window Mitigation reads does to
+    a level computed over the whole of it.
     """
-    still_the_incident = _minutes_still_at_the_incidents_level(buckets, thresholds)
     from_index = _first_index_at_or_after(buckets, moment)
 
     if from_index is None:
         return False
+
+    still_the_incident = _minutes_still_at_the_incidents_level(
+        buckets, thresholds, the_action=from_index
+    )
 
     return _stays_clear_of_the_incident(still_the_incident, from_index, thresholds)
 
@@ -364,15 +374,33 @@ def find_recovery(buckets: Sequence[MetricBucket],
     one: every figure measured over such a window is a lower bound, and the
     caller has to say so rather than quietly bounding it at the last minute
     read.
-    """
-    still_the_incident = _minutes_still_at_the_incidents_level(buckets, thresholds)
 
-    if not any(still_the_incident):
+    Each candidate is judged against the level the incident held *before* that
+    minute, which is why the vector is recomputed per candidate rather than read
+    once. Mitigation bounds the same history at the action it took; here there is
+    no action, and the boundary is the minute being judged - one rule evaluated
+    on what each caller holds, rather than the whole window at one end and a
+    bounded stretch at the other. A level read off the whole window instead lets
+    the minutes *after* a recovery decide how far the service had to fall to have
+    recovered, and a service that sheds most of a rise and holds there then reads
+    as never having recovered at all. See `_the_incidents_own_level`.
+
+    That bounds how long a recovery has to hold for as well, since
+    `_clear_minutes_a_recovery_has_to_show` reads the incident's longest lull off
+    the same vector. Deliberate, and the same argument: a lull is a fact about
+    the minutes before this one, and a candidate credited with a pause the
+    service had not taken yet would be judged against its own future.
+    """
+    began = _where_the_incident_persisted_from(buckets, thresholds)
+
+    if began is None:
         return None
 
-    began = still_the_incident.index(True)
+    for index in range(began + 1, len(buckets)):
+        still_the_incident = _minutes_still_at_the_incidents_level(
+            buckets, thresholds, the_action=index
+        )
 
-    for index in range(began + 1, len(still_the_incident)):
         if still_the_incident[index]:
             continue
 
@@ -380,6 +408,48 @@ def find_recovery(buckets: Sequence[MetricBucket],
             return buckets[index].bucket_id
 
     return None
+
+
+def _where_the_incident_persisted_from(buckets: Sequence[MetricBucket],
+                                       thresholds: AnomalyThresholds) -> int | None:
+    """Where in the window the first departure run long enough to be a state
+    begins, or `None` where the window holds no such run.
+
+    Asked of the departure bar rather than of the incident's level, because
+    `find_recovery` derives that level per candidate and where the incident began
+    cannot be read off a vector that is about to be recomputed against it.
+
+    The quiet half's bar alone, where `find_onset` asks that stretch and the
+    window's opening and takes the earlier answer. So this does not see the one
+    departure the opening exists to catch - a climb filling the whole window,
+    which has no quiet stretch to be measured against - and it does not need to:
+    a window that is still climbing when it ends has no clear stretch after its
+    departure, so the candidate scan has nothing to report whichever stretch
+    found the start. Reading the ceiling answered the same way, since
+    `_departure_threshold` is given the quiet half there too.
+
+    The run rather than the first departed minute. `still_the_incident` used to
+    carry the persistence test for free, because a series with no persisted run
+    is excluded into `inf` and contributes no minute at all, so "did anything
+    reach the incident's level" answered "did anything persist" as a side effect.
+    Reading the bare bar instead leaves that behind, and a lone departed minute
+    then begins an incident, takes a level from its own single sample, and hands
+    the calm after it a recovery. Measured on two shapes - a series departing
+    every other minute, and one minute departing alone - both of which reported
+    a recovery where nothing had persisted.
+    """
+    departures = _departures(buckets, thresholds, _THE_QUIETEST_MINUTES)
+
+    return next(
+        (
+            index
+            for index, departed in enumerate(departures)
+            if departed
+            and (index == 0 or not departures[index - 1])
+            and _run_length_from(departures, index) >= thresholds.persistence_minutes
+        ),
+        None
+    )
 
 
 def _stays_clear_of_the_incident(still_the_incident: Sequence[bool],
@@ -548,7 +618,8 @@ def _stays_clear_for_long_enough_to_be_a_recovery(
 
 def _minutes_still_at_the_incidents_level(
     buckets: Sequence[MetricBucket],
-    thresholds: AnomalyThresholds
+    thresholds: AnomalyThresholds,
+    the_action: int | None = None
 ) -> list[bool]:
     """Whether each minute is still up at the incident's level, rather than
     merely above the quiet stretch.
@@ -566,12 +637,17 @@ def _minutes_still_at_the_incidents_level(
     alone left every other series where it was, so asking those whether they
     have returned to their baselines confirms a mitigation the instant it is
     taken.
+
+    `the_action` is where the window stops being the incident's history, or
+    `None` for a caller that has no action to divide it at. Only the level is
+    read from that stretch; which minutes are judged is the caller's own
+    question and every minute of the window is answered here.
     """
     if not buckets:
         return []
 
     each_series = [
-        _minutes_above(values, _subsided_threshold(values, thresholds))
+        _minutes_above(values, _subsided_threshold(values, thresholds, the_action))
         for values in _the_five_series(buckets)
     ]
 
@@ -579,7 +655,8 @@ def _minutes_still_at_the_incidents_level(
 
 
 def _subsided_threshold(values: Sequence[float],
-                        thresholds: AnomalyThresholds) -> float:
+                        thresholds: AnomalyThresholds,
+                        the_action: int | None = None) -> float:
     """What a minute has to have fallen below to count as no longer the
     incident, or `inf` where this series never was the incident.
 
@@ -646,23 +723,87 @@ def _subsided_threshold(values: Sequence[float],
     the bar departs, and one departed minute is not an incident whatever its
     arithmetic came to.
 
-    The ceiling below is still read off the worst minute, and that is the same
-    statistic this exclusion stopped trusting. It decides how far a signal has to
-    have fallen rather than whether it fell at all, so a spike raises it and
-    confirms early where it used to lower it and refuse - the mirror of the defect
-    above, unmeasured, and left for a change that measures it.
+    The ceiling below was read off the worst minute too, and that was the same
+    statistic this exclusion stopped trusting, at the other half of one function.
+    There a maximum decided whether a signal had departed at all; here it decided
+    how far it had to have fallen back, so a spike raised the ceiling instead of
+    lowering it and confirmed early where the other defect refused. The two are
+    not equally bad: a refusal can be waited out, and a false `CONFIRMED` closes
+    the incident and stops. Measured on a plateau at five times its baseline with
+    one minute far above it, the ceiling landed above the plateau itself and a
+    service that had not moved read as recovered.
+
+    So the level comes from the departed minutes, as §16 says it does - "the
+    incident from the minutes that departed", plural - and it is their median for
+    the reason the baseline is a median rather than a mean. One extreme minute
+    moves a mean and moves a median not at all. Which way that cuts is worth
+    stating: recovery becomes harder to claim on a spiky incident and identical
+    on a flat one.
     """
     departed = _departure_threshold(values, thresholds, _THE_QUIETEST_MINUTES)
-    at_its_worst = max(values, default=departed)
+    above = _minutes_above(values, departed)
 
-    if not _departs_for_long_enough_to_be_the_incident(
-        _minutes_above(values, departed), thresholds
-    ):
+    if not _departs_for_long_enough_to_be_the_incident(above, thresholds):
         return inf
 
     subsided = thresholds.recovery_fraction_of_the_rise
+    level = _the_incidents_own_level(values, above, the_action)
 
-    return max(departed, at_its_worst - subsided * (at_its_worst - departed))
+    return max(departed, level - subsided * (level - departed))
+
+
+def _the_incidents_own_level(values: Sequence[float],
+                             above: Sequence[bool],
+                             the_action: int | None) -> float:
+    """How high this series sat while it was the incident, taken from the
+    minutes that departed and before the action divided them.
+
+    The history rather than the whole window, and the reason is not that a
+    recovered minute would drag the level down - it would not, because a minute
+    back at its baseline is below the departure bar and never enters this set at
+    all. It is the *partly* recovered minute that does, and what it costs is not
+    a wrong answer in one direction but an answer that depends on when the poll
+    happened to land.
+
+    Measured on a service that fell from a plateau at 1000ms to 350ms and held
+    there, with the bar at 260. Over the whole window the verdict reads recovered
+    one, two and three minutes after the action, not recovered at five and eight,
+    and recovered again at thirteen and twenty-one. Nothing about the service
+    changes across that. What changes is the window Mitigation is holding: first
+    the 350ms minutes join the departed set and pull the level down to their own,
+    which drops the ceiling below them and reads them as a relapse; later they
+    outnumber the incident in the window's quiet half, which lifts the departure
+    bar above the plateau until nothing has departed at all. Read from the
+    history, every one of those polls answers recovered, which is the right
+    answer and - more to the point - the same answer.
+
+    `the_action` is `None` for a caller with no action to divide the window at,
+    and then the history is the whole of it. That is one rule evaluated on what
+    each caller holds rather than two rules: the level comes from the incident's
+    history, and `find_recovery` is reading a window that is entirely history.
+
+    Where the history holds no departed minute the level falls back to every
+    departed minute in the window, and that stretch is reached rather than
+    hypothetical: the action can land at or before the incident's first departed
+    minute - a series that was well until it was acted on, or a window asked
+    about its own opening - and a flapping capacity asked from every minute in
+    turn does exactly that. The fallback is the answer rather than a degenerate
+    one, because something in this window did depart and the judgement should be
+    against it. What it must not do is exclude the series: `inf` here would judge
+    a signal that is departed *now* against no level at all, which is the false
+    `CONFIRMED` this whole function exists to stop.
+    """
+    its_history_ends_at = len(values) if the_action is None else the_action
+    departed_minutes = [
+        (minute, value)
+        for minute, (value, departed) in enumerate(zip(values, above, strict=True))
+        if departed
+    ]
+    its_history = [
+        value for minute, value in departed_minutes if minute < its_history_ends_at
+    ]
+
+    return median(its_history or [value for _, value in departed_minutes])
 
 
 def _minutes_above(values: Sequence[float], ceiling: float) -> list[bool]:

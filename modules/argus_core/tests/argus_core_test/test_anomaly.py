@@ -546,6 +546,140 @@ def test_one_noisy_minute_does_not_hold_recovery_open_for_the_whole_window() -> 
 
 
 @pytest.mark.unit
+def test_a_spike_above_the_incidents_plateau_does_not_confirm_recovery() -> None:
+    # The mirror of the three siblings above, at the other half of the same
+    # function. There a maximum decided *whether* a series had departed; here it
+    # decides how far it has to have fallen back, and the ceiling is read a fifth
+    # of the way down from the worst minute - so one minute far above an
+    # otherwise flat plateau lifts that bar clear of the plateau itself, and a
+    # service still sitting at the incident's own level reads as recovered.
+    #
+    # Measured on this window: the departure bar is 258.70 and the worst minute
+    # 9800, so the ceiling lands at 2166.96 and the only minute above it is the
+    # spike - which is before the action. Every plateau minute after the action
+    # is therefore clear, and the verdict is a false CONFIRMED. That is the worse
+    # direction of the two: it closes the incident and stops, where the sibling
+    # defect refused a mitigation that had worked and could be waited out. Read
+    # off the departed minutes instead, the ceiling is 407.66 and the plateau
+    # sits above it.
+    #
+    # §16 says both ends of the rule come from the window - "the incident from
+    # the minutes that departed". Plural, and a median of them for the reason the
+    # baseline is a median: one extreme minute moves a mean and moves a median
+    # not at all. Strictly this makes recovery harder to claim on a spiky
+    # incident and identical on a plateau.
+    a_calm_stretch = [
+        198, 201, 204, 199, 202, 196, 203, 200, 197, 202, 199, 201, 203, 198
+    ]
+    a_plateau = [1000, 1010, 995, 1005]
+    a_minute_far_above_it = [9800]
+    the_plateau_it_stayed_at = [1002, 998, 1006]
+    a_p95_that_spiked_above_its_plateau = (
+        a_calm_stretch + a_plateau + a_minute_far_above_it + the_plateau_it_stayed_at
+    )
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * len(a_p95_that_spiked_above_its_plateau),
+        p95_ms_values=a_p95_that_spiked_above_its_plateau
+    )
+
+    the_first_minute_since_the_action = some_window[19].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: has_recovered_since(
+            some_window, the_first_minute_since_the_action, SOME_THRESHOLDS
+        )) \
+        .then(_the_answer_is(False))
+
+
+@pytest.mark.unit
+def test_a_verdict_does_not_turn_on_how_long_the_poll_waited() -> None:
+    # Green when it was written, and deliberately so: this pins a property the
+    # change that read the level off the departed minutes could easily have
+    # broken, and it went red under the first design that did. Red-first is for
+    # behaviour that does not exist yet; a guard's job starts when somebody
+    # reaches for the wrong design.
+    #
+    # The service sheds most of its rise and holds still. Nothing about it
+    # changes from the action onwards, so every poll has to answer the same way -
+    # and the window Mitigation reads only grows, so "the same way" is the whole
+    # claim. Read off the whole window the answer was measured as True at one,
+    # two and three minutes held, False at five and eight, and True again at
+    # thirteen and twenty-one: first the held minutes join the departed set and
+    # pull the level down to their own, then they outnumber the incident in the
+    # window's quiet half and lift the departure bar above the plateau. Neither
+    # is a fact about the service, and a verdict that is not a fact about the
+    # service is decided by whatever the timeout allowed.
+    #
+    # Asked at seven lengths rather than one, and asserted together, because what
+    # is being claimed is that they agree - separately, each is satisfied by a
+    # function that always answers True.
+    a_calm_stretch = [
+        198, 201, 204, 199, 202, 196, 203, 200, 197, 202, 199, 201, 203, 198
+    ]
+    a_plateau = [1000, 1010, 995, 1005]
+    the_level_it_fell_to = [
+        350, 360, 345, 355, 342, 358, 347, 353, 351, 349,
+        344, 356, 348, 352, 346, 354, 343, 357, 350, 345, 355
+    ]
+    the_action_lands_at = len(a_calm_stretch) + len(a_plateau)
+
+    def polled_after(minutes: int) -> bool:
+        some_window = a_window_of(
+            [CALM_ERROR_RATE] * (the_action_lands_at + minutes),
+            p95_ms_values=a_calm_stretch + a_plateau + the_level_it_fell_to[:minutes]
+        )
+
+        return has_recovered_since(
+            some_window, some_window[the_action_lands_at].bucket_id, SOME_THRESHOLDS
+        )
+
+    Scenario() \
+        .given(the_action_lands_at) \
+        .when(lambda: {
+            minutes: polled_after(minutes) for minutes in (1, 2, 3, 5, 8, 13, 21)
+        }) \
+        .then(_every_poll_agreed_it_had_recovered())
+
+
+@pytest.mark.unit
+def test_a_series_that_only_broke_after_the_action_is_judged_against_itself() -> None:
+    # The level is read from the minutes before the action, and this is the
+    # window where there are none: the service is well until the moment it is
+    # acted on, and every departed minute it has is after. Not a corner - the
+    # window Mitigation reads grows from the action, so at the first poll the
+    # history is always the shortest it will ever be, and a flapping capacity
+    # asked from every minute in turn puts the action at the incident's first
+    # departed minute directly.
+    #
+    # So the level falls back to every departed minute in the window, which is
+    # the answer rather than a degenerate one: something here did depart, and the
+    # judgement should be against it. The two alternatives are both worse than a
+    # wrong number. Excluding the series into `inf` would judge a signal that is
+    # departed *now* against no level at all and confirm the mitigation that
+    # broke it. Taking the median of nothing raises, which is what this did
+    # before the fallback existed.
+    a_calm_stretch = [
+        198, 201, 204, 199, 202, 196, 203, 200, 197, 202, 199, 201, 203, 198
+    ]
+    a_plateau_that_began_at_the_action = [1000, 1010, 995, 1005, 1000, 1008]
+    a_p95_that_only_broke_afterwards = (
+        a_calm_stretch + a_plateau_that_began_at_the_action
+    )
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * len(a_p95_that_only_broke_afterwards),
+        p95_ms_values=a_p95_that_only_broke_afterwards
+    )
+
+    the_action = some_window[len(a_calm_stretch)].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: has_recovered_since(some_window, the_action, SOME_THRESHOLDS)) \
+        .then(_the_answer_is(False))
+
+
+@pytest.mark.unit
 def test_find_onset_catches_a_tail_departure_at_a_steady_median_and_p95() -> None:
     # A fault reaching a few requests in a hundred is below the 95th percentile
     # by arithmetic, fails nothing and allocates nothing - so every other signal
@@ -987,6 +1121,86 @@ def test_find_recovery_reports_the_minute_the_incident_fell_away_and_stayed_away
 
 
 @pytest.mark.unit
+def test_a_signal_departing_every_other_minute_has_no_recovery_to_report() -> None:
+    # Where the incident began is asked of the departure bar, and the bar alone
+    # does not say whether anything persisted. The vector of minutes at the
+    # incident's level used to answer both at once - a series with no persisted
+    # run is excluded from the judgement entirely, so "was anything ever at the
+    # incident's level" answered "did anything last" as a side effect - and
+    # reading the bar directly leaves that behind unless it is asked for.
+    #
+    # A series alternating departed and clear is the shape that catches it. No
+    # run reaches two minutes, so there is no incident here to recover from; take
+    # the first departed minute as the start and the clear minute after it looks
+    # like a recovery, with a level drawn from the single sample that preceded it.
+    # Measured without the persistence requirement: a recovery reported at 11:15,
+    # on a service that goes on departing for nine more minutes.
+    #
+    # The existing cycle case cannot catch this because its runs are exactly as
+    # long as persistence asks for, so it is satisfied either way - which is why
+    # these runs are one minute and not two.
+    a_calm_stretch = [
+        198, 201, 204, 199, 202, 196, 203, 200, 197, 202, 199, 201, 203, 198
+    ]
+    a_departure_that_never_lasts = [
+        1000, 205, 1010, 203, 995, 206, 1005, 204, 1000, 205
+    ]
+    a_p95_that_never_stays_departed = a_calm_stretch + a_departure_that_never_lasts
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * len(a_p95_that_never_stays_departed),
+        p95_ms_values=a_p95_that_never_stays_departed
+    )
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_it_never_recovered())
+
+
+@pytest.mark.unit
+def test_an_incident_that_half_subsided_is_recovered_from_where_it_fell() -> None:
+    # The level comes from the minutes before the moment being judged, and this
+    # is the case that says so. A service sheds most of a rise and holds there:
+    # 1000ms against a baseline near 200 and a departure bar of 260, falling to
+    # 350 and staying. 350 is 88% of the way back down and the rule asks for 80%,
+    # so the incident ended where it fell - and it stays ended however long the
+    # service sits there, because how far it had to fall is a fact about the
+    # minutes before it fell rather than about the ones after.
+    #
+    # Read off the whole window instead, those held minutes are above the
+    # departure bar, so they join the departed set, outnumber the four that were
+    # the incident and drag the level to their own. The ceiling follows them down
+    # and the service reads as never having recovered - measured as `None` on
+    # this window. It is the same moving goalpost the mitigation end is bounded
+    # at the action to avoid, arriving at the end that has no action to be
+    # bounded at.
+    #
+    # `find_onset` still dates a departure in these minutes, and that is not a
+    # contradiction: §16 makes the bar hysteretic on purpose, because demanding a
+    # return to indistinguishable-from-quiet would refuse to recognise a service
+    # still shedding the last of an outage.
+    a_calm_stretch = [
+        198, 201, 204, 199, 202, 196, 203, 200, 197, 202, 199, 201, 203, 198
+    ]
+    a_plateau = [1000, 1010, 995, 1005]
+    the_level_it_fell_to_and_held = [350, 360, 345, 355, 342, 358, 347, 353]
+    a_p95_that_shed_most_of_its_rise = (
+        a_calm_stretch + a_plateau + the_level_it_fell_to_and_held
+    )
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * len(a_p95_that_shed_most_of_its_rise),
+        p95_ms_values=a_p95_that_shed_most_of_its_rise
+    )
+
+    the_minute_it_fell = some_window[18].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_the_recovery_is(the_minute_it_fell))
+
+
+@pytest.mark.unit
 def test_a_window_still_at_the_incidents_level_when_it_ends_never_recovered() -> None:
     # Not a recovery at the last minute read, which is what dating it from the
     # end of the window would amount to. The service was still broken when the
@@ -1292,6 +1506,29 @@ def _no_minute_read_as_a_recovery() -> Assertion[dict[str, bool]]:
         return True
 
     return assertion
+
+
+def _every_poll_agreed_it_had_recovered() -> Assertion[dict[int, bool]]:
+    """That every window length answered that the incident had recovered.
+
+    Named by how long each poll waited rather than counted, because which
+    lengths disagreed says where the level went wrong: the short ones mean it is
+    being read off too little, the middle ones that the minutes since the action
+    are in it, and the long ones that the baseline has re-learned the plateau.
+    """
+    def every_poll_agreed_it_had_recovered(answers: dict[int, bool]) -> bool:
+        disagreed = sorted(held for held, recovered in answers.items() if not recovered)
+
+        if disagreed:
+            raise AssertionError(
+                f"A service that shed most of its rise and then held still has "
+                f"recovered however long anybody waits to ask, and the polls that "
+                f"waited {disagreed} minutes answered that it had not: {answers}."
+            )
+
+        return True
+
+    return every_poll_agreed_it_had_recovered
 
 
 def _the_minute_after(bucket_id: str) -> str:
