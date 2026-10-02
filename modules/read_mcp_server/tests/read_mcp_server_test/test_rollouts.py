@@ -26,9 +26,14 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
+from argus_core.models import RolloutProgress
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
-from read_mcp_server.rollouts import RolloutUnreadable, how_the_rollout_is_going
+from read_mcp_server.rollouts import (
+    RolloutUnreadable,
+    how_far_the_rollout_has_got,
+    how_the_rollout_is_going,
+)
 
 SOME_SERVICE = "io-shop"
 
@@ -211,6 +216,103 @@ def test_a_rollout_in_progress_is_described_and_not_judged() -> None:
             )
         ) \
         .then(_the_answer_reaches_no_verdict())
+
+
+@pytest.mark.unit
+def test_how_far_the_rollout_has_got_counts_the_replicas_for_a_caller() -> None:
+    # The same two reads as the lines above, answered as a value. The lines exist
+    # for a model and must keep existing: §16's channel describes rather than
+    # judges, and the Investigator hands those sentences to one. What a *caller*
+    # needs is the count, and Mitigation finding it by searching prose for a
+    # number would be the wire-vocabulary mistake this repo refuses, one layer in.
+    #
+    # Why Mitigation needs it at all: until every replica is on the revision it
+    # rolled back to, a minute of metrics is a minute the old code was still
+    # serving, and a recovery judged off those minutes is a recovery judged of the
+    # wrong deployment. So the count is what says when the judging may begin.
+    #
+    # No history is read here, and that is the difference from the lines. Which
+    # revisions are involved is what a reader wants named; whether the change has
+    # arrived is answered by the counts alone, so asking the application's history
+    # would be a second read bought for nothing.
+    Scenario() \
+        .when(
+            lambda: how_far_the_rollout_has_got(
+                SOME_SERVICE, fetch_deployment=a_fleet_half_updated()
+            )
+        ) \
+        .then(all_of(
+            _it_counted(serving=SOME_FLEET_SIZE, updated=HALF_OF_IT),
+            _it_has_converged(False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_fleet_whose_replicas_all_arrived_is_reported_as_converged() -> None:
+    # The answer Mitigation waits for, and the moment its own clock may start.
+    Scenario() \
+        .when(
+            lambda: how_far_the_rollout_has_got(
+                SOME_SERVICE, fetch_deployment=a_converged_fleet()
+            )
+        ) \
+        .then(all_of(
+            _it_counted(serving=SOME_FLEET_SIZE, updated=SOME_FLEET_SIZE),
+            _it_has_converged(True)
+        ))
+
+
+@pytest.mark.unit
+def test_a_platform_that_cannot_be_reached_is_not_counted_as_converged() -> None:
+    # The same refusal the lines make, and it matters more here. A caller told
+    # "converged" starts judging a recovery immediately, so a platform outage read
+    # as arrival would have Mitigation measure the minutes before its own change
+    # landed and confirm or refute an action on them. Raising leaves the caller
+    # with something to handle rather than a figure to act on.
+    Scenario() \
+        .when(
+            attempting(
+                lambda: how_far_the_rollout_has_got(
+                    SOME_SERVICE, fetch_deployment=a_platform_that_cannot_be_reached()
+                )
+            )
+        ) \
+        .then(an_error_was_raised(RolloutUnreadable))
+
+
+def _it_counted(serving: int, updated: int) -> Assertion[RolloutProgress]:
+    """That the counts came back off the live Deployment unchanged."""
+    def it_counted(progress: RolloutProgress) -> bool:
+        if (progress.replicas_serving, progress.replicas_updated) != (serving, updated):
+            raise AssertionError(
+                f"Expected [{updated}] of [{serving}] replicas updated, and it "
+                f"counted [{progress.replicas_updated}] of "
+                f"[{progress.replicas_serving}]."
+            )
+
+        return True
+
+    return it_counted
+
+
+def _it_has_converged(expected: bool) -> Assertion[RolloutProgress]:
+    """That the value's own answer about arrival came back this way.
+
+    Asserted beside the counts rather than instead of them, because a function
+    returning the right boolean off wrong counts would pass a test about either
+    one alone - and the counts are what a reader is shown while a wait is still
+    going.
+    """
+    def it_has_converged(progress: RolloutProgress) -> bool:
+        if progress.has_converged is not expected:
+            raise AssertionError(
+                f"Expected converged [{expected}], and it answered "
+                f"[{progress.has_converged}]."
+            )
+
+        return True
+
+    return it_has_converged
 
 
 def a_fleet_half_updated(paused: bool = False) -> Any:

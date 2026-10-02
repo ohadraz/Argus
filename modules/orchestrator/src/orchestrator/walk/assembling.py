@@ -36,6 +36,7 @@ from agent_mitigation import (
     argus_changed_flag_since,
     fetch_recent_flag_changes,
     flag_changes_over,
+    how_a_change_arrives,
     is_a_generic_mitigation,
     performing_writes_over,
     recent_metrics_over,
@@ -284,6 +285,12 @@ def against(connections: Connections,
             take_action,
             settings=mitigation,
             thresholds=thresholds,
+            # Which arrival to wait for is chosen per action, so this binds the
+            # choosing rather than a choice: until the change is in force the
+            # minutes describe the code it was meant to replace, and a verdict read
+            # off them is a verdict about the wrong deployment. Over the read tier,
+            # since it is a read.
+            arrivals=partial(how_a_change_arrives, client=read),
             # Every write that performs a mitigation, assembled once over the
             # one connection they all use. Separately was a value taken apart for
             # the journey and put back together by the callee, and it grew by a

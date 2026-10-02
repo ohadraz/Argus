@@ -22,7 +22,12 @@ from argus_core import (
     get_settings,
     open_pool,
 )
-from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
+from argus_core.models import (
+    ChangeEvent,
+    MetricBucket,
+    RolloutProgress,
+    ServiceDependency,
+)
 from code_index.embedding import an_embedder
 from mcp.server.fastmcp import FastMCP
 
@@ -311,6 +316,32 @@ def build_server(endpoint: ReadMcpEndpoint,
         `deployments.what_a_deployment_changed`; this is registration only."""
         return deployments.what_a_deployment_changed(
             service, revision, repository_settings, fetch=the_application
+        )
+
+    @mcp.tool()
+    def get_rollout_progress(service: str) -> RolloutProgress:
+        """Returns how many of a service's replicas have reached the revision
+        being rolled out, and how many have not, as counts rather than prose.
+
+        The same read as `get_rollout_state` and a different reader. That one
+        answers in sentences, for a model weighing whether a deployment is the
+        fault; this answers in numbers, for a caller that has just changed
+        something and needs to know the change has arrived before it measures
+        anything. Mitigation is that caller: until every replica is on the
+        revision a rollback returned to, a minute of metrics is a minute the old
+        code was still serving, and a recovery measured across those minutes is a
+        recovery measured of the wrong deployment.
+
+        Converged is not the same question as *stuck*. How many replicas have
+        arrived is a count reaching its target; whether it has taken too long is a
+        judgement on a timing this tier cannot know, and it is not made here or
+        anywhere the counts are read.
+
+        A platform that could not be reached raises rather than answering that
+        the rollout arrived. The behavior lives in
+        `rollouts.how_far_the_rollout_has_got`; this is registration only."""
+        return rollouts.how_far_the_rollout_has_got(
+            service, fetch_deployment=the_live_deployment
         )
 
     @mcp.tool()

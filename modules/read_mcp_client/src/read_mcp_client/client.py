@@ -4,7 +4,12 @@ from typing import Final
 
 from argus_core import ReadMcpEndpoint
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
+from argus_core.models import (
+    ChangeEvent,
+    MetricBucket,
+    RolloutProgress,
+    ServiceDependency,
+)
 from pydantic import TypeAdapter
 
 # What each tool answers with, said once. The transport hands back whatever the
@@ -19,6 +24,7 @@ _SERVICE_DEPENDENCIES: Final = TypeAdapter(list[ServiceDependency])
 _FILE_PATHS: Final = TypeAdapter(list[str])
 _WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
 _ROLLOUT_STATE: Final = TypeAdapter(list[str])
+_ROLLOUT_PROGRESS: Final = TypeAdapter(RolloutProgress)
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
@@ -166,6 +172,36 @@ def get_rollout_state(service: str, *, client: McpClient) -> list[str]:
     return client.call(
         "get_rollout_state",
         _ROLLOUT_STATE.validate_python,
+        service=service
+    )
+
+
+def get_rollout_progress(service: str, *, client: McpClient) -> RolloutProgress:
+    """Reads how many of a service's replicas have reached the revision being
+    rolled out, as counts.
+
+    The same channel as `get_rollout_state` and the other half of its audience.
+    That one answers a model in sentences; this answers a caller in numbers, and
+    the two are kept apart so that neither has to be parsed to serve the other -
+    a caller hunting a replica count inside prose would make a vendor's phrasing
+    into a dependency, which is the mistake the typed clients exist to avoid.
+
+    Who waits on it: an agent that has just changed something and may not measure
+    anything until the change has arrived. A rollback is accepted long before it
+    has converged, so the minutes between are minutes the previous revision was
+    still serving, and a verdict read off them is a verdict about the wrong code.
+
+    Converged is not *stuck*. This reports a count reaching its target; how long
+    that may take is a judgement the read tier declines to make, and nothing here
+    makes it on the way past.
+
+    Raises rather than answering that the rollout arrived when the platform could
+    not be reached, for the reason the sentences do - except that it matters more
+    here, because a caller told the change has landed begins judging at once.
+    """
+    return client.call(
+        "get_rollout_progress",
+        _ROLLOUT_PROGRESS.validate_python,
         service=service
     )
 

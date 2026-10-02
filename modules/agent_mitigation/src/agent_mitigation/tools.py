@@ -3,12 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from functools import partial
-from typing import Protocol
+from typing import Protocol, assert_never
 
 from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    Action,
     AutoscalerUndo,
     AutoscalingRestored,
     CapacityRestored,
@@ -16,11 +18,17 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     FlagChange,
     MetricBucket,
+    PinAutoscaler,
     ReplicaUndo,
     RestartedService,
+    RestartService,
+    RevertFeatureFlag,
+    RollBackDeployment,
+    RolloutProgress,
+    ScaleOut,
     UndoDescriptor,
 )
-from read_mcp_client import get_metrics_summary
+from read_mcp_client import get_metrics_summary, get_rollout_progress
 from write_mcp_client import (
     get_recent_flag_changes,
     pin_autoscaler,
@@ -34,6 +42,69 @@ from write_mcp_client import (
 )
 
 from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
+
+
+class Arrival(StrEnum):
+    """Whether the change an action made has taken effect on the service yet.
+
+    Three answers because the wait has three ways out, and only one of them is a
+    duration anybody could have picked. `ARRIVED` says the change is in force and
+    the minutes from here describe it. `STILL_ARRIVING` says the platform is
+    working on it, so the minutes so far describe the code being replaced and
+    judging them would judge the wrong deployment. `WILL_NOT_ARRIVE` says the
+    platform has stopped - a rolling update it is holding - so nothing is going to
+    change by waiting longer.
+
+    That third answer is what gives the wait an end without a figure. A rollout
+    stopped part way satisfies neither count and never will, so a loop holding
+    only "arrived or not" would poll until its lease expired and leave the change
+    applied for another worker to find. It is the counts that are asked first: a
+    rollout stopped *after* it finished has arrived, and the pause says nothing
+    about a change already in force on every replica. Paused is a state the platform reports,
+    not a length of time somebody judged, which is why it can be read here at all
+    - spec §16 keeps the "has this taken too long" judgement away from the channel
+    precisely because a replica count and a timestamp cannot support it.
+
+    Not every action has anything to wait for. A flag the provider has
+    acknowledged is in force on the next request, a restart answers with the new
+    process's start time and so has already happened, and an autoscaler's floor is
+    its own spec. Those arrive on acknowledgement, and `an_action_in_force_at_once`
+    is what says so.
+    """
+
+    ARRIVED = "arrived"
+    STILL_ARRIVING = "still-arriving"
+    WILL_NOT_ARRIVE = "will-not-arrive"
+
+
+class HasArrived(Protocol):
+    """What the wait needs from whatever can say the change took effect.
+
+    A `Protocol` rather than a `Callable` alias for the reason the other seams
+    here are: a test stands one in, and a named port says what it is standing in
+    for. Nothing is passed - which change is being waited on was decided when the
+    action was performed, and a port that took the action again would let the two
+    disagree about what is being waited for.
+    """
+
+    def __call__(self) -> Arrival: ...
+
+
+def an_action_in_force_at_once() -> Arrival:
+    """The arrival of a change that is in force as soon as it is acknowledged.
+
+    A flag, a restart and an autoscaler floor are all of this kind, and for three
+    different reasons that come to the same thing: the target service reads its
+    flags fresh on every request, a restart is answered with the new process's
+    start time so the tier that performed it has already waited, and an
+    autoscaler's floor is a field on its own object rather than a state something
+    has to converge on.
+
+    Named rather than written as a lambda at each call site, because "this action
+    has nothing to wait for" is a claim about the action and deserves somewhere a
+    reader can find the argument for it.
+    """
+    return Arrival.ARRIVED
 
 
 class FlagChangeFetcher(Protocol):
@@ -215,8 +286,9 @@ class MitigationSettings(SettingsSlice):
     """How Mitigation behaves against the provider and the service.
 
     How far back a window of recent flag changes reaches, whose changes Argus
-    recognises as its own, and how long it waits for the service to answer an
-    action.
+    recognises as its own, and how long it waits while nothing has been measured.
+    Not how long the service is watched for: that is measured off the window the
+    service answers with.
 
     `unleash_actor` is empty where Argus and its operators share one
     credential. That is a real deployment and not a misconfiguration - the
@@ -242,6 +314,119 @@ def flag_changes_over(client: McpClient) -> FlagChangesSince:
 def recent_metrics_over(client: McpClient) -> MetricsFetcher:
     """The service's metrics, asked over one connection to the read tier."""
     return partial(fetch_recent_metrics, client=client)
+
+
+# Which arrival a given action has to wait for. A seam of its own because the
+# choice depends on the action and the binding does not: a walk binds this once
+# over its read connection, and the kind is only known when an action is taken.
+ArrivalFor = Callable[[Action], HasArrived]
+
+
+def nothing_to_wait_for(action: Action) -> HasArrived:
+    """Every kind of action in force as soon as it is acknowledged.
+
+    The default, and what every caller that has no read connection gets. Named
+    rather than written as a lambda at the signature, because "this caller is not
+    waiting for anything" is a claim worth being able to find.
+    """
+    return an_action_in_force_at_once
+
+
+def how_a_change_arrives(action: Action, *, client: McpClient) -> HasArrived:
+    """Which arrival this action has to wait for, chosen by what it changes.
+
+    Three of the five kinds have nothing to wait for, and for three reasons that
+    come to the same thing: the target service reads its flags fresh on every
+    request, a restart is answered with the new process's start time so the tier
+    that performed it has already waited, and an autoscaler's floor is a field on
+    its own object rather than a state anything converges on. Those are
+    `an_action_in_force_at_once`.
+
+    The two that change a Deployment wait on different counts - the revision
+    reaching every replica, and the replicas asked for existing - which is why this
+    dispatches rather than handing one check to all five. A single check would
+    either make three actions wait for a rollout nobody started, or let the two
+    that matter be judged on minutes their change was not in force for.
+
+    Here rather than at the caller that assembles the walk, because the caller
+    holds a bound `take_action` and not the action - the kind is only known at the
+    moment one is taken. `assert_never` on the remaining branch, so a further kind
+    of action is a type error here rather than an action silently judged as though
+    it had arrived.
+    """
+    match action:
+        case RollBackDeployment():
+            return a_rollback_arriving_over(client, action.application)
+        case ScaleOut():
+            return added_capacity_arriving_over(client, action.application)
+        case RevertFeatureFlag() | RestartService() | PinAutoscaler():
+            return an_action_in_force_at_once
+        case _:
+            assert_never(action)
+
+
+def a_rollback_arriving_over(client: McpClient, service: str) -> HasArrived:
+    """Whether the revision a rollback returned to has reached every replica,
+    asked over one connection to the read tier.
+
+    The read tier because this is a read, which is the same reason the metrics are
+    asked there. The two clients are interchangeable at the type level, so a seam
+    bound to the wrong one fails at the moment the walk has already changed
+    production and the incident is still happening.
+    """
+    return partial(_how_the_revision_is_arriving, client=client, service=service)
+
+
+def added_capacity_arriving_over(client: McpClient, service: str) -> HasArrived:
+    """Whether the replicas a scale-out asked for are running, asked over one
+    connection to the read tier.
+
+    A different question from the rollback's and not a spelling of it. Every
+    replica that exists can be on the right revision while half the replicas asked
+    for have yet to start, so one answer would be wrong for one of the two actions
+    - see `RolloutProgress`.
+    """
+    return partial(_how_the_capacity_is_arriving, client=client, service=service)
+
+
+def _how_the_revision_is_arriving(*, client: McpClient, service: str) -> Arrival:
+    progress = get_rollout_progress(service, client=client)
+
+    return _the_arrival_of(progress, progress.has_converged)
+
+
+def _how_the_capacity_is_arriving(*, client: McpClient, service: str) -> Arrival:
+    progress = get_rollout_progress(service, client=client)
+
+    return _the_arrival_of(progress, progress.has_every_replica_it_asked_for)
+
+
+def _the_arrival_of(progress: RolloutProgress, it_has_landed: bool) -> Arrival:
+    """One rollout's counts read as a state of arrival.
+
+    Stated once because both questions above are read the same way once their own
+    count has been chosen, and two spellings of this would let the two actions come
+    to disagree about what a paused platform means.
+
+    Landed is asked first, and the order is the whole of it. A rolling update can
+    be stopped after it has finished - every replica already on the new revision,
+    nothing left to converge - and a pause read ahead of the counts would answer
+    that such a change will never arrive, so Mitigation would report a mitigation
+    that is in force on every replica as one that never applied, and wake somebody
+    about it.
+
+    The pause answers for a fleet that has *not* finished, which is the case it is
+    read for. A rolling update nobody is advancing satisfies no count it has not
+    already satisfied, so a caller told only "not yet" would wait for a
+    convergence that is not coming - until its lease expired, leaving the change
+    applied for another worker to find. Reported as a state rather than judged as a
+    duration, which is what makes it readable here at all rather than a judgement
+    §16 keeps out of this side.
+    """
+    if it_has_landed:
+        return Arrival.ARRIVED
+
+    return Arrival.WILL_NOT_ARRIVE if progress.is_paused else Arrival.STILL_ARRIVING
 
 
 def flag_setter_over(client: McpClient) -> FlagSetter:

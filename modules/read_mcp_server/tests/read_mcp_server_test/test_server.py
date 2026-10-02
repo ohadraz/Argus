@@ -35,6 +35,11 @@ from read_mcp_server.window import RetrievalSettings
 SEARCHING_BY_GREP_ALONE = CodeSearch.GREP
 
 THE_REGISTER = "get_service_dependencies"
+# The rollout channel's two answers, named because the test below is about both
+# being offered. One is read by a model and one by a caller, so a deployment that
+# dropped either would still look complete from the other's side.
+THE_ROLLOUT_COUNTS = "get_rollout_progress"
+THE_ROLLOUT_IN_WORDS = "get_rollout_state"
 RETRIEVAL_BY_MEANING = "search_repository_by_meaning"
 
 
@@ -57,6 +62,29 @@ def test_a_deployment_with_no_index_still_offers_the_service_register() -> None:
         .then(all_of(
             _the_tools_include(THE_REGISTER),
             _the_tools_exclude(RETRIEVAL_BY_MEANING)))
+
+
+@pytest.mark.unit
+def test_every_deployment_offers_the_rollout_counts_a_mitigation_waits_on() -> None:
+    # Above the index guard, like the register and for a related reason. What a
+    # deployment keeps no store for is how anybody finds source; whether a
+    # rollback has reached every replica is not a search, and a tier that offered
+    # it under one search mode and not the other would leave Mitigation unable to
+    # tell that its own change had landed - on half the deployments, and only
+    # under a mode no unit test exercises.
+    #
+    # Asserted alongside the prose channel rather than instead of it. Both are
+    # offered: `get_rollout_state` answers an Investigator's model in sentences,
+    # and this answers a caller in counts, and dropping either to add the other is
+    # the mistake the pair exists to prevent.
+    Scenario() \
+        .given(a_deployment_that_keeps_no_index := _a_read_tier_searching(
+            SEARCHING_BY_GREP_ALONE
+        )) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(all_of(
+            _the_tools_include(THE_ROLLOUT_COUNTS),
+            _the_tools_include(THE_ROLLOUT_IN_WORDS)))
 
 
 def _the_tools_offered_by(mode: CodeSearch) -> list[str]:

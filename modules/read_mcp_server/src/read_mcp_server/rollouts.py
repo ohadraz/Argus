@@ -41,7 +41,7 @@ from typing import Any, Final, Protocol
 
 import httpx
 from argus_core import SettingsSlice
-from argus_core.models import ChangeEvent
+from argus_core.models import ChangeEvent, RolloutProgress
 
 from read_mcp_server.argocd import FetchApplication, the_revisions_deployed
 
@@ -151,13 +151,62 @@ def how_the_rollout_is_going(service: str,
     exists to check.
     """
     manifest = _the_manifest_of(service, fetch_deployment)
-    serving, updated = _how_many_replicas(service, manifest)
+    _wanted, serving, updated = _how_many_replicas(service, manifest)
     deployed = the_revisions_deployed(service, fetch=fetch)
 
     if updated >= serving:
         return _converged(service, serving, deployed)
 
     return _still_converging(service, serving, updated, manifest, deployed)
+
+
+def how_far_the_rollout_has_got(service: str,
+                                *,
+                                fetch_deployment: FetchLiveDeployment
+                                ) -> RolloutProgress:
+    """How many of `service`'s replicas have reached the revision being rolled
+    out, as a value a caller can act on.
+
+    The same read as the lines above, answered for a different reader. Those
+    exist for a model - the Investigator hands them to one, and this channel
+    describes rather than judges - and they must keep existing. A caller wanting
+    the count would have to search that prose for a number, which is the mistake
+    this repo refuses at every other wire: a vendor's phrasing becoming a
+    dependency one layer in.
+
+    Why a caller wants it. Until every replica is on the revision a rollback
+    returned to, a minute of metrics is a minute the old code was still serving,
+    so a recovery measured across those minutes is a recovery measured of the
+    wrong deployment. This is what says when the measuring may begin, which is
+    the only thing Mitigation needs and strictly less than the lines say.
+
+    No history is read, where `how_the_rollout_is_going` reads two things. Which
+    revisions are involved is what a *reader* wants named; whether the change has
+    arrived is answered by the counts alone, so asking the application would buy
+    a second read and nothing with it.
+
+    It still refuses rather than guesses, and here that matters more than it does
+    above. A caller told the rollout converged starts judging immediately, so a
+    platform that could not be reached must not come back as arrival - it would
+    have Mitigation measure the minutes before its own change landed and reach a
+    verdict on them. `_the_manifest_of` raises, and that is left to propagate.
+
+    Whether the rolling update is paused travels with the counts, and it is what
+    gives a caller's wait an end. A rollout stopped part way satisfies neither
+    count and never will, so a caller holding only those would poll until its
+    lease expired. Reported and not judged, as everything here is: this says the
+    platform has stopped, and how long a rollout that is merely slow may take is
+    still nobody's business on this side of §16.
+    """
+    manifest = _the_manifest_of(service, fetch_deployment)
+    wanted, serving, updated = _how_many_replicas(service, manifest)
+
+    return RolloutProgress(
+        replicas_wanted=wanted,
+        replicas_serving=serving,
+        replicas_updated=updated,
+        is_paused=bool(manifest.get(SPEC, {}).get(PAUSED))
+    )
 
 
 def _the_manifest_of(service: str,
@@ -182,8 +231,15 @@ def _the_manifest_of(service: str,
 
 
 def _how_many_replicas(service: str,
-                       manifest: dict[str, Any]) -> tuple[int, int]:
-    """How many replicas are serving, and how many are on the newest revision.
+                       manifest: dict[str, Any]) -> tuple[int, int, int]:
+    """How many replicas were asked for, how many are serving, and how many
+    are on the newest revision.
+
+    The count asked for is `spec.replicas`, and it is returned rather than
+    only compared against because a scale-out is the action that writes it: a
+    caller waiting for capacity to arrive needs the target as well as the
+    arrivals, and reading the manifest a second time for it would be a second
+    chance to disagree about what this one said.
 
     A manifest carrying no rollout status at all reads as converged, and that is
     a decision rather than a fallback. Nothing in it says any replica is lagging,
@@ -193,17 +249,19 @@ def _how_many_replicas(service: str,
     not fill in.
     """
     try:
-        serving = int(manifest[SPEC][REPLICAS])
+        wanted = int(manifest[SPEC][REPLICAS])
     except Exception as error:
         raise RolloutUnreadable(
-            f"[{service}]'s manifest does not say how many replicas it is "
-            f"running: {error}"
+            f"[{service}]'s manifest does not say how many replicas it was told "
+            f"to run: {error}"
         ) from error
 
     status = manifest.get(STATUS, {})
 
-    return int(status.get(REPLICAS, serving)), int(
-        status.get(UPDATED_REPLICAS, serving)
+    return (
+        wanted,
+        int(status.get(REPLICAS, wanted)),
+        int(status.get(UPDATED_REPLICAS, wanted))
     )
 
 

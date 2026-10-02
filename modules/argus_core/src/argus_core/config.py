@@ -9,9 +9,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from argus_core.models.code_search import CodeSearch
 from argus_core.models.model_policy import DEFAULT_EFFORT, DEFAULT_MODEL, Effort
 
-# The longest single wait inside a walk: Mitigation standing by for the service
-# to answer an action. Named here because two settings are stated in terms of
-# it - the wait itself, and the lease that has to outlast it.
+# The longest Mitigation stands by with nothing measured: a change still
+# arriving, a read tier not answering. Named here because two settings are stated
+# in terms of it - the wait itself, and the lease a stopped worker's run sits
+# unwalked for.
 _VERIFICATION_TIMEOUT_SECONDS: Final = 180.0
 
 # How many of those waits a claim survives before another worker may take the
@@ -258,11 +259,14 @@ class Settings(BaseSettings):
     # action - the common case rather than the exception.
     flag_change_lookback_minutes: int = Field(default=60, gt=0)
 
-    # How long Mitigation waits for the service to answer an action before
-    # calling the hypothesis refuted. Expiry is a verdict, not an error: the
-    # action was taken and did not visibly help in the time allowed, which is
-    # what refuted means. Long enough to cover at least one whole metric minute
-    # plus the lag before the service's behaviour changes.
+    # How long Mitigation waits while nothing has been measured - a change still
+    # arriving, a read tier that will not answer. It is not how long the service
+    # is watched for: that is measured off the window the service answers with
+    # (§16), because how many clear minutes a recovery has to show is a fact
+    # about the incident and a flapping service needs more of them than any
+    # figure anybody would pick. What is left here is the stretch with no window
+    # to measure anything from, where a configured bound is the only bound there
+    # is. Long enough to cover a rolling update reaching every replica.
     mitigation_verification_timeout_seconds: float = Field(
         default=_VERIFICATION_TIMEOUT_SECONDS, gt=0.0
     )
@@ -286,10 +290,12 @@ class Settings(BaseSettings):
     # worker renews this while it walks, so it bounds how long a *stopped*
     # worker's run sits unwalked - not how long a run may take.
     #
-    # Comfortably longer than the longest single wait inside a walk, which is
-    # Mitigation's verification: a lease that expired while a worker sat
-    # waiting for a service to recover would hand the same incident to a second
-    # worker at exactly the moment the first was about to answer.
+    # A multiple of the longest wait a walk takes with nothing measured, so a
+    # claim is not lost to one of them while the renewal thread happens to be
+    # between renewals. The renewal is what covers a *long* wait, and it has to
+    # be: how long a verification watches is measured off the incident, so a
+    # service that will not hold still is watched for as many clear minutes as its
+    # own rhythm demands and no figure here bounds it.
     run_lease_seconds: float = Field(
         default=_VERIFICATION_TIMEOUT_SECONDS * _LEASES_PER_LONGEST_WAIT, gt=0.0
     )

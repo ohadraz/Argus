@@ -470,6 +470,28 @@ rollout stopped half-way.
 Written down here rather than left in a commit message, because each is a gap
 somebody will otherwise rediscover from the outside.
 
+**A branch is unreachable by arithmetic nobody designed.** Mitigation waits for
+its change to arrive before judging anything, and gives up where the platform
+reports the rolling update paused - the change never landed, so nothing about it
+was measured and the attempt is `ESCALATED` rather than refuted. No scenario
+reaches that branch, and the reason is a coincidence rather than a design:
+`deploy/values-production.yaml` sizes the deployment at 3, a scale-out doubles
+`spec.replicas` to 6, and a paused rollout pins `status.replicas` at
+`REPLICAS_DURING_A_ROLLOUT`, which is also 6. So the count asked for exactly
+equals the count the pause holds serving at, arrival is observed on the first
+poll, and the give-up path is never taken. A values file saying 4 would double to
+8 against that pinned 6, make the branch live, and find it with no test behind it.
+
+Two consequences worth stating. The verdict on that branch was chosen by
+reasoning and never by measurement - `ESCALATED` because nothing was measured, so
+refuting would strike a candidate off on no evidence and undo a change that never
+had its chance; `NOT_ATTEMPTED` is the one-word reversal if the walk should try
+its next explanation instead. And the deployment's own declared deadline,
+`spec.progressDeadlineSeconds`, is the remaining derived bound for a rollout that
+is slow rather than stopped. The manifest does not carry it, adding it is additive
+and disturbs no scenario, and until it is there a rollout that neither converges
+nor pauses is bounded only by the lease.
+
 **A withdrawal only puts back the paused rollout.** `cache-misconfigured` and
 `bad-deployment` both say in their own descriptions that withdrawing the rollback
 brings the incident back, and neither does: `ScenarioState.withdraw_the_rollback`
@@ -488,6 +510,34 @@ The fix has a shape: two more branches in `withdraw_the_rollback`, opening a
 fresh `CacheOutage` and a fresh `SlowDeployment` and returning the cache endpoint
 to the one the deployment configured, after which both e2e withdrawal cases can
 read the world rather than the record.
+
+**A flap with no rhythm is still reported mitigated.**
+`_clear_minutes_a_recovery_has_to_show` asks a recovery for one more clear minute
+than the longest gap between departures *that recurs*, which catches a service
+departing on a cycle - one minute down in two, in three, in five - whatever the
+cycle's duty. A flap whose gaps are two minutes, then five, then three, then seven
+has no recurring gap, so it asks for one clear minute, and the flap's own first
+quiet minute supplies it. The incident closes as mitigated with the service still
+failing and no further candidate tried. It is caught once such a flap repeats
+itself, because the gaps then recur; what is missed is the one too irregular or
+too short to repeat inside the window being read.
+
+Recurrence is not a conservatism to be relaxed - it is what makes the rule safe.
+The longest gap outright is moved arbitrarily far by one sample: a well service
+draws the occasional minute clear of a bar derived from its own quietest half -
+fifty-seven of five hundred quiet-builder windows carry one - and a single stray
+minute an hour before the incident makes one gap of an hour, which would ask for
+sixty-one clear minutes of a service with nothing wrong with it and refuse the
+mitigation that fixed it.
+
+The alternatives all name a number. Counting separate departures catches the
+irregular flap at three or more; three is fitted to the battery that justified it,
+and two - the principled reading of *it came back and went again* - refuses five
+healthy windows in five hundred.
+
+So the shape of a fix is not a better statistic over this window. It is a signal
+this one is blind to - the alert that fired is a sustained condition, and an alert
+that keeps re-firing is evidence of a flap no single metrics window can see.
 
 ## Why they are called modes
 

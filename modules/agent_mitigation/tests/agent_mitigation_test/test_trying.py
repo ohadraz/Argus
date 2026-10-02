@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
+    Arrival,
     AutoscalerPinner,
     DeploymentRoller,
     DeploymentScaler,
@@ -52,11 +53,13 @@ from agent_mitigation_test.framework.builders import (
     FAILING_RATE,
     THE_ONSET,
     a_clock_frozen_at,
+    a_clock_reading_at,
     a_clock_that_runs_out_after_one_look,
     a_recovered_window,
     a_still_failing_window,
     a_window_ending_at_the_action,
     a_window_recovered_before_the_action,
+    a_window_that_keeps_flapping,
     a_window_that_stops_at_the_onset,
     a_window_where_memory_never_fell,
     a_window_where_memory_was_reclaimed,
@@ -591,10 +594,13 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
 
 
 @pytest.mark.unit
-def test_the_wait_is_announced_when_the_action_has_been_taken() -> None:
-    # The flag has moved by this point and production is in its new state. A
-    # page that said nothing until a verdict arrived would leave a reader
-    # unable to tell a slow verification from a stuck one.
+def test_the_wait_is_announced_before_a_verdict_is_reached() -> None:
+    # Production is in its new state by this point and nothing further is
+    # decided until a whole minute has passed and been judged. A page that said
+    # nothing until the verdict arrived would leave a reader unable to tell a
+    # slow verification from a stuck one. Said on the first reading, which is
+    # the earliest the figure it carries is known - the other side of that is
+    # `test_the_wait_is_announced_once_the_service_has_been_read`.
     Scenario() \
         .given(
             published := _a_page_listening()
@@ -745,6 +751,290 @@ def test_a_wait_that_never_read_the_service_reaches_no_verdict() -> None:
             _it_says_nothing_was_measured(),
             _nothing_was_put_back_through(undo),
             _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_the_platform_stopped_applying_reaches_no_verdict() -> None:
+    # The other way no verdict is reached, and it is not the one above. There the
+    # service could not be read; here it was readable throughout and the *change*
+    # never landed - a rolling update the platform is holding, so the revision the
+    # action asked for never reached a replica.
+    #
+    # Why that is not a refutation. Every minute since the action is a minute the
+    # old code was serving, so nothing about this hypothesis was tested at all.
+    # `REFUTED` would mark it tested, put the change back and strike the
+    # explanation off, which is three wrong things done on no measurement - and
+    # the explanation may well have been right, since it never had its chance.
+    #
+    # Why it does not wait for the window to run out either. Nothing is going to
+    # change: the platform has stopped converging this deployment, which is a
+    # state it reports rather than a duration anybody has to judge. Polling to the
+    # deadline would spend the whole verification window learning what the first
+    # look already said.
+    #
+    # The change stays where the action left it, carrying what would put it back,
+    # exactly as the unread-service escalation does and for the same reason -
+    # nobody knows whether it helped, so the decision is a person's.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            set_state := _a_flag_setter_changing_from(some_flag, was_enabled=some_old_state),
+            undo := an_undo_nobody_calls()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(some_flag, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                arrivals=lambda _action: _a_platform_that_has_stopped_applying_it(),
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _it_says_nothing_was_measured(),
+            _the_detail_mentions("never applied"),
+            _nothing_was_put_back_through(undo),
+            _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_still_arriving_is_not_judged_until_it_has() -> None:
+    # The wait this introduces, and the reason the escalation above is reachable
+    # at all. A rollback is accepted long before every replica is running the
+    # revision it returned to, so the minutes in between describe the code being
+    # replaced - and a verdict read off them is a verdict about the wrong
+    # deployment, which is how a mitigation that worked gets refuted.
+    #
+    # So nothing is judged while the change is still arriving: no look is
+    # published, and the recovered window below is not consulted until the
+    # platform says every replica has it. The clock is frozen, so what is being
+    # claimed here is the ordering and not any duration.
+    #
+    # Two passes of still-arriving rather than one, because one would be satisfied
+    # by a loop that happened to check arrival before its first read and never
+    # again.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            some_old_state := False
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                arrivals=lambda _action: _a_platform_that_takes_two_passes_to_apply_it(),
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_looks_published_number(published, 1)
+        ))
+
+
+@pytest.mark.unit
+def test_the_wait_lasts_as_long_as_the_recovery_it_waits_for_must_hold() -> None:
+    # How long to watch was the one figure in the recovery path that was picked
+    # rather than measured, and a constant is wrong in the direction that costs
+    # most: a service failing one minute in five has to hold five clear minutes
+    # before anybody may say it recovered, and three minutes of watching cannot
+    # see them. The wait ran out first every time, so the verdict was reached
+    # before the evidence that would decide it could exist.
+    #
+    # So the wait ends where the rule it is waiting on says it may: the moment
+    # the last minute a recovery could be shown in has finished. This window's
+    # rhythm asks for five clear minutes from 11:11, which ends at 11:16, where
+    # the configured three minutes ended at 11:13:30.
+    #
+    # The claim is the second look. Its reading is taken at 11:14 - past the
+    # constant, inside what the rhythm asks for - and a wait still bounded by the
+    # setting would have refuted before taking it. The service never does
+    # recover, so the verdict is the same word either way; what changed is when
+    # it was reached, which is the whole of the defect.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_service_keeps_flapping := a_window_that_keeps_flapping(),
+            past_the_configured_wait := A_SHORT_WAIT_IN_SECONDS + 30,
+            past_the_wait_its_rhythm_asks_for := A_SHORT_WAIT_IN_SECONDS * 4,
+            # 11:10:30 to 11:11 is thirty seconds, and the five clear minutes
+            # this window asks for end at 11:16.
+            the_wait_the_flap_earns := 30 + 5 * 60
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                writes=the_writes(
+                    set_state=(set_state := _a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=True
+                    ))
+                ),
+                fetch_metrics=metrics_reading(the_service_keeps_flapping),
+                now=a_clock_reading_at(
+                    ACTION_TIME,
+                    past_the_configured_wait,
+                    past_the_wait_its_rhythm_asks_for
+                ),
+                sleep=dont_care_sleep,
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_looks_published_number(published, 2),
+            _the_wait_allowed(published, the_wait_the_flap_earns)
+        ))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_rhythm_is_given_the_one_clear_minute_it_needs() -> None:
+    # The same derivation in the other direction, and the one nearly every
+    # incident takes: a departure that persisted and was acted on asks for a
+    # single clear minute, so the wait ends when that minute has finished -
+    # ninety seconds from an action at 11:10:30, where the constant said a
+    # hundred and eighty.
+    #
+    # Worth a test of its own because it is the half that pays for itself. Every
+    # refuted candidate in every walk waited out the whole constant, and the
+    # ordinary case is now bounded by the minute the verdict is read off rather
+    # than by a figure sized for the worst case anybody imagined.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_service_never_recovers := a_still_failing_window(),
+            # 11:10:30 to 11:11 is thirty seconds, and the one clear minute this
+            # window asks for ends at 11:12.
+            the_wait_a_step_incident_earns := 30 + 60
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                writes=the_writes(
+                    set_state=(set_state := _a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=True
+                    ))
+                ),
+                fetch_metrics=metrics_reading(the_service_never_recovers),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_allowed(published, the_wait_a_step_incident_earns)
+        ))
+
+
+@pytest.mark.unit
+def test_the_minute_a_verdict_is_read_from_follows_the_change_arriving() -> None:
+    # Which minute the verdict is read off is the action's own question, and the
+    # action is not in force when the tier acknowledges it. A rollback is
+    # accepted long before every replica carries the revision, so the minute
+    # after the *acknowledgement* can be a minute the old code was serving -
+    # which is the wrong deployment, judged.
+    #
+    # So the minute is taken from the arrival rather than from the call. The
+    # change lands here at 11:11:10, ten seconds into the minute after the
+    # action's own, and the first minute it was wholly in force for is therefore
+    # 11:12 - one minute later than the acknowledgement would have said.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_change_lands_in_the_minute_after := 40
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=True
+                    )
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_reading_at(
+                    ACTION_TIME, the_change_lands_in_the_minute_after
+                ),
+                sleep=dont_care_sleep,
+                arrivals=lambda _action: _a_platform_that_takes_two_passes_to_apply_it(),
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_wait_will_judge_from(published, "2026-08-20T11:12:00Z")
+        ))
+
+
+@pytest.mark.unit
+def test_the_wait_is_announced_once_the_service_has_been_read() -> None:
+    # The figure the announcement carries is measured off the service's own
+    # window, so it cannot be said before the window has been read: said first
+    # it is a guess, and the page would carry a number the wait does not keep.
+    #
+    # A wait whose reads never answer therefore announces nothing, and that is
+    # the shape this asserts because it is the only one where the ordering shows.
+    # The page does not go quiet: the unanswered reads are said instead, each one
+    # a line, which is what the announcement was there to prevent. An
+    # announcement with no reading behind it would be the one line on the page
+    # nothing measured.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=True
+                    )
+                ),
+                fetch_metrics=_a_read_that_never_answers(),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_wait_was_announced(published, times=0)
         ))
 
 
@@ -1631,6 +1921,43 @@ def test_an_onset_whose_minutes_were_all_read_is_judged_on_the_levels_as_before(
         )
 
 
+def _a_platform_that_has_stopped_applying_it() -> Callable[[], Arrival]:
+    """A platform reporting, every time it is asked, that it is not converging
+    this change.
+
+    Every time rather than once, because the claim is that the loop stops on the
+    answer rather than that it happened to be asked at the right moment.
+    """
+    return lambda: Arrival.WILL_NOT_ARRIVE
+
+
+def _a_platform_that_takes_two_passes_to_apply_it() -> Callable[[], Arrival]:
+    """Still arriving, still arriving, then arrived - and arrived from then on."""
+    answers = iter([Arrival.STILL_ARRIVING, Arrival.STILL_ARRIVING])
+
+    return lambda: next(answers, Arrival.ARRIVED)
+
+
+def _the_looks_published_number(published: list[IncidentEvent],
+                                expected: int) -> Assertion[Outcome]:
+    """That exactly this many looks at the service were published.
+
+    The ordering assertion, counted rather than inspected: a loop that judged
+    while the change was still arriving would publish a look per pass, so the
+    count is what says the passes before arrival took none.
+    """
+    def assertion(_outcome: Outcome) -> bool:
+        looks = [event for event in published if isinstance(event, RecoveryChecked)]
+        if len(looks) != expected:
+            raise AssertionError(
+                f"Expected [{expected}] looks at the service, got [{len(looks)}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _an_action_is_taken(metrics: list[MetricBucket],
                         publisher: Any = None,
                         clock: Callable[[], datetime] | None = None,
@@ -1908,6 +2235,23 @@ def _the_wait_will_judge_from(published: list[IncidentEvent],
             raise AssertionError(
                 f"Expected the wait to judge from [{minute}], "
                 f"got [{announced.from_minute}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_wait_allowed(published: list[IncidentEvent],
+                      seconds: float) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        announced = next(
+            event for event in published if isinstance(event, AwaitingRecovery)
+        )
+        if announced.seconds_allowed != seconds:
+            raise AssertionError(
+                f"Expected the wait to allow [{seconds}]s, "
+                f"got [{announced.seconds_allowed}]s."
             )
 
         return True

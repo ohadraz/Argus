@@ -299,15 +299,21 @@ class AwaitingRecovery(_Event):
     further is decided until a whole minute has passed and been judged. A
     reader with no line here cannot tell a slow verification from a stuck one.
 
-    `from_minute` is the first minute that began after the action - not the
-    one it fell inside, which is aggregated over seconds either side of the
-    change and can only blur the two states together.
+    `from_minute` is the first minute that began after the change was in force -
+    not the one the action fell inside, which is aggregated over seconds either
+    side of the change and can only blur the two states together, and not the
+    minute after the action where a change takes time to reach the service.
+
+    Published once the service has been read, because `seconds_allowed` is
+    measured off its window (§16) rather than configured: said before the first
+    reading it would be a guess, and this line is the one a reader takes the
+    length of the wait from.
     """
 
     kind: Literal["awaiting-recovery"] = "awaiting-recovery"
     from_minute: str
-    # A float, because the configured timeout is one - the wait is a duration
-    # the operator set, not a count of anything.
+    # A float, because it is a span between two instants - how long the clear
+    # minutes a recovery must hold run for, from the moment the change arrived.
     seconds_allowed: float
 
 
@@ -320,11 +326,11 @@ class RecoveryChecked(_Event):
     say one thing that fits in a boolean.
 
     Two minutes travel here and they are different facts. `minute` is the one
-    the verdict is read from - the first whole minute after the action, which is
-    about Argus - and `recovered_minute` is the one the metrics date the
-    recovery at, which is about the service. Keeping both is what lets a reader
-    see that a shop came back at 11:08 and Argus acted at 11:10, and the
-    write-up is the only place that difference can currently be seen at all.
+    the verdict is read from - the first whole minute the change was in force
+    for, which is about Argus - and `recovered_minute` is the one the metrics
+    date the recovery at, which is about the service. Keeping both is what lets
+    a reader see that a shop came back at 11:08 and Argus acted at 11:10, and
+    the write-up is the only place that difference can currently be seen at all.
 
     `recovered_minute` is recorded rather than re-derived because it is the one
     measurement nothing downstream can repeat. The postmortem reads a window

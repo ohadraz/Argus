@@ -140,6 +140,32 @@ def a_clock_that_runs_out_after_one_look(moment: datetime) -> Callable[[], datet
     return clock
 
 
+def a_clock_reading_at(start: datetime,
+                       *seconds_later: float) -> Callable[[], datetime]:
+    """A clock reading `start` first, then each moment that many seconds after
+    it, and sticking at the last.
+
+    How a test says when each pass of a wait happened. Offsets rather than
+    instants because what the cases here are about is the distance from the
+    action - "past the configured wait, inside the one the service's own rhythm
+    asks for" is the claim, and written as two timestamps it is a claim the reader
+    has to do the arithmetic to see.
+
+    Sticking rather than running out, so a loop that asks once more than the test
+    expected gets an answer rather than a `StopIteration` raised three frames
+    inside the thing under test.
+    """
+    moments = [start] + [
+        start + timedelta(seconds=offset) for offset in seconds_later
+    ]
+    readings = iter(moments)
+
+    def clock() -> datetime:
+        return next(readings, moments[-1])
+
+    return clock
+
+
 def metrics_reading(window: list[MetricBucket]) -> Callable[[], list[MetricBucket]]:
     return lambda: window
 
@@ -193,6 +219,27 @@ def a_window_recovered_before_the_action() -> list[MetricBucket]:
 def a_still_failing_window() -> list[MetricBucket]:
     return a_window_of(
         [CALM_RATE] * CALM_MINUTES + [FAILING_RATE] * (FAILING_MINUTES + 2)
+    )
+
+
+def a_window_that_keeps_flapping() -> list[MetricBucket]:
+    """A service departing one minute in five and never persisting.
+
+    The window no picked wait can be right about. Every departure here is a
+    single minute, so nothing in it stays departed long enough to give the
+    incident a level, and the four clear minutes between departures occur twice -
+    which is what makes them a rhythm rather than a recovery. One clear minute
+    proves nothing about this service: it has twice been exactly that well and
+    gone back.
+
+    Two whole cycles and then a third departure, because a gap has to recur
+    before it may be read at all. One cycle is a window asking for a single clear
+    minute, which is this shape with the flap taken out of it.
+    """
+    return a_window_of(
+        [CALM_RATE] * CALM_MINUTES
+        + [FAILING_RATE, CALM_RATE, CALM_RATE, CALM_RATE, CALM_RATE] * 2
+        + [FAILING_RATE]
     )
 
 

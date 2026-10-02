@@ -18,6 +18,7 @@ from argus_core.anomaly import (
     find_recovery,
     has_a_reading_since,
     has_recovered_since,
+    minutes_a_recovery_must_hold,
 )
 from argus_core.events import (
     AwaitingRecovery,
@@ -57,12 +58,16 @@ from agent_mitigation.actions import (
     state_name,
 )
 from agent_mitigation.tools import (
+    Arrival,
+    ArrivalFor,
     Clock,
+    HasArrived,
     MetricsFetcher,
     MitigationSettings,
     PerformingWrites,
     Sleeper,
     StillWanted,
+    nothing_to_wait_for,
 )
 
 __all__ = ["UndoChange", "take_action"]
@@ -135,6 +140,7 @@ def take_action(action: Action,
                 now: Clock = utc_now,
                 sleep: Sleeper = time.sleep,
                 still_wanted: StillWanted = _nobody_stopped_this_walk,
+                arrivals: ArrivalFor = nothing_to_wait_for,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody,
                 *,
@@ -143,13 +149,14 @@ def take_action(action: Action,
                 undo: UndoChange) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
-    Three things happen in order, and the order is the point. The action is
-    performed, which is the only moment production state changes. The service
-    is re-read until a minute that began *after* that moment can be judged -
-    the newest bucket covers the minute in progress, aggregated over seconds
-    that are mostly pre-action, so a verdict read off it describes the incident
-    rather than the mitigation. And a refuted action is put back, where there
-    is anything to put back.
+    Four things happen in order, and the order is the point. The action is
+    performed, which is the only moment production state changes. The change is
+    waited for, because a platform that has accepted one is not a service that is
+    serving it. The service is then re-read until a minute that began *after* the
+    change was in force can be judged - the newest bucket covers the minute in
+    progress, aggregated over seconds that are mostly pre-change, so a verdict
+    read off it describes the incident rather than the mitigation. And a refuted
+    action is put back, where there is anything to put back.
 
     Which action is performed is the only thing that differs between kinds. The
     waiting and the judging are identical, and deliberately so: a restart and a
@@ -266,11 +273,11 @@ def take_action(action: Action,
         )
 
     settled = _what_watching_the_service_settled(
-        fetch_metrics, now, sleep, still_wanted, settings, thresholds,
-        incident_id, publisher, onset
+        fetch_metrics, arrivals(action), now, sleep, still_wanted, settings,
+        thresholds, incident_id, publisher, onset
     )
 
-    if settled is Verdict.CONFIRMED:
+    if settled.verdict is Verdict.CONFIRMED:
         return Outcome(
             verdict=Verdict.CONFIRMED,
             detail=f"{performed.said} and the service returned to baseline",
@@ -284,14 +291,10 @@ def take_action(action: Action,
     # actually seen in, a shop that had recovered while the tier that would have
     # shown it was timing out. The undo goes with it, because what to do about a
     # service nobody could read is a person's to decide.
-    if settled is Verdict.ESCALATED:
+    if settled.verdict is Verdict.ESCALATED:
         return Outcome(
             verdict=Verdict.ESCALATED,
-            detail=(
-                f"{performed.said}, and the service could not be read once "
-                f"before the time allowed ran out - so nothing was measured "
-                f"either way"
-            ),
+            detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
             # Said rather than left to the verdict, which is the same word here
             # as it is for a refutation whose undo failed. What reads this is
@@ -304,7 +307,7 @@ def take_action(action: Action,
     # be a second opinion about a decision the withdrawal makes once, for every
     # action the incident took and only where nobody else has been in there
     # since Argus wrote.
-    if settled is Verdict.WITHDRAWN:
+    if settled.verdict is Verdict.WITHDRAWN:
         return Outcome(
             verdict=Verdict.WITHDRAWN,
             detail=(
@@ -496,7 +499,23 @@ def _without_the_platform_marker(unreachable: PlatformUnreachable) -> str:
     ).strip()
 
 
+class _Settled(NamedTuple):
+    """What watching the service concluded, and why it concluded it.
+
+    The reason travels with the verdict because one verdict is reached two ways
+    that mean different things. `ESCALATED` covers a service that could not be
+    read and a change the platform never applied, and an account that described
+    both as "could not be read" would tell a person to go looking at a monitoring
+    system when what had happened was a held rollout. So the sentence is written
+    where the finding is made rather than guessed at by whoever reports it.
+    """
+
+    verdict: Verdict
+    because: str
+
+
 def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
+                                       has_arrived: HasArrived,
                                        now: Clock,
                                        sleep: Sleeper,
                                        still_wanted: StillWanted,
@@ -504,8 +523,9 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
                                        thresholds: AnomalyThresholds,
                                        incident_id: str | None = None,
                                        publisher: Publisher = nobody,
-                                       onset: datetime | None = None) -> Verdict:
-    """What the service did after the action, within the time allowed.
+                                       onset: datetime | None = None) -> _Settled:
+    """What the service did once the change was in force, within the time the
+    recovery it is waiting for needs.
 
     Two questions rather than one, and which of them decides is read off the
     window rather than off the incident's mode. Where the minutes an incident is
@@ -536,6 +556,10 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     judged on levels it does not have, with nothing anywhere saying so - which is
     the one way this parameter can fail quietly.
 
+    How long it is given is read off the service's own window rather than
+    configured - `_when_a_recovery_would_have_shown`. A picked figure is wrong in
+    both directions at once, and it was the last one left in the recovery path.
+
     `REFUTED` on expiry rather than an error, because that is a real answer
     about the world: the action was taken, the service was looked at, and it did
     not visibly help in the time it was given. Calling it an error would route an
@@ -558,13 +582,33 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     quiet here would read as a page that had stopped.
     """
     started_at = now()
-    deadline = started_at + timedelta(
+    # What bounds the stretch where nothing has been measured: the change still
+    # arriving, or a service that will not answer a read. How long to *watch* is
+    # read off the window below, and until a window has come back there is
+    # nothing to read it off - the only facts are that an action was taken and
+    # that nothing has answered, and a configured figure is all either of them
+    # supports.
+    nothing_measured_by = started_at + timedelta(
         seconds=settings.mitigation_verification_timeout_seconds
     )
-    # The first minute that began after the action. The minute the action fell
-    # inside is aggregated over seconds either side of it and can only blur the
-    # two states together.
-    first_whole_minute = to_iso_minute(started_at + timedelta(minutes=1))
+
+    arrived_at = _when_the_change_reached_the_service(
+        has_arrived, now, sleep, started_at, nothing_measured_by
+    )
+
+    if isinstance(arrived_at, _Settled):
+        return arrived_at
+
+    # The first minute that wholly followed the change being in force, and the
+    # instant it began. Dated from the arrival rather than from the call, because
+    # the minutes before a change reaches the last replica are minutes the code it
+    # replaced was serving - and the minute the action itself fell inside is
+    # aggregated over seconds either side of it, which can only blur the two
+    # states together.
+    first_minute_begins = (arrived_at + timedelta(minutes=1)).replace(
+        second=0, microsecond=0
+    )
+    first_whole_minute = to_iso_minute(first_minute_begins)
 
     def say(
         event: AwaitingRecovery | RecoveryChecked | RetrievalUnanswered
@@ -573,18 +617,15 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         if incident_id is not None:
             publish(event, publisher)
 
-    if incident_id is not None:
-        say(AwaitingRecovery(
-            incident_id=incident_id,
-            from_minute=first_whole_minute,
-            seconds_allowed=settings.mitigation_verification_timeout_seconds,
-        ))
-
     # Whether the service was ever actually looked at. What the expiry below
     # means depends entirely on it: a window that ran out having read the shop
     # and found it still bad is a refutation, and a window that ran out having
     # read nothing is not a verdict at all.
     anything_was_read = False
+    # When to stop watching: the configured bound while nothing has been
+    # measured, and the window's own answer from the first reading that comes
+    # back.
+    watch_until = nothing_measured_by
     # Whether this incident's own minutes were ever published, which decides which
     # of the two questions above is asked. `None` until a read answers, because it
     # is measured from a window rather than declared by a caller.
@@ -622,11 +663,45 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             # stack the service had in fact recovered. `ESCALATED` is the member
             # that already means no verdict was reached at all, and the one this
             # is: Argus cannot say, so a person is asked.
-            if now() >= deadline:
-                return Verdict.REFUTED if anything_was_read else Verdict.ESCALATED
+            if now() >= watch_until:
+                return (
+                    _Settled(
+                        Verdict.REFUTED,
+                        "it did not visibly help in the time it was given"
+                    )
+                    if anything_was_read else
+                    _Settled(
+                        Verdict.ESCALATED,
+                        "the service could not be read once before the time "
+                        "allowed ran out - so nothing was measured either way"
+                    )
+                )
 
             sleep(_SECONDS_BETWEEN_METRIC_READS)
             continue
+
+        if not anything_was_read:
+            # The first window to come back is what says how long this wait
+            # lasts, and it says it once. Re-derived on every pass it would be a
+            # moving deadline: a service still flapping extends the rhythm it is
+            # being judged by, so the wait would grow for exactly as long as the
+            # service kept misbehaving and the verdict would never be reached.
+            watch_until = _when_a_recovery_would_have_shown(
+                first_minute_begins, buckets, thresholds
+            )
+
+            # Announced here rather than before the first read, because the
+            # figure is measured off that window: said earlier it would be a
+            # guess, and the page and the Slack line both say it aloud. A wait
+            # whose reads never answer therefore announces nothing - what the
+            # page carries then is a line per unanswered read, which is the same
+            # thing this was there to prevent.
+            if incident_id is not None:
+                say(AwaitingRecovery(
+                    incident_id=incident_id,
+                    from_minute=first_whole_minute,
+                    seconds_allowed=(watch_until - arrived_at).total_seconds()
+                ))
 
         anything_was_read = True
         # Measured on the first pass that answered and not revisited: the span it
@@ -638,7 +713,9 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             )
 
         if the_sight_was_absent and has_a_reading_since(buckets, first_whole_minute):
-            return Verdict.CONFIRMED
+            return _Settled(
+                Verdict.CONFIRMED, "the service could be read again"
+            )
 
         recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
         # Which minute the service came back at, asked only where it has come
@@ -671,15 +748,121 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         # claiming a confirmation on the pass the walk was stopped would credit
         # Argus with an ending it did not reach.
         if not still_wanted():
-            return Verdict.WITHDRAWN
+            return _Settled(
+                Verdict.WITHDRAWN,
+                "the incident was withdrawn before the service could answer"
+            )
 
         if recovered:
-            return Verdict.CONFIRMED
+            return _Settled(
+                Verdict.CONFIRMED, "the service returned to baseline"
+            )
 
-        if now() >= deadline:
-            return Verdict.REFUTED
+        if now() >= watch_until:
+            return _Settled(
+                Verdict.REFUTED,
+                "it did not visibly help in the time it was given"
+            )
 
         sleep(_SECONDS_BETWEEN_METRIC_READS)
+
+
+def _when_the_change_reached_the_service(has_arrived: HasArrived,
+                                         now: Clock,
+                                         sleep: Sleeper,
+                                         started_at: datetime,
+                                         no_later_than: datetime
+                                         ) -> datetime | _Settled:
+    """The moment the change took effect on the service, or why nothing about it
+    can be measured.
+
+    Asked before anything is read, because until the change is in force the
+    minutes describe the code it was meant to replace - so a verdict taken from
+    them is a verdict about the wrong deployment, which is how a mitigation that
+    worked comes to be refuted and put back.
+
+    The platform saying it has stopped is what ends this without a figure. A
+    rollout stopped part way satisfies neither count and never will, so a loop
+    that only asked "arrived yet" would poll until its lease expired and leave the
+    change applied for another worker to find. A rollout stopped after it finished
+    is an arrival like any other. Reported as a state rather than judged as a
+    duration - see `Arrival`.
+
+    `ESCALATED` both ways out and never `REFUTED`, because nothing about the
+    hypothesis was tested: the change never reached the service. Refuting would
+    mark it tested, put it back and strike the explanation off, on no measurement
+    at all - and the explanation may have been the right one. The two sentences
+    differ because the states do: a platform that has given up is something a
+    person can act on, where a wait that ran out may still be converging.
+
+    The moment answered is the one that pass was read at, and the first pass is
+    `started_at` rather than a second reading of the clock. A change in force on
+    the first ask was in force when the action was performed, so reading the clock
+    again would date it later than it happened - and this is what the minute a
+    verdict is read from is counted from.
+    """
+    moment = started_at
+
+    while True:
+        arrival = has_arrived()
+
+        if arrival is Arrival.ARRIVED:
+            return moment
+
+        if arrival is Arrival.WILL_NOT_ARRIVE:
+            return _Settled(
+                Verdict.ESCALATED,
+                "the platform stopped applying the change, so it never applied "
+                "and nothing about it was measured"
+            )
+
+        # Checked before sleeping for the reason every other wait here checks it
+        # first: a window that has run out must not buy another interval by having
+        # been busy.
+        if moment >= no_later_than:
+            return _Settled(
+                Verdict.ESCALATED,
+                "the change had not reached the service before the time "
+                "allowed ran out - so nothing about it was measured"
+            )
+
+        sleep(_SECONDS_BETWEEN_METRIC_READS)
+        moment = now()
+
+
+def _when_a_recovery_would_have_shown(first_minute_begins: datetime,
+                                      buckets: Sequence[MetricBucket],
+                                      thresholds: AnomalyThresholds) -> datetime:
+    """The moment past which there is nothing left to wait for.
+
+    The clear minutes a recovery has to show, counted from the first minute that
+    could be one of them, ending when the last of them has finished. After that
+    instant no further waiting can change the answer: the minutes that would have
+    carried the recovery are all in the past and judged.
+
+    How many is the window's own answer rather than a setting -
+    `minutes_a_recovery_must_hold`. The figure it replaces was a flat three
+    minutes, which is wrong in both directions at once: longer than a step
+    incident needs, and far short of the six clear minutes a service failing one
+    minute in five has to hold still for. The second direction is the one that
+    cost something, because a wait that ends before the evidence could exist
+    refutes the mitigation that worked and puts it back.
+
+    From the *beginning* of the first whole minute and not from the arrival, which
+    is the one place a minute of arithmetic matters. A change in force at 11:11:00
+    exactly has 11:12 as its first whole minute, and a deadline set an arrival
+    plus one minute later falls at 11:12:00 - the instant that minute begins, with
+    no seconds elapsed in it, which is no reading rather than a quiet one. Every
+    action taken on a minute boundary would then be refuted for want of a bucket
+    that could not exist yet.
+
+    This module's arithmetic rather than `argus_core`'s, because `argus_core` has
+    no clock: it answers in minutes, which is what a window is made of, and
+    turning that into an instant needs the moment the wait started from.
+    """
+    return first_minute_begins + timedelta(
+        minutes=minutes_a_recovery_must_hold(buckets, thresholds)
+    )
 
 
 def _nothing_was_seen_between(buckets: Sequence[MetricBucket],

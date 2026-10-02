@@ -10,6 +10,7 @@ from argus_core.anomaly import (
     find_recovery,
     has_a_reading_since,
     has_recovered_since,
+    minutes_a_recovery_must_hold,
 )
 from argus_core.models.metrics import MetricBucket
 from argus_core.timestamps import parse_iso, to_iso_minute
@@ -1158,6 +1159,133 @@ def test_a_signal_departing_every_other_minute_has_no_recovery_to_report() -> No
 
 
 @pytest.mark.unit
+def test_a_service_that_flaps_has_recovered_from_none_of_its_clear_minutes() -> None:
+    # The defect, asked of the rule that answers it. No departed run here reaches
+    # `persistence_minutes`, so every series is excluded to `inf` and no minute
+    # sits at the incident's level - and a stretch that is clear by construction
+    # satisfies any requirement put to it, so the first poll after a mitigation
+    # confirmed a service departing every other minute. The incident then closed
+    # as mitigated with the shop still failing, and no further candidate was tried.
+    #
+    # What the window asks for instead is measured off its own rhythm: one more
+    # clear minute than the longest gap between departures *that recurs*. Here
+    # every gap is one minute and it recurs nine times, so recovery has to show
+    # two clear minutes in a row, and a service clear one minute in two never
+    # does. Nothing is named - a cycle of five asks for six, and a shape nobody
+    # staged asks for whatever its own shape asks for.
+    #
+    # Recurrence rather than the longest gap outright, and that is the whole of
+    # what keeps it safe. One stray departed minute in an otherwise well window
+    # makes a single enormous gap, and a rule reading that would demand more clear
+    # minutes than the window holds - which is this module's six-hour outage
+    # arriving by the opposite route. One gap cannot recur, however long it is.
+    # The test below is the one that pins it.
+    #
+    # It ends on a clear minute, and that is a choice rather than the length of a
+    # list. Measured both ways and the answer does not move: ending departed gives
+    # an onset at the final minute where ending clear gives none, so the incident
+    # arrives dated or undated, and the recovery question answers False either way.
+    a_calm_stretch = [
+        198, 201, 204, 199, 202, 196, 203, 200, 197, 202, 199, 201, 203, 198
+    ]
+    a_departure_that_never_lasts = [
+        1000, 205, 1010, 203, 995, 206, 1005, 204, 1000, 205
+    ]
+    a_p95_that_never_stays_departed = a_calm_stretch + a_departure_that_never_lasts
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * len(a_p95_that_never_stays_departed),
+        p95_ms_values=a_p95_that_never_stays_departed
+    )
+    the_action = some_window[15].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: has_recovered_since(some_window, the_action, SOME_THRESHOLDS)) \
+        .then(_the_answer_is(False))
+
+
+@pytest.mark.unit
+def test_two_unlucky_minutes_do_not_hold_a_well_service_open() -> None:
+    # The guard on the test above, and the one that decides whether asking about
+    # rhythm is safe at all. A service with nothing wrong with it still draws
+    # minutes clear of a bar derived from its own quietest half: measured over
+    # five hundred windows of the quiet builder, fifty-seven carry at least one.
+    #
+    # Seed 15 rather than an arbitrary one. Its departures sit with a gap of six
+    # minutes between them and twenty-one clear minutes after the second, so a
+    # rule reading the longest gap outright would ask for seven clear minutes, or
+    # twenty-two if it counted the trailing stretch. Neither gap recurs, so this
+    # window asks for one clear minute, which is what a well service is entitled
+    # to be believed on.
+    #
+    # The cost of getting this wrong is not a slow answer. Mitigation would wait
+    # out the whole verification period on a window with nothing wrong in it and
+    # then refute the action: the change put back, the service broken again, and
+    # the cause that was right struck off the list.
+    some_quiet_window = a_quiet_window_of(30, seed=15)
+    the_action = some_quiet_window[20].bucket_id
+
+    Scenario() \
+        .given(some_quiet_window) \
+        .when(lambda: has_recovered_since(
+            some_quiet_window, the_action, SOME_THRESHOLDS
+        )) \
+        .then(_the_answer_is(True))
+
+
+@pytest.mark.unit
+def test_how_long_a_recovery_must_hold_is_read_off_the_services_own_rhythm() -> None:
+    # The number the two tests above turn on, asked for in its own right - because
+    # a deadline has to derive from it. How long Argus watches after acting was a
+    # constant 180 seconds while every threshold around it was measured off the
+    # incident, and a constant is wrong in both directions at once: too long for a
+    # step that answered in a minute, and far too short to ever see a service
+    # clear one minute in five hold still for six.
+    #
+    # So the wait is this, in minutes, and the shapes below are why it cannot be
+    # one number. A service departing every other minute has to show two clear
+    # minutes and never does. One failing minute in five has to show six. A step -
+    # departed, acted on, back - has to show one, which is every minute of
+    # evidence there is, so nothing about the ordinary case gets slower.
+    #
+    # The still-failing window asks for one too, and that is not a gap: it has
+    # shown no rhythm, so there is nothing to wait out, and what refuses it is the
+    # absence of any clear minute rather than the length it would have to hold.
+    a_calm_stretch = [
+        198, 201, 204, 199, 202, 196, 203, 200, 197, 202, 199, 201, 203, 198
+    ]
+    the_shapes = {
+        "departing every other minute":
+            a_calm_stretch + [1000, 205, 1010, 203, 995, 206, 1005, 204, 1000, 205],
+        "one failing minute in five":
+            a_calm_stretch + ([1000] + [203] * 5) * 6,
+        "a step, acted on, and back":
+            a_calm_stretch + [1000] * 3 + [205] * 4,
+        "still failing when the window ends":
+            a_calm_stretch + [1000] * 6
+    }
+
+    Scenario() \
+        .given(the_shapes) \
+        .when(lambda: {
+            shape: minutes_a_recovery_must_hold(
+                a_window_of(
+                    [CALM_ERROR_RATE] * len(p95_ms_values),
+                    p95_ms_values=p95_ms_values
+                ),
+                SOME_THRESHOLDS
+            )
+            for shape, p95_ms_values in the_shapes.items()
+        }) \
+        .then(_the_waits_are({
+            "departing every other minute": 2,
+            "one failing minute in five": 6,
+            "a step, acted on, and back": 1,
+            "still failing when the window ends": 1
+        }))
+
+
+@pytest.mark.unit
 def test_an_incident_that_half_subsided_is_recovered_from_where_it_fell() -> None:
     # The level comes from the minutes before the moment being judged, and this
     # is the case that says so. A service sheds most of a rise and holds there:
@@ -1638,6 +1766,30 @@ def _no_onset_was_found() -> Assertion[str | None]:
         return True
 
     return no_onset_was_found
+
+
+def _the_waits_are(expected: dict[str, int]) -> Assertion[dict[str, int]]:
+    """That each window asks a recovery to hold for exactly this many minutes.
+
+    Every shape in one assertion rather than one test each, because the claim is
+    that they *differ* - a function returning the same number for all four would
+    satisfy any of them taken alone, and that function is the bug this replaces.
+    """
+    def the_waits_are(measured: dict[str, int]) -> bool:
+        if measured != expected:
+            disagreed = [
+                f"[{shape}] asked for [{measured.get(shape)}] rather than [{minutes}]"
+                for shape, minutes in expected.items()
+                if measured.get(shape) != minutes
+            ]
+            raise AssertionError(
+                "Expected each shape to set its own wait, and " + "; ".join(disagreed)
+                + "."
+            )
+
+        return True
+
+    return the_waits_are
 
 
 def _the_answer_is(expected: bool) -> Assertion[bool]:

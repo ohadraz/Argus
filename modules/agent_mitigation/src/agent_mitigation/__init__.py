@@ -60,6 +60,7 @@ from agent_mitigation.tools import (
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
+    how_a_change_arrives,
     performing_writes_over,
     recent_metrics_over,
 )
@@ -96,6 +97,7 @@ __all__ = [
     "fetch_recent_flag_changes",
     "flag_changes_over",
     "flag_setter_over",
+    "how_a_change_arrives",
     "is_a_generic_mitigation",
     "is_within_reach",
     "mitigate",
