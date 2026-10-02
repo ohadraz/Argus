@@ -68,6 +68,19 @@ class Scenario:
 
         return self
 
+    def and_after_that(self) -> Scenario:
+        """Opens a second episode of one timeline, on the world the first left.
+
+        Punctuation and nothing else: it says the `given` that follows
+        continues this scenario rather than starting another, which is the one
+        thing two `Scenario()` calls in a row cannot say. The previous result
+        is dropped, so a `then` reached before the next `when` fails instead of
+        asserting against the episode before it.
+        """
+        self.result = None
+
+        return self
+
 
 def calling(step: Callable[[], Any]) -> _Calling:
     """Marks a `given` step as setup to run, rather than a value to state.

@@ -1918,12 +1918,7 @@ _THE_SCALE_OUT_CASE: Final = "tests/e2e/test_a_saturated_deployment_is_scaled_ou
 # timeout, be refuted, put it back, try again - so a capture bills for two
 # attempts where every other case bills for one. Nothing in "a controller re-derives
 # a count Argus set" varies by which tool found a file.
-#
-# Its sibling in the same scenario - the gradeable case - is not listed here and
-# must not be: it asks no model anything, needs no corpus, and is the one thing
-# that reads the fixture's arithmetic against the real detector. Excluding it per
-# mode would remove a free check for the cost of nothing.
-_THE_PIN_CASE: Final = "tests/e2e/test_a_flapping_autoscaler_is_pinned.py"
+_THE_PIN_CASE: Final = "tests/e2e/test_a_flapping_autoscaler.py"
 
 # The unreachable-platform case, left to `both` for the scale-out's reason. What
 # it proves is a walk narrowing itself to the one platform still answering - the

@@ -36,12 +36,6 @@ patch is asserted either way, for the reason the scale-out's case gives at
 length: Code-Fix roams a repository this fixture keeps deliberately broken, so an
 assertion there would measure the model's reading of somebody else's staged fault.
 
-Its sibling `test_a_flapping_autoscaler_is_gradeable.py` asks no model anything
-and checks the fixture's arithmetic against the real detector. That case is what
-makes this one meaningful: without it, a cycle whose clear minutes fell two in a
-row would confirm whatever was tried last, and this file would pass on a walk in
-which a restart cured a flapping autoscaler.
-
 Collected under `both` alone, and the dearest walk in the suite: the near-miss is
 a whole mitigation attempt, so a capture bills for two.
 """
@@ -56,7 +50,14 @@ from typing import Any
 import httpx
 import pytest
 from argus_core.events import ActionTaken, VerdictReached
-from argus_core.models import PIN_AUTOSCALER, FailureMode, IncidentStatus, Verdict
+from argus_core.models import (
+    PIN_AUTOSCALER,
+    SCALE_OUT,
+    ActionType,
+    FailureMode,
+    IncidentStatus,
+    Verdict,
+)
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -84,9 +85,10 @@ from tests.framework.assertions import (
 A_LATENCY_ALERT = "HighLatency"
 
 # The bounds the autoscaler is declared with in `deploy/values-production.yaml`.
-# Named rather than read back: what is asserted is that the count stopped moving
-# *at the ceiling*, and a pair read from the platform would agree with whatever
-# the platform happened to say.
+# Named as well as read back, and the two readings answer different questions: the
+# platform says where the floor and the ceiling sit *now*, which is what "they meet"
+# is asserted against, while these say where they sat before the pin - so a floor
+# that merely equals the one it was declared with is a pin that never arrived.
 THE_FLOOR_THE_CONTROLLER_FELL_TO = 3
 THE_CEILING_THE_CONTROLLER_REACHED = 6
 
@@ -116,6 +118,10 @@ def test_a_flapping_autoscaler_is_pinned_and_left_mitigated() -> None:
         .then(
             eventually(
                 all_of(
+                    _optionally(
+                        when=_the_walk_tried_capacity,
+                        then=_that_attempt_was_not_confirmed()
+                    ),
                     about_the_hypothesis(
                         the_cause_was_identified_as(
                             FailureMode.AUTOSCALING_PATHOLOGY
@@ -177,14 +183,83 @@ def _the_action_that_ended_it_was_a_pin_of(application: str) -> Assertion[httpx.
     return assertion
 
 
+def _the_walk_tried_capacity(response: httpx.Response) -> bool:
+    """Whether the near-miss was made at all, which is the model's choice.
+
+    The recording takes this path, so a replayed walk reaches for capacity before
+    pinning; a walk that reasons its way straight to the pin has done nothing
+    wrong. So this is a premise and not an assertion: it says whether there is an
+    attempt here to judge, and never that there should have been one.
+    """
+    return any(
+        action == SCALE_OUT
+        for action, _ in _the_actions_and_their_outcomes(response)
+    )
+
+
+def _that_attempt_was_not_confirmed() -> Assertion[httpx.Response]:
+    """What must hold wherever capacity was tried.
+
+    The obvious answer here is wrong and nothing in Argus says so: a reader who
+    sees pinned utilisation scales out, the controller re-derives the count within
+    a minute, and the service is still unwell when the attempt is measured. Were
+    such an attempt ever confirmed, the incident would close on a count that does
+    not hold.
+
+    Every attempt rather than the first, because a walk refuted once may reach for
+    capacity again. And `CONFIRMED` alone is the failure: `REFUTED` is the measured
+    refusal the recording holds, while a shop already serving at its ceiling
+    refuses the write and answers `NOT_ATTEMPTED` - a different mechanism arriving
+    at the same place.
+    """
+    def assertion(response: httpx.Response) -> bool:
+        story = _the_actions_and_their_outcomes(response)
+
+        if any(
+            action == SCALE_OUT and outcome == Verdict.CONFIRMED
+            for action, outcome in story
+        ):
+            raise AssertionError(
+                f"A scale-out taken for incident [{incident_id_from(response)}] "
+                f"was confirmed, so a count the controller re-derives within a "
+                f"minute read as a recovery and this incident could have closed "
+                f"on it. The actions and their outcomes were {story}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_actions_and_their_outcomes(
+    response: httpx.Response
+) -> list[tuple[ActionType, Verdict | None]]:
+    """Each action the walk took, in order, beside what the shop said about it.
+
+    Paired by position in the stream rather than by the hypothesis both events
+    carry: a walk may reach for the same explanation twice, so the id says which
+    candidate an attempt belongs to and not which attempt. `None` is an action
+    still being measured, or one abandoned before it ever was.
+    """
+    story: list[tuple[ActionType, Verdict | None]] = []
+
+    for event in the_incidents_events(incident_id_from(response)):
+        if isinstance(event, ActionTaken):
+            story.append((event.action_type, None))
+        elif isinstance(event, VerdictReached) and story:
+            story[-1] = (story[-1][0], event.outcome)
+
+    return story
+
+
 def _the_pin_was_confirmed() -> Assertion[httpx.Response]:
     """The service answered for the action, and answered well.
 
     Stated beside the status because the two claim different things, and here the
     difference is sharper than anywhere else in this suite: `mitigated` says where
     the incident ended, and a confirmed verdict says the minutes after the pin were
-    measured against the detector and found clear. Those minutes are the ones the
-    sibling case proves the running cycle never supplies.
+    measured against the detector and found clear. The running cycle supplies no
+    such minutes, which is what the refuted attempt above is the evidence of.
     """
     def assertion(response: httpx.Response) -> bool:
         incident_id = incident_id_from(response)
@@ -339,3 +414,27 @@ def _the_shops_autoscaler_was_left_flapping() -> Callable[[], bool]:
         return response.status_code == HttpStatus.OK
 
     return seed_scenario
+
+
+def _optionally[T](when: Callable[[T], bool],
+                  then: Assertion[T]) -> Assertion[T]:
+    """Asserts something where its premise holds, and passes where it does not.
+
+    For a claim about a step the system was free not to take - an attempt a model
+    may or may not make, a branch a policy may or may not reach. "Whatever it
+    tried, that was not confirmed" is a real claim, and both other spellings lose
+    it: demanding the attempt fails against the better answer, and dropping the
+    assertion stops judging the attempt at all.
+
+    The premise is a predicate rather than an assertion, because it is not
+    something that can fail. It reads off the same result and answers only
+    whether there is anything here to judge.
+    """
+
+    def conditional_assertion(result: T) -> bool:
+        if not when(result):
+            return True
+
+        return then(result)
+
+    return conditional_assertion
