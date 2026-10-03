@@ -70,10 +70,12 @@ from orchestrator_test.framework.assertions import (
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
     a_determined_hypothesis,
+    a_divergence_blamed_on,
     a_leak_blamed_on,
     an_identity,
     an_incident_state,
     an_undetermined_hypothesis,
+    discarding,
     putting_back,
     restarting,
 )
@@ -646,6 +648,45 @@ def test_a_restart_an_earlier_incident_refuted_demotes_a_leak_worded_otherwise(
         ) \
         .then(_the_candidates_are_about([ANOTHER_FLAG,
                                          the_leak_nobody_worded_the_same_way]))
+
+
+@pytest.mark.unit
+def test_a_discard_an_earlier_incident_refuted_demotes_a_divergence_worded_otherwise(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The same thing the restart case says, for the cause whose action this
+    # round has to supply the address of. Two incidents describe one stale
+    # cache in two sets of words, and discarding the entries the alert named is
+    # the same experiment in both - which this round can only say while it is
+    # still handing those keys down. Stop handing them down and the candidate
+    # is answered by nothing, memory recognises nothing, and the walk starts on
+    # an experiment an earlier incident already ran and refuted.
+    a_diverging_incident = _a_diverging_incident()
+    the_divergence_nobody_worded_the_same_way = "monthly spend totals read low"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_divergence_blamed_on(a_diverging_incident.incident_id,
+                                        the_divergence_nobody_worded_the_same_way),
+                a_candidate_blaming(a_diverging_incident.incident_id, ANOTHER_FLAG)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(
+                a_diverging_incident,
+                investigate=investigate,
+                recall_similar=_an_earlier_incident_that_refuted(
+                    discarding(SOME_SERVICE)
+                ),
+                record_hypothesis=record_hypothesis,
+                fetch_flag_changes=fetch_flag_changes,
+                fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(_the_candidates_are_about(
+            [ANOTHER_FLAG, the_divergence_nobody_worded_the_same_way]))
 
 
 @pytest.mark.unit
@@ -1284,6 +1325,28 @@ def _an_incident_in(status: IncidentStatus) -> IncidentState:
     some_alert = Alert(service=SOME_SERVICE, alert_name="HighErrorRate")
 
     return an_incident_state(some_alert, status)
+
+
+def _a_diverging_incident() -> IncidentState:
+    """An incident whose alert named the cache entries that disagree.
+
+    The only incident in this file whose alert carries more than a service.
+    What memory is allowed to demote is matched on the action a candidate would
+    be answered with, and the action for this cause is addressed to keys - so a
+    round that stopped carrying them would leave this candidate answered by
+    nothing and memory with nothing to recognise it by.
+    """
+    the_entries_the_check_found = ("io-shop:summary:2026-09:shopper-4",
+                                   "io-shop:summary:2026-09:shopper-9")
+    the_alert_that_found_them = Alert(
+        service=SOME_SERVICE,
+        alert_name="CachedSpendTotalsAreStale",
+        stale_entry_keys=the_entries_the_check_found,
+        stale_entries_found=len(the_entries_the_check_found)
+    )
+
+    return an_incident_state(the_alert_that_found_them,
+                             IncidentStatus.INVESTIGATING)
 
 
 def _the_investigation_returned(investigate: MagicMock,

@@ -88,6 +88,7 @@ CASE_THE_STOPPED_ROLLOUT = "in-flight-compatibility-break-is-told-from-a-bad-dep
 CASE_THE_SILENT_CORRUPTION = "silent-data-corruption-is-told-from-a-flag-toggle"
 CASE_THE_STOPPED_READINGS = "monitoring-blind-spot-is-told-from-a-bad-deployment"
 CASE_A_WINDOW_THAT_STOPS = "a-window-that-stops-is-not-read-as-a-well-service"
+CASE_THE_STALE_CACHE = "state-divergence-is-told-from-silent-data-corruption"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -168,6 +169,14 @@ MUST_IDENTIFY_THE_STOPPED_ROLLOUT = 9  # UNMEASURED - no pooled samples yet
 # the more expensive of the two - it reports a service that failed, in a window
 # a reader can see was well from end to end.
 MUST_IDENTIFY_THE_SILENT_CORRUPTION = 9  # UNMEASURED - no pooled samples yet
+# The fifth matched pair, unmeasured for its siblings' reason and the closest
+# of them all: its two members differ in no series, no window shape and no
+# onset-dating, only in which side of a reconciliation the alert says
+# disagreed. A model that reads "flat window, integrity check" and stops has
+# named one of them, and which one is a coin toss - so a figure here that
+# looks respectable on the first batch should be suspected of measuring that
+# coin rather than a reading.
+MUST_IDENTIFY_THE_STALE_CACHE = 9  # UNMEASURED - no pooled samples yet
 # Two bars on one batch, and the only place in this file where they differ on
 # purpose. Naming the mode is a judgement about which of two readings an
 # absence is, and it is allowed a lapse for the reason every case here is.
@@ -266,6 +275,14 @@ A_FAILURE_FROM_UPSTREAM = "ERROR checkout: request failed - upstream returned 50
 # act on: a model reading those lines now identifies a real failure mode, and is
 # right to. Measured - twenty runs out of twenty named it.
 A_FAILURE_THAT_NAMES_NOTHING = "ERROR checkout: request failed"
+# The only line in this file that reports an event rather than a request, and
+# the only corroboration the stale-cache case has. Its twin's cause is a flag
+# the change channel recorded; nothing was deployed or switched here, so the
+# one trace the incident left is the shop noticing it is talking to a
+# different cache than it was.
+A_CACHE_PRIMARY_REPLACED = (
+    "WARN checkout: cache connection re-established to a new primary"
+)
 
 # The register entry that makes the upstream case answerable. The log lines say a
 # dependency returned 503; they cannot say whose it is, and a host name is not
@@ -902,6 +919,50 @@ def test_data_that_went_wrong_silently_is_told_from_a_flag_that_broke_the_servic
 
 @pytest.mark.eval
 @needs_the_real_api
+def test_a_cache_that_fell_behind_is_told_from_records_that_went_wrong() -> None:
+    # The fifth matched pair, and the one whose halves are hardest to tell
+    # apart from the shape alone. Its twin is the case above: both windows are
+    # flat from end to end, both alerts are a check reporting long after the
+    # writing, both services were well throughout, and neither fault marks any
+    # series. Everything a model reads about *shape* is identical.
+    #
+    # What separates them is which side of a comparison disagreed, and the
+    # alert says so in words. Records that are wrong are answered by putting
+    # back whatever began writing them; copies that are stale are answered by
+    # throwing the copies away. A reader who confuses the two reaches an action
+    # that repairs nothing - a flag revert against a ledger that was never
+    # wrong - and the shop goes on serving every stale figure it had.
+    #
+    # Scored on naming the mode rather than on the action, because the action
+    # follows from the mode by lookup and this file measures the reading. The
+    # wrong answer is expensive for the opposite reason to its twin's: there
+    # the mode is right and the dating makes it unactionable, here the mode is
+    # wrong and the walk acts confidently on a service that has nothing to
+    # revert.
+    some_incident = an_incident_where_the_cache_fell_behind_the_ledger()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_STALE_CACHE,
+                MUST_IDENTIFY_THE_STALE_CACHE,
+                _a_run_where(
+                    the_cause_was_identified_as(
+                        FailureMode.STATE_DIVERGENCE
+                    )
+                )
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
 def test_a_window_whose_rows_stop_is_not_read_as_a_healthy_service() -> None:
     # Two cases off one batch, which no other test here does. They are two
     # claims about the same ten investigations rather than two experiments, and
@@ -1316,6 +1377,43 @@ def an_incident_where_the_totals_stopped_keeping_up() -> Incident:
             a_log_line_at(1, A_SUCCESS)
         ],
         changes=[a_flag_change_at(-a_week_in_minutes, "monthly-spend-feature")]
+    )
+
+
+def an_incident_where_the_cache_fell_behind_the_ledger() -> Incident:
+    """A copy that stopped being updated, where the records behind it are fine.
+
+    The twin of `an_incident_where_the_totals_stopped_keeping_up`, and the
+    pair that agrees most completely in this file. Both windows are flat end
+    to end, both alerts are a reconciliation reporting long after the fact,
+    both services served every request correctly throughout, and neither
+    failure can be seen in any series. A model that has learned "flat window,
+    integrity check, stored total disagrees" from the twin arrives here with
+    the wrong answer already in hand.
+
+    Two things decide it, and both are in front of the model.
+
+    The alert says which side disagreed. A ledger that agrees with itself and
+    copies that do not is a stale copy; a stored total that disagrees with the
+    purchases behind it is a wrong record. The mitigations are opposites -
+    throw the copies away, or put back whatever started writing the wrong
+    number - so the wrong answer here reaches an action that repairs nothing.
+
+    And the change channel holds no flag. The twin's cause is a toggle a week
+    back; here nothing was deployed and nothing was switched, and the only
+    thing that happened is in the logs: the shop reconnecting to a cache it had
+    not been talking to. A model that needs a change to blame finds one only by
+    inventing it.
+    """
+    return _an_incident(
+        alert=a_staleness_alert(),
+        buckets=_a_window_in_which_nothing_happened(),
+        log_lines=[
+            a_log_line_at(-2, A_SUCCESS),
+            a_log_line_at(-1, A_CACHE_PRIMARY_REPLACED),
+            a_log_line_at(1, A_SUCCESS)
+        ],
+        changes=[]
     )
 
 
@@ -2181,6 +2279,36 @@ def an_integrity_alert() -> Alert:
                 "that disagrees with the purchases behind it, the widest by "
                 "1284.50, the oldest affected purchase written 7 days ago",
         stated_onset=datetime.now(UTC) - a_week
+    )
+
+
+def a_staleness_alert() -> Alert:
+    """The alert a cache-against-ledger reconciliation raises.
+
+    The integrity check's near-twin, and deliberately so: both are a check
+    reporting long after the fact, both state their own onset, and both leave
+    the metrics marking nothing. The summary is the whole of what separates
+    them, and it separates them by saying which side disagreed. Here the
+    records are right and the copies are stale; there the records themselves
+    are wrong.
+
+    Two dates, as this mode always has. `stated_onset` is the promotion, which
+    is when anything could first have been seen; the three hours is when the
+    copies stopped being updated, and an incident dated from that begins before
+    there was anything to notice.
+    """
+    three_hours = timedelta(hours=3)
+
+    return Alert(
+        service="checkout",
+        alert_name="CachedSpendTotalsAreStale",
+        severity="critical",
+        summary="cache reconciliation: 90 of 240 cached monthly totals "
+                "disagree with the purchase ledger behind them, the widest by "
+                "412.75 and 6 items; the ledger agrees with itself throughout, "
+                "and the oldest purchase no cached entry reflects was written "
+                "3 hours before the cache's primary was replaced",
+        stated_onset=datetime.now(UTC) - three_hours
     )
 
 

@@ -123,10 +123,59 @@ def test_an_alert_that_said_nothing_leaves_no_gap_behind_it() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_the_addresses_an_alert_carried_are_not_in_the_text() -> None:
+    # The description is embedded, so every word of it is text a model reads.
+    # A cache key is an address rather than a description: it says nothing
+    # about what this incident looked like, and two incidents whose entries
+    # happened to be numbered alike would match on the numbering. What makes
+    # two stale caches alike is the alert's own words, which are already here.
+    #
+    # This passes the day it is written. It is here because the alert carries
+    # the keys and this function is handed the whole alert, so the next person
+    # to widen `_the_alerts_own_words` has something that says no.
+    the_alert_that_opened_it = "CachedSpendTotalsAreStale"
+    the_entries_the_check_found = ("io-shop:summary:2026-09:shopper-4",
+                                   "io-shop:summary:2026-09:shopper-9")
+
+    Scenario() \
+        .given(an_alert(the_alert_that_opened_it,
+                        stale_entry_keys=the_entries_the_check_found)) \
+        .when(lambda: what_it_looked_like(
+            an_alert(the_alert_that_opened_it,
+                     stale_entry_keys=the_entries_the_check_found),
+            a_hypothesis()
+        )) \
+        .then(all_of(
+            _it_says(the_alert_that_opened_it),
+            _it_does_not_say(*the_entries_the_check_found)
+        ))
+
+
 def _it_says(expected: str) -> Assertion[str]:
     def assertion(described_as: str) -> bool:
         if expected not in described_as:
             raise AssertionError(f"Expected [{expected}] within [{described_as}].")
+
+        return True
+
+    return assertion
+
+
+def _it_does_not_say(*forbidden: str) -> Assertion[str]:
+    """Words the description must not carry into the embedder.
+
+    Several at once rather than one assertion each: the claim is that none of
+    them is there, and a run of separate assertions would stop at the first -
+    reporting one leaked address for a description carrying two.
+    """
+    def assertion(described_as: str) -> bool:
+        said = [word for word in forbidden if word in described_as]
+
+        if said:
+            raise AssertionError(
+                f"Expected {said} to be absent from [{described_as}]."
+            )
 
         return True
 

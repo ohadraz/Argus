@@ -75,6 +75,12 @@ ANCHOR_SUFFIX: Final = ".anchor"
 # repository served it, and the two are a copy of each other that can drift.
 THE_LARGE_MODULE: Final = "src/io_shop/monthly_statement.py"
 
+# Where the shop's summary cache answers, as `deploy/values-production.yaml`
+# names it. The address a conclusion about a promoted stale replica has to name,
+# and the subject that conclusion is filed under - not the shop, which is
+# serving every request correctly from a copy nobody told anything.
+THE_PROMOTED_CACHE: Final = "cache.io-shop.svc.cluster.local"
+
 # The fault, and the repair. A rehearsal does not need a *good* fix - what is
 # being exercised is the size of the answer and the path it travels - but it
 # does need a plausible one, because an answer full of nonsense would make every
@@ -280,6 +286,114 @@ def _a_failing_internal_dependency(was: dict[str, Any]) -> dict[str, Any]:
                                     "claim": (
                                         "the deploy history is empty over the "
                                         "whole window, so nothing was released"
+                                    )
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
+def _a_cache_serving_figures_the_ledger_moved_past(
+    was: dict[str, Any]
+) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by a conclusion about a stale copy.
+
+    Borrowed from the blind spot's walk, and that choice is what makes the set
+    replayable rather than merely plausible. Both incidents are paged by the
+    shop's own monitoring rather than by a rule on a series, both are dated by a
+    minute the alert states rather than one the loop measured, and both end
+    `MITIGATED` with an action taken, a verdict reached and Code-Fix asked
+    afterwards. So the borrowed walk makes the same model calls in the same
+    order, which is the only thing a queue seeded by name can be right about.
+
+    Not borrowed from `both-silent-data-corruption`, which is the nearer world
+    and the wrong shape: that walk ends `RECOMMENDED`, so the gate refuses its
+    action and `route_after_mitigation` sends it to the escalation rather than to
+    Code-Fix. Its queue therefore holds no answer for a fix, and a walk that got
+    as far as asking for one would find the double dry - a failure that reads as
+    an agent bug rather than as a borrow that was never going to work.
+
+    Nothing but the mode is load-bearing in what this writes. The discard is
+    addressed by the keys the alert carried and aimed at the service it named, so
+    `DiscardCacheEntriesStrategy` reads neither the hypothesis nor the recorded
+    flag changes - which is the whole reason a fabricated conclusion can drive
+    this plumbing honestly. The summary and the evidence are here to stop a later
+    reading of this run becoming an argument about nonsense, not because anything
+    consumes them.
+
+    The subject is the cache rather than the shop. It is prose the model wrote
+    about the fault, and the fault is not the shop - which is serving every
+    request correctly from a copy that stopped being told things. What the per-
+    subject cap counts is the *action's* subject, which is the service the alert
+    named, so the two do not have to agree and should not.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.81,
+                            "failure_mode": "state-divergence",
+                            "subject": THE_PROMOTED_CACHE,
+                            "summary": (
+                                f"Nothing is failing and nothing is slow - every "
+                                f"series the monitoring watches is flat across "
+                                f"the whole window, which is why no rule fired "
+                                f"and the shop's own data check is what paged. "
+                                f"What the check found is that the summary cache "
+                                f"holds spend figures the purchases behind them "
+                                f"have moved past. The shop's log records it "
+                                f"reconnecting to a new primary for "
+                                f"{THE_PROMOTED_CACHE}, which is a promotion: "
+                                f"the standby that took over had stopped being "
+                                f"replicated to some hours earlier, so it is "
+                                f"serving whatever it last managed to copy. The "
+                                f"ledger is intact and was never written wrongly "
+                                f"- only the copy in front of it is behind."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": "2026-09-30T21:10:00Z",
+                                    "claim": (
+                                        "the shop's data check reports stored "
+                                        "summary figures disagreeing with the "
+                                        "purchases they were derived from, with "
+                                        "each disagreeing entry named"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-30T21:10:00Z",
+                                    "claim": (
+                                        f"INFO io-shop: summary cache "
+                                        f"reconnected to a new primary at "
+                                        f"{THE_PROMOTED_CACHE}"
+                                    )
+                                },
+                                {
+                                    "at": "2026-09-30T21:10:00Z",
+                                    "claim": (
+                                        "error rate, p50, p95, p99, heap and "
+                                        "replica count are unmoved over the "
+                                        "whole window - nothing a monitor "
+                                        "watches departed at any minute"
                                     )
                                 }
                             ]
@@ -824,7 +938,15 @@ _THE_ANSWER_THAT_HAS_TO_DIFFER: Final[
     # `both` alone, for the reason above it: the case that replays this is
     # collected in that mode only.
     "both-control-plane-unreachable": (THE_TOOL_THAT_ANSWERS,
-                                       _a_deployment_ranked_above_a_flag)
+                                       _a_deployment_ranked_above_a_flag),
+    # `both` alone, and here the reason is the opposite of the four above it.
+    # Those are collected in that mode only because nothing about their claim
+    # varies by which tool found a file. This one is *excluded* from `meaning`
+    # only, and will be recorded under `grep` as well - so the day that happens
+    # a `grep-` set becomes worth fabricating too. Until then `both` is the mode
+    # anybody runs, so it is the mode worth rehearsing.
+    "both-cache-failed-over": (THE_TOOL_THAT_ANSWERS,
+                               _a_cache_serving_figures_the_ledger_moved_past)
 }
 
 

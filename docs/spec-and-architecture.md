@@ -146,7 +146,7 @@ Runs the ReAct loop (§9, §8). Tools: the six retrieval channels of §16 - metr
 
 ### 7.3 Mitigation agent
 
-Takes a confirmed/high-confidence hypothesis and proposes a generic mitigation: revert a flag, restart a service, return an application to the revision it was running before, scale a deployment out, or hold one still by raising its autoscaler's floor to the ceiling somebody declared for it - all from `argus-write-mcp` (§12.1). The last is aimed at a controller rather than at a state, which is what separates it from the four above: a deployment whose size a controller keeps re-deciding cannot be mitigated by setting that size, because the count Argus writes is re-derived within a sync period. Which mitigation answers which cause is a fact about Argus rather than a judgement made per incident, so it is a lookup from the named failure mode and nothing else; whether Argus may then take it unasked is a different question, asked of the declared set by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
+Takes a confirmed/high-confidence hypothesis and proposes a generic mitigation: revert a flag, restart a service, return an application to the revision it was running before, scale a deployment out, hold one still by raising its autoscaler's floor to the ceiling somebody declared for it, or discard the cached entries the evidence named - all from `argus-write-mcp` (§12.1). The autoscaler pin is aimed at a controller rather than at a state, which is what separates it from the three before it: a deployment whose size a controller keeps re-deciding cannot be mitigated by setting that size, because the count Argus writes is re-derived within a sync period. The discard is the only one addressed by something no agent could work out: an entry in a store is reached by a key, a key's format belongs to whoever wrote the store, so the addresses come from the evidence that found them and Argus composes none. Which mitigation answers which cause is a fact about Argus rather than a judgement made per incident, so it is a lookup from the named failure mode and nothing else; whether Argus may then take it unasked is a different question, asked of the declared set by the Orchestrator's gate node (§13). Afterward it re-queries the same metrics/logs and returns a `confirmed`/`refuted` verdict; the Orchestrator writes the resulting `ACTION.outcome` and `HYPOTHESIS` update (§7.1).
 
 The lookup is many-to-one, and the two deployment modes are where that shows. A revision carries the code and the configuration it shipped with, so the platform's rollback is one operation over both: a value deployed into a broken state and new code that broke it are answered by the same action. They remain two modes because a mode classifies what broke rather than what is done about it - what separates them is the account the incident gives and the fix left afterwards, a values file for one and the service's source for the other.
 
@@ -612,7 +612,7 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 | Server | Exposes |
 |---|---|
 | `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window)` - Prometheus range query; `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); flag evaluation against the flag provider's evaluation API; Slack channel/thread reads; `search_repository_by_meaning(description)` - nearest passages of the Target Service's source from the repository index (§11.5), each with its path and line span, prefixed with a notice where the index is behind the deployed commit; `get_repository_index_freshness(ref)` - the same fact before anything has been asked for, so a prompt can carry it rather than a model learning it from a result it has already acted on |
-| `argus-write-mcp` | Unleash admin toggle + revert (Mitigation); `restart_service` (Mitigation), which asks the deployment platform to roll the workload and returns only once a new process is serving; `roll_back_deployment` and `restore_deployment` (Mitigation), which return an application to the revision it was running before and put both of that change's halves back; `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**. An upstream dependency's outage has no entry here and is the one named cause nothing in the declared set answers: every mitigation acts on Argus's own deployment, and another company's outage is reachable by none of them - so that incident is diagnosed exactly and handed to a person |
+| `argus-write-mcp` | Unleash admin toggle + revert (Mitigation); `restart_service` (Mitigation), which asks the deployment platform to roll the workload and returns only once a new process is serving; `roll_back_deployment` and `restore_deployment` (Mitigation), which return an application to the revision it was running before and put both of that change's halves back; `scale_out` (Mitigation), which adds replicas to a deployment sized for less traffic than it is getting; `pin_autoscaler` (Mitigation), which holds a flapping deployment still by raising its autoscaler's floor to the ceiling somebody already declared for it, and so is aimed at the controller rather than at the count the controller keeps re-deciding; `discard_cache_entries` (Mitigation), which is the one write that reaches a datastore rather than a control plane - it names the entries it is given, removes them from the store itself, and answers with how many it removed, which is what settles the attempt (§13); `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**. An upstream dependency's outage has no entry here and is the one named cause nothing in the declared set answers: every mitigation acts on Argus's own deployment, and another company's outage is reachable by none of them - so that incident is diagnosed exactly and handed to a person |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
 
@@ -669,6 +669,24 @@ rollout was stopped half-way, and what stops it being re-applied is the
 platform's own reconciliation staying suspended. Writing to the repository
 instead would be an infrastructure change, which is a tier up and a human's to
 approve.
+
+Discarding cached entries is in the set on the same criterion, and it is the
+member most likely to be mistaken for a weakening of it. Removing data sounds
+heavier than putting a value back and is not: what is discarded was derived
+from records the action never touches, the service recomputes it on the next
+read, and what is gone cannot be stale. Nothing is lost, so there is no undo
+descriptor and no field for one - not because the tier cannot work out what to
+put back, as with a rollback, but because writing the stale figures in again
+would be recreating the incident. That is a third thing an absent descriptor
+can mean, beside a kind that changed nothing and a change nobody accounted
+for, and the three are told apart by the kind rather than by the absence
+(§7.3).
+
+It is also the first mitigation that reaches a datastore rather than a control
+plane. The write goes to the store itself, where every other action asks a
+platform to change something and the platform changes it - which makes the
+store a third thing that can fail to answer, and one more set of actions a
+walk can find unreachable all at once.
 
 **Rolling a stopped rollout *forward* is not in the set, and the reason is the
 one place reversibility does decide something.** Completing a rollout would also
@@ -746,12 +764,44 @@ still has readings has already shown its answer, and one with none has a return
 to look forward to. That is two inferences from facts about the incident, not a
 policy with a knob, and no failure mode is named in either.
 
+**An action whose own answer states what it changed is confirmed by that
+answer, and the refusal above does not reach it.** Both inferences are about
+the one thing that could speak afterwards being the service's own window. Some
+kinds of action do not depend on it: a store asked to discard named entries
+replies with how many it removed, and that reply is the whole of what the
+incident was - the figures are gone, and no window is needed to say so. The
+question is asked of the kind, before anything has been performed, because the
+gate decides whether a confirmation could ever arrive while there is still no
+answer to inspect.
+
+This is a third way a mitigation is confirmed, beside a level falling and a
+reading existing, and it is the only one that does not wait for the service to
+answer for the action. It still reads the window once, and has to: what keeps
+it from being a loophole is the sibling question asked of that read, whether
+the window holds a departure to have recovered *from*. "It never got worse"
+and "it got better" are the same sentence to anything that only measures
+levels, so a rule reading a flat window as recovery would confirm every action
+ever taken on a well service. A receipt answers for the action; the window
+still answers for whether there was anything to answer for.
+
+An empty window answers that question; a channel that will not answer does
+not. Absent minutes are the ordinary condition of the incidents this rule
+exists for, and the receipt settles those - where a read *fails*, nothing has
+been measured either way, and the verification is left where every unanswered
+read leaves it: polling until the time runs out, and asking a person if it
+never answers. So the receipt is read after the window rather than instead of
+it, and a kind that answers for itself is spared the wait and not the look.
+
 The coverage fact travels with the findings, because the node that investigates
 is the only one holding both the onset and the window, and the node that decides
 holds neither. Re-deriving it at the gate would mean re-reading a channel whose
 answer has already been paid for, and a gate whose judgement depended on a
 second read is one that can reach a different verdict from the evidence the
 incident was actually built on.
+
+So the refusal binds where the service's window is the only witness there is,
+which is every kind but one. It is read off the evidence, not off a list of
+modes, and an action that answers for itself simply never reaches it.
 
 This refusal alone ends the mitigation phase rather than reaching for the next
 candidate. The other five reject a particular action and leave the rest of the
@@ -766,10 +816,11 @@ thing anybody gets.
 
 **An action Argus may take unasked is one it can reach the platform for, and a
 platform that is not answering removes every action through it rather than one
-at a time.** Four of the five generic mitigations reach the estate through the
-deployment platform and one through the flag provider, so which platform an
-action acts through is a property of its kind - held beside the kind, and
-therefore answerable about candidates nothing has attempted. A tool reporting
+at a time.** Four of the six generic mitigations reach the estate through the
+deployment platform, one through the flag provider and one through the
+datastore it discards from, so which platform an action acts through is a
+property of its kind - held beside the kind, and therefore answerable about
+candidates nothing has attempted. A tool reporting
 that the platform it acts through was not there to receive the request is
 reporting something about every other action sharing that platform, and the walk
 passes those over rather than spending a verification window each to establish
@@ -959,6 +1010,12 @@ The margin such a rule would need is not missed, because it is already spent whe
 **No minute at all after an action is not recovery either, and it is a different state from the one above.** Minutes that are present and have not come back say the service has not answered; no minutes at all say nobody heard it. Both refuse to confirm, and only the second can be the incident itself - so where an incident *is* the service being unreadable, the two must not collapse into one answer. Recovery there is the readings **returning**, judged as that rather than inferred from the absence of a departure: a window that has come back and shows nothing unusual confirms a mitigation because the sight is what was mitigated, and it must not be read as a well service having recovered from something. The distinction is whether the window carries any reading since the minute the incident is dated from, which for an unreadable service is the minute the readings stopped - so the verification measures it on the window it re-read itself, and the only thing it inherits is the date.
 
 **What returning restores is the sight, and never the minutes that were missed.** Nothing retains a reading that was never published, so an incident of this kind ends with a stretch of the past that no channel can account for and no later action can recover. A confirmed mitigation here means *the service can be seen again*, not *the service can be seen to have been well*, and the write-up says which - an account that let the second be read from the first would claim evidence for minutes nobody holds any.
+
+**Some actions are judged by their own answer rather than by the window, and the window is asked one thing before that answer is read: whether anything in it departed.** A store told to discard named entries reports how many it removed, and that count is the fact the incident consisted of - there is nothing to watch come back, because nothing ever went away in a series. Whether a kind answers for itself is a property of the kind, settled before the action is taken, so it is never inferred from whatever the action happened to return.
+
+**A departure is the only thing about the window that withholds a receipt** - and in particular not whether the minutes were published at all. Flat series and no series are one state as far as a receipt is concerned: either way no level went anywhere, so none can come back, and a count of what is gone from the store is the only evidence there will ever be. The two have to be one state, because an incident that moves no series is also an incident nothing publishes minutes about: a rule that read an unreadable stretch as disagreement would withhold the receipt exactly where it is the only confirmation available, and for a service that is fully observed. Where a series *did* depart the receipt settles nothing, and the action is judged on levels like any other - a discard that left the service failing is an explanation the evidence has not borne out.
+
+**The window still decides whether there was anything to judge.** Before a recovery is asked about at all, the question is whether the window holds a departure to have recovered *from* - the same run-of-departed-minutes test the onset uses, asked of the whole window rather than of a moment. Where it holds none, a rule that only measures levels answers "recovered" to every minute, because nothing is above a level nothing reached; an action would then be confirmed by a service that was well before it and well after it. So a flat window confirms nothing on its own, and an action with no receipt taken on one is refuted rather than credited: no level departed, so none can come back, and nothing the action did says otherwise. That refutation is for a window that was published and never moved. A stretch nobody could read holds no departure for the same reason it holds no readings, and refuting it would refuse the one incident whose window is legitimately empty a pass before its rows return and confirm it - so the readings-returning rule above is what answers that incident, and this one never reaches it. This is the same fact §13 reads before the action is taken; it is asked again here because the gate decides whether to act and this decides what the acting proved.
 
 Two questions are asked about recovery, and they are different questions rather than one asked twice. Mitigation asks whether the service has recovered since it acted (§7.3), which is a judgement on an action and is bounded at that action - a relapse after it refutes it. The write-up asks which minute the service came back at (§21.3), which is a fact about the service and is true whenever it happened. They share a rule, and sharing it is worth doing because two spellings of one judgement would drift apart, but it is not what keeps their answers consistent.
 

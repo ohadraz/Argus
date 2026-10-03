@@ -272,6 +272,79 @@ def test_the_mode_whose_cause_lands_after_its_own_onset_says_so() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_the_two_stores_that_can_disagree_say_which_one_is_wrong() -> None:
+    # The ninth pair, and the one whose alert is nearly the same sentence. Both
+    # are found by a reconciliation the shop runs on itself rather than by any
+    # rule watching a graph, both report figures that disagree with the
+    # purchases behind them, and no series moves in either.
+    #
+    # What separates them is which store is lying. In one the record itself is
+    # wrong and nothing Argus can do reaches it; in the other the record is
+    # right and a copy of it is stale, so discarding the copy is the whole
+    # answer. The two wrong readings are the opposite mistakes: declining an
+    # action that would have worked, or taking one that repairs nothing.
+    Scenario() \
+        .given(the_pair := (
+            FailureMode.SILENT_DATA_CORRUPTION,
+            FailureMode.STATE_DIVERGENCE
+        )) \
+        .when(lambda: the_pair) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_which_store_is_wrong()
+        ))
+
+
+@pytest.mark.unit
+def test_the_two_ways_one_cache_can_disagree_say_what_separates_them() -> None:
+    # The tenth pair, and the first to share a store rather than a channel.
+    # Both are two views of one cache disagreeing while the service's own code
+    # is blameless, and both leave every quantile flat.
+    #
+    # What separates them is whether the request survives. A stored shape no
+    # reader can parse fails the page and steps the error rate; a figure that is
+    # only out of date is served successfully and moves nothing. So a model
+    # holding "the cache and the ledger disagree" has to be told which of the
+    # two it has, because one is answered by converging the fleet and the other
+    # by discarding entries - and neither action helps the other's incident.
+    Scenario() \
+        .given(the_pair := (
+            FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK,
+            FailureMode.STATE_DIVERGENCE
+        )) \
+        .when(lambda: the_pair) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_whether_the_request_succeeds()
+        ))
+
+
+@pytest.mark.unit
+def test_the_mode_whose_evidence_carries_two_onsets_says_which_is_which() -> None:
+    # The one mode whose evidence holds two times that both look like an onset,
+    # hours apart: the minute a copy stopped keeping up, and the minute that
+    # copy became the one being read. Only the second is the incident, because
+    # until then every page was correct.
+    #
+    # Both halves are asserted, and the second is not redundant. A model told
+    # only which date to avoid has been given a prohibition rather than a
+    # reading - the older time is the one thing saying this drifted unnoticed
+    # for hours before it mattered, which is what the account of the incident is
+    # about.
+    #
+    # Asserted on the one meaning rather than on a pair, as the blind spot's own
+    # reading trap is: this is about how to read evidence the model will
+    # certainly have, not about which of two modes to name.
+    Scenario() \
+        .given(the_divergence := FailureMode.STATE_DIVERGENCE) \
+        .when(lambda: the_divergence.meaning()) \
+        .then(all_of(
+            _it_says_the_onset_is_when_the_copy_began_being_served(),
+            _it_says_the_older_date_is_when_the_copy_fell_behind()
+        ))
+
+
 class _Meaning:
     """The assertions about one mode's meaning, which all need to name it.
 
@@ -661,6 +734,130 @@ def _it_says_the_service_staying_well_is_the_mode() -> Assertion[str]:
                 "service going on serving correctly across the change is not "
                 "evidence against that change, so the model clears the cause "
                 "with the rule every other mode taught it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_which_store_is_wrong() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to say which store is the one lying.
+
+    Naming the other mode is not enough, and here the two arrive in nearly the
+    same sentence: both are found by the shop's own reconciliation, both report
+    figures that disagree with the purchases behind them, and no series speaks
+    for either.
+
+    What separates them is which store holds the wrong value. Where the store of
+    record is itself wrong, nothing Argus can do repairs it; where the record is
+    right and a copy of it has gone stale, discarding the copy is the whole
+    answer. So a meaning that does not say which of the two it is about leaves
+    the model choosing between declining an action that would have worked and
+    taking one that repairs nothing - the two opposite mistakes this family
+    affords.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "of record" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without saying whether the store of record is the wrong one or "
+                f"a copy of it is - so the model is told there is a distinction "
+                f"and not that one of the pair ends by discarding something."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_whether_the_request_succeeds() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to say whether the request survives the disagreement.
+
+    Naming the other mode is not enough, and this is the pair that shares a
+    store rather than a channel: in both, two views of one cache disagree, and
+    in both the service's own code is blameless.
+
+    What separates them is whether the page is served. A stored shape no reader
+    can parse fails the request, and the error rate steps where a monitor can
+    see it; a figure that is merely out of date is served successfully and moves
+    nothing at all. So a meaning that does not say which leaves the model
+    choosing between converging a fleet and discarding entries on evidence that
+    reads, from a distance, identically.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "succeed" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without saying whether the requests that read the disagreeing "
+                f"values succeed or fail - so the model is left to judge between "
+                f"a page that breaks and a page that lies."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_onset_is_when_the_copy_began_being_served() -> Assertion[str]:
+    """The meaning has to say which of its two times the onset is.
+
+    The only mode whose evidence carries two moments that both look like an
+    onset, hours apart: the minute a copy stopped keeping up, and the minute
+    that copy became the one being read. Customers saw nothing wrong until the
+    second, so the second is the incident.
+
+    Left unsaid, the model takes the older one, because every other mode in the
+    taxonomy teaches it to date an incident from the oldest record a finding
+    reports as wrong - and silent data corruption says so in as many words. It
+    would then look for a cause in minutes when the shop was serving correctly.
+    """
+    def assertion(meaning: str) -> bool:
+        if "began being served" not in meaning:
+            raise AssertionError(
+                "The meaning of [state-divergence] never says the onset is when "
+                "the stale copy began being served, so a model dating it from "
+                "the oldest wrong record - which every other mode taught it to "
+                "do - puts the onset hours before anybody could have seen it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_older_date_is_when_the_copy_fell_behind() -> Assertion[str]:
+    """The meaning has to say what the older time is, not only that it is not the onset.
+
+    The other half of the same trap. A model told "do not use the oldest wrong
+    record" and nothing else has been given a prohibition rather than a reading:
+    the older time is still evidence, and it is the best evidence there is for
+    how long the copy had been drifting unnoticed.
+
+    So the meaning has to name it as the lag rather than discard it, because a
+    reader who drops it loses the one thing that says this went unseen for hours
+    before it mattered - which is what the account of the incident is about.
+    """
+    def assertion(meaning: str) -> bool:
+        if "fell behind" not in meaning:
+            raise AssertionError(
+                "The meaning of [state-divergence] never says the older of its "
+                "two times is when the copy fell behind, so a model is told "
+                "which date not to use and not what that date is evidence of."
             )
 
         return True

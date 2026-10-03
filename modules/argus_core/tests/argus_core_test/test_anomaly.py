@@ -8,6 +8,7 @@ from argus_core.anomaly import (
     earliest_bucket_is_anomalous,
     find_onset,
     find_recovery,
+    has_a_departure_in_it,
     has_a_reading_since,
     has_recovered_since,
     minutes_a_recovery_must_hold,
@@ -1608,6 +1609,147 @@ def _the_two_silences_are_not_one() -> Assertion[dict[str, bool]]:
                 f"having a reading since it, so a mitigation nobody measured would "
                 f"be refuted on the evidence of a window that never covered it: "
                 f"{answers}."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_a_window_that_never_departed_has_no_incident_in_it() -> None:
+    # The state the recovery question answers wrongly rather than cannot express.
+    # Asked of a flat window, `has_recovered_since` says every minute recovered -
+    # which is true of the minutes and false about the world, because there is no
+    # incident in this window for any of them to have recovered from.
+    some_window = a_window_of([CALM_ERROR_RATE] * CALM_MINUTES)
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_a_departure_in_it(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_holding_a_sustained_departure_has_an_incident_in_it() -> None:
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + [some_degradation_rate] * 3
+    )
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_a_departure_in_it(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
+
+
+@pytest.mark.unit
+def test_one_departed_minute_is_not_an_incident_to_have_recovered_from() -> None:
+    # The same bar `find_onset` holds, and held here for the same reason: an
+    # incident is a state the service stays in, and a single minute that departs
+    # has by the next one already come back. Two rules disagreeing about what an
+    # incident is would leave a caller told there is one to judge and an onset
+    # finder that never found it.
+    some_steady_rate = 0.01
+    some_noisy_minute = some_steady_rate * 30
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + [some_noisy_minute, some_steady_rate]
+    )
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: has_a_departure_in_it(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_with_no_minutes_in_it_has_no_incident_in_it() -> None:
+    no_window: list[MetricBucket] = []
+
+    Scenario() \
+        .given(
+            no_window
+        ) \
+        .when(
+            lambda: has_a_departure_in_it(no_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_answer_is(False)
+        )
+
+
+@pytest.mark.unit
+def test_a_flat_window_recovers_from_an_incident_it_never_had() -> None:
+    # The whole reason this question exists, and the defect it closes. A window
+    # that never departed answers "yes, recovered" - correctly, about its own
+    # minutes - and a caller reading that alone confirms whatever was just done
+    # on the strength of a window that was never evidence of anything. Asked both
+    # questions, the caller can tell a service that got better from one that was
+    # never measurably ill.
+    some_window = a_window_of([CALM_ERROR_RATE] * CALM_MINUTES)
+    the_action = some_window[-2].bucket_id
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: {
+                "recovered": has_recovered_since(
+                    some_window, the_action, SOME_THRESHOLDS
+                ),
+                "had an incident": has_a_departure_in_it(
+                    some_window, SOME_THRESHOLDS
+                )
+            }
+        ) \
+        .then(
+            _a_recovery_from_nothing_is_visible_as_one()
+        )
+
+
+def _a_recovery_from_nothing_is_visible_as_one() -> Assertion[dict[str, bool]]:
+    """A flat window reports recovery, and reports having nothing to recover from.
+
+    Asserted together rather than as two tests, because the claim is a
+    difference: the first half alone is satisfied by the behaviour this exists to
+    make safe, and the second half alone says nothing about why anybody asked.
+    """
+    def assertion(answers: dict[str, bool]) -> bool:
+        if not answers["recovered"]:
+            raise AssertionError(
+                f"A window with no departure in it was reported as not recovered, "
+                f"so the predicate's own documented answer has changed and the "
+                f"caller this test protects no longer has the problem it protects "
+                f"against: {answers}."
+            )
+
+        if answers["had an incident"]:
+            raise AssertionError(
+                f"A window that never left its baseline was reported as holding an "
+                f"incident, so a caller asking both questions still cannot tell a "
+                f"service that recovered from one that was never measurably ill - "
+                f"and an action taken against a stated onset would be confirmed by "
+                f"a window that is no evidence at all: {answers}."
             )
 
         return True

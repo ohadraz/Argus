@@ -205,6 +205,18 @@ def _when_it_came_back(conn: psycopg.Connection,
 
 
 def _what_was_alerted(alert_payload: dict[str, object]) -> str:
+    """The alert in a line, for the postmortem's prompt.
+
+    Two fields by name, and the naming is the safeguard rather than the
+    brevity. `alert_payload` is a whole serialised `Alert`, so it holds
+    `stale_entry_keys` as well - the addresses of the cache entries a
+    reconciliation found stale. Those are an address rather than a
+    description: the model is told how many entries disagree and by how much,
+    which is what it reasons about, and never where they live. A line here
+    that rendered more of this dict would put hundreds of keys into a prompt
+    without anything complaining, which is why the two are picked out by hand
+    and not the ones left over from a loop.
+    """
     return f"{alert_payload.get('alert_name')} on {alert_payload.get('service')}"
 
 

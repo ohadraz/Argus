@@ -103,6 +103,7 @@ class UndoAttempt(BaseModel):
 def propose_action(hypothesis: Hypothesis,
                    flag_changes: Sequence[FlagChange],
                    service: str,
+                   stale_entry_keys: Sequence[str] = (),
                    strategies: Strategies = DEFAULT_STRATEGIES) -> Action | None:
     """The action that answers `hypothesis`, or `None` where none does
     (spec §7.3).
@@ -127,6 +128,13 @@ def propose_action(hypothesis: Hypothesis,
     everything a cause can be answered with, rather than reaching back for the
     parts it happens to need.
 
+    `stale_entry_keys` arrives the same way and for the same reason, and it is
+    the one input here that is an address rather than a description. A cache key
+    belongs to whoever wrote the cache, so nothing in Argus composes one - it is
+    carried from the evidence that named it to the action that acts on it, as a
+    value, and never through a model's conclusion. Defaulted to nothing, because
+    every mode but one is answered without it.
+
     `strategies` is a parameter so a caller can ask what a different set of
     them would propose. The default is the real registry rather than nothing,
     because proposing is policy: a caller that had to supply the policy in
@@ -140,4 +148,6 @@ def propose_action(hypothesis: Hypothesis,
     if strategy is None:
         return None
 
-    return strategy.propose(hypothesis, flag_changes, service)
+    return strategy.propose(
+        hypothesis, flag_changes, service=service, stale_entry_keys=stale_entry_keys
+    )

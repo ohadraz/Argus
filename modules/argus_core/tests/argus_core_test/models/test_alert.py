@@ -26,7 +26,9 @@ def test_an_alert_that_said_no_more_than_it_had_to_assumes_nothing() -> None:
             lambda: Alert(service=some_service, alert_name=some_alert_name)
         ) \
         .then(
-            _nothing_was_assumed_about("severity", "summary")
+            _nothing_was_assumed_about(
+                "severity", "summary", "stale_entry_keys", "stale_entries_found"
+            )
         )
 
 
@@ -48,6 +50,73 @@ def test_an_alert_naming_no_service_is_refused() -> None:
         )
 
 
+@pytest.mark.unit
+def test_an_alert_whose_key_list_is_shorter_than_its_own_count_is_refused() -> None:
+    # The one failure a payload of exact strings actually has. A list of
+    # addresses can be truncated by anything between the check and here - a
+    # serialiser's limit, a log line's width, a field somebody capped - and the
+    # result is not malformed. It is a shorter list of real keys, which reads as
+    # a smaller incident and is acted on as one, leaving entries nobody will look
+    # at again until the next scheduled check.
+    #
+    # Nothing downstream can catch it, which is why the count is carried beside
+    # the keys at all: the two fields say the same thing twice so that they can
+    # be made to disagree.
+    Scenario() \
+        .given(
+            some_service := "checkout",
+            some_alert_name := "CachedFiguresAreStale",
+            two_keys := ("io:summary:s-0001", "io:summary:s-0002")
+        ) \
+        .when(
+            attempting(
+                lambda: Alert(
+                    service=some_service,
+                    alert_name=some_alert_name,
+                    stale_entry_keys=two_keys,
+                    stale_entries_found=len(two_keys) + 1
+                )
+            )
+        ) \
+        .then(
+            an_error_was_raised(ValidationError)
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_carrying_stale_keys_keeps_every_one_of_them_in_order() -> None:
+    # The keys are the only thing in an alert that is an address rather than a
+    # description, and Argus must compose none of them: the format belongs to
+    # whoever wrote the cache, and a consumer that derived a key would be a
+    # consumer holding another service's internals. So they are carried
+    # verbatim, and this is the only place that can say they were.
+    #
+    # Deliberately not a set. Two keys arriving in the order the check found them
+    # is what lets an action be sent one call for all of them, and a collection
+    # that reordered or collapsed them would be a different set of entries
+    # wearing the same count.
+    Scenario() \
+        .given(
+            some_service := "checkout",
+            some_alert_name := "CachedFiguresAreStale",
+            the_keys := (
+                "io:summary:s-0007", "io:summary:s-0002", "io:summary:s-0007"
+            )
+        ) \
+        .when(
+            lambda: Alert(
+                service=some_service,
+                alert_name=some_alert_name,
+                stale_entry_keys=the_keys,
+                stated_onset=None,
+                stale_entries_found=len(the_keys)
+            )
+        ) \
+        .then(
+            _the_keys_came_back(the_keys)
+        )
+
+
 def _nothing_was_assumed_about(*fields: str) -> Assertion[Alert]:
     """That each named field came back `None` rather than filled in.
 
@@ -61,6 +130,28 @@ def _nothing_was_assumed_about(*fields: str) -> Assertion[Alert]:
 
         if filled:
             raise AssertionError(f"Expected nothing assumed, got {filled}.")
+
+        return True
+
+    return assertion
+
+
+def _the_keys_came_back(expected: tuple[str, ...]) -> Assertion[Alert]:
+    """That the keys arrived exactly as sent - same keys, same order, all of them.
+
+    Identity rather than membership, and it is the point of the field. These are
+    addresses an action will be sent to and nothing downstream can check one: a
+    list that arrived sorted, de-duplicated or shortened is still a list of
+    plausible keys, and the only place the mistake is visible is here.
+    """
+    def assertion(alert: Alert) -> bool:
+        if alert.stale_entry_keys != expected:
+            raise AssertionError(
+                f"Expected the keys {expected} exactly, got "
+                f"{alert.stale_entry_keys} - these are addresses to be acted on, "
+                f"so a list that came back reordered or short is a different set "
+                f"of entries from the one the check found."
+            )
 
         return True
 

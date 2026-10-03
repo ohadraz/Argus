@@ -6,6 +6,10 @@ dependencies = [
     "argus-argus_core",
     "httpx",
     "mcp>=1.29.0",
+    # The store the cache lives in, for the one action that reaches a datastore
+    # rather than a control plane. Without `hiredis`: that extra is a compiled
+    # wheel, and Smart App Control on this machine has refused those before.
+    "redis>=5.0",
 ]
 
 [dependency-groups]

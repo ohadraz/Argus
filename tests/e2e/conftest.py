@@ -8,6 +8,7 @@ import pytest
 from argus_core import connect_from_env, get_settings
 from argus_incidents.repository import incidents
 from argus_incidents.repository.runs import RunState
+from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from psycopg import sql
 from qdrant_client import QdrantClient
 
@@ -83,6 +84,13 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
 
     - the Target Service's scenario is reset, which ends whatever condition it
       was staging and has the last word on the flags it owns;
+    - the repository double is put back to one branch holding the fixture, with
+      nothing proposed and nothing staged. It is the one party here that is not
+      Argus and not the Target Environment, and it accumulates three kinds of
+      thing: the branches a fix wrote, the pull requests it opened, and the
+      commits a case staged to give a comparison two ends. A case reading "was
+      a fix proposed" would otherwise be answered by every earlier case's
+      proposals as well as its own;
     - both boot flags are put back where the stack starts them. Healthy is not
       the same state for the two of them, so this restores each to its own -
       switching everything off would leave the kill switch withdrawn and the
@@ -107,6 +115,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     _every_table_was_emptied()
     _long_term_memory_was_forgotten()
     _the_target_service_scenario_was_reset()
+    _the_repository_double_was_put_back()
 
     the_boot_flags_were_put_back()
     only_the_boot_flags_were_left_in_the_provider()
@@ -268,6 +277,13 @@ def _long_term_memory_was_forgotten() -> None:
         store.delete_collection(settings.incident_memory_collection)
     finally:
         store.close()
+
+
+def _the_repository_double_was_put_back() -> None:
+    httpx.post(
+        f"{GITHUB_DOUBLE_BASE_URL}/double-control/reset",
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
 
 
 def _the_target_service_scenario_was_reset() -> None:

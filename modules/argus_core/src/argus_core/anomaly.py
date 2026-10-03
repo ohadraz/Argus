@@ -303,6 +303,46 @@ def has_recovered_since(buckets: Sequence[MetricBucket],
     )
 
 
+def has_a_departure_in_it(buckets: Sequence[MetricBucket],
+                          thresholds: AnomalyThresholds) -> bool:
+    """Whether this window holds an incident for a recovery to be measured against.
+
+    The third question asked of one window, and the one that keeps the first from
+    answering about a world it has no evidence of. `has_recovered_since` reports
+    every minute of a flat window as recovered, which is true of the minutes and
+    says nothing about whether anything was ever wrong - so a caller reading it
+    alone confirms whatever was just done on the strength of a window that was
+    never evidence of anything.
+
+    A sibling asked first rather than a wider answer from that one, which is the
+    shape this module already chose for the same class of defect: `has_a_reading_since`
+    exists because a `False` from the recovery question covered a service nobody
+    watched and a service that has not come back. One mechanism applied twice is
+    worth more than two mechanisms for one problem.
+
+    Takes no moment, and that absence is the design rather than an omission. The
+    natural reading of a moment here would be "a departure *before* it", and that
+    is a state the module deliberately supports: `_the_incidents_own_level` falls
+    back to every departed minute in the window precisely because an action can
+    land at or before the first departed minute, and a flapping capacity asked from
+    every minute in turn does exactly that. A predicate answering `False` there
+    would stop a caller judging a window that plainly holds an incident. What a
+    caller needs to know is whether *this window* holds one, which is a question
+    about the window and not about the action dividing it.
+
+    The same bar `find_onset` holds, by using it rather than by a comment
+    promising the bars match. A single departed minute is not an incident - it has,
+    by the next minute, already come back - and two rules disagreeing about that
+    would leave a caller told there is something to judge and an onset finder that
+    never found it.
+
+    It knows nothing about how an incident was dated or what was done about it.
+    Both belong to the layers above a metrics rule, and a predicate taught either
+    would be this module reaching into them.
+    """
+    return find_onset(buckets, thresholds) is not None
+
+
 def has_a_reading_since(buckets: Sequence[MetricBucket], moment: str) -> bool:
     """Whether any minute at or after `moment` was read at all.
 

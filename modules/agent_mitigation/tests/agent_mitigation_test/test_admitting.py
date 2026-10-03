@@ -31,12 +31,14 @@ from agent_mitigation import (
     is_within_reach,
 )
 from argus_core.models import (
+    DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     ActionType,
+    DiscardCacheEntries,
     Ownership,
     PinAutoscaler,
     RestartService,
@@ -74,6 +76,23 @@ def test_pinning_an_autoscaler_may_be_taken_unasked() -> None:
 
 
 @pytest.mark.unit
+def test_discarding_cache_entries_may_be_taken_unasked() -> None:
+    # The sixth kind, and the one most likely to be mistaken for a weakening of
+    # the criterion: removing data sounds heavier than putting a value back, and
+    # is not. What is discarded was derived from a store the action never
+    # touches, and the service recomputes it on the next read - so nothing is
+    # lost, and there is nothing for an undo to put back either.
+    Scenario() \
+        .given(
+            a_discard := DiscardCacheEntries(
+                service="io-shop", keys=("io-shop:summary:shopper-3",)
+            )
+        ) \
+        .when(lambda: is_a_generic_mitigation(a_discard)) \
+        .then(_it_is_admitted())
+
+
+@pytest.mark.unit
 def test_an_action_of_a_kind_the_set_does_not_hold_is_refused() -> None:
     # Absence is a refusal, never a default to permitted. A kind nobody has
     # declared is a kind nobody has argued for, and assuming the best about one
@@ -102,7 +121,8 @@ def test_the_declared_set_is_exactly_what_it_is_written_down_as() -> None:
         RESTART_SERVICE,
         ROLL_BACK_DEPLOYMENT,
         SCALE_OUT,
-        PIN_AUTOSCALER
+        PIN_AUTOSCALER,
+        DISCARD_CACHE_ENTRIES
     }
 
     Scenario() \

@@ -65,8 +65,12 @@ _SEARCHING_BY_GREP_ALONE: Final = "grep"
 # sessions decide what to collect by comparing against it, and a mode spelled
 # twice is a mode that will one day be spelled differently.
 _SEARCHING_BOTH_WAYS: Final = "both"
+# Retrieval by meaning and nothing else. Named for the reason the two beside it
+# are: something decides what to collect by comparing against it now, and a mode
+# spelled twice is a mode that will one day be spelled differently.
+_SEARCHING_BY_MEANING_ALONE: Final = "meaning"
 _CODE_SEARCH_MODES: Final[tuple[str, ...]] = (
-    _SEARCHING_BY_GREP_ALONE, "meaning", _SEARCHING_BOTH_WAYS
+    _SEARCHING_BY_GREP_ALONE, _SEARCHING_BY_MEANING_ALONE, _SEARCHING_BOTH_WAYS
 )
 
 
@@ -2025,6 +2029,18 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
 # because the session, not the suite, is what knows which mode is running.
 _CASES_ABOUT_THE_INDEX: Final = "tests/e2e/test_the_index_follows_the_repository.py"
 
+# The stale-cache case, left out of `meaning` alone - and for a different reason
+# from the four above, which is worth saying because the mechanism is identical.
+# Those are decisions: the claim does not vary by which tool found a file, so
+# recording it three times buys three recordings of one assertion. This is an
+# absence: the walk is recorded under `grep` and `both`, so under `meaning` the
+# double has no queue to answer from and the case would fail on a missing
+# recording rather than on anything about Argus.
+#
+# Which means this line goes the day that recording exists, where the four above
+# stay for as long as their reasoning holds.
+_THE_STALE_CACHE_CASE: Final = "tests/e2e/test_a_stale_cache_is_discarded.py"
+
 
 def _the_cases_for(mode: str) -> list[str]:
     """The suite, less what this mode has no index for and less what it has no
@@ -2052,8 +2068,18 @@ def _the_cases_for(mode: str) -> list[str]:
     platform's is not, though it looks it - a platform that refuses an action ends
     that attempt without the model being asked anything, so its walk is one
     investigation like any other.
+
+    The stale-cache case is the third shape, and it is neither of those two. It is
+    not about a mechanism this stack lacks, and nothing was decided about what its
+    claim is worth: it is simply recorded under two modes and not the third, so
+    under `meaning` there is no queue for the double to answer from. That makes it
+    the one exclusion here with an expiry - it goes when the recording arrives,
+    where the four above stay for as long as their reasoning holds.
     """
     left_out = []
+
+    if mode == _SEARCHING_BY_MEANING_ALONE:
+        left_out.append(f"--ignore={_THE_STALE_CACHE_CASE}")
 
     if mode != _SEARCHING_BOTH_WAYS:
         left_out.append(f"--ignore={_THE_LARGE_FIX_CASE}")

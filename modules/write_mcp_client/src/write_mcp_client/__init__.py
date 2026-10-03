@@ -8,6 +8,7 @@ holds and the tools it has (spec §12.1, §13).
 
 from write_mcp_client.client import (
     commit_to_new_branch,
+    discard_cache_entries,
     get_recent_flag_changes,
     open_pull_request,
     pin_autoscaler,
@@ -25,6 +26,7 @@ __all__ = [
     "commit_to_new_branch",
     "get_recent_flag_changes",
     "open_pull_request",
+    "discard_cache_entries",
     "pin_autoscaler",
     "restart_service",
     "restore_autoscaler_floor",

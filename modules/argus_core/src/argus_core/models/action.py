@@ -291,13 +291,54 @@ class PinAutoscaler(BaseModel):
     application: str
 
 
+class DiscardCacheEntries(BaseModel):
+    """Throwing away the copies of something that have stopped agreeing with it.
+
+    The sixth generic mitigation, and the first that removes something rather
+    than restoring, adding or stopping something. The criterion is unchanged
+    again, and saying so a third time is the point: what admits an action unasked
+    is membership of the declared set (spec §13), never the kind of change it
+    makes - and this is the member most likely to be mistaken for a weakening,
+    because removing data sounds heavier than putting a value back and is not.
+
+    Nothing is lost. What is discarded was derived from a store this never
+    touches, the service recomputes from that store on the next read, and what is
+    gone cannot be stale. So there is no undo descriptor and no field for one -
+    not because the tier knows what to put back, as with a rollback, but because
+    writing the stale figures back would be recreating the incident.
+
+    `keys` are addresses and arrive from the evidence that named them. Argus
+    composes none: a key's format belongs to whoever wrote the store, so a
+    constant here would be this agent holding one service's internals, and
+    nothing downstream could tell a derived key from a real one. At least one,
+    because an action that would reach a store and remove nothing comes back with
+    a count of zero - and a zero is indistinguishable from entries somebody else
+    had already discarded, so the attempt would be confirmed by a receipt saying
+    nothing happened.
+
+    A tuple, and order is kept, for the reason the alert carries them that way:
+    one call names all of them, and a collection that sorted or collapsed them
+    would be a different set of entries wearing the same count.
+
+    `service` is what it is addressed to and what its identity is taken from. The
+    keys are deliberately not part of that identity - the entries a check finds
+    stale differ between one run and the next, so an identity carrying them would
+    make every attempt a new one and the cap on repeating a mitigation would
+    never be reached.
+    """
+
+    action_type: Literal["discard-cache-entries"] = "discard-cache-entries"
+    service: str
+    keys: tuple[str, ...] = Field(min_length=1)
+
+
 # `action_type` is Argus's own word for what was done - it is a column on the
 # `action` table and a field on the event a reader sees - so it tags the union,
 # where the descriptor's `tool` is the write tier's wire vocabulary and does
 # not.
 type Action = Annotated[
     RevertFeatureFlag | RestartService | RollBackDeployment | ScaleOut
-    | PinAutoscaler,
+    | PinAutoscaler | DiscardCacheEntries,
     Field(discriminator="action_type")
 ]
 
@@ -306,7 +347,7 @@ type Action = Annotated[
 # what was done without carrying the proposal, and the row keeps a column.
 type ActionType = Literal[
     "revert-feature-flag", "restart-service", "roll-back-deployment", "scale-out",
-    "pin-autoscaler"
+    "pin-autoscaler", "discard-cache-entries"
 ]
 
 # The tags as values, for the row and the event that carry them without
@@ -326,6 +367,7 @@ RESTART_SERVICE: Final = "restart-service"
 ROLL_BACK_DEPLOYMENT: Final = "roll-back-deployment"
 SCALE_OUT: Final = "scale-out"
 PIN_AUTOSCALER: Final = "pin-autoscaler"
+DISCARD_CACHE_ENTRIES: Final = "discard-cache-entries"
 
 
 # What an action reaches the estate through. A role rather than a vendor, for
@@ -333,10 +375,18 @@ PIN_AUTOSCALER: Final = "pin-autoscaler"
 # `argocd` one: nothing above the retrieval boundary learns which product
 # answered, and a walk that narrowed itself by the word "argo" would have to be
 # rewritten by whoever replaces it.
-type Platform = Literal["deployment-platform", "flag-provider"]
+type Platform = Literal["deployment-platform", "flag-provider", "cache"]
 
 DEPLOYMENT_PLATFORM: Final = "deployment-platform"
 FLAG_PROVIDER: Final = "flag-provider"
+# The store a service keeps its derived copies in, reached over that store's own
+# protocol rather than through anything that manages the service. A third role
+# because no control plane offers this write: a platform's built-in actions reach
+# a workload's lifecycle and its size, and none of them reaches what a cache
+# holds. Filing it under the deployment platform for tidiness would mean a walk
+# that lost that platform passed over a discard, abandoning it over an outage
+# that never touched the store it acts on.
+CACHE: Final = "cache"
 
 
 class RestartedService(BaseModel):
@@ -352,6 +402,32 @@ class RestartedService(BaseModel):
 
     service: str
     process_start_time_seconds: float
+
+
+class CacheEntriesDiscarded(BaseModel):
+    """What a discard removed, as the store itself reported it.
+
+    The one action whose own answer is evidence rather than an acknowledgement.
+    Every other result in this module records something the tier had to go and
+    look at afterwards - a process's start time, a revision put back - because a
+    platform accepting a request says nothing about whether the request took
+    effect. A store answering "these many of the keys you named existed and are
+    now gone" is a statement about the world, made by the only thing that could
+    make it.
+
+    Which is why the figure is carried rather than derived. The number of keys
+    asked for is already known to whoever asked, and reporting that instead would
+    report a discard that removed nothing as a discard that removed everything -
+    then the attempt would be confirmed on the strength of a number this tier
+    made up.
+
+    Fewer than were named is not a failure and the figure says so honestly: an
+    entry something else had already discarded is an entry absent, which is what
+    the incident needed. The count is read out in the account of the incident, so
+    it has to be what actually went.
+    """
+
+    discarded: int
 
 
 class DeploymentRestored(BaseModel):
@@ -425,6 +501,30 @@ class AutoscalingRestored(BaseModel):
 # hours later has the column and not the action it came from.
 _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
     {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER}
+)
+
+# The kinds of action that change something outliving the action itself. Every
+# kind but the restart: a process that came back up carries nothing forward,
+# and every other kind leaves the estate or a store different afterwards.
+#
+# A superset of the one above, and the gap between them is the whole reason
+# both exist. The four there changed something *and* it can be put back. The
+# discard is the one kind that changed something and cannot - what it removed
+# was derived from records it never touched, so writing those figures back
+# would recreate the incident rather than undo it. A row with no descriptor
+# against it therefore means one of three things, and it takes both predicates
+# to say which: a change nobody accounted for, figures that were never owed
+# back, or an action that left nothing behind at all.
+#
+# Derived from that set rather than listed beside it, which is what makes the
+# relation between them unbreakable rather than merely true. "Leaves something
+# to put back" and "changes nothing that outlives it" is a contradiction - a
+# kind entered that way would be reported as both unaccounted for and inert -
+# and two literals maintained by hand is exactly how one gets entered. There is
+# no assertion anywhere that the one is a superset of the other, because the
+# union below is the only way either set can be written.
+_CHANGE_SOMETHING_PERSISTENT: Final[frozenset[ActionType]] = frozenset(
+    _LEAVE_SOMETHING_TO_PUT_BACK | {DISCARD_CACHE_ENTRIES}
 )
 
 
@@ -518,6 +618,13 @@ def the_subject_of(action: Action) -> str:
             return action.service
         case RollBackDeployment() | ScaleOut() | PinAutoscaler():
             return action.application
+        case DiscardCacheEntries():
+            # The service rather than the keys, and the keys are the reason to
+            # say so. A subject is what an action is known by across attempts,
+            # and the entries a check finds stale differ between one run and the
+            # next - so a subject carrying them would make every discard a
+            # different action and the cap on repeating one unreachable.
+            return action.service
         case _:
             assert_never(action)
 
@@ -557,6 +664,12 @@ def the_service_addressed_by(action: Action) -> str | None:
             return action.service
         case RollBackDeployment() | ScaleOut() | PinAutoscaler():
             return action.application
+        case DiscardCacheEntries():
+            # An address like a restart's, not a flag's. The store holds one
+            # service's derived copies, so the discard is aimed at that service
+            # - which is what lets the gate ask whether it is within the estate
+            # Argus may touch, and the account say why Argus was allowed to.
+            return action.service
         case _:
             assert_never(action)
 
@@ -575,6 +688,7 @@ def the_direction_of(action: Action) -> bool | None:
             return action.enabled
         case (
             RestartService() | RollBackDeployment() | ScaleOut() | PinAutoscaler()
+            | DiscardCacheEntries()
         ):
             return None
         case _:
@@ -593,6 +707,26 @@ def leaves_something_to_put_back(action_type: ActionType) -> bool:
     a change nobody has accounted for.
     """
     return action_type in _LEAVE_SOMETHING_TO_PUT_BACK
+
+
+def changes_something_persistent(action_type: ActionType) -> bool:
+    """Whether an action of this kind leaves the world different afterwards.
+
+    The question `leaves_something_to_put_back` cannot answer, and the one that
+    separates the two silences a row with no undo descriptor can mean. A
+    restart changed nothing that outlives it, so there is nothing to put back
+    and nothing was lost by not trying; a discard changed something real and
+    still owes nothing back. Both are false for the older predicate, and told
+    apart they want opposite sentences - "there was nothing to put back"
+    against "no undo was owed". Said the wrong way round, a reader deciding
+    whether to go and look at the store is told Argus was never in it.
+
+    Named for the restart, because the restart is the only kind that makes it
+    false. Spelled as owing an undo it would be the neighbouring set with the
+    restart flipped - a synonym for the predicate beside it, whose one
+    distinguishing answer would be the wrong one.
+    """
+    return action_type in _CHANGE_SOMETHING_PERSISTENT
 
 
 def the_platform_of(action_type: ActionType) -> Platform:
@@ -623,8 +757,42 @@ def the_platform_of(action_type: ActionType) -> Platform:
         case "restart-service" | "roll-back-deployment" | "scale-out" \
                 | "pin-autoscaler":
             return DEPLOYMENT_PLATFORM
+        case "discard-cache-entries":
+            return CACHE
 
     assert_never(action_type)
+
+
+# The kinds of action whose own answer states what they changed, rather than that
+# a request was accepted. A frozen set over the tag for the reason the set above
+# is one: the gate asks this before anything has been performed, so there is no
+# answer yet to inspect and the question has to be answerable about a kind nobody
+# has called.
+#
+# What it decides is which confirmation an attempt gets. A count of entries
+# removed is the store saying they are gone, and that is the whole of what the
+# incident was; a platform's acknowledgement of a restart says a request was
+# taken, and whether it helped has to be watched for in the service's own
+# window. Where that window never departed there is nothing to watch, so a kind
+# that answers for itself is the only kind that can be confirmed at all.
+_REPORT_WHAT_THEY_CHANGED: Final[frozenset[ActionType]] = frozenset(
+    {DISCARD_CACHE_ENTRIES}
+)
+
+
+def reports_what_it_changed(action_type: ActionType) -> bool:
+    """Whether an action of this kind answers with what it did.
+
+    Asked of the tag rather than of a performed action, and asked before the
+    action is taken: the gate decides whether a confirmation could ever arrive
+    while there is still nothing to inspect.
+
+    Declared beside what admits an action unasked rather than inside the
+    mitigation agent, because both are properties of the kind and a reader
+    weighing one wants the other in front of them - and because a second copy
+    kept where it is used is a second copy that comes to disagree.
+    """
+    return action_type in _REPORT_WHAT_THEY_CHANGED
 
 
 def the_actions_through(platform: Platform) -> list[ActionType]:

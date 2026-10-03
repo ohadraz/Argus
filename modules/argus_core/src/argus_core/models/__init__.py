@@ -11,7 +11,9 @@ saying the same thing.
 """
 
 from argus_core.models.action import (
+    CACHE,
     DEPLOYMENT_PLATFORM,
+    DISCARD_CACHE_ENTRIES,
     FLAG_PROVIDER,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
@@ -22,8 +24,10 @@ from argus_core.models.action import (
     ActionIdentity,
     ActionType,
     AutoscalingRestored,
+    CacheEntriesDiscarded,
     CapacityRestored,
     DeploymentRestored,
+    DiscardCacheEntries,
     Outcome,
     PinAutoscaler,
     Platform,
@@ -34,7 +38,9 @@ from argus_core.models.action import (
     ScaleOut,
     UnreadVerdict,
     Verdict,
+    changes_something_persistent,
     leaves_something_to_put_back,
+    reports_what_it_changed,
     the_actions_through,
     the_direction_of,
     the_identity_of,
@@ -95,7 +101,9 @@ from argus_core.models.undo_descriptor import (
 from argus_core.models.undone import Undone
 
 __all__ = [
+    "CACHE",
     "DEPLOYMENT_PLATFORM",
+    "DISCARD_CACHE_ENTRIES",
     "FLAG_PROVIDER",
     "Platform",
     "the_actions_through",
@@ -108,7 +116,9 @@ __all__ = [
     "PIN_AUTOSCALER_TOOL",
     "SCALE_OUT",
     "SCALE_OUT_TOOL",
+    "changes_something_persistent",
     "leaves_something_to_put_back",
+    "reports_what_it_changed",
     "the_direction_of",
     "the_identity_of",
     "the_identity_recorded",
@@ -133,9 +143,11 @@ __all__ = [
     "FlagChange",
     "AutoscalerUndo",
     "AutoscalingRestored",
+    "CacheEntriesDiscarded",
     "CapacityRestored",
     "DeploymentRollbackUndo",
     "DeploymentRestored",
+    "DiscardCacheEntries",
     "FlagUndo",
     "Hypothesis",
     "Incident",

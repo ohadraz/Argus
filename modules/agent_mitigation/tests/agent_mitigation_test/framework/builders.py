@@ -5,10 +5,11 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from unittest.mock import MagicMock, create_autospec
 
-from agent_mitigation import Action, Outcome, RevertFeatureFlag, Verdict
+from agent_mitigation import Action, Outcome, RevertFeatureFlag, UndoAttempt, Verdict
 from agent_mitigation.tools import (
     AutoscalerPinner,
     AutoscalingRestorer,
+    CacheEntryDiscarder,
     CapacityRestorer,
     ChangedFromOutside,
     DeploymentRestorer,
@@ -23,6 +24,7 @@ from agent_mitigation.trying import UndoChange
 from agent_mitigation.undoing import undo_change
 from argus_core import to_iso_minute
 from argus_core.models import (
+    CacheEntriesDiscarded,
     FailureMode,
     FlagChange,
     FlagUndo,
@@ -31,6 +33,7 @@ from argus_core.models import (
     RestartedService,
     RestartService,
     UndoDescriptor,
+    Undone,
 )
 
 DONT_CARE_FLAG = "dont-care-flag"
@@ -187,6 +190,18 @@ def a_window_ending_at_the_action() -> list[MetricBucket]:
     """Calm, then failing, and nothing after the action - the minute it fell
     inside is still in progress."""
     return a_window_of([CALM_RATE] * CALM_MINUTES + [FAILING_RATE] * FAILING_MINUTES)
+
+
+def a_window_that_never_departed() -> list[MetricBucket]:
+    """Calm throughout, with no departure anywhere in it.
+
+    What a stated-onset incident looks like to a rule watching a series: the
+    shop is serving, the figures are wrong, and nothing in any of the five
+    signals moved. There is no onset in here to find and no recovery to measure
+    - which is the whole difficulty, because a window with nothing in it reads
+    as a window with nothing wrong.
+    """
+    return a_window_of([CALM_RATE] * (CALM_MINUTES + FAILING_MINUTES + 2))
 
 
 def a_recovered_window() -> list[MetricBucket]:
@@ -428,13 +443,14 @@ def the_writes(set_state: FlagSetter | None = None,
                restart: ServiceRestarter | None = None,
                roll_back: DeploymentRoller | None = None,
                scale_out: DeploymentScaler | None = None,
-               pin: AutoscalerPinner | None = None) -> PerformingWrites:
+               pin: AutoscalerPinner | None = None,
+               discard: CacheEntryDiscarder | None = None) -> PerformingWrites:
     """The writes that perform a mitigation, with stand-ins for the unnamed ones.
 
     Every member is required of the real bundle, because an agent that could be
     built without a way to do one of the things it may do is one that finds out at
     the worst moment. A case about one kind of action still has to supply the other
-    three, and naming them at every call site said nothing about the case - so what
+    four, and naming them at every call site said nothing about the case - so what
     is not named here is a spy nobody calls, and a case that quietly performed the
     wrong kind of action fails on a call to a mock it never wired.
     """
@@ -453,8 +469,25 @@ def the_writes(set_state: FlagSetter | None = None,
         ),
         pin=pin if pin is not None else create_autospec(
             AutoscalerPinner, instance=True
+        ),
+        discard=discard if discard is not None else create_autospec(
+            CacheEntryDiscarder, instance=True
         )
     )
+
+
+def a_discard_removing(entries: int) -> MagicMock:
+    """A store answering that this many of the keys it was named existed.
+
+    The figure is the store's and not the caller's, which is the whole reason a
+    discard can be confirmed from its own answer. A stand-in echoing back the
+    number of keys asked for would make every discard look complete, including
+    the one that removed nothing.
+    """
+    discarding: MagicMock = create_autospec(CacheEntryDiscarder, instance=True)
+    discarding.return_value = CacheEntriesDiscarded(discarded=entries)
+
+    return discarding
 
 
 def an_undo_nobody_calls() -> MagicMock:
@@ -468,6 +501,29 @@ def an_undo_nobody_calls() -> MagicMock:
     that runs.
     """
     undo: MagicMock = create_autospec(UndoChange, instance=True)
+
+    return undo
+
+
+def an_undo_that_put_it_back(subject: str = DONT_CARE_FLAG) -> MagicMock:
+    """The way back, wired and answering as the real one does.
+
+    For a case whose action is refuted rather than confirmed. There the walk
+    does put the change back, so the undo is called and its answer is read -
+    which `an_undo_nobody_calls` cannot serve, whatever its name suggests: an
+    autospec with no answer configured returns a `MagicMock`, and until the
+    outcome was matched exhaustively that mock reached the restore's own
+    sentence and was narrated as a change written back.
+
+    `RESTORED` because these cases are about what the watching saw, not about
+    what the undo found. A case that is about the undo builds the real one.
+    """
+    undo: MagicMock = create_autospec(UndoChange, instance=True)
+    undo.return_value = UndoAttempt(
+        subject=subject,
+        outcome=Undone.RESTORED,
+        detail=f"flag [{subject}] was put back"
+    )
 
     return undo
 

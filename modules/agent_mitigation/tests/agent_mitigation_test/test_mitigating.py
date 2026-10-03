@@ -96,6 +96,36 @@ def test_mitigating_a_leak_restarts_the_service_the_alert_names() -> None:
         .then(_the_service_restarted_is(take, some_alerting_service))
 
 
+@pytest.mark.unit
+def test_mitigating_a_divergence_discards_the_entries_it_was_handed() -> None:
+    # The composed form has to pass the addresses down as the Orchestrator
+    # does, for the reason it has to pass the service down. A cache key belongs
+    # to whoever wrote the store, so the keys the evidence carried are the whole
+    # of what a discard can be worked out from - and a caller that does not hand
+    # them over proposes nothing, which reads as a mode no mitigation answers
+    # rather than as an input that went missing.
+    some_stale_keys = ("io-shop:summary:shopper-3", "io-shop:summary:shopper-7")
+
+    Scenario() \
+        .given(
+            nothing_changed := _a_record_of(),
+            take := _an_action_taker_reaching(Verdict.CONFIRMED)
+        ) \
+        .when(
+            lambda: mitigate(
+                a_hypothesis_blaming(FailureMode.STATE_DIVERGENCE),
+                fetch_flag_changes=nothing_changed,
+                take=take,
+                service=DONT_CARE_SERVICE,
+                stale_entry_keys=some_stale_keys
+            )
+        ) \
+        .then(all_of(
+            _the_entries_discarded_are(take, some_stale_keys),
+            the_verdict_is(Verdict.CONFIRMED)
+        ))
+
+
 def _a_record_of(*changes: FlagChange) -> MagicMock:
     """The provider's record of what changed, as the agent reads it."""
     fetch_flag_changes: MagicMock = create_autospec(FlagChangeFetcher, instance=True)
@@ -138,6 +168,33 @@ def _the_service_restarted_is(take: MagicMock, service: str) -> Assertion[Outcom
             raise AssertionError(
                 f"Expected the action taken to restart [{service}], "
                 f"got one restarting [{action.service}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_entries_discarded_are(take: MagicMock,
+                               keys: tuple[str, ...]) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        if take.call_count == 0:
+            raise AssertionError(
+                f"Expected a discard of {list(keys)} to be taken, and nothing "
+                f"was taken at all - which is what a divergence looks like when "
+                f"the addresses never reached the strategy: the mode is right, "
+                f"no action answers it, and the walk escalates a cause it could "
+                f"have ended."
+            )
+
+        action = take.call_args.args[0]
+
+        if action.keys != keys:
+            raise AssertionError(
+                f"Expected the action taken to discard {list(keys)}, and it "
+                f"discards {list(action.keys)}. The entries a check found stale "
+                f"are the only addresses there are, so anything else is figures "
+                f"left serving."
             )
 
         return True

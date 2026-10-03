@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Final
 
 from argus_core import WriteMcpEndpoint
@@ -8,6 +8,7 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     AutoscalerUndo,
     AutoscalingRestored,
+    CacheEntriesDiscarded,
     CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
@@ -34,6 +35,7 @@ _RESTARTED_SERVICE: Final = TypeAdapter(RestartedService)
 _DEPLOYMENT_RESTORED: Final = TypeAdapter(DeploymentRestored)
 
 _CAPACITY_RESTORED: Final = TypeAdapter(CapacityRestored)
+_CACHE_ENTRIES_DISCARDED: Final = TypeAdapter(CacheEntriesDiscarded)
 
 _AUTOSCALING_RESTORED: Final = TypeAdapter(AutoscalingRestored)
 
@@ -85,6 +87,40 @@ def set_feature_flag(flag: str,
         parse_undo_descriptor,
         flag=flag,
         enabled=enabled,
+    )
+
+
+def discard_cache_entries(keys: Sequence[str],
+                          *,
+                          client: McpClient) -> CacheEntriesDiscarded:
+    """Discards the named cache entries, returning how many of them were there.
+
+    A generic mitigation of spec §7.3: Mitigation's response to a store holding
+    copies that have stopped agreeing with the records they came from. Taken
+    unasked because its kind is in the declared set (§13), and the only one of
+    that set which reaches a datastore rather than a control plane.
+
+    The keys come from the incident's own evidence and are passed through
+    untouched. Nothing here composes one: a key's format belongs to whoever wrote
+    the store, and a template on this side would be Argus holding one service's
+    internals.
+
+    No undo descriptor, and for neither of the reasons the other actions give.
+    A restart returns none because it changed nothing persistent; a rollback
+    returns one because what it replaced is worth putting back. This changed
+    something persistent and there is nothing to put back: the entries were a
+    copy of records it never touched, and writing the old figures back would be
+    recreating the incident.
+
+    The count is what makes the discard checkable, and it is the only action here
+    whose own answer does that. A store reporting how many of the named keys
+    existed and are now gone has stated the thing the incident was about, so
+    nothing afterwards has to be watched for.
+    """
+    return client.call(
+        "discard_cache_entries",
+        _CACHE_ENTRIES_DISCARDED.validate_python,
+        keys=list(keys),
     )
 
 

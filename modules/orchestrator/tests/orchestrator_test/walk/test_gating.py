@@ -35,6 +35,7 @@ from argus_core.models import (
     ActionType,
     Alert,
     Attempt,
+    DiscardCacheEntries,
     FailureMode,
     FlagUndo,
     Hypothesis,
@@ -381,6 +382,19 @@ def _a_proposed_action() -> Action:
         flag=DONT_CARE_FLAG,
         enabled=False,
         undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
+    )
+
+
+def _a_proposed_discard(service: str = DONT_CARE_SERVICE) -> Action:
+    """The one kind of action whose own answer says whether it worked.
+
+    Every other action here is judged by watching the service afterwards. This
+    one is judged by what the store said when it was asked - which is why it is
+    the only kind the confirmability refusal must not reach, and why the gate
+    has to read the kind rather than the evidence alone.
+    """
+    return DiscardCacheEntries(
+        service=service, keys=("io-shop:summary:shopper-3",)
     )
 
 
@@ -887,6 +901,41 @@ def test_an_action_on_an_incident_its_own_series_measured_is_let_through(
             )
         ) \
         .when(lambda: tier_gate_node(an_ordinary_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(all_of(_the_gate_changed_nothing(),
+                     _no_outcome_was_recorded(record_outcome)))
+
+
+@pytest.mark.unit
+def test_an_action_that_answers_for_itself_is_let_through_on_a_stated_onset(
+    record_outcome: MagicMock
+) -> None:
+    # The same incident as the refusal above - an onset the alert stated, and
+    # readings that already cover its minutes - and the opposite outcome,
+    # because the inference stops one step earlier for this kind of action.
+    #
+    # "Nothing could confirm it" is a claim about the *channel*: no series
+    # departed, so no level can be watched coming back down, and the readings
+    # are already saying everything they will ever say. That holds here as much
+    # as it does above. What it does not reach is an action that answers for
+    # itself: a store reporting how many of the entries it was named are now
+    # gone has said whether the action worked, and said it without any series
+    # moving at all.
+    #
+    # Refused here, Argus would recommend a change it could have made and
+    # confirmed in the same second, on an incident that then reads as handled.
+    the_alerting_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            an_incident_no_series_carries := _a_mitigating_incident(
+                proposing=_a_proposed_discard(the_alerting_service),
+                dated_by_the_alert=datetime(2026, 9, 22, 9, 19, 43, tzinfo=UTC)
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_no_series_carries,
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \

@@ -7,7 +7,8 @@ from typing import Any
 
 def a_grafana_payload(service: str = "kukibuki",
                       alert_name: str = "HighErrorRate",
-                      onset: str | None = None) -> dict[str, Any]:
+                      onset: str | None = None,
+                      stale_entry_keys: tuple[str, ...] | None = None) -> dict[str, Any]:
     """One firing alert, nested the way Grafana nests it.
 
     The whole envelope rather than the fields Argus wants, because the nesting
@@ -25,6 +26,10 @@ def a_grafana_payload(service: str = "kukibuki",
 
     if onset:
         annotations["onset"] = onset
+
+    if stale_entry_keys is not None:
+        annotations["stale_entry_keys"] = ",".join(stale_entry_keys)
+        annotations["stale_entries_found"] = str(len(stale_entry_keys))
 
     return {
         "receiver": "argus-webhook",

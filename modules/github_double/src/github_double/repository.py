@@ -56,8 +56,9 @@ DEFAULT_FILES: Final = {
 # How the archive names its own root. GitHub wraps a tarball in a directory
 # named for the owner, the repository and the commit, and the read tier strips
 # exactly one leading segment - so an archive without one loses a real segment
-# of every path instead.
-_ARCHIVE_ROOT: Final = "ohadraz-repository-0000000"
+# of every path instead. What that segment says is never read, which is why it
+# is nobody's name: the only thing that has to be true is that there is one.
+_ARCHIVE_ROOT: Final = "a-repository-at-a-commit"
 
 
 class Proposal(BaseModel):
@@ -75,13 +76,6 @@ class Proposal(BaseModel):
     head: str
     base: str
     draft: bool
-
-    @property
-    def html_url(self) -> str:
-        """Where a reader would open it. Shaped like the real one, and pointing
-        at a host that does not exist: a double that answered with a reachable
-        address would put a live link in a postmortem written from a fixture."""
-        return f"https://github.invalid/ohadraz/repository/pull/{self.number}"
 
 
 class Repository:
@@ -130,6 +124,22 @@ class Repository:
         self._commits[sha] = tree
 
         return sha
+
+    def stage_commit(self, sha: str, files: dict[str, str]) -> None:
+        """Registers a commit under a sha somebody else chose.
+
+        The one place a sha is taken rather than derived, and it exists for the
+        one caller that cannot use a derived one: a scenario's deployment
+        history names real commits of the Target Service, and nothing here can
+        produce those by hashing a tree it made up. Reached over
+        `/double-control/stage-commit`, so the case that chose those commits is
+        what names them - this double depends on nothing in the workspace and
+        would otherwise be keeping a copy of another repository's history.
+
+        The fixture's own files are underneath, so a comparison answers with
+        the paths that differ and not with the whole tree.
+        """
+        self._commits[sha] = self.write_tree({**DEFAULT_FILES, **files})
 
     def create_ref(self, branch: str, at: str) -> None:
         """Points a new branch at a commit.

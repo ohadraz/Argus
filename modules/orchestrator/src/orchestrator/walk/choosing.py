@@ -56,8 +56,16 @@ def next_candidate_node(state: IncidentState,
     # asked of it. What disqualifies a candidate is that the action answering
     # it has already been taken, so the candidates have to be asked what they
     # would be answered with before any of them can be skipped.
+    #
+    # The alert's keys travel with it, because one of those answers is
+    # addressed to entries no candidate names. Asked without them, a divergence
+    # comes back answered by nothing - so two wordings of one stale cache
+    # would read as two experiments and the walk would discard the same entries
+    # once per wording.
     next_up = the_next_worth_trying(
-        what_each_would_do(state.candidates, state.flag_changes, state.alert.service),
+        what_each_would_do(state.candidates, state.flag_changes,
+                           state.alert.service,
+                           state.alert.stale_entry_keys or ()),
         attempts,
         start=state.candidate_index + 1,
         # What an earlier attempt found was not answering. Passed in rather than

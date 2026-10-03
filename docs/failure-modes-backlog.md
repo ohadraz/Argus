@@ -24,7 +24,7 @@ pattern. See "A note on the name" below.
 | Change-induced | 31% | Deploy-induced regression (FM-09), config-induced failure (FM-10) | **Yes.** `bad-deployment`, `feature-flag-toggle` and `config-induced-failure` are all here, all diagnosed and all mitigated. FM-09 and FM-10 share one action: a revision carries the code and the configuration it shipped with, so the platform's rollback answers both |
 | Propagation | 28% | Cross-org cascade (FM-01), hidden internal coupling (FM-23) | **Yes.** `upstream-dependency-failure` is FM-01: diagnosed, and escalated because no generic mitigation reaches another company's outage. `pricing-service-degraded` is FM-23: diagnosed and mitigated by restarting a service the alert never named. What tells the pair apart is ownership, which the organisation's service register answers and no telemetry does |
 | Capacity & resource | 13% | Resource exhaustion (FM-13), autoscaling pathology (FM-25) | **Yes**, and the second family covered entire. FM-13 is built in both halves: `resource-leak` is the leak and `demand-saturation` is the saturation, told apart by whether the consumption moved with the traffic and answered by opposite things - reclaiming what accumulated, or adding capacity the deployment never had. FM-25 is `autoscaler-flapping`: diagnosed by the one series that moves, and mitigated by raising the controller's floor to its ceiling. What tells it from saturation is whether the capacity is itself moving, because at the bottom of every cycle the rest of the evidence is saturation's exactly |
-| Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | **Partly.** FM-26 is `silent-data-corruption`: a flag that changes what the shop writes rather than whether it works, found by the shop's own weekly integrity check because no series ever moves. Diagnosed from a flat window and an onset the alert states, and then *not* acted on - the flag revert is named and recommended rather than taken, because only the next run of that check could say whether it worked. The first mode here whose detection is the hard part and the first whose correct outcome is an action Argus declines. FM-30 is `control-plane-unreachable`, and what is built of it is the response rather than the diagnosis: Argus never investigates the plane and has no mitigation for it, but an action that cannot reach the platform it acts through removes every candidate on that platform at once, so the walk narrows itself to what is still reachable - the flag revert, on a provider that is answering - and escalates naming the platform and the actions it took away where nothing reachable remains. The one mode here whose difficulty is neither detecting the incident nor choosing the action but discovering that most of the actions are gone. FM-27 is `monitoring-blind-spot`: a deployment that renames the port the shop serves its metrics on, while the shop stays perfectly well, so the window carries a row for every minute up to the one that revision landed in and none at all from there on. Nothing crosses a threshold because for those minutes there is no series to cross one, and the rule that fires is the one every real monitoring stack has and no scenario here had needed - an absence held long enough that it cannot be a scrape that was missed. It states the first silent minute as the onset, because no onset can be measured from the rows that are gone - and the revision landed in that minute, which makes this the one mode whose onset carries no reading of its own: the change sits at it and after the last row there is, so a reader looking for the departure it caused finds an absence instead. What makes it diagnosable is the distance between the last row and the alert's own firing, which Argus states rather than leaves to be inferred, and what corroborates it is a logs channel answering normally across exactly the minutes the metrics do not cover. Mitigated by returning the deployment, where recovery is the readings *returning* rather than a level coming down - and what returning restores is the sight and never the minutes that were missed, which is the one thing it has in common with FM-26. The first mode here whose subject is the monitoring rather than the thing monitored, and the first anywhere whose correct reading of the evidence is *I cannot see*. FM-31 is the family's last unbuilt member |
+| Foundational integrity | 12% | Silent data corruption (FM-26), control-plane failure (FM-30), monitoring blind spot (FM-27), state divergence (FM-31) | **Yes**, and the fourth family covered entire. FM-26 is `silent-data-corruption`: a flag that changes what the shop writes rather than whether it works, found by the shop's own weekly integrity check because no series ever moves. Diagnosed from a flat window and an onset the alert states, and then *not* acted on - the flag revert is named and recommended rather than taken, because only the next run of that check could say whether it worked. The first mode here whose detection is the hard part and the first whose correct outcome is an action Argus declines. FM-30 is `control-plane-unreachable`, and what is built of it is the response rather than the diagnosis: Argus never investigates the plane and has no mitigation for it, but an action that cannot reach the platform it acts through removes every candidate on that platform at once, so the walk narrows itself to what is still reachable - the flag revert, on a provider that is answering - and escalates naming the platform and the actions it took away where nothing reachable remains. The one mode here whose difficulty is neither detecting the incident nor choosing the action but discovering that most of the actions are gone. FM-27 is `monitoring-blind-spot`: a deployment that renames the port the shop serves its metrics on, while the shop stays perfectly well, so the window carries a row for every minute up to the one that revision landed in and none at all from there on. Nothing crosses a threshold because for those minutes there is no series to cross one, and the rule that fires is the one every real monitoring stack has and no scenario here had needed - an absence held long enough that it cannot be a scrape that was missed. It states the first silent minute as the onset, because no onset can be measured from the rows that are gone - and the revision landed in that minute, which makes this the one mode whose onset carries no reading of its own: the change sits at it and after the last row there is, so a reader looking for the departure it caused finds an absence instead. What makes it diagnosable is the distance between the last row and the alert's own firing, which Argus states rather than leaves to be inferred, and what corroborates it is a logs channel answering normally across exactly the minutes the metrics do not cover. Mitigated by returning the deployment, where recovery is the readings *returning* rather than a level coming down - and what returning restores is the sight and never the minutes that were missed, which is the one thing it has in common with FM-26. The first mode here whose subject is the monitoring rather than the thing monitored, and the first anywhere whose correct reading of the evidence is *I cannot see*. FM-31 is `cache-failed-over`: the summary cache's primary dies and a standby that stopped receiving updates three hours earlier is promoted in its place, so the shop serves spend figures the purchase ledger has moved past. The shop is well throughout and every judged series says so, which it shares with FM-26 - what differs is that the copies are wrong and the records behind them are right, so there is something to throw away rather than something to correct. Found by the shop's own reconciliation of the two, which reports how many entries disagree out of how many it checked, the widest gap, and the addresses of the entries themselves. It is the one mode that carries two dates and the only one where taking the wrong one is silent: the promotion is the onset, the oldest purchase the cache never saw dates the replication break three hours before it, and an incident dated from the break begins before anybody could have seen it. Mitigated by discarding the entries the evidence named - the sixth generic mitigation, and the first that removes rather than restores, adds or stops - and confirmed by the count the store returns rather than by watching the service recover, because a window that never departed has nothing in it to recover. The first mode whose action is addressed by something no agent could work out: a key's format belongs to whoever wrote the store, so Argus composes none and carries the ones the check handed over, as a value and never through a prompt. And the first whose fault is not closed by its own mitigation - an entry goes stale the moment its shopper buys again, so the discard clears what was found rather than what is wrong, and the lasting answer is an expiry or a standby nobody promotes while it lags. That is a resource leak's shape in a data store, which is where this family touches the capacity one |
 | Recovery/process | 11% | Phased data recovery (FM-21) | No |
 | Tail/outlier | 3% | Aggregate-masked tail degradation (FM-06), in-flight compatibility break (FM-35) | **Yes**, and the third family covered entire. FM-06 is `slow-canary-rollout`: diagnosed and mitigated by putting the flag back. FM-35 is `half-finished-rollout`: a revision that landed and stopped, diagnosed from whether the rollout converged and mitigated by the rollback that converges the fleet. What the two share is a fault that exists for part of the traffic and no more of it - one because a cohort is small, the other because a failing share is the product of two shares |
 | AI-specific | 2% | Output-quality degradation (FM-17), accelerator heterogeneity (FM-33) | No |
@@ -464,6 +464,86 @@ reading and writing one shape is a shop that works whichever version it is. The
 repository still declares the revision that was going out, reconciliation stays
 suspended so nothing re-applies it, and a withdrawal returns the shop to a
 rollout stopped half-way.
+
+**FM-31 State divergence is built, and foundational integrity is the fourth
+family covered entire.** `cache-failed-over` stages the summary cache losing its
+primary and a standby being promoted in its place - one that stopped receiving
+updates three hours earlier, so from the promotion onwards the shop serves spend
+figures the purchase ledger has already moved past. Nothing fails. The error
+rate, every quantile, the heap, the CPU and the replica count are flat across the
+whole window, the cache answers at the ratio it always did, and the pages that
+read it render perfectly well and wrongly. What pages is the shop's own
+reconciliation of the two: for each account it compares what the cache holds
+against the purchases behind it, and reports how many disagree out of how many it
+checked, the widest gap in cents, the item discrepancy, and the address of every
+entry that differs.
+
+It is the one mode that carries two dates, and the only one where taking the
+wrong one is silent. The onset is the promotion; the oldest purchase the cache
+never saw dates the replication break three hours before it. Both are true, both
+are in the payload, and an incident dated from the break begins hours before
+anything was there to be seen - which no later reader can detect, because the
+earlier date is the more precise-looking of the two.
+
+Four things it added beyond the scenario.
+
+**A sixth generic mitigation, and the first that removes rather than restores,
+adds or stops.** The criterion is unchanged and saying so a third time is the
+point: what admits an action unasked is membership of the declared set, never
+the kind of change it makes. This is the member most likely to be mistaken for a
+weakening, because throwing data away sounds heavier than putting a value back
+and is not - what is discarded was derived from records the action never
+touches, the service recomputes on the next read, and what is gone cannot be
+stale. It is also the first action that reaches a datastore directly rather than
+a control plane, which is a third platform the walk can find unreachable.
+
+**The first confirmation that does not come from the window.** Every mitigation
+before it is judged by watching the service: the action is taken, the window is
+re-read, and a level coming back down is the verdict. Here nothing ever departed,
+so there is nothing to come back - and a rule that reads a flat window as
+recovery would confirm every action ever taken on a well service. So an action
+whose own answer states what it changed is confirmed from that answer instead,
+and the count the store returns is the whole of the evidence. What makes this
+safe rather than a loophole is a sibling question asked first - whether the
+window holds a departure to have recovered *from* - because "it never got worse"
+and "it got better" are the same sentence to anything that only measures levels.
+
+**The first action addressed by something no agent could have worked out.** The
+other five are addressed to a flag the provider recorded or a service the alert
+named. An entry in a store is addressed by a key, a key's format belongs to
+whoever wrote the store, and a constant in Argus would be this system holding
+another service's internals with nothing downstream able to tell a derived key
+from a real one. So the check that found the divergence hands its keys over and
+Argus composes none. They ride the record as a value and never reach a prompt:
+the model is told how many entries disagree and by how much, which is what it
+reasons about, and hundreds of addresses re-rendered on every round of a ReAct
+loop would be the incident's largest cost and none of it evidence.
+
+**The first fault its own mitigation does not close.** The stale set grows - an
+account diverges the moment its shopper buys again - so the key list is a
+snapshot at the minute the check ran, and the discard clears what was found
+rather than what is wrong. That is a resource leak's shape in a data store, which
+is where this family touches the capacity one, and it is why the lasting answer
+is an expiry on the entries or a standby nobody promotes while it lags, neither
+of which is a mitigation.
+
+**The near-miss is another mode in the same family.** A reader who calls this
+silent data corruption has the symptoms right - a well service, a flat window, an
+integrity check that pages - and reaches an action that repairs nothing: the
+records are correct and there is no write to put back. What separates them is
+which side is wrong, and the evidence says so plainly in the reconciliation's own
+figures. It is carried by an eval case rather than by the fixture, because a walk
+that reached for a flag revert here would be refused by the gate for a reason
+that says nothing about the misreading.
+
+It is mitigated and never resolved. The promoted standby is still the primary,
+still lagging, and still the thing the deployment points at, so the entries the
+discard cleared come back wrong as soon as they are recomputed from a cache
+nobody has fixed. A withdrawal puts nothing back either, and says so rather than
+staying silent: a discard owes no undo, because writing the stale figures back
+would be recreating the incident - which is a different fact from an undo that
+was attempted and failed, and the one a reader of a withdrawn incident would
+otherwise have to infer from an absence.
 
 ## Known defects
 

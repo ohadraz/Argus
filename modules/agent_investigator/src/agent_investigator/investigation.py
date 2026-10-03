@@ -46,6 +46,7 @@ from argus_core.llm import (
     on_one_line,
 )
 from argus_core.models import (
+    DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -1038,5 +1039,14 @@ def _what_was_done_in(attempt: Attempt) -> str:
 
     if kind == PIN_AUTOSCALER:
         return f"stopped {subject}'s autoscaler scaling it down"
+
+    if kind == DISCARD_CACHE_ENTRIES:
+        # Copies thrown away, never data cleared or deleted. Told the latter, a
+        # model reasons about what is missing from the shop - where the records
+        # behind those figures never moved and the next read of each one works it
+        # out again. It also has to be able to reason about what the attempt
+        # argues: stale copies already discarded, and the figures still
+        # disagreeing, is evidence against a divergence being the cause.
+        return f"discarded {subject}'s stale cached figures"
 
     assert_never(kind)

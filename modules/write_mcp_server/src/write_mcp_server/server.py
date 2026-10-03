@@ -25,6 +25,7 @@ from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.models import (
     AutoscalerUndo,
     AutoscalingRestored,
+    CacheEntriesDiscarded,
     CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
@@ -38,6 +39,7 @@ from mcp.server.fastmcp import FastMCP
 
 from write_mcp_server import (
     branching,
+    discarding,
     flag_history,
     flag_state,
     pinning,
@@ -46,6 +48,7 @@ from write_mcp_server import (
     rolling_back,
     scaling,
 )
+from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.flag_state import FlagWriteSettings
 from write_mcp_server.pinning import PinSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
@@ -60,21 +63,22 @@ def build_server(endpoint: WriteMcpEndpoint,
                  restart_settings: RestartSettings,
                  rollback_settings: RollbackSettings,
                  scale_settings: ScaleSettings,
-                 pin_settings: PinSettings) -> FastMCP:
+                 pin_settings: PinSettings,
+                 discard_settings: DiscardSettings) -> FastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Six slices, not one. The flag tools speak to the provider, the code tool
-    speaks to the repository, and the restart, the rollback, the scale-out and the
-    pin each speak to the deployment platform - separately, because they are
+    Seven slices, not one. The flag tools speak to the provider, the code tool
+    speaks to the repository, the discard speaks to the store a service keeps its
+    derived copies in, and the restart, the rollback, the scale-out and the pin
+    each speak to the deployment platform - separately, because they are
     different routes under different paths and a single slice would make one
     tool's misconfiguration look like another's. Every credential named belongs to
-    this tier, and none of them belongs in another's calls. What keeps the *tiers* apart is that
-    the read server is handed a slice with no field any of these could arrive
-    in - not a check made here.
+    this tier, and none of them belongs in another's calls. What keeps the *tiers*
+    apart is that the read server is handed a slice with no field any of these
+    could arrive in - not a check made here.
 
     The tool bodies stay registration only; the behaviour, and the seams a
-    decorated function cannot carry, live in `flag_state`, `flag_history` and
-    `pull_requests`.
+    decorated function cannot carry, live in a module per route beside this one.
     """
     mcp = FastMCP(
         "argus-write-mcp",
@@ -265,6 +269,39 @@ def build_server(endpoint: WriteMcpEndpoint,
         return pinning.pin_autoscaler(application, pin_settings)
 
     @mcp.tool()
+    def discard_cache_entries(keys: list[str]) -> CacheEntriesDiscarded:
+        """Removes the named entries from the service's cache and reports how
+        many of them were there.
+
+        A generic mitigation (§13), and the only one that reaches a datastore
+        rather than a control plane: no platform offers this write, because a
+        platform's own actions reach a workload's lifecycle and its size and
+        none of them reaches what a cache holds.
+
+        Takes the keys and nothing that could match a key it was not given - no
+        pattern, no prefix, no service. The entries to remove are the ones an
+        incident's evidence named; a pattern would be a blast radius its caller
+        could not state, and emptying the cache would discard entries nothing
+        proved wrong.
+
+        Returns no undo descriptor and there is nothing for a withdrawal to put
+        back - not because no state changed, which is the restart's reason, but
+        because what was removed was a copy of records this never touched.
+        Whatever reads one of those entries next works it out again from those
+        records, so putting the old values back would be recreating the
+        incident.
+
+        The count is the confirmation. It is the store saying which of the named
+        keys existed and are now gone, which is the whole of what the incident
+        was - so nothing is read back afterwards. Raises rather than reporting
+        zero where the store could not be reached at all: a store that answered
+        and held none of them is a divergence something else already cleared,
+        and a store that never answered is a mitigation that did not happen.
+        The behavior lives in `discarding.discard_cache_entries`; this is
+        registration only."""
+        return discarding.discard_cache_entries(keys, discard_settings)
+
+    @mcp.tool()
     def restore_autoscaler_floor(
         descriptor: AutoscalerUndo
     ) -> AutoscalingRestored:
@@ -373,7 +410,8 @@ def main() -> None:
         RestartSettings.of(settings),
         RollbackSettings.of(settings),
         ScaleSettings.of(settings),
-        PinSettings.of(settings)
+        PinSettings.of(settings),
+        DiscardSettings.of(settings)
     ).run(transport="streamable-http")
 
 

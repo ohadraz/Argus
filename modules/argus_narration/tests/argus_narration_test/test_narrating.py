@@ -54,6 +54,7 @@ from argus_core.events import (
 )
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
+    DISCARD_CACHE_ENTRIES,
     FLAG_PROVIDER,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
@@ -685,6 +686,36 @@ def test_a_flag_somebody_else_touched_is_said_to_have_been_left_alone() -> None:
 
 
 @pytest.mark.unit
+def test_figures_thrown_away_are_said_to_have_needed_nothing_put_back() -> None:
+    # The fourth answer, and the three phrases beside it are the reason it has
+    # one of its own. "Was put back" claims a restore nobody performed. "Could
+    # not be read" says an attempt was made and did not land, which would send
+    # somebody to look at a store that is exactly as it should be. "Was left as
+    # found" belongs to an action the gate refused, where nothing happened at
+    # all. Something did happen here - the figures are gone - and nothing was
+    # owed back for them.
+    #
+    # The second assertion is the one that costs something. Every other way of
+    # saying this reads as an undo that was attempted, and a reader of a
+    # withdrawn incident acts on which of those they think they are looking at.
+    some_shop = "io-shop"
+    some_withdrawn_discard = ChangeUndone(
+        incident_id=new_id(),
+        subject=some_shop,
+        outcome=Undone.NO_UNDO_WAS_OWED,
+        detail="the figures it threw away were a copy of records it never touched"
+    )
+
+    Scenario() \
+        .given(some_withdrawn_discard) \
+        .when(lambda: build_narration([some_withdrawn_discard])) \
+        .then(all_of(
+            _the_only_line_mentions("needed nothing put back"),
+            _the_only_line_does_not_mention("could not")
+        ))
+
+
+@pytest.mark.unit
 def test_the_orchestrator_narrates_as_argus_and_an_agent_as_itself() -> None:
     # From outside, "the orchestrator called in the Investigator" is one system
     # talking about its own internals. What happened is that Argus did - and a
@@ -1280,6 +1311,56 @@ def test_an_order_memory_changed_names_a_pin_as_a_floor_raised() -> None:
         .when(lambda: build_narration([what_memory_did])) \
         .then(_the_only_line_marks(
             f"holding {the_application_that_was_moved_down}'s autoscaler still"
+        ))
+
+
+@pytest.mark.unit
+def test_a_discard_is_said_as_copies_thrown_away_and_never_as_data_lost() -> None:
+    # Words for the sixth kind, and the first that removes something. The line
+    # has to carry the one fact that makes the action unalarming: what went was a
+    # copy, and the records it was derived from never moved. A reader told only
+    # that Argus deleted something from a store has been told the frightening
+    # half of a harmless act.
+    a_service_whose_copies_went = "io-shop"
+
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=DISCARD_CACHE_ENTRIES,
+        subject=a_service_whose_copies_went,
+        enabled=None
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(all_of(
+            _the_only_line_marks(a_service_whose_copies_went),
+            _the_only_line_mentions("Discarded the stale cached figures"),
+            _no_line_mentions("Deleted")
+        ))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_names_a_discard_as_copies_thrown_away() -> None:
+    # The gerund form. This kind needs it for a reason the pin's does not: a
+    # reader told Argus is not reaching for a discard again has to be able to
+    # tell that from Argus not reaching for a restart again, and both are
+    # answers to a service whose symptom is nothing moving at all.
+    the_service_that_was_moved_down = "io-shop"
+
+    what_memory_did = CandidatesReordered(
+        incident_id=new_id(),
+        action_type=DISCARD_CACHE_ENTRIES,
+        subject=the_service_that_was_moved_down,
+        on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+    )
+
+    Scenario() \
+        .given(what_memory_did) \
+        .when(lambda: build_narration([what_memory_did])) \
+        .then(_the_only_line_marks(
+            f"discarding {the_service_that_was_moved_down}'s stale cached figures"
         ))
 
 

@@ -33,6 +33,7 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Action,
     DeploymentRollbackUndo,
+    DiscardCacheEntries,
     FlagChange,
     PinAutoscaler,
     RollBackDeployment,
@@ -359,7 +360,10 @@ def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
                 "a scale-out": ScaleOut(application=SOME_APPLICATION),
                 "a flag": an_action_setting(SOME_FLAG, enabled=True),
                 "a restart": an_action_restarting(SOME_APPLICATION),
-                "an autoscaler pin": PinAutoscaler(application=SOME_APPLICATION)
+                "an autoscaler pin": PinAutoscaler(application=SOME_APPLICATION),
+                "a discard": DiscardCacheEntries(
+                    service=SOME_APPLICATION, keys=("io-shop:summary:shopper-1",)
+                )
             }).items()
         }) \
         .then(_each_kind_waits_for({
@@ -367,7 +371,12 @@ def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
             "a scale-out": Arrival.ARRIVED,
             "a flag": Arrival.ARRIVED,
             "a restart": Arrival.ARRIVED,
-            "an autoscaler pin": Arrival.ARRIVED
+            "an autoscaler pin": Arrival.ARRIVED,
+            # The keys are gone when the store says they are gone. Nothing
+            # converges on their absence and nothing has to be waited for, which
+            # is the same answer the flag gets and for the same reason: the
+            # change is complete at the moment it is accepted.
+            "a discard": Arrival.ARRIVED
         }))
 
 

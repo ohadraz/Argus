@@ -615,6 +615,24 @@ class Settings(BaseSettings):
         default="/argocd/{application}/resource-tree"
     )
 
+    # Where the Target Service's rendered-summary cache answers. The first
+    # address here that is a datastore rather than a control plane: every other
+    # write goes through a platform that acts on Argus's behalf, and this one is
+    # spoken to directly, in the store's own protocol.
+    #
+    # The shop holds a different address for the same cache, and that is correct
+    # rather than drift. The shop reads its own deployment configuration and
+    # dials the cluster service name there; Argus runs beside the environment
+    # rather than inside it and reaches the published port, exactly as the shop's
+    # own monitoring posts to `host.docker.internal` to reach a host Argus runs
+    # on. Two addresses for one cache, because the two parties are in different
+    # places.
+    #
+    # No credential, for the reason the service register has none: what is in
+    # here is a figure the account page would have worked out for itself, and a
+    # store holding a cheaper copy of public arithmetic is not a secret.
+    cache_url: str = Field(default="redis://localhost:6379")
+
     # Where the organisation's service register answers. The demo Target Service
     # stands in for one, so the default points at it - and unlike the Argo CD
     # settings above there is nothing here to authenticate with, because a

@@ -18,6 +18,7 @@ from argus_core.models import (
     FailureMode,
     Refusal,
     ServiceDependency,
+    reports_what_it_changed,
     the_identity_of,
 )
 
@@ -309,7 +310,21 @@ def _why_the_action_cannot_proceed(action: Action | None,
     if _times_already_tried(action, attempts) >= attempts_per_subject:
         return Refusal.ALREADY_TRIED_ENOUGH
 
-    if dated_by_the_alert and readings_cover_the_incident:
+    # The service's own window is not the only witness. An action whose answer is
+    # a statement about the world rather than an acknowledgement of a request has
+    # already said what it did, and asking a flat window to agree would be asking
+    # the one channel that cannot speak. So the refusal needs all three: the
+    # alert dated the incident, the readings already cover it, *and* the action
+    # would report nothing of its own.
+    #
+    # Read off the kind rather than off an answer, because there is no answer yet
+    # - this is decided before anything is performed, which is the whole reason
+    # it is a property of the kind and declared beside what admits one unasked.
+    if (
+        dated_by_the_alert
+        and readings_cover_the_incident
+        and not reports_what_it_changed(action.action_type)
+    ):
         return Refusal.NOTHING_COULD_CONFIRM_IT
 
     return None

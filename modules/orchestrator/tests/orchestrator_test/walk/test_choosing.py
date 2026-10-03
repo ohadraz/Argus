@@ -28,6 +28,7 @@ from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     Alert,
+    DiscardCacheEntries,
     Evidence,
     FailureMode,
     FlagChange,
@@ -53,6 +54,7 @@ from orchestrator_test.framework.assertions import the_updates_carry
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
     a_determined_hypothesis,
+    a_divergence_blamed_on,
     a_random_id,
     an_undetermined_hypothesis,
 )
@@ -359,6 +361,33 @@ def test_a_candidate_answered_by_a_restart_already_taken_is_skipped() -> None:
             the_updates_carry("candidate_index", 2)))
 
 
+@pytest.mark.unit
+def test_a_candidate_answered_by_a_discard_already_taken_is_skipped() -> None:
+    # The same guard once more, for the one action addressed by neither the
+    # candidate nor the history. Two rounds word one stale cache two ways and
+    # both are answered by discarding the entries the alert named - which this
+    # node knows only while it is still passing those keys down. Stop passing
+    # them and the second wording is taken up as though it were a new
+    # experiment, on an incident where nothing has changed since the first.
+    incident_id = a_random_id()
+    a_candidate_blaming_a_flag = a_candidate_blaming(incident_id, ANOTHER_FLAG)
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_that_discarded_entries(
+                incident_id,
+                [a_divergence_blamed_on(incident_id, "monthly totals look wrong"),
+                 a_divergence_blamed_on(incident_id, "the cache fell behind"),
+                 a_candidate_blaming_a_flag],
+                index=0
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            the_updates_carry("hypothesis", a_candidate_blaming_a_flag),
+            the_updates_carry("candidate_index", 2)))
+
+
 def _every_round() -> int:
     return SOME_ROUND_BUDGET
 
@@ -415,6 +444,38 @@ def _a_walk_that_restarted_the_service(incident_id: str,
     """
     return _a_walk_at(incident_id, candidates, index).model_copy(
         update={"proposed_action": RestartService(service=DONT_CARE_ALERT.service)}
+    )
+
+
+def _a_walk_that_discarded_entries(incident_id: str,
+                                   candidates: list[Hypothesis],
+                                   index: int) -> IncidentState:
+    """The same walk, after the action whose address the alert had to supply.
+
+    A discard is addressed to keys, and keys are the one thing neither the
+    candidate nor the flag history carries - so what this node asks of a
+    candidate can only be answered while it is still handing the alert's keys
+    down. The alert is replaced rather than the action alone because an action
+    naming entries the alert never found would be this file inventing the
+    evidence the rule depends on.
+    """
+    the_entries_the_check_found = ("io-shop:summary:2026-09:shopper-4",
+                                   "io-shop:summary:2026-09:shopper-9")
+    the_alert_that_found_them = Alert(
+        service=DONT_CARE_ALERT.service,
+        alert_name="CachedSpendTotalsAreStale",
+        stale_entry_keys=the_entries_the_check_found,
+        stale_entries_found=len(the_entries_the_check_found)
+    )
+
+    return _a_walk_at(incident_id, candidates, index).model_copy(
+        update={
+            "alert": the_alert_that_found_them,
+            "proposed_action": DiscardCacheEntries(
+                service=the_alert_that_found_them.service,
+                keys=the_entries_the_check_found
+            )
+        }
     )
 
 

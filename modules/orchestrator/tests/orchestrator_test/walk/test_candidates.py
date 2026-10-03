@@ -35,9 +35,11 @@ from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
     a_determined_hypothesis,
+    a_divergence_blamed_on,
     a_leak_blamed_on,
     a_random_id,
     an_undetermined_hypothesis,
+    discarding,
     putting_back,
     restarting,
     rolling_back,
@@ -481,6 +483,27 @@ def test_a_history_nobody_could_read_answers_nothing_at_all() -> None:
             SOME_SERVICE
         )) \
         .then(_each_would_do([None]))
+
+
+@pytest.mark.unit
+def test_a_divergence_candidate_is_answered_by_discarding_the_keys_handed_in() -> None:
+    # The one candidate whose answer cannot be derived from the candidate. An
+    # entry in a store is addressed by a key, a key's format belongs to whoever
+    # wrote the store, and so the only thing that can answer this is what the
+    # evidence carried - which has to arrive here as an argument or not at all.
+    some_incident_id = a_random_id()
+
+    Scenario() \
+        .given(the_keys_the_check_named := ["io-shop:summary:2026-09:shopper-4",
+                                            "io-shop:summary:2026-09:shopper-9"]) \
+        .when(lambda: what_each_would_do(
+            [a_divergence_blamed_on(some_incident_id,
+                                    "cached monthly totals disagree with the ledger")],
+            [_a_change_to(SOME_FLAG)],
+            SOME_SERVICE,
+            the_keys_the_check_named
+        )) \
+        .then(_each_would_do([discarding(SOME_SERVICE)]))
 
 
 def _a_change_to(flag: str) -> FlagChange:

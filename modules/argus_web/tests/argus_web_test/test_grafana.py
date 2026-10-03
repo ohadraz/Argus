@@ -94,6 +94,48 @@ def test_parse_grafana_alert_leaves_the_onset_unset_when_none_is_stated() -> Non
         )
 
 
+@pytest.mark.unit
+def test_parse_grafana_alert_reads_the_stale_cache_keys_an_alert_names() -> None:
+    # One annotation holding a comma-separated list, which is what a check
+    # templating its finding into an alert actually produces. The keys are
+    # addresses rather than descriptions: the format belongs to whoever wrote the
+    # cache, so the parser lifts them and composes none.
+    #
+    # The count travels beside them and is not redundant. Split this list on the
+    # wrong character and it comes out longer than the count; truncate it and it
+    # comes out shorter. Either way the alert refuses itself, which is the only
+    # place either mistake is visible.
+    the_keys = ("io:summary:s-0007", "io:summary:s-0002")
+
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(stale_entry_keys=the_keys)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_read_the_stale_keys(the_keys)
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_leaves_the_stale_keys_unset_when_none_are_named() -> None:
+    # Every alert that is not this one mode's. Unset rather than empty, as the
+    # onset is: an empty tuple would say a check compared a cache against its
+    # records and found everything in order, which no ordinary alert claims.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload()
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_read_the_stale_keys(None)
+        )
+
+
 def _it_read(service: str, alert_name: str, severity: str) -> Assertion[Alert]:
     """The three fields lifted out of Grafana's labels, checked together.
 
@@ -154,6 +196,28 @@ def _it_read_an_onset_of(expected: str | None) -> Assertion[Alert]:
             raise AssertionError(
                 f"Expected the alert to state an onset of [{expected}], got "
                 f"[{stated}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_read_the_stale_keys(expected: tuple[str, ...] | None) -> Assertion[Alert]:
+    """The keys lifted out of one annotation, exactly and in order.
+
+    Identity rather than membership, for the reason the alert's own test gives:
+    these are addresses, nothing downstream can check one, and a list that
+    arrived short or reordered is still a list of plausible keys.
+
+    `None` is asserted the same way, because the ordinary alert states none and
+    an empty tuple would be the parser claiming a check ran and found nothing.
+    """
+    def assertion(alert: Alert) -> bool:
+        if alert.stale_entry_keys != expected:
+            raise AssertionError(
+                f"Expected the alert to carry the stale keys [{expected}], got "
+                f"[{alert.stale_entry_keys}]."
             )
 
         return True

@@ -26,9 +26,13 @@ in a test. So the type refuses it.
 
 from __future__ import annotations
 
+from typing import get_args
+
 import pytest
 from argus_core.models import (
+    CACHE,
     DEPLOYMENT_PLATFORM,
+    DISCARD_CACHE_ENTRIES,
     FLAG_PROVIDER,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
@@ -36,6 +40,8 @@ from argus_core.models import (
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     ActionIdentity,
+    ActionType,
+    DiscardCacheEntries,
     FlagUndo,
     RestartService,
     RevertFeatureFlag,
@@ -43,7 +49,9 @@ from argus_core.models import (
     ScaleOut,
     UnreadVerdict,
     Verdict,
+    changes_something_persistent,
     leaves_something_to_put_back,
+    reports_what_it_changed,
     the_actions_through,
     the_direction_of,
     the_identity_of,
@@ -51,6 +59,7 @@ from argus_core.models import (
     the_platform_of,
 )
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from pydantic import ValidationError
 
 SOME_SPELLING_NO_VERDICT_HAS = "dissolved"
 A_SPELLING_A_VERDICT_HAS = Verdict.CONFIRMED.value
@@ -372,21 +381,179 @@ def test_the_flag_provider_carries_the_one_action_that_survives_it() -> None:
 
 
 @pytest.mark.unit
-def test_every_kind_is_accounted_for_by_one_platform_or_the_other() -> None:
-    # The claim that keeps the two above from drifting apart as kinds are added.
-    # A sixth mitigation appearing in neither list would be an action nothing
-    # says is unavailable when its platform goes down, and nothing here would
-    # fail - the lists would simply be quietly incomplete.
+def test_every_kind_is_accounted_for_by_one_of_the_three_platforms() -> None:
+    # The claim that keeps the lists above from drifting apart as kinds are
+    # added. A seventh mitigation appearing in none of them would be an action
+    # nothing says is unavailable when its platform goes down, and nothing here
+    # would fail - the lists would simply be quietly incomplete.
+    #
+    # Three rather than two since the cache arrived, and the sum is what is
+    # asserted rather than each list's length: what matters is that no kind is
+    # unaccounted for, not how they happen to be distributed today.
     Scenario() \
-        .given([DEPLOYMENT_PLATFORM, FLAG_PROVIDER]) \
+        .given([DEPLOYMENT_PLATFORM, FLAG_PROVIDER, CACHE]) \
         .when(lambda: sorted(
             the_actions_through(DEPLOYMENT_PLATFORM)
             + the_actions_through(FLAG_PROVIDER)
+            + the_actions_through(CACHE)
         )) \
         .then(_they_are(sorted([
             REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT,
-            SCALE_OUT, PIN_AUTOSCALER
+            SCALE_OUT, PIN_AUTOSCALER, DISCARD_CACHE_ENTRIES
         ])))
+
+
+@pytest.mark.unit
+def test_the_identity_of_a_discard_is_its_kind_and_its_service() -> None:
+    # The keys are deliberately not part of it. Identity answers whether this
+    # has been done before, and the entries a check finds stale differ between
+    # one run and the next - so an identity carrying them would make every
+    # attempt a new one, and the cap that stops Argus discarding over and over
+    # would never be reached.
+    Scenario() \
+        .given(
+            a_discard := _a_discard_of(SOME_APPLICATION)
+        ) \
+        .when(lambda: the_identity_of(a_discard)) \
+        .then(_it_identifies(DISCARD_CACHE_ENTRIES, SOME_APPLICATION))
+
+
+@pytest.mark.unit
+def test_a_discard_naming_no_entries_is_refused() -> None:
+    # An action that would reach the cache and remove nothing. Refused here
+    # rather than tolerated, because its count would come back zero and a zero
+    # is indistinguishable from entries somebody else had already discarded -
+    # so the attempt would be confirmed by a receipt saying nothing happened.
+    Scenario() \
+        .given(SOME_APPLICATION) \
+        .when(
+            attempting(
+                lambda: DiscardCacheEntries(service=SOME_APPLICATION, keys=())
+            )
+        ) \
+        .then(an_error_was_raised(ValidationError))
+
+
+@pytest.mark.unit
+def test_a_discard_leaves_nothing_to_put_back() -> None:
+    # Like a restart and unlike the three that restore something. Nothing was
+    # lost: the entries were a copy of records that never moved, and whatever
+    # reads one next works it out again. An undo descriptor here would promise
+    # to write the stale figures back, which is a promise to recreate the
+    # incident.
+    Scenario() \
+        .given(DISCARD_CACHE_ENTRIES) \
+        .when(lambda: leaves_something_to_put_back(DISCARD_CACHE_ENTRIES)) \
+        .then(_it_leaves_something_to_put_back(False))
+
+
+@pytest.mark.unit
+def test_a_discard_reaches_the_estate_through_neither_platform_above() -> None:
+    # The first action that is not a call to a control plane. No control plane
+    # offers this one: a platform's built-in actions reach a workload's
+    # lifecycle and its size, and none of them reaches what a cache holds.
+    #
+    # Which is why it needs a platform of its own rather than being filed under
+    # the deployment platform for tidiness. A walk that loses the platform
+    # passes over every candidate on it, and a discard filed there would be
+    # abandoned over an outage that never touched the cache it acts on.
+    Scenario() \
+        .given(DISCARD_CACHE_ENTRIES) \
+        .when(lambda: the_platform_of(DISCARD_CACHE_ENTRIES)) \
+        .then(all_of(
+            _it_acts_through(CACHE),
+            _it_does_not_act_through(DEPLOYMENT_PLATFORM)
+        ))
+
+
+@pytest.mark.unit
+def test_a_discard_has_no_direction_to_report() -> None:
+    # Like a restart, a rollback and a scale-out, and unlike the flag revert.
+    # There is one thing a discard does - the entries are gone - and no second
+    # state it could have been moved to instead. A direction invented here would
+    # be a field kept to preserve a shape, and it would be read out in the line
+    # the incident is narrated as.
+    Scenario() \
+        .given(
+            a_discard := _a_discard_of(SOME_APPLICATION)
+        ) \
+        .when(lambda: the_direction_of(a_discard)) \
+        .then(_it_has_no_direction())
+
+
+@pytest.mark.unit
+def test_only_the_discard_answers_with_what_it_changed() -> None:
+    # What separates the one action that can be confirmed by its own answer from
+    # the five that cannot. A discard returns how many entries it removed, which
+    # is the store stating they are gone; the others answer that a request was
+    # accepted, and what happened next has to be watched for.
+    #
+    # Asserted over all six rather than of the discard alone, because the claim
+    # is that it is the only one. A later action that quietly reported something
+    # would otherwise gain a confirmation nobody reasoned about.
+    Scenario() \
+        .given(every_kind := get_args(ActionType.__value__)) \
+        .when(lambda: [
+            kind for kind in every_kind if reports_what_it_changed(kind)
+        ]) \
+        .then(_they_are([DISCARD_CACHE_ENTRIES]))
+
+
+@pytest.mark.unit
+def test_every_action_but_the_restart_changes_something_persistent() -> None:
+    # The fact neither predicate beside this one carries, and the one that tells
+    # two silences apart. A row with no undo descriptor against it is a restart,
+    # which changed nothing and so has nothing to put back, or a discard, which
+    # changed something and owes nothing back because the figures were a copy of
+    # records it never touched. Those want different sentences, and
+    # `leaves_something_to_put_back` is false for both of them.
+    #
+    # Named for the restart's character rather than the discard's, because the
+    # restart is the only member that makes it false. A predicate spelled as
+    # owing an undo would be the neighbouring set with the restart flipped - a
+    # synonym for the thing beside it whose one distinguishing answer is wrong,
+    # and the restart's own case would then read as a change nobody accounted
+    # for.
+    #
+    # Asserted over all six rather than of the restart alone, because the claim
+    # is that it is the only one. A seventh kind that changed nothing would
+    # otherwise inherit the discard's sentence.
+    Scenario() \
+        .given(every_kind := get_args(ActionType.__value__)) \
+        .when(lambda: [
+            kind for kind in every_kind if changes_something_persistent(kind)
+        ]) \
+        .then(_the_kinds_are(
+            "change something persistent",
+            [
+                REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT,
+                PIN_AUTOSCALER, DISCARD_CACHE_ENTRIES
+            ]
+        ))
+
+
+def _the_kinds_are(description: str, expected: list[str]) -> Assertion[list[str]]:
+    """Which kinds satisfy a predicate, named in full.
+
+    The description is the predicate in words, because one assertion serves
+    several of these and a failure saying only "the kinds" would leave a reader
+    comparing two lists with nothing to say what either is a list of.
+
+    Order compared as well as membership, because the filter preserves the
+    union's own declaration order: a list that comes back reordered means the
+    union was reordered, which is worth being told about rather than passed
+    over.
+    """
+    def assertion(named: list[str]) -> bool:
+        if named != expected:
+            raise AssertionError(
+                f"Expected the kinds that {description} to be {expected}, and "
+                f"they are {named}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_carries_no_replica_count() -> Assertion[set[str]]:
@@ -636,3 +803,15 @@ def _they_are(expected: list[str]) -> Assertion[list[str]]:
         return True
 
     return assertion
+
+
+def _a_discard_of(service: str,
+                  keys: tuple[str, ...] = ("io-shop:summary:shopper-1",)
+                  ) -> DiscardCacheEntries:
+    """A discard of named entries, with a key that looks like a real one.
+
+    The key is spelled as the store spells it rather than as something short,
+    because every claim about this action is about carrying addresses faithfully
+    and a placeholder would make the one mistake that matters invisible.
+    """
+    return DiscardCacheEntries(service=service, keys=keys)

@@ -140,9 +140,14 @@ def investigator_node(
     # What memory makes of this round's candidates, before anything is chosen from
     # them. The action that answers a candidate is what is matched, not the
     # candidate's own prose - which is why the flag history had to be in hand
-    # before this point.
+    # before this point, and why the alert's keys go with it: the action for a
+    # divergence is addressed to entries only the evidence ever named, so a
+    # candidate asked without them is a candidate memory has nothing to
+    # recognise.
     reordered = demoting_what_was_refuted(
-        what_each_would_do(findings.candidates, flag_changes, state.alert.service),
+        what_each_would_do(findings.candidates, flag_changes,
+                           state.alert.service,
+                           state.alert.stale_entry_keys or ()),
         recalled
     )
     candidates = [entry.candidate for entry in reordered.candidates]

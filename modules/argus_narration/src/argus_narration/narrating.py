@@ -130,14 +130,6 @@ _WHY_IT_WAS_REFUSED = {
                                       "taken"
 }
 
-# What became of one change an incident made, said after the flag it is about.
-# Three phrases rather than three shades of "done": a flag left as found is
-# somebody else's now, and one nobody could read is a question still open.
-_WHAT_BECAME_OF_IT = {
-    Undone.RESTORED: "was put back",
-    Undone.LEFT_AS_FOUND: "was left as found",
-    Undone.NOT_ESTABLISHED: "could not be read"
-}
 
 # What each retrieval channel is, said so that somebody who has never read the
 # spec knows what was asked for. "changes" in particular: it means deploys and
@@ -421,7 +413,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # it reverses are the same subject a page apart, and a reader
             # matching them up should not have to read two spellings.
             emphasis = event.subject
-            text = f"{emphasis} {_WHAT_BECAME_OF_IT[event.outcome]} - {event.detail}"
+            text = f"{emphasis} {_what_became_of_it(event.outcome)} - {event.detail}"
         case SimilarIncidentsRecalled():
             who = _ARGUS
             # How many, marked, rather than the ids. The count is what a reader
@@ -818,6 +810,14 @@ def _an_action_said(action_type: ActionType) -> str:
             # number is what separates a capacity that was outgrown from one that
             # will not settle.
             return "Raised the autoscaler floor of"
+        case "discard-cache-entries":
+            # Said of the copies rather than of the store, and "stale" is doing
+            # the work. A line reporting that Argus removed entries from a cache
+            # tells a reader the alarming half of a harmless act: what went was
+            # derived from records nothing touched, and the next read of each one
+            # works it out again. "Deleted" would be the wrong verb for the same
+            # reason - it is what one says about the thing itself.
+            return "Discarded the stale cached figures of"
 
     assert_never(action_type)
 
@@ -843,6 +843,37 @@ def _and_then_some(action_types: Sequence[ActionType]) -> str:
         return f"{said[0]} was"
 
     return f"{', '.join(said[:-1])} and {said[-1]} were"
+
+
+def _what_became_of_it(outcome: Undone) -> str:
+    """What became of one change an incident made, said after the subject.
+
+    Four phrases rather than four shades of "done": a flag left as found is
+    somebody else's now, one nobody could read is a question still open, and
+    figures thrown away were never owed back.
+
+    A match rather than the dictionary this used to be, and the member added to
+    it is the reason. A lookup answers a kind nobody has handled with a
+    `KeyError` at the moment a page is rendered - after the incident, in front
+    of the person reading it, out of the one module whose job is to not be the
+    thing that fails. `assert_never` asks the type checker the same question
+    instead, before anything runs.
+    """
+    match outcome:
+        case Undone.RESTORED:
+            return "was put back"
+        case Undone.LEFT_AS_FOUND:
+            return "was left as found"
+        case Undone.NOT_ESTABLISHED:
+            return "could not be read"
+        case Undone.NO_UNDO_WAS_OWED:
+            # Not "was left alone", which is what an action the gate refused
+            # gets, and not "could not be put back", which says an attempt was
+            # made and failed. Something was done here, and nothing was owed
+            # back for it.
+            return "needed nothing put back"
+
+    assert_never(outcome)
 
 
 def what_the_action_does(action_type: ActionType, subject: str) -> str:
@@ -878,6 +909,12 @@ def what_the_action_does(action_type: ActionType, subject: str) -> str:
             # demoted, as though Argus were adding capacity again - which is the
             # other action and the other mode.
             return f"holding {subject}'s autoscaler still"
+        case "discard-cache-entries":
+            # Named for what is thrown away rather than for the store it is
+            # thrown out of. In a line about a candidate being demoted, "clearing
+            # the cache" would read as the whole store going - which is the one
+            # thing this action deliberately does not do.
+            return f"discarding {subject}'s stale cached figures"
 
     assert_never(action_type)
 

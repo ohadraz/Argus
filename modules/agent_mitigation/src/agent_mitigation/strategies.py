@@ -28,6 +28,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from argus_core.models import (
+    DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -35,6 +36,7 @@ from argus_core.models import (
     SCALE_OUT,
     Action,
     ActionType,
+    DiscardCacheEntries,
     FailureMode,
     FlagChange,
     FlagUndo,
@@ -48,6 +50,7 @@ from argus_core.models import (
 
 __all__ = [
     "DEFAULT_STRATEGIES",
+    "DiscardCacheEntriesStrategy",
     "MitigationStrategy",
     "PinAutoscalerStrategy",
     "RestartDependencyStrategy",
@@ -71,17 +74,23 @@ class MitigationStrategy(Protocol):
 
     action_type: ActionType
 
-    # The evidence is positional, the service is named. A protocol that fixes a
-    # parameter's *name* obliges every implementation to repeat it, which is a
-    # real constraint on a stand-in whose whole point is that it ignores what it
-    # is handed - `dont_care_hypothesis` is the right name there and an error
-    # against a protocol spelling it `hypothesis`. The service stays named
-    # because callers name it, and a keyword argument is part of the call.
+    # The evidence is positional, the service and the keys are named. A protocol
+    # that fixes a parameter's *name* obliges every implementation to repeat it,
+    # which is a real constraint on a stand-in whose whole point is that it
+    # ignores what it is handed - `dont_care_hypothesis` is the right name there
+    # and an error against a protocol spelling it `hypothesis`. The two that
+    # follow stay named because callers name them, and a keyword argument is part
+    # of the call; a third positional would make every existing call wrong.
+    #
+    # The keys carry a default because one strategy of six reads them, and a
+    # required parameter would be every call site naming an input that answers
+    # nothing for it.
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 /,
-                service: str) -> Action | None: ...
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None: ...
 
 
 class RevertFeatureFlagStrategy:
@@ -100,7 +109,8 @@ class RevertFeatureFlagStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
         """The flag change to reverse, or `None` where the evidence names none.
 
         Reading the Investigator's conclusion is not a second investigation.
@@ -154,7 +164,8 @@ class RestartServiceStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
         """The service to restart - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. A leak
@@ -206,7 +217,8 @@ class RollBackDeploymentStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
         """The deployment to roll back - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. What was
@@ -257,7 +269,8 @@ class RestartDependencyStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
         """The dependency to restart, or `None` where the evidence names none.
 
         `None` rather than a restart of the alerting service, for the reason
@@ -313,7 +326,8 @@ class ScaleOutStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
         """The deployment to make larger - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. Traffic
@@ -368,7 +382,8 @@ class PinAutoscalerStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
         """The deployment whose autoscaler to hold - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. A controller
@@ -382,6 +397,61 @@ class PinAutoscalerStrategy:
         this to fail to identify.
         """
         return PinAutoscaler(application=service)
+
+
+class DiscardCacheEntriesStrategy:
+    """Answering copies that stopped agreeing with their records by throwing them away.
+
+    The sixth generic mitigation, and the first that removes something rather than
+    restoring, adding or stopping something. The set's criterion is unchanged by
+    that, as it was unchanged by the one that adds and the one that stops: what
+    admits an action unasked is membership of the declared set, never the kind of
+    change it makes. This is the member most likely to be read as a weakening,
+    because removing data sounds heavier than putting a value back - and it is
+    not, because what it removes was derived from records it never touches.
+
+    It is also the one strategy whose action is addressed by something the
+    evidence had to name. The other five are addressed to a flag the provider
+    recorded or to a service the alert named; an entry in a store is addressed by
+    a key, a key's format belongs to whoever wrote the store, and so there is no
+    honest way for Argus to work one out. The check that found the divergence
+    built those keys in order to compare the copies, which is why it can hand them
+    over and this cannot derive them.
+
+    So this is the one strategy that reads `stale_entry_keys`, and the only one
+    that can answer `None` for a reason the flag revert's does not share: the mode
+    is right and the evidence did not say what to act on. A discard of nothing
+    would reach the store, be refused by it, and be reported as a store that could
+    not be reached - which would narrow the walk away from every action on a store
+    that is perfectly well.
+    """
+
+    action_type: ActionType = DISCARD_CACHE_ENTRIES
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                flag_changes: Sequence[FlagChange],
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+        """The entries to discard, or `None` where the evidence named none.
+
+        The keys are passed through exactly as they arrived - same keys, same
+        order, duplicates included. A `set` here would answer with a collection of
+        the same size for a different set of entries, and that is the one
+        corruption the receipt cannot expose: the store would report a count,
+        the count would look right, and entries the check found would still be
+        wrong with nobody left looking at them.
+
+        Neither the hypothesis nor the recorded flag changes are read. A copy that
+        fell behind is not something a toggle did, and a flag that moved while it
+        drifted is a coincidence this must not act on. The service comes from the
+        alert, as a restart's does, because the store holds that service's copies
+        and the model's `subject` is a description rather than an address.
+        """
+        if not stale_entry_keys:
+            return None
+
+        return DiscardCacheEntries(service=service, keys=tuple(stale_entry_keys))
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
@@ -456,7 +526,13 @@ DEFAULT_STRATEGIES: Strategies = {
     # returning it is what puts the readings back. So what confirms this action
     # is the rows existing again rather than a level coming down, which is the
     # one place in this table where the action and what judges it come apart.
-    FailureMode.MONITORING_BLIND_SPOT: RollBackDeploymentStrategy()
+    FailureMode.MONITORING_BLIND_SPOT: RollBackDeploymentStrategy(),
+    # The sixth mitigation, and the only entry here whose action is addressed by
+    # something no other mode's evidence carries. Every other strategy can be
+    # handed an incident and work out what to act on; this one is handed the
+    # addresses or proposes nothing, because a cache key is not Argus's to
+    # compose.
+    FailureMode.STATE_DIVERGENCE: DiscardCacheEntriesStrategy()
 }
 
 

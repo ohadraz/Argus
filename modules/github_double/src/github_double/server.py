@@ -63,6 +63,12 @@ _READABLE_AT_FIELD: Final = "html_url"
 _FILES_FIELD: Final = "files"
 _FILENAME_FIELD: Final = "filename"
 
+# The host a proposal's address points at, which does not resolve. A double
+# answering with a reachable address would put a live link in a postmortem
+# written from a fixture. The owner and the repository are the ones the request
+# named, so nothing here is anybody's account.
+_UNREACHABLE_HOST: Final = "https://github.invalid"
+
 # How a comparison names its two ends in the path: base first, three dots, head.
 _BETWEEN: Final = "..."
 
@@ -341,7 +347,9 @@ async def open_the_pull_request(owner: str, repo: str, request: Request) -> JSON
     return JSONResponse(
         {
             _NUMBER_FIELD: proposal.number,
-            _READABLE_AT_FIELD: proposal.html_url,
+            _READABLE_AT_FIELD: (
+                f"{_UNREACHABLE_HOST}/{owner}/{repo}/pull/{proposal.number}"
+            ),
             _TITLE_FIELD: proposal.title,
             _BODY_FIELD: proposal.body,
             _DRAFT_FIELD: proposal.draft,
@@ -369,6 +377,28 @@ def put_the_repository_back() -> dict[str, str]:
     repository.reset()
 
     return {"status": "reset"}
+
+
+@app.post("/double-control/stage-commit")
+async def stage_a_commit(request: Request) -> JSONResponse:
+    """Registers a commit under a sha the caller chose, holding these files.
+
+    The seam a scenario stages its own deployment history through. A comparison
+    names two commits of the Target Service, and this double cannot derive those
+    from anything it holds: it depends on nothing in the workspace, so the real
+    shas and what differs between them are facts only the case that stages the
+    scenario knows. Naming them here instead would be this double keeping a copy
+    of another repository's history, right until the next scenario names two
+    other commits and 404s exactly as this one did.
+
+    The fixture's own files sit underneath whatever is given, so a comparison
+    answers with the paths that differ rather than with the whole tree.
+    """
+    asked: dict[str, Any] = await request.json()
+
+    repository.stage_commit(asked["sha"], asked["files"])
+
+    return JSONResponse({"status": "staged", "sha": asked["sha"]})
 
 
 @app.get("/double-control/pulls")

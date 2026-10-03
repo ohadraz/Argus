@@ -10,6 +10,7 @@ from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
     Arrival,
     AutoscalerPinner,
+    CacheEntryDiscarder,
     DeploymentRoller,
     DeploymentScaler,
     FlagSetter,
@@ -35,6 +36,7 @@ from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     AutoscalerUndo,
     DeploymentRollbackUndo,
+    DiscardCacheEntries,
     MetricBucket,
     PinAutoscaler,
     ReplicaUndo,
@@ -48,18 +50,23 @@ from argus_testkit import Assertion, Scenario, all_of, dont_care_sleep
 from agent_mitigation_test.framework.assertions import the_verdict_is
 from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
+    CALM_MINUTES,
     CALM_RATE,
     DONT_CARE_FLAG,
+    FAILING_MINUTES,
     FAILING_RATE,
     THE_ONSET,
     a_clock_frozen_at,
     a_clock_reading_at,
     a_clock_that_runs_out_after_one_look,
+    a_discard_removing,
     a_recovered_window,
     a_still_failing_window,
     a_window_ending_at_the_action,
+    a_window_of_minutes,
     a_window_recovered_before_the_action,
     a_window_that_keeps_flapping,
+    a_window_that_never_departed,
     a_window_that_stops_at_the_onset,
     a_window_where_memory_never_fell,
     a_window_where_memory_was_reclaimed,
@@ -69,6 +76,7 @@ from agent_mitigation_test.framework.builders import (
     an_undo_descriptor_for,
     an_undo_nobody_calls,
     an_undo_putting_flags_back,
+    an_undo_that_put_it_back,
     metrics_reading,
     nobody_can_say,
     nobody_changed_it,
@@ -105,6 +113,15 @@ THE_AUTOSCALER_HAS_NO_ROOM_LEFT = (
     f"[{SOME_APPLICATION}]'s autoscaler may fall to [6] replicas and rise to "
     f"[6], and the highest floor Argus may ask for is [6] - so there is no room "
     f"left between the two and nothing here for a pin to stop"
+)
+# Where the store this tier writes to answers. A URL rather than a service name,
+# because that is the only address the write tier has: it dials a store, and a
+# service name passed down just to word a refusal would be the agent's
+# vocabulary leaking into the tier.
+SOME_CACHE_ENDPOINT = "redis://localhost:6379"
+THE_ENTRIES_ARE_ALREADY_GONE = (
+    f"none of the [1] entries named at [{SOME_CACHE_ENDPOINT}] are in the "
+    f"store, so there is nothing here for a discard to remove"
 )
 THE_PATCH_WAS_REFUSED = (
     f"the platform would not patch [{SOME_APPLICATION}]'s autoscaler"
@@ -1819,6 +1836,104 @@ def test_a_service_nobody_could_see_is_refuted_when_the_readings_never_return() 
 
 
 @pytest.mark.unit
+def test_a_blind_spot_is_not_refuted_before_the_readings_have_had_a_chance() -> None:
+    # The first pass of every blind spot, and the one the suite never covered.
+    # The minute a verdict is read from is the minute *after* the change arrived,
+    # and on the first look that minute has not finished - so the rule that
+    # confirms a restored sight cannot answer yet, whatever the action achieved.
+    #
+    # What must not happen is that the wait settles anyway. A departure is a fact
+    # about levels, and this window has none to be about: its minutes are absent
+    # rather than calm, which is the whole of what the mode is. Refuting here
+    # undoes the revert, blinds the shop again, and strikes off the one cause
+    # that was right - on the strength of a window that could not have shown
+    # anything yet.
+    #
+    # Asserted three ways, because the verdict alone would not say which rule
+    # reached it. The service is looked at twice, so the loop went round rather
+    # than settling; the detail names the sight returning; and it does not name
+    # the departure rule, which is the one that must not have decided this.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_readings_come_back_late := (
+                _metrics_whose_readings_return_on_the_second_look()
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=the_readings_come_back_late,
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_service_was_looked_at(the_readings_come_back_late, times=2),
+            _the_detail_mentions("could be read again"),
+            _the_detail_does_not_mention("never departed")
+        ))
+
+
+@pytest.mark.unit
+def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there() -> None:
+    # Whether this incident's own minutes were ever published is measured over
+    # the span from the onset to the action, and this is the case that says where
+    # the span ends. The rollback restores the reporting, so the minute it landed
+    # in is the first to carry a row again - and that row exists *because* the
+    # action worked. Counted as evidence the sight was never absent, it overturns
+    # the measurement with the action's own effect and the incident is then judged
+    # on levels it does not have.
+    #
+    # Asserted as which rule answered rather than as the verdict alone, because
+    # the verdict here is reachable two ways: the rows come back calm, so a window
+    # read a minute later would also confirm on levels. A case that asserted
+    # `CONFIRMED` and nothing else would go green down that road while the span
+    # was still measured wrongly, which is how this survived an e2e suite.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_rows_return_as_the_action_lands := (
+                _metrics_whose_rows_return_in_the_actions_own_minute()
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=the_rows_return_as_the_action_lands,
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_service_was_looked_at(the_rows_return_as_the_action_lands, times=2),
+            _the_detail_mentions("could be read again"),
+            _the_detail_does_not_mention("never departed"),
+            _the_detail_does_not_mention("returned to baseline")
+        ))
+
+
+@pytest.mark.unit
 def test_readings_returning_confirms_the_action_that_restored_them() -> None:
     # The sight came back, which is the whole of what the action was for. Confirmed
     # on the minutes existing rather than on their levels - they happen to be calm
@@ -1980,7 +2095,7 @@ def _an_action_is_taken(metrics: list[MetricBucket],
         fetch_metrics=metrics_reading(metrics),
         now=clock or a_clock_frozen_at(ACTION_TIME),
         sleep=dont_care_sleep,
-        undo=an_undo_nobody_calls(),
+        undo=an_undo_that_put_it_back(DONT_CARE_FLAG),
         **keywords
     )
 
@@ -2052,11 +2167,66 @@ def _metrics_that_never_recover() -> MagicMock:
     return fetch_metrics
 
 
+def _metrics_whose_rows_return_in_the_actions_own_minute() -> MagicMock:
+    """The one window the existing blind-spot cases cannot express.
+
+    `a_window_whose_readings_return_at` restores its rows at the first whole
+    minute and the one after it, so the minute the action fell inside stays
+    absent and the span that measures whether anything was ever seen never
+    contains it. Here it does: the rollback lands mid-minute and that minute is
+    the first to carry a row again, which is what actually happens when the thing
+    being restored is the reporting itself.
+
+    Two looks, because the first cannot settle anything. A row in the action's own
+    minute is aggregated over seconds either side of the change, so it is evidence
+    about neither state and the wait has to go round again - and the second look
+    is where the first whole minute finally exists.
+    """
+    the_blind_minutes = {minute: CALM_RATE for minute in range(CALM_MINUTES)}
+    # Offsets rather than instants, and these two are the whole of the case. 10 is
+    # the minute `ACTION_TIME` falls inside, 11 is the first that wholly follows
+    # it. Derived from the window's own shape so they move with it.
+    acted_in = CALM_MINUTES + FAILING_MINUTES - 1
+    first_whole = acted_in + 1
+
+    fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True)
+    fetch_metrics.side_effect = [
+        a_window_of_minutes(the_blind_minutes | {acted_in: CALM_RATE}),
+        a_window_of_minutes(
+            the_blind_minutes | {acted_in: CALM_RATE, first_whole: CALM_RATE}
+        )
+    ]
+
+    return fetch_metrics
+
+
 def _metrics_recovering_only_after_the_action() -> MagicMock:
     """The first look ends at the action, so no whole minute has followed it
     yet; the second carries one, and only then can a verdict be read."""
     fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True)
     fetch_metrics.side_effect = [a_window_ending_at_the_action(), a_recovered_window()]
+
+    return fetch_metrics
+
+
+def _metrics_whose_readings_return_on_the_second_look() -> MagicMock:
+    """A blind spot on its first pass, and the rows back on its second.
+
+    The first look carries nothing from the onset onwards, the action included,
+    so the minute a verdict would be read from does not exist yet - which is
+    every blind spot's first pass and not an edge of one. The second carries the
+    minutes that returned.
+
+    Two looks rather than one, because what the case is about is the pass in
+    between: the wait has to still be waiting after the first. A single-window
+    reader cannot tell a loop that kept watching from one that settled, since
+    both would answer the same thing however many times they were asked.
+    """
+    fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True)
+    fetch_metrics.side_effect = [
+        a_window_that_stops_at_the_onset(),
+        a_window_whose_readings_return_at(CALM_RATE)
+    ]
 
     return fetch_metrics
 
@@ -2092,6 +2262,324 @@ def _the_service_restarted_was(restart: MagicMock, service: str) -> Assertion[Ou
     return assertion
 
 
+@pytest.mark.unit
+def test_a_discard_reports_the_count_the_store_gave_back() -> None:
+    # The figure is the store's, and that is the whole reason this action can be
+    # judged by its own answer. Three keys were named and the store found two of
+    # them: an entry something else had already discarded is an entry absent,
+    # which is what the incident needed - so two is honest and three would be a
+    # number Argus made up about a world it had not looked at.
+    #
+    # Bracketed, as every figure a detail quotes is, so the assertion cannot be
+    # satisfied by a digit that happens to fall in some other part of the line.
+    some_keys = (
+        "io-shop:summary:shopper-3",
+        "io-shop:summary:shopper-7",
+        "io-shop:summary:shopper-9"
+    )
+
+    Scenario() \
+        .given(
+            the_store_found_two_of_them := a_discard_removing(2)
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, some_keys),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(discard=the_store_found_two_of_them),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            _the_detail_mentions("[2]"),
+            _the_detail_does_not_mention("[3]")
+        ))
+
+
+@pytest.mark.unit
+def test_a_discard_leaves_nothing_to_put_back() -> None:
+    # The only action here that changes something persistent and still owes no
+    # undo, and the distinction is worth pinning because the other two silences
+    # mean different things. A restart records no descriptor because it changed
+    # nothing to record; a rollback records one because what it replaced is
+    # worth restoring. This changed something and there is nothing to restore:
+    # the entries were a copy of records it never touched, so writing the old
+    # figures back would be recreating the incident.
+    Scenario() \
+        .given(
+            the_store_found_them_all := a_discard_removing(1)
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(discard=the_store_found_them_all),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            _there_is_nothing_to_put_back()
+        )
+
+
+@pytest.mark.unit
+def test_a_discard_argus_declines_to_repeat_is_named_as_a_discard() -> None:
+    # What the walk says it would have done, for an action it will not take
+    # again. Said as discarding stale cached figures rather than as deleting or
+    # clearing anything: what is removed is a copy, the records behind it are
+    # untouched, and a verb suggesting otherwise would describe an action a
+    # reader should be alarmed by.
+    Scenario() \
+        .given(
+            nothing_is_left_to_remove := _a_discarder_with_nothing_left_to_remove(
+                THE_ENTRIES_ARE_ALREADY_GONE
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(discard=nothing_is_left_to_remove),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            _the_detail_mentions(
+                f"discard [{SOME_APPLICATION}]'s stale cached figures"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_discard_is_confirmed_by_its_receipt_where_no_series_ever_moved() -> None:
+    # The third way an attempt is settled, and the only one available here. No
+    # series departed, so there is nothing to have recovered from and nothing a
+    # level could show coming back down - and the store's own count is a
+    # statement about the world rather than a platform's acknowledgement.
+    #
+    # The clock is frozen on purpose: a receipt is in hand the moment the action
+    # returns, so a verdict that needed the wait to run out would be waiting on a
+    # window that can never answer.
+    some_keys = ("io-shop:summary:shopper-3", "io-shop:summary:shopper-7")
+
+    Scenario() \
+        .given(
+            the_store_found_both_of_them := a_discard_removing(2)
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, some_keys),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(discard=the_store_found_both_of_them),
+                fetch_metrics=metrics_reading(a_window_that_never_departed()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_does_not_mention("returned to baseline")
+        ))
+
+
+@pytest.mark.unit
+def test_a_discard_is_confirmed_by_its_receipt_where_nothing_is_published() -> None:
+    # The case above asked this of a window whose series were flat. This asks it
+    # of the window a service in this state actually serves: none at all. An
+    # incident that moves no series is an incident nothing publishes minutes
+    # about, and a window with no minutes in it is not a window that disagrees -
+    # it is a window with nothing to say.
+    #
+    # Read as disagreement, it refuted the one kind of action whose own answer
+    # settles it. The slice from the onset up to the action is empty, so the
+    # sight read as absent for a service that is fully observed, and the receipt
+    # sat behind that measurement and was never reached. The onset is stated
+    # because stating it is what makes the slice askable at all: an undated
+    # incident takes the other path, which is why five discard cases and a green
+    # suite never saw this.
+    some_keys = ("io-shop:summary:shopper-3", "io-shop:summary:shopper-7")
+
+    Scenario() \
+        .given(
+            the_store_found_both_of_them := a_discard_removing(2)
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, some_keys),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(discard=the_store_found_both_of_them),
+                fetch_metrics=metrics_reading([]),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                onset=THE_ONSET
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            # What confirmed it, and not merely that something did. Every minute
+            # of a window holding no departure counts as recovered, so the
+            # recovery rule reaches CONFIRMED here too - a case asserting the
+            # verdict alone would stay green with the receipt still gated, which
+            # is the hole this closes rather than the one it reports.
+            _the_detail_mentions("the store reported what it removed"),
+            _the_detail_does_not_mention("returned to baseline")
+        ))
+
+
+@pytest.mark.unit
+def test_a_restart_is_not_confirmed_by_a_window_nobody_published() -> None:
+    # The guard on the case above, and why its rule still asks about the
+    # departure instead of dropping the question. A restart reports that a
+    # request was taken and nothing about what changed, so an empty window owes
+    # it nothing: there is no receipt to settle it and no level to settle it
+    # with, and confirming it would close an incident on no evidence at all.
+    #
+    # Asserted as "not confirmed" rather than as a verdict of its own, because
+    # which of the other two it should be is a separate question about a window
+    # that answered and said nothing - and pinning one here would make this case
+    # fail when that question is answered.
+    Scenario() \
+        .given(
+            dont_care_undo := an_undo_nobody_calls()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up(SOME_APPLICATION)
+                ),
+                fetch_metrics=metrics_reading([]),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=dont_care_undo,
+                onset=THE_ONSET
+            )
+        ) \
+        .then(all_of(
+            _the_verdict_is_not(Verdict.CONFIRMED),
+            _the_detail_does_not_mention("the store reported what it removed")
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_discard_puts_nothing_back_and_says_no_undo_was_owed() -> None:
+    # The third silence, and it means what neither of the others does. A restart
+    # puts nothing back because it changed nothing to put back; a rollback puts
+    # something back because what it replaced is worth restoring. This changed
+    # something real - figures are gone from the store - and still owes no undo,
+    # because the figures were a copy of records it never touched.
+    #
+    # So the restart's words are false here, which is the whole of what this
+    # pins. "There was nothing to put back" tells a reader the action was inert,
+    # and the next person deciding whether to look at the cache would be told
+    # Argus had never been in it.
+    #
+    # Refuted rather than confirmed from the receipt, because this window
+    # departed. A discard is settled by its own answer only where no series ever
+    # moved; where one moved and did not come back, the discard is an
+    # explanation the evidence has not borne out, like any other.
+    Scenario() \
+        .given(
+            nothing_was_put_back := an_undo_nobody_calls()
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(discard=a_discard_removing(1)),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=nothing_was_put_back
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _no_undo_was_asked_for(nothing_was_put_back),
+            _there_is_nothing_to_put_back(),
+            _the_detail_mentions("no undo was owed"),
+            _the_detail_does_not_mention("nothing to put back")
+        ))
+
+
+@pytest.mark.unit
+def test_a_restart_is_not_confirmed_by_a_window_that_never_departed() -> None:
+    # The hole this whole change exists to close, and the one outcome worse than
+    # escalating. A walk that read this incident as a leak restarts the shop,
+    # reads a window that never departed, and - because every minute of such a
+    # window counts as recovered - closes it `MITIGATED` with every page still
+    # wrong. The restart reports nothing about what it changed, so there is no
+    # receipt to settle it either, and the honest answer is that nothing here
+    # confirms anything.
+    Scenario() \
+        .given(
+            the_shop_was_restarted := _a_restarter_bringing_up(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(restart=the_shop_was_restarted),
+                fetch_metrics=metrics_reading(a_window_that_never_departed()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            _the_verdict_is_not(Verdict.CONFIRMED),
+            _the_detail_does_not_mention("returned to baseline")
+        ))
+
+
+@pytest.mark.unit
+def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
+    # The half that must not move. Everything above is about a window with no
+    # departure in it; this is a window with one, and asking whether it holds a
+    # departure changes nothing about how it is judged - the service left its
+    # baseline, came back, and the verdict is read off that as it always was.
+    Scenario() \
+        .given(
+            the_shop_was_restarted := _a_restarter_bringing_up(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(restart=the_shop_was_restarted),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_mentions("returned to baseline")
+        ))
+
+
 def _there_is_nothing_to_put_back() -> Assertion[Outcome]:
     """No descriptor at all, rather than one nobody can act on.
 
@@ -2104,6 +2592,27 @@ def _there_is_nothing_to_put_back() -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected the outcome to carry no way back, and it carried "
                 f"[{outcome.undo_descriptor}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_undo_was_asked_for(undo: MagicMock) -> Assertion[Outcome]:
+    """The undo seam never reached, where the action owes no undo.
+
+    Distinct from a change left in place because nothing was measured, which is
+    what `_nothing_was_put_back_through` is about. Here the service was read and
+    the hypothesis was refuted, and the undo is still not called - not because
+    Argus cannot put this change back safely, but because putting it back would
+    mean writing the stale figures in again, which is recreating the incident.
+    """
+    def assertion(_outcome: Outcome) -> bool:
+        if undo.call_count != 0:
+            raise AssertionError(
+                f"Expected a refuted action owing no undo to ask for none, and "
+                f"the undo was called [{undo.call_count}] times."
             )
 
         return True
@@ -2746,6 +3255,44 @@ def _it_says_nothing_was_measured() -> Assertion[Outcome]:
                 "Expected the outcome to say nothing was measured, and it "
                 "claims the service was watched - so the candidate will be "
                 "marked tested by an experiment that took no reading."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_discard_of(service: str, keys: tuple[str, ...]) -> DiscardCacheEntries:
+    return DiscardCacheEntries(service=service, keys=keys)
+
+
+def _a_discarder_with_nothing_left_to_remove(refusal: str) -> MagicMock:
+    """Answers as the tier does when the action has nothing further to do.
+
+    `ActionExhausted` for the reason the pin's stand-in raises it: that is what
+    the transport raises when a tool's refusal carries the marker, and a case
+    raising anything else would exercise a failure production cannot produce.
+    """
+    discard: MagicMock = create_autospec(CacheEntryDiscarder, instance=True)
+    discard.side_effect = ActionExhausted(an_exhausted_action(refusal))
+
+    return discard
+
+
+def _the_verdict_is_not(forbidden: Verdict) -> Assertion[Outcome]:
+    """Any verdict but this one.
+
+    Written as a refusal rather than as the verdict expected, because what is
+    being claimed is that one answer may not be reached - and naming a
+    replacement would turn a test about an unsafe confirmation into a test about
+    which safe answer was chosen instead, which is a different decision and not
+    this one's to pin.
+    """
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.verdict is forbidden:
+            raise AssertionError(
+                f"Expected any verdict but [{forbidden}], and the attempt "
+                f"settled on it anyway: [{outcome.detail}]."
             )
 
         return True

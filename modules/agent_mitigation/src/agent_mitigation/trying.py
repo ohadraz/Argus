@@ -16,6 +16,7 @@ from argus_core import to_iso_minute, utc_now
 from argus_core.anomaly import (
     AnomalyThresholds,
     find_recovery,
+    has_a_departure_in_it,
     has_a_reading_since,
     has_recovered_since,
     minutes_a_recovery_must_hold,
@@ -36,8 +37,10 @@ from argus_core.mcp_transport import (
     without_the_payload,
 )
 from argus_core.models import (
+    ActionType,
     AutoscalerUndo,
     DeploymentRollbackUndo,
+    DiscardCacheEntries,
     FlagUndo,
     MetricBucket,
     PinAutoscaler,
@@ -47,6 +50,8 @@ from argus_core.models import (
     RollBackDeployment,
     ScaleOut,
     UndoDescriptor,
+    changes_something_persistent,
+    reports_what_it_changed,
 )
 
 from agent_mitigation.actions import (
@@ -274,13 +279,21 @@ def take_action(action: Action,
 
     settled = _what_watching_the_service_settled(
         fetch_metrics, arrivals(action), now, sleep, still_wanted, settings,
-        thresholds, incident_id, publisher, onset
+        thresholds, action.action_type, incident_id, publisher, onset
     )
 
     if settled.verdict is Verdict.CONFIRMED:
         return Outcome(
             verdict=Verdict.CONFIRMED,
-            detail=f"{performed.said} and the service returned to baseline",
+            # The reason the watching gave, rather than a sentence written here.
+            # One verdict is now reached three ways that mean different things -
+            # a level that came down, a reading that returned, and an action that
+            # reported what it changed - and a detail hardcoding the first would
+            # say a service returned to a baseline it may never have left. That
+            # is also the whole of the record of *which* rule settled it: the
+            # sentence lands in `detail`, where every reader of the incident
+            # meets it.
+            detail=f"{performed.said} and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
         )
 
@@ -322,7 +335,7 @@ def take_action(action: Action,
             measured=False,
         )
 
-    return _undone(performed, undo)
+    return _undone(performed, undo, action.action_type)
 
 
 def _perform(action: Action, writes: PerformingWrites) -> Performed:
@@ -405,6 +418,28 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
                 ),
                 undo_descriptor=pinned
             )
+        case DiscardCacheEntries():
+            discarded = writes.discard(action.keys)
+
+            return Performed(
+                said=(
+                    # The store's figure and never the number of keys asked for.
+                    # This is the one action confirmed from its own answer, so a
+                    # sentence quoting what was requested would report a discard
+                    # that removed nothing as one that removed everything - and
+                    # nothing downstream watches a series that could contradict
+                    # it.
+                    f"discarded [{discarded.discarded}] of "
+                    f"[{action.service}]'s stale cached figures"
+                ),
+                # The one action that changes something persistent and still
+                # records no way back. A restart records none because it changed
+                # nothing to record; this changed something and there is nothing
+                # to restore, because the figures were a copy of records it never
+                # touched. A descriptor here would promise to write the stale
+                # values back, which is a promise to recreate the incident.
+                undo_descriptor=None
+            )
         case _:
             assert_never(action)
 
@@ -454,6 +489,13 @@ def _what_it_would_have_done(action: Action) -> str:
             return f"scale [{action.application}] out"
         case PinAutoscaler():
             return f"stop [{action.application}]'s autoscaler scaling it down"
+        case DiscardCacheEntries():
+            # Figures thrown away, never data deleted or a cache cleared. What
+            # goes is a copy and the records behind it are untouched, so a verb
+            # suggesting otherwise would describe an action a reader should be
+            # alarmed by - in a line that exists to explain why Argus is *not*
+            # doing it again.
+            return f"discard [{action.service}]'s stale cached figures"
         case _:
             assert_never(action)
 
@@ -521,6 +563,7 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
                                        still_wanted: StillWanted,
                                        settings: MitigationSettings,
                                        thresholds: AnomalyThresholds,
+                                       action_type: ActionType,
                                        incident_id: str | None = None,
                                        publisher: Publisher = nobody,
                                        onset: datetime | None = None) -> _Settled:
@@ -709,12 +752,70 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         # answering about a window the action itself has already changed.
         if the_sight_was_absent is None:
             the_sight_was_absent = _nothing_was_seen_between(
-                buckets, onset, first_whole_minute
+                buckets, onset, to_iso_minute(arrived_at)
             )
 
         if the_sight_was_absent and has_a_reading_since(buckets, first_whole_minute):
             return _Settled(
                 Verdict.CONFIRMED, "the service could be read again"
+            )
+
+        # What both rules below are measured against, and asked once because it
+        # is one fact about one window. A departure is what makes a recovery
+        # measurable at all: `has_recovered_since` reports every minute of a
+        # window without one as recovered - true of the minutes, and silent about
+        # whether anything was ever wrong - so acting on that alone confirms
+        # whatever was just done on the strength of a window that was never
+        # evidence of anything. Asked here, on the first window that answered,
+        # because that is where the window finally exists to be asked about.
+        departed = has_a_departure_in_it(buckets, thresholds)
+
+        # An action that answers with what it changed is settled by its own
+        # answer wherever the window holds no departure to judge it by - and it
+        # holds none whether the series were flat or nobody published them at
+        # all. The two are one state as far as a receipt is concerned: there is
+        # no level to come back down, so a count of what is gone from the store
+        # is the only evidence there will ever be.
+        #
+        # Asked without regard to `the_sight_was_absent`, which is what this
+        # answers for. That measurement exists to keep a blind spot from being
+        # refuted before its rows return, and it is the right question for a kind
+        # whose verdict a level has to carry. For a kind carrying its own, it
+        # withheld the one confirmation available: an incident moving no series
+        # publishes no minutes between its onset and the action, so the sight
+        # reads as absent for a fully observed service and the receipt was never
+        # reached. Not asked where a series *did* depart, though - a discard that
+        # left the service failing is an explanation the evidence has not borne
+        # out, like any other. That one goes past the refutation below as well,
+        # whose question is also whether anything departed, and is judged on
+        # levels by the recovery check and the deadline: confirmed if the level
+        # came down, refuted when the time runs out, exactly as every other kind
+        # is.
+        if not departed and reports_what_it_changed(action_type):
+            return _Settled(
+                Verdict.CONFIRMED,
+                "the store reported what it removed, which is the whole of "
+                "what was wrong"
+            )
+
+        # Refused to an incident whose sight was absent, which is the split this
+        # function is built around. A departure is a fact about levels, and a
+        # window nobody could read has no baseline to depart from - so a blind
+        # spot holds no departure for the same reason it holds no readings, and
+        # refuting it here would refute the one incident whose window is
+        # legitimately empty, one pass before the rows return and confirm it. The
+        # first rule in this block - readings existing again - is what answers
+        # that incident.
+        #
+        # So what reaches this point is an incident whose minutes were published,
+        # never moved, and whose action does not answer for itself. For that one
+        # there is no evidence left to wait for: no level departed, so none can
+        # come back, and nothing the action did says otherwise.
+        if not the_sight_was_absent and not departed:
+            return _Settled(
+                Verdict.REFUTED,
+                "nothing in this window ever departed, so there was no "
+                "improvement for it to show and this action answered for nothing"
             )
 
         recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
@@ -867,13 +968,25 @@ def _when_a_recovery_would_have_shown(first_minute_begins: datetime,
 
 def _nothing_was_seen_between(buckets: Sequence[MetricBucket],
                               onset: datetime | None,
-                              first_whole_minute: str) -> bool:
+                              acted_in_minute: str) -> bool:
     """Whether the incident ran its course with none of it published.
 
     The minutes from the onset up to the action, asked of the readings that
     describe them. An incident anybody could watch has those minutes - they are
     what its onset was measured from - and one nobody could watch has none of
     them, which is the whole of what a monitoring blind spot is.
+
+    `acted_in_minute` is the minute the action itself fell inside, and the slice
+    stops strictly before it. That minute is aggregated over seconds either side
+    of the change, so it describes neither the service that was failing nor the
+    one that was fixed - and where an action restores the sight, it is the first
+    minute the rows come back in. Counted as evidence the sight was there, it
+    answers this question with the very thing the action did about it, and the
+    incident is then judged on levels whose absence was the incident.
+
+    One minute later - the first that wholly followed the change - is the
+    watching window's own start, and it is the wrong end of this span for the
+    same reason it is the right start of that one.
 
     False for an undated incident rather than unknown. An onset arrives here only
     where an alert stated one, and a stated onset is the only kind this question
@@ -884,12 +997,34 @@ def _nothing_was_seen_between(buckets: Sequence[MetricBucket],
         return False
 
     return not has_a_reading_since(
-        [bucket for bucket in buckets if bucket.bucket_id < first_whole_minute],
+        [bucket for bucket in buckets if bucket.bucket_id < acted_in_minute],
         to_iso_minute(onset)
     )
 
 
-def _undone(performed: Performed, undo: UndoChange) -> Outcome:
+def _why_nothing_was_put_back(action_type: ActionType) -> str:
+    """Why a refuted action of this kind left nothing behind it.
+
+    Two sentences for one absent descriptor, because the absence means two
+    things. A restart changed nothing that outlives it, so there was never
+    anything to put back and nothing was given up by not trying. A discard
+    changed something real - figures are gone from the store - and still owes
+    no undo, because what it removed was a copy of records it never touched
+    and writing them back would recreate the incident.
+
+    Said the wrong way round, the second reads as the first: a reader deciding
+    whether to go and look at the cache would be told Argus had never been in
+    it. That is the one sentence this must not produce.
+    """
+    if changes_something_persistent(action_type):
+        return "no undo was owed"
+
+    return "there was nothing to put back"
+
+
+def _undone(performed: Performed,
+            undo: UndoChange,
+            action_type: ActionType) -> Outcome:
     """Puts a refuted action back, and says so as a verdict.
 
     A refuted action was taken on a hypothesis the evidence has not borne out,
@@ -900,6 +1035,13 @@ def _undone(performed: Performed, undo: UndoChange) -> Outcome:
     account says so. Not "the undo failed" and not silence: a restart that did
     not help is a hypothesis refuted cleanly, and a reader has to be able to
     tell that from a flag Argus could not put back.
+
+    `action_type` is here because that is two situations rather than one, and
+    the descriptor cannot tell them apart - it is absent in both. A restart
+    changed nothing that outlives it; a discard changed something real and owes
+    nothing back. Taken as a parameter rather than carried on `Performed`,
+    which says deliberately that the kind lives on the row the action was
+    written to.
 
     The undo itself is `undo_change`; what this adds is what a *verdict* is
     made of. A change left as found is still a refutation - the service did not
@@ -914,32 +1056,58 @@ def _undone(performed: Performed, undo: UndoChange) -> Outcome:
         return Outcome(
             verdict=Verdict.REFUTED,
             detail=(
-                f"{taken}, the service did not recover, and there was nothing "
-                f"to put back"
+                f"{taken}, the service did not recover, and "
+                f"{_why_nothing_was_put_back(action_type)}"
             ),
         )
 
     attempt = undo(undo_descriptor)
 
-    if attempt.outcome is Undone.NOT_ESTABLISHED:
-        return Outcome(
-            verdict=Verdict.ESCALATED,
-            detail=f"{taken}, the service did not recover, and {attempt.detail}",
-            undo_descriptor=undo_descriptor,
-        )
+    # Matched exhaustively rather than tested two at a time with a fallthrough,
+    # and the difference is what the unnamed case meant. "Anything else" here
+    # was the restore's sentence - *so it was put back* - so a fourth outcome
+    # would have been reported as a change that was written back, which is the
+    # one claim an account must never make falsely. `assert_never` turns that
+    # into a type error against a member nobody has added yet, before anything
+    # runs.
+    match attempt.outcome:
+        case Undone.NOT_ESTABLISHED:
+            return Outcome(
+                verdict=Verdict.ESCALATED,
+                detail=f"{taken}, the service did not recover, and {attempt.detail}",
+                undo_descriptor=undo_descriptor,
+            )
+        case Undone.LEFT_AS_FOUND:
+            return Outcome(
+                verdict=Verdict.REFUTED,
+                detail=f"{taken}, the service did not recover, and {attempt.detail}",
+                undo_descriptor=undo_descriptor,
+            )
+        case Undone.RESTORED:
+            return Outcome(
+                verdict=Verdict.REFUTED,
+                detail=(
+                    f"{taken}, the service did not recover, so it was put back "
+                    f"{_how_it_was_put_back(undo_descriptor)}"
+                ),
+                undo_descriptor=undo_descriptor,
+            )
+        case Undone.NO_UNDO_WAS_OWED:
+            # Reached by nothing today: this is what an *unwind* reports for a
+            # row that owes no undo, and a kind that owes none records no
+            # descriptor, so the branch above returns before anything gets
+            # here. Answered rather than excluded because the alternative is a
+            # narrowing nothing in the types supports - `undo_change` returns
+            # an `UndoAttempt`, and every member is a value it may legally
+            # carry. The answer is the one the absent-descriptor case gives,
+            # so a kind that ever does both says one thing twice.
+            return Outcome(
+                verdict=Verdict.REFUTED,
+                detail=(
+                    f"{taken}, the service did not recover, and "
+                    f"{_why_nothing_was_put_back(action_type)}"
+                ),
+                undo_descriptor=undo_descriptor,
+            )
 
-    if attempt.outcome is Undone.LEFT_AS_FOUND:
-        return Outcome(
-            verdict=Verdict.REFUTED,
-            detail=f"{taken}, the service did not recover, and {attempt.detail}",
-            undo_descriptor=undo_descriptor,
-        )
-
-    return Outcome(
-        verdict=Verdict.REFUTED,
-        detail=(
-            f"{taken}, the service did not recover, so it was put back "
-            f"{_how_it_was_put_back(undo_descriptor)}"
-        ),
-        undo_descriptor=undo_descriptor,
-    )
+    assert_never(attempt.outcome)

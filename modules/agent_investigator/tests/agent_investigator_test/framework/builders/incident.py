@@ -55,7 +55,8 @@ A_SERVICE = "kuki"
 
 
 def an_alert(started_at: datetime | None = AN_ALERT_TIME,
-             stated_onset: datetime | None = None) -> Alert:
+             stated_onset: datetime | None = None,
+             stale_entry_keys: tuple[str, ...] | None = None) -> Alert:
     """The alert that opened the incident.
 
     `started_at` is a parameter because its absence is a real case - an alert
@@ -69,12 +70,20 @@ def an_alert(started_at: datetime | None = AN_ALERT_TIME,
     alert states one only where it knows something no series carries, so a test
     that wants the stated minute used has to hand the loop a window with nothing
     in it as well.
+
+    `stale_entry_keys` is absent for a different reason: not that it is rare,
+    but that it is the one field on an alert the model must never be shown. It
+    is a parameter so a case can put real addresses on the alert and watch them
+    not arrive. The count goes with them because the model refuses a pair that
+    does not account for itself.
     """
     return Alert(
         service=A_SERVICE,
         alert_name="HighErrorRate",
         started_at=started_at,
-        stated_onset=stated_onset
+        stated_onset=stated_onset,
+        stale_entry_keys=stale_entry_keys,
+        stale_entries_found=None if stale_entry_keys is None else len(stale_entry_keys)
     )
 
 

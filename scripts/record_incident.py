@@ -80,6 +80,7 @@ from tests.e2e.framework.argus import (
     RECORDED_RESOURCE_LEAK,
     RECORDED_SILENT_DATA_CORRUPTION,
     RECORDED_SLOW_CANARY_ROLLOUT,
+    RECORDED_STATE_DIVERGENCE,
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
     THE_RECORDINGS_THAT_MUST_CARRY_A_FIX,
     THE_SERVICE_NAME,
@@ -526,6 +527,27 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
     _Recording(
         RECORDED_MONITORING_BLIND_SPOT,
         "monitoring-blind-spot",
+        None,
+        IncidentStatus.MITIGATED,
+        (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The third incident the shop pages about itself, and the only one whose
+    # alert carries addresses. Replication to the summary cache's standby broke
+    # three hours before the primary died; the standby was promoted and has been
+    # serving whatever it last managed to copy. The alert cannot be written here
+    # for the reason the other two cannot - it states the promotion as the onset,
+    # and that minute is the whole of what dates the incident - and it carries one
+    # key per stale entry, which only the shop's own check can produce.
+    #
+    # Held to the action and the verdict rather than the ending alone, as the
+    # blind spot is, and here the verdict is the point. No series ever departed,
+    # so nothing could come back down: what confirms this attempt is the store's
+    # own count of what it removed. A walk that reached `MITIGATED` without one
+    # would have closed the incident on a window that was never evidence of
+    # anything, which is the hole this mode exists to close.
+    _Recording(
+        RECORDED_STATE_DIVERGENCE,
+        "cache-failed-over",
         None,
         IncidentStatus.MITIGATED,
         (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)

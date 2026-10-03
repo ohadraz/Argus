@@ -15,6 +15,11 @@ and "I could not find out" both mean there is no action to take, and the
 incident goes to a human either way - crashing the graph instead would drop
 everything already learned about it. They are still not the same fact, which is
 why one arrives here as an empty history and the other as none at all.
+
+One cause is answered by neither the history nor the service, and it is the one
+that pins what this node has to carry. An entry in a store is addressed by a key
+nothing in Argus can compose, so the keys the alert arrived with are the whole of
+what the answer can be worked out from - and the node holds the alert.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from collections.abc import Callable
 import pytest
 from argus_core.models import (
     Alert,
+    DiscardCacheEntries,
     Evidence,
     FailureMode,
     FlagChange,
@@ -39,6 +45,7 @@ from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
+    a_divergence_blamed_on,
     an_incident_state,
 )
 
@@ -89,6 +96,24 @@ def test_a_leak_is_answered_by_a_restart_even_where_no_flag_moved() -> None:
         ) \
         .when(lambda: mitigation_proposal_node(a_leaking_incident)) \
         .then(_the_proposed_action_restarts(SOME_SERVICE))
+
+
+@pytest.mark.unit
+def test_a_divergence_is_answered_by_discarding_the_entries_the_alert_named() -> None:
+    # What this node has to carry from the alert beyond the service. Every
+    # other mitigation is addressed to something the history or the alert names
+    # outright; this one is addressed to keys, and a node handing on the cause
+    # and the service alone would propose nothing at all for a cause it
+    # diagnosed correctly - with nothing anywhere saying why.
+    the_entries_the_check_found = ("io-shop:summary:2026-09:shopper-4",
+                                   "io-shop:summary:2026-09:shopper-9")
+
+    Scenario() \
+        .given(
+            a_diverging_incident := _a_diverging_incident(the_entries_the_check_found)
+        ) \
+        .when(lambda: mitigation_proposal_node(a_diverging_incident)) \
+        .then(_the_proposed_action_discards(the_entries_the_check_found))
 
 
 @pytest.mark.unit
@@ -143,6 +168,35 @@ def _a_mitigating_incident(
     )
 
 
+def _a_diverging_incident(stale_entry_keys: tuple[str, ...]) -> IncidentState:
+    """A mitigating incident whose alert named the entries that disagree.
+
+    The count is stated beside the keys because the alert refuses a pair that
+    does not account for itself - which is the model's own guard against a
+    truncated list, and not this file's subject.
+
+    The history is empty rather than absent. A copy that fell behind is not
+    something a flag did, so what is under test here must not be reachable by
+    the separate route a provider nobody could read takes.
+    """
+    the_alert_that_found_them = Alert(
+        service=SOME_SERVICE,
+        alert_name="CachedSpendTotalsAreStale",
+        stale_entry_keys=stale_entry_keys,
+        stale_entries_found=len(stale_entry_keys)
+    )
+    state = an_incident_state(the_alert_that_found_them, IncidentStatus.MITIGATING)
+
+    return state.model_copy(
+        update={
+            "hypothesis": a_divergence_blamed_on(
+                state.incident_id, "cached monthly totals disagree with the ledger"
+            ),
+            "flag_changes": []
+        }
+    )
+
+
 def _an_enabling_of(flag: str) -> FlagChange:
     return FlagChange(flag=flag, enabled=True, occurred_at=DONT_CARE_MOMENT)
 
@@ -186,6 +240,32 @@ def _the_proposed_action_restarts(service: str) -> Assertion[StateDelta]:
         if not isinstance(proposed, RestartService) or proposed.service != service:
             raise AssertionError(
                 f"Expected a restart of [{service}], got [{proposed!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_proposed_action_discards(keys: tuple[str, ...]) -> Assertion[StateDelta]:
+    """The entries the alert named, exactly and in the order it named them.
+
+    Order and duplicates are part of the claim rather than pedantry: a
+    collection that sorted or collapsed them would be a different set of
+    entries wearing the same count, and the store's receipt - a number -
+    cannot tell the two apart afterwards.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        proposed = updates.proposed_action
+        if not isinstance(proposed, DiscardCacheEntries):
+            raise AssertionError(
+                f"Expected a discard of {list(keys)}, got [{proposed!r}]."
+            )
+
+        if proposed.keys != keys:
+            raise AssertionError(
+                f"Expected a discard of {list(keys)}, it named "
+                f"{list(proposed.keys)}."
             )
 
         return True

@@ -36,8 +36,19 @@ def mitigation_proposal_node(state: IncidentState) -> StateDelta:
     # addressed to the one the incident is about. The candidate's subject says
     # what is wrong in prose and names nothing a platform could be asked to
     # restart.
+    #
+    # The alert's keys for the same reason and one more: an entry in a store is
+    # addressed by a key nothing in Argus may compose, so the addresses the
+    # evidence carried are the only thing a discard can be worked out from.
+    # `or ()` because an alert that mentions no cache says nothing about
+    # entries rather than claiming none is stale, and the two arrive here as
+    # `None` and an empty list - which the strategies cannot tell apart and
+    # have no reason to.
     return StateDelta(
         proposed_action=propose_action(
-            state.hypothesis, state.flag_changes, state.alert.service
+            state.hypothesis,
+            state.flag_changes,
+            state.alert.service,
+            state.alert.stale_entry_keys or ()
         )
     )

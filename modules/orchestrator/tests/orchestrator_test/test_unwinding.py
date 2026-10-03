@@ -179,6 +179,52 @@ def test_one_change_that_cannot_be_read_does_not_stop_the_others(
         ))
 
 
+@pytest.mark.unit
+def test_withdrawing_an_incident_that_discarded_figures_says_none_was_owed(
+    undo: MagicMock, published: list[IncidentEvent]
+) -> None:
+    # The third kind of row this walks past, where the docstring above names
+    # two. A restart left nothing to put back at all; a refused action was of a
+    # kind that leaves something and recorded no descriptor. A discard is
+    # neither: the figures are gone from the store, and nothing is owed back
+    # because writing the old ones in again would recreate the incident.
+    #
+    # So it is said rather than passed over in silence. Silence here is the same
+    # silence an action that never happened produces, and a person reading a
+    # withdrawn incident is left unable to tell which of the two they have.
+    #
+    # Said as owing no undo and never as one that could not be established. That
+    # outcome is what the page and the postmortem read as a change nobody could
+    # account for, and it would send somebody to look at a store that is exactly
+    # as it should be.
+    #
+    # The undo is not called, which is the half that would cost something. There
+    # is no descriptor to hand it, so a call here could only be a question about
+    # a change Argus never recorded making.
+    some_shop = "io-shop"
+
+    Scenario() \
+        .given(
+            an_incident_that_discarded := (
+                _an_incident_that_discarded_cached_figures(some_shop)
+            )
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_that_discarded),
+                undo=undo,
+                publisher=published.append,
+            )
+        ) \
+        .then(all_of(
+            _nothing_was_undone(undo),
+            _one_change_was_reported(published),
+            _the_report_names(published, Undone.NO_UNDO_WAS_OWED),
+            _the_report_is_about(published, some_shop)
+        ))
+
+
 def _the_changes_put_back(undo: MagicMock,
                           *expected: UndoDescriptor) -> Assertion[None]:
     def assertion(_unwound: None) -> bool:
@@ -338,6 +384,31 @@ def _an_incident_that_changed(*descriptors: UndoDescriptor) -> list[TakenAction]
 
 def _an_incident_whose_taken_action_carries_no_descriptor() -> list[TakenAction]:
     return [_a_taken_action_carrying(None)]
+
+
+def _an_incident_that_discarded_cached_figures(service: str) -> list[TakenAction]:
+    """The one kind of action that changed something persistent and recorded no
+    way back.
+
+    `has_a_way_back` is false here for the reason it is false for a restart, and
+    the two are not the same situation: a restart changed nothing, and this
+    changed something whose old value nobody should want written in again. Which
+    of them a row is is the type, which is why this builder sets one where
+    `_a_taken_action_carrying` does not have to.
+    """
+    return [
+        TakenAction(
+            id=new_id(),
+            incident_id=_DONT_CARE_INCIDENT_ID,
+            hypothesis_id=new_id(),
+            type="discard-cache-entries",
+            subject=service,
+            has_a_way_back=False,
+            undo_descriptor=None,
+            outcome=_DONT_CARE_VERDICT,
+            taken_at=datetime.now(UTC)
+        )
+    ]
 
 
 def _reading(recorded: list[TakenAction]) -> Callable[[str], list[TakenAction]]:

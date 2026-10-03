@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -13,9 +13,11 @@ from argus_core.models import (
     Action,
     AutoscalerUndo,
     AutoscalingRestored,
+    CacheEntriesDiscarded,
     CapacityRestored,
     DeploymentRestored,
     DeploymentRollbackUndo,
+    DiscardCacheEntries,
     FlagChange,
     MetricBucket,
     PinAutoscaler,
@@ -30,6 +32,7 @@ from argus_core.models import (
 )
 from read_mcp_client import get_metrics_summary, get_rollout_progress
 from write_mcp_client import (
+    discard_cache_entries,
     get_recent_flag_changes,
     pin_autoscaler,
     restart_service,
@@ -218,6 +221,31 @@ class AutoscalerPinner(Protocol):
     def __call__(self, application: str, /) -> AutoscalerUndo: ...
 
 
+class CacheEntryDiscarder(Protocol):
+    """Throwing away the copies a check found disagreeing with their records.
+
+    The keys and nothing else. They are addresses rather than descriptions, and
+    they come from the evidence that named them: a key's format belongs to
+    whoever wrote the store, so nothing above this composes one, and a parameter
+    that could match a key it was not given - a pattern, a prefix, a service -
+    would be a blast radius its caller could not state.
+
+    It answers with how many of those keys existed and are now gone, which makes
+    this the one write in the bundle whose own answer is evidence rather than an
+    acknowledgement. Everything else here reports that a request was accepted and
+    leaves whether it helped to be watched for; a store saying how many copies it
+    removed has stated the thing the incident was about.
+
+    So the figure is the store's and never the caller's. Fewer than were named is
+    not a failure - something else may already have discarded them, and an entry
+    absent is what the incident needed - but it has to be reported honestly,
+    because that figure is what an attempt is confirmed from and what the account
+    of the incident reads out.
+    """
+
+    def __call__(self, keys: Sequence[str], /) -> CacheEntriesDiscarded: ...
+
+
 class AutoscalingRestorer(Protocol):
     """Letting a pinned autoscaler move again, as Argus found it.
 
@@ -266,6 +294,7 @@ class PerformingWrites:
     roll_back: DeploymentRoller
     scale_out: DeploymentScaler
     pin: AutoscalerPinner
+    discard: CacheEntryDiscarder
 
 
 Clock = Callable[[], datetime]
@@ -335,17 +364,19 @@ def nothing_to_wait_for(action: Action) -> HasArrived:
 def how_a_change_arrives(action: Action, *, client: McpClient) -> HasArrived:
     """Which arrival this action has to wait for, chosen by what it changes.
 
-    Three of the five kinds have nothing to wait for, and for three reasons that
-    come to the same thing: the target service reads its flags fresh on every
-    request, a restart is answered with the new process's start time so the tier
-    that performed it has already waited, and an autoscaler's floor is a field on
-    its own object rather than a state anything converges on. Those are
+    Four of the six kinds have nothing to wait for, and for four reasons that come
+    to the same thing: the target service reads its flags fresh on every request, a
+    restart is answered with the new process's start time so the tier that
+    performed it has already waited, an autoscaler's floor is a field on its own
+    object rather than a state anything converges on, and a discard is answered
+    with how many entries went - the store has already done it by the time it
+    says so, and nothing converges on an absence. Those are
     `an_action_in_force_at_once`.
 
     The two that change a Deployment wait on different counts - the revision
     reaching every replica, and the replicas asked for existing - which is why this
-    dispatches rather than handing one check to all five. A single check would
-    either make three actions wait for a rollout nobody started, or let the two
+    dispatches rather than handing one check to all six. A single check would
+    either make four actions wait for a rollout nobody started, or let the two
     that matter be judged on minutes their change was not in force for.
 
     Here rather than at the caller that assembles the walk, because the caller
@@ -359,7 +390,10 @@ def how_a_change_arrives(action: Action, *, client: McpClient) -> HasArrived:
             return a_rollback_arriving_over(client, action.application)
         case ScaleOut():
             return added_capacity_arriving_over(client, action.application)
-        case RevertFeatureFlag() | RestartService() | PinAutoscaler():
+        case (
+            RevertFeatureFlag() | RestartService() | PinAutoscaler()
+            | DiscardCacheEntries()
+        ):
             return an_action_in_force_at_once
         case _:
             assert_never(action)
@@ -470,13 +504,20 @@ def performing_writes_over(client: McpClient) -> PerformingWrites:
         restart=service_restarter_over(client),
         roll_back=deployment_roller_over(client),
         scale_out=deployment_scaler_over(client),
-        pin=autoscaler_pinner_over(client)
+        pin=autoscaler_pinner_over(client),
+        discard=cache_entry_discarder_over(client)
     )
 
 
 def autoscaler_pinner_over(client: McpClient) -> AutoscalerPinner:
     """The fifth write, over one connection."""
     return partial(pin_an_autoscaler, client=client)
+
+
+def cache_entry_discarder_over(client: McpClient) -> CacheEntryDiscarder:
+    """The sixth write, over one connection - and the only one not aimed at a
+    control plane."""
+    return partial(discard_the_cache_entries, client=client)
 
 
 def autoscaling_restorer_over(client: McpClient) -> AutoscalingRestorer:
@@ -712,6 +753,19 @@ def pin_an_autoscaler(application: str,
     caller actually uses.
     """
     return pin_autoscaler(application, client=client)
+
+
+def discard_the_cache_entries(keys: Sequence[str],
+                              *,
+                              client: McpClient) -> CacheEntriesDiscarded:
+    """Throws away the named cache entries, answering with how many were there.
+
+    A named function rather than the tool itself, for the reason
+    `pin_an_autoscaler` is one: the agent needs one of that tool's calling shapes,
+    and a seam is only useful if a test can spec against the shape the caller
+    actually uses.
+    """
+    return discard_cache_entries(keys, client=client)
 
 
 def restore_an_autoscaler(descriptor: AutoscalerUndo,

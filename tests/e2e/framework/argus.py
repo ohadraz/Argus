@@ -89,6 +89,7 @@ RECORDED_HALF_FINISHED_ROLLOUT = "half-finished-rollout"
 RECORDED_SILENT_DATA_CORRUPTION = "silent-data-corruption"
 RECORDED_CONTROL_PLANE_UNREACHABLE = "control-plane-unreachable"
 RECORDED_MONITORING_BLIND_SPOT = "monitoring-blind-spot"
+RECORDED_STATE_DIVERGENCE = "cache-failed-over"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,

@@ -39,6 +39,7 @@ from collections.abc import Set as AbstractSet
 from typing import Final
 
 from argus_core.models import (
+    DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -67,7 +68,19 @@ GENERIC_MITIGATIONS: Final[AdmittedMitigations] = frozenset(
         RESTART_SERVICE,
         ROLL_BACK_DEPLOYMENT,
         SCALE_OUT,
-        PIN_AUTOSCALER
+        PIN_AUTOSCALER,
+        # The sixth member, and the first that removes something rather than
+        # restoring, adding or stopping something. Saying so a third time is the
+        # point: what admits an action unasked is membership of this set, never
+        # the kind of change it makes - and this is the member most easily read
+        # as a weakening, because removing data sounds heavier than putting a
+        # value back.
+        #
+        # It is not heavier. What it removes was derived from records it never
+        # reaches, the service recomputes each figure from those records the next
+        # time anybody asks for it, and what is gone cannot be stale. A
+        # responder would do it by hand without pausing.
+        DISCARD_CACHE_ENTRIES
     }
 )
 

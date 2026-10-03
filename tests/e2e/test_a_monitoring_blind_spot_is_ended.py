@@ -49,16 +49,20 @@ shop that stopped reporting is a shop that is well.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
+from http import HTTPStatus as HttpStatus
 
 import httpx
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 
 from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_MONITORING_BLIND_SPOT,
+    REQUEST_TIMEOUT_SECONDS,
     THE_SERVICE_NAME,
     about_the_hypothesis,
     argus_ended_with_status,
@@ -95,6 +99,19 @@ A_CALM_ERROR_RATE = 0.05
 # figure wobbles minute to minute; far tighter than any incident would move it.
 THE_MEDIAN_HOLDS_WITHIN = 1.5
 
+# The two commits this scenario's deployment history names, and the one path
+# between them. Written here because this is the case that chose them: the shop
+# stages the same pair under its own names, and these are the only other place
+# they appear.
+BEFORE_THE_RENAME = "e283ba3af732fc4285166a060b827b1305cd30d9"
+THE_RENAME = "9f4ad14582c99c497eb6c2d2af87566cd4493020"
+
+# The rename itself. The number does not move and the name does, which is the
+# whole of why a shop that was well stopped being visible.
+THE_MANIFEST = "deploy/values-production.yaml"
+THE_PORT_NAMED = "metrics:\n  port: 9090\n  portName: http-metrics\n"
+THE_PORT_RENAMED = "metrics:\n  port: 9090\n  portName: metrics\n"
+
 
 @pytest.mark.e2e
 def test_a_shop_that_stopped_reporting_is_made_visible_again() -> None:
@@ -116,7 +133,8 @@ def test_a_shop_that_stopped_reporting_is_made_visible_again() -> None:
     Scenario() \
         .given(
             calling(a_scenario_was_seeded(A_SHOP_THAT_STOPPED_REPORTING)),
-            calling(the_model_answers_from(RECORDED_MONITORING_BLIND_SPOT))
+            calling(the_model_answers_from(RECORDED_MONITORING_BLIND_SPOT)),
+            calling(_the_deployment_history_was_staged())
         ) \
         .when(
             the_shop_raises_its_own_alert()
@@ -138,6 +156,38 @@ def test_a_shop_that_stopped_reporting_is_made_visible_again() -> None:
                 timeout=MITIGATION_TIMEOUT_SECONDS
             )
         )
+
+
+def _the_deployment_history_was_staged() -> Callable[[], bool]:
+    """Puts this scenario's two commits into the repository double.
+
+    Staged by the case rather than held by the double, because they are this
+    scenario's facts and nothing else's. The double depends on nothing in the
+    workspace, so it cannot derive a real commit of the Target Service - and a
+    double that named this pair would be keeping a copy of another repository's
+    history, right until the next scenario named two other commits and 404'd on
+    the comparison exactly as this one did before anybody staged anything.
+
+    The manifest is the whole of the diagnosis: the port keeps its number and
+    loses its name, the scrape config selects by name, and so the shop went on
+    trading while nothing could see it. A comparison that answered with no
+    difference would leave the model the commit message alone, which reads as
+    housekeeping - which is the trap this scenario is built to set.
+    """
+    def stage_them() -> bool:
+        return all(
+            httpx.post(
+                f"{GITHUB_DOUBLE_BASE_URL}/double-control/stage-commit",
+                json={"sha": sha, "files": {THE_MANIFEST: manifest}},
+                timeout=REQUEST_TIMEOUT_SECONDS
+            ).status_code == HttpStatus.OK
+            for sha, manifest in (
+                (BEFORE_THE_RENAME, THE_PORT_NAMED),
+                (THE_RENAME, THE_PORT_RENAMED)
+            )
+        )
+
+    return stage_them
 
 
 def _the_rows_stopped_and_came_back() -> Assertion[httpx.Response]:

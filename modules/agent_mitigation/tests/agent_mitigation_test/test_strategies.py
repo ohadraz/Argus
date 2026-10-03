@@ -24,6 +24,7 @@ from agent_mitigation import (
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
     ActionType,
+    DiscardCacheEntries,
     FailureMode,
     FlagChange,
     Hypothesis,
@@ -580,6 +581,120 @@ def _no_strategies() -> Strategies:
     return {}
 
 
+@pytest.mark.unit
+def test_state_divergence_is_answered_by_discarding_the_entries_named() -> None:
+    # The sixth generic mitigation, and the first that removes rather than puts
+    # back. What makes it a complete fix is that the authority it was derived
+    # from never moved: the entries go, and the next read works the figure out
+    # again from data nothing touched.
+    some_stale_keys = ("io-shop:summary:shopper-3", "io-shop:summary:shopper-7")
+
+    Scenario() \
+        .given(
+            a_promoted_stale_replica := a_hypothesis_blaming(
+                FailureMode.STATE_DIVERGENCE
+            )
+        ) \
+        .when(
+            lambda: propose_action(
+                a_promoted_stale_replica,
+                NO_FLAGS_CHANGED,
+                DONT_CARE_SERVICE,
+                stale_entry_keys=some_stale_keys
+            )
+        ) \
+        .then(
+            _the_entries_discarded_are(some_stale_keys)
+        )
+
+
+@pytest.mark.unit
+def test_the_entries_discarded_are_the_evidence_s_exactly_and_entirely() -> None:
+    # The keys travel as data from the check that found them to the call that
+    # removes them, and nothing in between may add one, drop one or reorder
+    # them. Duplicates and an unsorted order are both in here on purpose: a
+    # strategy that passed them through a set would answer with the same count
+    # and a different collection.
+    many_stale_keys = tuple(
+        f"io-shop:summary:shopper-{index}" for index in (9, 2, 2, 40, 1)
+    )
+
+    Scenario() \
+        .given(
+            a_promoted_stale_replica := a_hypothesis_blaming(
+                FailureMode.STATE_DIVERGENCE
+            )
+        ) \
+        .when(
+            lambda: propose_action(
+                a_promoted_stale_replica,
+                NO_FLAGS_CHANGED,
+                DONT_CARE_SERVICE,
+                stale_entry_keys=many_stale_keys
+            )
+        ) \
+        .then(
+            _the_entries_discarded_are(many_stale_keys)
+        )
+
+
+@pytest.mark.unit
+def test_a_divergence_naming_no_entries_proposes_nothing() -> None:
+    # Not an empty discard. An action that reached the store and removed nothing
+    # comes back with a count of zero, and a zero is indistinguishable from
+    # entries somebody else had already discarded - so the attempt would be
+    # confirmed by a receipt saying nothing happened.
+    Scenario() \
+        .given(
+            a_divergence_naming_nothing := a_hypothesis_blaming(
+                FailureMode.STATE_DIVERGENCE
+            )
+        ) \
+        .when(
+            lambda: propose_action(
+                a_divergence_naming_nothing,
+                NO_FLAGS_CHANGED,
+                DONT_CARE_SERVICE,
+                stale_entry_keys=()
+            )
+        ) \
+        .then(
+            nothing_was_proposed()
+        )
+
+
+@pytest.mark.unit
+def test_a_mode_carrying_no_entries_is_answered_as_it_always_was() -> None:
+    # Every other mode reaches this lookup with nothing to discard, so an
+    # absence of keys is the ordinary state of this input rather than a fault. A
+    # leak answered by a restart must not change because a different mode
+    # acquired a fourth kind of evidence.
+    Scenario() \
+        .given(
+            a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK)
+        ) \
+        .when(
+            lambda: propose_action(a_leak, NO_FLAGS_CHANGED, DONT_CARE_SERVICE)
+        ) \
+        .then(
+            _the_service_to_restart_is(DONT_CARE_SERVICE)
+        )
+
+
+@pytest.mark.unit
+def test_the_registry_argus_ships_answers_state_divergence() -> None:
+    Scenario() \
+        .given(
+            the_mode_a_discard_answers := FailureMode.STATE_DIVERGENCE
+        ) \
+        .when(
+            lambda: a_mitigation_answers(the_mode_a_discard_answers)
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
+
+
 class _StandInStrategy:
     """A strategy built to propose one particular thing.
 
@@ -601,7 +716,8 @@ class _StandInStrategy:
     def propose(self,
                 dont_care_hypothesis: Hypothesis,
                 dont_care_flag_changes: Sequence[FlagChange],
-                service: str) -> Action | None:
+                service: str,
+                stale_entry_keys: Sequence[str] = ()) -> Action | None:
         return self._proposing
 
 
@@ -763,6 +879,36 @@ def _it_carries_nothing_but_the_application() -> Assertion[Action | None]:
             raise AssertionError(
                 f"Expected a rollback naming only the application, and it also "
                 f"carried {sorted(carried)}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_entries_discarded_are(expected: tuple[str, ...]) -> Assertion[Action | None]:
+    """Exactly the addresses the evidence named, in the order it named them.
+
+    Order and entirety are both asserted because both can be lost silently. A
+    set would discard duplicates and a sorted sequence would reorder, and either
+    produces a call that removes a different collection of entries while
+    reporting the same count - which is the one corruption a receipt cannot
+    expose, since the count would still be right.
+    """
+    def assertion(action: Action | None) -> bool:
+        if not isinstance(action, DiscardCacheEntries):
+            raise AssertionError(
+                f"Expected a discard of the entries the evidence named, and the "
+                f"strategy proposed {action!r}."
+            )
+
+        if action.keys != expected:
+            raise AssertionError(
+                f"The entries proposed for discard are not the ones the evidence "
+                f"named: expected {expected}, and the action carries "
+                f"{action.keys}. Argus composes no key, so anything here the "
+                f"alert did not carry was invented, and anything missing was "
+                f"dropped on the way."
             )
 
         return True

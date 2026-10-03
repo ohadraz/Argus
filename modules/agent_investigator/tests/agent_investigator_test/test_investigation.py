@@ -38,6 +38,7 @@ from argus_core.events import (
 from argus_core.llm import a_conversation_recorded_for
 from argus_core.mcp_transport import McpToolError
 from argus_core.models import (
+    DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -595,6 +596,38 @@ def test_the_model_is_told_the_onset_it_does_not_get_to_choose() -> None:
         .then(
             _what_was_asked_first_mentions(investigation.model, the_onset_of(some_metrics))
         )
+
+
+@pytest.mark.unit
+def test_the_addresses_the_alert_carried_are_never_put_to_the_model() -> None:
+    # A cache key is an address, and the model is never asked to act on one.
+    # What it reasons about is how many entries disagree, by how much, and
+    # since when - all of which the alert says in its summary. The addresses
+    # travel to the action as a value instead, and a real incident carries
+    # hundreds of them: re-rendered on every round of a ReAct loop they would
+    # be the incident's largest cost and none of it evidence.
+    #
+    # This passes the day it is written. It is here because the whole alert is
+    # handed to the opening message, so the one thing standing between those
+    # keys and the prompt is that nobody has added a line for them.
+    the_entries_the_check_found = ("io-shop:summary:2026-09:shopper-4",
+                                   "io-shop:summary:2026-09:shopper-9")
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stale_entry_keys=the_entries_the_check_found)
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(investigation.model, "## Alert"),
+            _nothing_the_model_was_shown_names(investigation.model,
+                                               *the_entries_the_check_found)
+        ))
 
 
 @pytest.mark.unit
@@ -1285,6 +1318,52 @@ def test_a_pin_already_tried_is_described_as_a_pin() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_a_discard_already_tried_is_described_as_copies_thrown_away() -> None:
+    # The sixth kind, and the one most easily described as something it is not.
+    # Told that stale figures were "cleared" or "deleted", a model reasons about
+    # data loss and starts looking for what is missing from the shop - where what
+    # happened is that copies were thrown away and the records behind them never
+    # moved.
+    #
+    # It also has to carry what the attempt argues. "The stale copies were already
+    # discarded and the figures still disagree" is evidence against a divergence
+    # being the cause at all, which is only available to a model that understands
+    # the action as having removed copies.
+    some_service_whose_copies_went = "io-shop"
+    some_time_they_were_discarded = "2026-08-20T11:12:00Z"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(),
+                already_refuted=[
+                    Attempt(
+                        identity=ActionIdentity(
+                            action_type=DISCARD_CACHE_ENTRIES,
+                            subject=some_service_whose_copies_went
+                        ),
+                        occurred_at=some_time_they_were_discarded
+                    )
+                ]
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                f"discarded {some_service_whose_copies_went}'s stale cached figures",
+                some_time_they_were_discarded
+            ),
+            _what_was_asked_first_avoids(
+                investigation.model, f"set {some_service_whose_copies_went}"
+            )
+        ))
+
+
 def _the_readings_cover_the_incident(expected: bool) -> Assertion[Findings]:
     """Whether the findings report any reading of the incident's own minutes.
 
@@ -1570,6 +1649,32 @@ def _what_was_asked_first_avoids(model: Mock, *forbidden: str) -> Assertion[Find
             raise AssertionError(
                 f"Expected the opening message not to say {said}, got [{opening.text}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _nothing_the_model_was_shown_names(model: Mock,
+                                       *forbidden: str) -> Assertion[Findings]:
+    """Words that must appear nowhere in the conversation.
+
+    Every turn rather than the opening one, and the whole exchange rather than
+    the `Ask` within it. What is claimed is that an address never reaches the
+    model at all; the opening message is only where it would reach it first,
+    and a tool result or a later ask carrying one is the same leak while
+    satisfying a check on turn zero.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        shown = "\n".join(
+            repr(exchange)
+            for turn in range(len(model.call_args_list))
+            for exchange in _the_transcript_of(model, turn)
+        )
+        said = [word for word in forbidden if word in shown]
+
+        if said:
+            raise AssertionError(f"Expected {said} nowhere within [{shown}].")
 
         return True
 

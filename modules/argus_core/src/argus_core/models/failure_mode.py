@@ -151,6 +151,29 @@ class FailureMode(StrEnum):
     # code nor a value but an instrumentation gap, and the alert rule that found
     # it is the only thing that worked.
     MONITORING_BLIND_SPOT = "monitoring-blind-spot"
+    # Two stores hold the same thing and say different things about it: a cache,
+    # a replica, a projection, carrying what was true when it last kept up. The
+    # store of record is correct throughout, which is the whole of what separates
+    # this from the corruption above - there the record itself is wrong and no
+    # action of Argus's reaches it, here a derived copy is wrong and discarding
+    # the copy is the entire answer, because whatever reads it next rebuilds it
+    # from data that never moved.
+    #
+    # Not one mode with the in-flight break either, though both are two views of
+    # one store disagreeing. There the two disagree about an entry's *shape* and
+    # the request fails; here they agree about the shape and the request succeeds
+    # with a wrong value in it. The first is visible in an error rate and the
+    # second in nothing at all.
+    #
+    # The one mode whose evidence carries two times that both look like an onset,
+    # and they can be hours apart: when the copy fell behind, and when it became
+    # the one being read. Only the second is the incident.
+    #
+    # What is left to fix afterwards is in neither the code nor the configuration
+    # but in how the copy is kept - a time-to-live, or refusing to promote a
+    # replica that is behind - so a discard holds the position a restart holds
+    # against a leak. It clears what diverged and the divergence starts again.
+    STATE_DIVERGENCE = "state-divergence"
 
     def meaning(self) -> str:
         """What this mode is, in the words the model weighing it reads.
@@ -285,7 +308,11 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "while every quantile stays flat. What answers it is getting the fleet "
         "onto one revision, which returning the deployment does; what is left "
         "to fix is the migration that changed a stored shape with no version "
-        "able to read both"
+        "able to read both. Choose it over state-divergence on whether the "
+        "requests that read the shared store fail or succeed: here a shape no "
+        "reader can parse fails them and steps the error rate, and there they "
+        "succeed carrying a value that is merely out of date, which moves no "
+        "series at all"
     ),
     FailureMode.SILENT_DATA_CORRUPTION: (
         "what the service has already written is wrong, while the service "
@@ -304,7 +331,11 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "and repairs nothing already written. Choose it over "
         "monitoring-blind-spot on whether the minutes are there: here every "
         "minute of the window is present and sitting at its baseline, and there "
-        "the minutes are missing altogether because nothing was reporting them"
+        "the minutes are missing altogether because nothing was reporting them. "
+        "Choose it over state-divergence on which store is wrong: here the store "
+        "of record itself holds the wrong value, so nothing that discards a copy "
+        "of it helps and the repair is a rewrite nobody may do unasked, where "
+        "there the record is right and only a derived copy is stale"
     ),
     FailureMode.MONITORING_BLIND_SPOT: (
         "the service is well and nothing can see that it is - every request is "
@@ -331,5 +362,31 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "series speaks for, on whether the minutes exist at all - there they are "
         "all present and at baseline with a reconciliation finding to date them, "
         "and here they are simply not there"
+    ),
+    FailureMode.STATE_DIVERGENCE: (
+        "two stores that hold the same thing disagree about it, and the one that "
+        "is wrong is a copy rather than the store of record - a cache, a "
+        "replica, a projection, serving what was true when it last kept up. The "
+        "service is available and fast, every request succeeds, and the values "
+        "it serves from the copy are out of date: expect the metrics to be flat "
+        "across the whole window, because nothing fails and nothing waits. The "
+        "evidence is a reconciliation the service runs on itself, comparing the "
+        "copy against what it was derived from, and nothing else carries it. "
+        "Two times come with that finding and they are not the same: date the "
+        "onset from when the stale copy began being served, never from the "
+        "oldest record it is missing - that older time is when the copy fell "
+        "behind, which is how long it had been drifting while nobody could see "
+        "it, and the copy was harmless until something started reading it. "
+        "Choose this over silent-data-corruption on which store is wrong: there "
+        "the store of record holds the bad value and no action reaches it, and "
+        "here the record is correct, so discarding the copy ends it and whatever "
+        "reads it next rebuilds it from data that never moved. Choose it over "
+        "in-flight-compatibility-break on whether the requests that read the "
+        "shared store succeed: there two versions disagree about a stored "
+        "shape and the requests between them fail, and here the shape is agreed "
+        "and the request is served with a wrong number in it. What is left to "
+        "fix is how the copy is kept rather than any code - so discarding is a "
+        "mitigation and not a resolution, and the divergence returns as a leak's "
+        "does"
     )
 }

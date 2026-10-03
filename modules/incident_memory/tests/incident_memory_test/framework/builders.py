@@ -51,14 +51,25 @@ DONT_CARE_ALERT_NAME = "HighErrorRate"
 
 def an_alert(alert_name: str = "HighErrorRate",
              service: str = "io-shop",
-             summary: str | None = None) -> Alert:
-    """The alert that opened an incident, named only where the name matters."""
+             summary: str | None = None,
+             stale_entry_keys: tuple[str, ...] | None = None) -> Alert:
+    """The alert that opened an incident, named only where the name matters.
+
+    `stale_entry_keys` is absent by default because every alert but one mode's
+    says nothing about a cache. It is a parameter at all because the addresses
+    an alert carries are the one payload that must not reach the text an
+    incident is found by, and a case about that has to be able to put real ones
+    on the alert. The count goes with them because the model refuses a pair
+    that does not account for itself.
+    """
     return Alert(
         service=service,
         alert_name=alert_name,
         severity="critical",
         summary=summary,
-        started_at=DONT_CARE_MOMENT
+        started_at=DONT_CARE_MOMENT,
+        stale_entry_keys=stale_entry_keys,
+        stale_entries_found=None if stale_entry_keys is None else len(stale_entry_keys)
     )
 
 

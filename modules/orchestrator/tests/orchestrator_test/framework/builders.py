@@ -4,6 +4,7 @@ import random
 import string
 
 from argus_core.models import (
+    DISCARD_CACHE_ENTRIES,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -99,6 +100,17 @@ def rolling_back(application: str) -> ActionIdentity:
     return an_identity(ROLL_BACK_DEPLOYMENT, application)
 
 
+def discarding(service: str) -> ActionIdentity:
+    """Throwing a service's stale cached figures away, as the walk identifies it.
+
+    Addressed to the service and never to the keys, which is what the kernel's
+    own subject says: the entries a check finds stale differ between one run and
+    the next, so an identity carrying them would make every discard a different
+    action and the cap on repeating one unreachable.
+    """
+    return an_identity(DISCARD_CACHE_ENTRIES, service)
+
+
 def the_incident_was_withdrawn() -> IsStillWanted:
     """A world in which a human has taken the incident back.
 
@@ -142,6 +154,26 @@ def a_leak_blamed_on(incident_id: str, prose: str) -> Hypothesis:
     return Hypothesis(incident_id=incident_id,
                       summary="something is accumulating and never released",
                       failure_mode=FailureMode.RESOURCE_LEAK,
+                      confidence=some_confidence,
+                      supporting_evidence=[Evidence(claim="some log line", at=None)],
+                      subject=prose)
+
+
+def a_divergence_blamed_on(incident_id: str, prose: str) -> Hypothesis:
+    """An explanation that cached copies have stopped agreeing with the records.
+
+    The subject is prose for the reason the leak's is, and the consequence here
+    is sharper: an entry in a store is addressed by a key, a key's format
+    belongs to whoever wrote the store, and so the action answering this
+    candidate can be worked out from nothing the candidate itself says. It is
+    the one candidate a caller can fail to find an answer for while every other
+    kind still gets one.
+    """
+    some_confidence = 0.75
+
+    return Hypothesis(incident_id=incident_id,
+                      summary="the cache is serving figures the ledger has moved past",
+                      failure_mode=FailureMode.STATE_DIVERGENCE,
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=prose)
