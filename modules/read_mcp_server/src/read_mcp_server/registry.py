@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Final, Protocol
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import ServiceDependency
 
@@ -73,7 +73,7 @@ class ServiceRegistrySettings(SettingsSlice):
     service_registry_service_path: str
 
 
-HttpGet = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 
 class FetchRegisteredService(Protocol):
@@ -104,7 +104,7 @@ class RegistryUnavailable(Exception):
 def fetch_registered_service(
     service: str,
     settings: ServiceRegistrySettings,
-    get: HttpGet = httpx.get
+    get: HttpGet = httpx2.get
 ) -> dict[str, Any]:
     """Asks the register what it holds about one service.
 

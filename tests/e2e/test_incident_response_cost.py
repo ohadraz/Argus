@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from agent_postmortem import PAY_BAND_ASSUMPTION_LABEL, WORKING_YEAR_ASSUMPTION_LABEL
@@ -86,7 +86,7 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
         )
 
 
-def _the_postmortem_prices_the_response() -> Assertion[httpx.Response]:
+def _the_postmortem_prices_the_response() -> Assertion[httpx2.Response]:
     """A cost, over the minutes the same document reports.
 
     Bounded by the two bands rather than named exactly: the minutes depend on
@@ -95,7 +95,7 @@ def _the_postmortem_prices_the_response() -> Assertion[httpx.Response]:
     wrong divisor, a salary read where a band was meant, one responder priced
     and the other dropped.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
         incident_id = incident_id_from(response)
 
@@ -126,7 +126,7 @@ def _the_postmortem_prices_the_response() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_figure_carries_the_band_it_came_from() -> Assertion[httpx.Response]:
+def _the_figure_carries_the_band_it_came_from() -> Assertion[httpx2.Response]:
     """The range beside the figure, and the currency it is in.
 
     A midpoint published alone claims a precision a band does not have, so a
@@ -134,7 +134,7 @@ def _the_figure_carries_the_band_it_came_from() -> Assertion[httpx.Response]:
     makes it honest. The minimum below the maximum, because two bands collapsed
     to one point would satisfy every other assertion here.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
         incident_id = incident_id_from(response)
         low, high = postmortem.responder_cost_minimum, postmortem.responder_cost_maximum
@@ -161,7 +161,7 @@ def _the_figure_carries_the_band_it_came_from() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_arithmetic_was_disclosed() -> Assertion[httpx.Response]:
+def _the_arithmetic_was_disclosed() -> Assertion[httpx2.Response]:
     """Both things the figure rests on that nobody measured.
 
     The working year is the divisor that turns an annual band into a per-minute
@@ -170,7 +170,7 @@ def _the_arithmetic_was_disclosed() -> Assertion[httpx.Response]:
     the one assertion here that could not pass without the HR source in the
     path.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
         incident_id = incident_id_from(response)
         stated = postmortem.assumptions or []
@@ -202,7 +202,7 @@ def _what_those_minutes_can_cost(minutes: int) -> tuple[Decimal, Decimal]:
             THE_DEAREST_MIDPOINT * minutes / a_year)
 
 
-def _the_postmortem_for(response: httpx.Response) -> Postmortem:
+def _the_postmortem_for(response: httpx2.Response) -> Postmortem:
     incident_id = incident_id_from(response)
 
     with psycopg.connect(DATABASE_URL) as conn:

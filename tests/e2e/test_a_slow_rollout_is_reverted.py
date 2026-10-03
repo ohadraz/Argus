@@ -42,7 +42,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
@@ -131,7 +131,7 @@ def test_a_rollout_slow_for_a_few_percent_is_ended_by_putting_the_flag_back() ->
         )
 
 
-def _only_the_tail_ever_moved() -> Assertion[httpx.Response]:
+def _only_the_tail_ever_moved() -> Assertion[httpx2.Response]:
     """The property that makes this scenario worth having, asserted both ways.
 
     The window is split on the tail itself, and that is not circular: what is
@@ -149,7 +149,7 @@ def _only_the_tail_ever_moved() -> Assertion[httpx.Response]:
     constant copied out of it would pass a scenario that had stopped staging
     anything.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         the_quietest_tail = min(minute["p99_ms"] for minute in window)
         a_moved_tail = the_quietest_tail * THE_TAIL_AT_LEAST_DOUBLES
@@ -204,7 +204,7 @@ def _only_the_tail_ever_moved() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _no_request_ever_failed() -> Assertion[httpx.Response]:
+def _no_request_ever_failed() -> Assertion[httpx2.Response]:
     """The other half of why no ordinary rule fires on this.
 
     The pages the rollout reaches are correct - it is the same figure worked out
@@ -213,7 +213,7 @@ def _no_request_ever_failed() -> Assertion[httpx.Response]:
     a rate that moved and came back would mean the scenario was staging a
     failure it is not supposed to have.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         worst = max(minute["error_rate"] for minute in the_shops_window())
 
         if worst > A_CALM_ERROR_RATE:
@@ -231,7 +231,7 @@ def _no_request_ever_failed() -> Assertion[httpx.Response]:
 
 def _a_slow_feature_went_out_to_a_few_percent() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "slow-canary-rollout"},
             timeout=REQUEST_TIMEOUT_SECONDS

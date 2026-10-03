@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from agent_investigator import investigate
@@ -48,8 +48,8 @@ DATABASE_URL = get_settings().database_url
 
 
 @pytest.fixture
-def double() -> Iterator[httpx.Client]:
-    with httpx.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
+def double() -> Iterator[httpx2.Client]:
+    with httpx2.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
         control.post("/double-control/reset").raise_for_status()
         control.post(
             "/double-control/seed",
@@ -61,7 +61,7 @@ def double() -> Iterator[httpx.Client]:
 
 @pytest.mark.integration
 def test_an_investigations_calls_reach_the_replay_log(
-    double: httpx.Client,
+    double: httpx2.Client,
 ) -> None:
     # One row at least, for this incident, naming a model call - and carrying
     # both payloads, because an entry that reached the table with an empty
@@ -101,7 +101,7 @@ def test_an_investigations_calls_reach_the_replay_log(
 
 @pytest.mark.integration
 def test_an_investigation_that_records_nowhere_still_investigates(
-    double: httpx.Client,
+    double: httpx2.Client,
 ) -> None:
     # The default, and the promise that goes with it: recording is not part of
     # the work. An investigation asked to record nowhere must reach the same

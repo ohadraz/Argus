@@ -6,7 +6,7 @@ dependencies = [
     "argus-argus_core",
     "argus-code_index[store]",
     "argus-repository_source",
-    "httpx",
+    "httpx2",
     "mcp>=1.29.0",
 ]
 

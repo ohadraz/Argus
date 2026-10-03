@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-import httpx
+import httpx2
 
 from repository_source.reading import (
     ACCEPT_HEADER,
@@ -56,7 +56,7 @@ COMPARISON_TIMEOUT_SECONDS: Final = 10.0
 def paths_changed_between(base: str,
                           head: str,
                           settings: RepositorySourceSettings,
-                          get: HttpGet = httpx.get) -> list[str] | None:
+                          get: HttpGet = httpx2.get) -> list[str] | None:
     """Every path that differs between the two commits, or `None` for "I cannot
     say".
 

@@ -42,7 +42,7 @@ from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core import get_settings
 from argus_core.events import ActionTaken, FixAttempted
@@ -107,7 +107,7 @@ def test_a_failing_dependency_is_restarted_rather_than_the_service_that_alerted(
         )
 
 
-def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx.Response]:
+def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx2.Response]:
     """Read from the incident's own account, and read for its subject.
 
     Every other restart in this suite is addressed to the service the alert
@@ -115,7 +115,7 @@ def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx.Response
     a walk that restarted the shop would record a restart, satisfy a check on
     the kind, and have done nothing whatever about the incident.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
             event for event in the_incidents_events(incident_id)
@@ -153,7 +153,7 @@ def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx.Response
     return assertion
 
 
-def _the_service_that_alerted_was_not_restarted() -> Assertion[httpx.Response]:
+def _the_service_that_alerted_was_not_restarted() -> Assertion[httpx2.Response]:
     """The wrong answer, asserted against directly.
 
     Restarting the shop is the obvious first response to the shop being slow,
@@ -162,7 +162,7 @@ def _the_service_that_alerted_was_not_restarted() -> Assertion[httpx.Response]:
     `mitigated` - and would have taken production down for a moment to learn
     what the register could have told it.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         restarts_of_the_shop = [
             event for event in the_incidents_events(incident_id)
@@ -184,7 +184,7 @@ def _the_service_that_alerted_was_not_restarted() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_latency_climbed_and_then_came_back_down() -> Assertion[httpx.Response]:
+def _the_latency_climbed_and_then_came_back_down() -> Assertion[httpx2.Response]:
     """The evidence the restart was of the thing that was actually slow.
 
     Asserted on the shop's own window, because the shop is what the users
@@ -192,7 +192,7 @@ def _the_latency_climbed_and_then_came_back_down() -> Assertion[httpx.Response]:
     left the shop still waiting would be a mitigation that reached the wrong
     service and reported success.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = _the_shops_window()
         slowest = max(minute["p95_ms"] for minute in window)
         now = window[-1]["p95_ms"]
@@ -208,7 +208,7 @@ def _the_latency_climbed_and_then_came_back_down() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_error_rate_never_moved() -> Assertion[httpx.Response]:
+def _the_error_rate_never_moved() -> Assertion[httpx2.Response]:
     """What makes this incident hard, asserted so it stays hard.
 
     Nothing fails: the dependency answers every call, slowly. A fixture that
@@ -216,7 +216,7 @@ def _the_error_rate_never_moved() -> Assertion[httpx.Response]:
     scenario here turns on, and this case would stop being about latency with
     no failures at all.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         worst = max(minute["error_rate"] for minute in _the_shops_window())
 
         # Nothing fails here, but "nothing" is not zero: the shop's ordinary
@@ -237,7 +237,7 @@ def _the_error_rate_never_moved() -> Assertion[httpx.Response]:
 
 def _the_shops_window() -> list[dict[str, Any]]:
     """The Target Service's own metrics, insisting there are some."""
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
@@ -254,7 +254,7 @@ def _the_shops_window() -> list[dict[str, Any]]:
 
 def _the_pricing_service_was_left_slow() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "pricing-service-degraded"},
             timeout=REQUEST_TIMEOUT_SECONDS
@@ -265,7 +265,7 @@ def _the_pricing_service_was_left_slow() -> Callable[[], bool]:
     return seed_scenario
 
 
-def _the_fix_proposed_bounds_the_pricing_call() -> Assertion[httpx.Response]:
+def _the_fix_proposed_bounds_the_pricing_call() -> Assertion[httpx2.Response]:
     """The incident is mitigated and the cause is still in another repository.
 
     So there *is* something to propose here, and it is not a repair: the shop
@@ -280,7 +280,7 @@ def _the_fix_proposed_bounds_the_pricing_call() -> Assertion[httpx.Response]:
     is exactly what happens when the repository Code-Fix is given does not hold
     the module the incident is about.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         attempts = [
             event for event in the_incidents_events(incident_id)
@@ -325,7 +325,7 @@ def _what_the_branch_changed(branch: str) -> set[str]:
     it is present whether the fix touched it or not.
     """
     deployed = get_settings().github_base_branch
-    response = httpx.get(
+    response = httpx2.get(
         f"{get_settings().github_api_url}/repos/"
         f"{get_settings().github_repository}/compare/{deployed}...{branch}",
         timeout=REQUEST_TIMEOUT_SECONDS

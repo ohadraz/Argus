@@ -45,7 +45,7 @@ from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core.events import ActionTaken, FixAttempted, OnsetDetected
 from argus_core.models import RESTART_SERVICE, IncidentStatus
@@ -111,7 +111,7 @@ def test_a_leaking_service_is_restarted_and_still_gets_a_fix_proposed() -> None:
         )
 
 
-def _the_onset_was_dated_inside_the_climb() -> Assertion[httpx.Response]:
+def _the_onset_was_dated_inside_the_climb() -> Assertion[httpx2.Response]:
     """The incident is dated in the ramp, not at the edge of the window.
 
     The failure this guards is specific and quiet: a detector that cannot see a
@@ -121,7 +121,7 @@ def _the_onset_was_dated_inside_the_climb() -> Assertion[httpx.Response]:
     reach - so what is asserted is that the onset sits inside the climb, which
     a window-edge answer cannot satisfy however wide the window is.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         window = _the_shops_window()
         onsets = [
@@ -154,7 +154,7 @@ def _the_onset_was_dated_inside_the_climb() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx.Response]:
+def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx2.Response]:
     """Read from the incident's own account rather than from the platform.
 
     What the platform was asked is a fact about the fixture; what Argus decided
@@ -163,7 +163,7 @@ def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx.Response
     the event says so by leaving it absent, and an event claiming one would
     describe a different action from the one that was taken.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
             event for event in the_incidents_events(incident_id)
@@ -199,7 +199,7 @@ def _the_action_taken_was_a_restart_of(service: str) -> Assertion[httpx.Response
     return assertion
 
 
-def _a_new_process_is_serving_the_shop() -> Assertion[httpx.Response]:
+def _a_new_process_is_serving_the_shop() -> Assertion[httpx2.Response]:
     """The one reading that separates a restart from a coincidence.
 
     Memory falling is ambiguous on its own - the process was replaced, or the
@@ -209,7 +209,7 @@ def _a_new_process_is_serving_the_shop() -> Assertion[httpx.Response]:
     because the window keeps both: the minutes before the restart still report
     the process that served them.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = _the_shops_window()
         was_serving = window[0]["process_start_time_seconds"]
         serving_now = window[-1]["process_start_time_seconds"]
@@ -225,7 +225,7 @@ def _a_new_process_is_serving_the_shop() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_heap_climbed_and_then_came_back_down() -> Assertion[httpx.Response]:
+def _the_heap_climbed_and_then_came_back_down() -> Assertion[httpx2.Response]:
     """Both halves, in one window.
 
     The climb has to still be there afterwards. A fixture that reset its whole
@@ -236,7 +236,7 @@ def _the_heap_climbed_and_then_came_back_down() -> Assertion[httpx.Response]:
     because what is being asserted is the shape - a heap that got much smaller
     than it had been - and the baseline is the Target Service's to choose.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = _the_shops_window()
         highest = max(minute["memory_used_bytes"] for minute in window)
         now = window[-1]["memory_used_bytes"]
@@ -252,7 +252,7 @@ def _the_heap_climbed_and_then_came_back_down() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _a_fix_was_proposed() -> Assertion[httpx.Response]:
+def _a_fix_was_proposed() -> Assertion[httpx2.Response]:
     """A mitigated leak is not a finished incident.
 
     The restart bought minutes, and the fault that filled the heap is still in
@@ -260,7 +260,7 @@ def _a_fix_was_proposed() -> Assertion[httpx.Response]:
     verdict it could have called a success. This is the assertion that would
     fail if a confirmed mitigation were ever routed to `resolved` again.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         attempts = [
             event for event in the_incidents_events(incident_id)
@@ -287,7 +287,7 @@ def _the_shops_window() -> list[dict[str, Any]]:
     about, and a shorter one has to fail here rather than in the arithmetic.
 
     """
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
@@ -304,7 +304,7 @@ def _the_shops_window() -> list[dict[str, Any]]:
 
 def _the_shop_was_left_leaking() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "resource-leak"},
             timeout=REQUEST_TIMEOUT_SECONDS

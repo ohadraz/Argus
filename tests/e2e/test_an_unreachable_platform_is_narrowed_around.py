@@ -58,7 +58,7 @@ which tool the model found a file with.
 
 from __future__ import annotations
 
-import httpx
+import httpx2
 import pytest
 from argus_core.events import ActionTaken, PlatformUnavailable, VerdictReached
 from argus_core.models import (
@@ -140,7 +140,7 @@ def test_a_platform_that_will_not_act_leaves_argus_the_one_action_it_still_has()
         )
 
 
-def _the_platform_went_on_saying_what_it_had_deployed() -> Assertion[httpx.Response]:
+def _the_platform_went_on_saying_what_it_had_deployed() -> Assertion[httpx2.Response]:
     """The half of the staging that makes this narrowing rather than blindness.
 
     A platform refusing its reads as well would hide the deployment, and the
@@ -153,8 +153,8 @@ def _the_platform_went_on_saying_what_it_had_deployed() -> Assertion[httpx.Respo
     together are the claim: the reporting routes answered, and Argus's change
     channel got something back from them.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -181,7 +181,7 @@ def _the_platform_went_on_saying_what_it_had_deployed() -> Assertion[httpx.Respo
     return assertion
 
 
-def _the_application_still_syncs_itself() -> Assertion[httpx.Response]:
+def _the_application_still_syncs_itself() -> Assertion[httpx2.Response]:
     """Nothing the rollback started got as far as changing the estate.
 
     Suspending reconciliation is the first write a rollback makes, and it goes
@@ -195,8 +195,8 @@ def _the_application_still_syncs_itself() -> Assertion[httpx.Response]:
     this suite's teardown calls it after every case - so an earlier rollback or
     pin cannot leave a suspension here for this case to read as its own.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -216,7 +216,7 @@ def _the_application_still_syncs_itself() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_rollback_was_reached_for_and_nothing_answered() -> Assertion[httpx.Response]:
+def _the_rollback_was_reached_for_and_nothing_answered() -> Assertion[httpx2.Response]:
     """Argus wanted the rollback, asked for it, and was told the platform is gone.
 
     The whole premise, and the one assertion here that fails if the model ranks
@@ -230,7 +230,7 @@ def _the_rollback_was_reached_for_and_nothing_answered() -> Assertion[httpx.Resp
     way would be a second fact, and a case matching on the set would accept it
     as this one.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         recorded = the_incidents_events(incident_id_from(response))
         reached_for = [
             position for position, event in enumerate(recorded)
@@ -270,7 +270,7 @@ def _the_rollback_was_reached_for_and_nothing_answered() -> Assertion[httpx.Resp
     return assertion
 
 
-def _what_the_platform_took_with_it_was_recorded_once() -> Assertion[httpx.Response]:
+def _what_the_platform_took_with_it_was_recorded_once() -> Assertion[httpx2.Response]:
     """One event, naming the platform and every kind of action that went with it.
 
     Once rather than once per candidate passed over: the fact is about the
@@ -283,7 +283,7 @@ def _what_the_platform_took_with_it_was_recorded_once() -> Assertion[httpx.Respo
     and one placed on the flag provider does not silently widen what this
     accepts.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         recorded = the_incidents_events(incident_id_from(response))
         unavailable = [
             event for event in recorded if isinstance(event, PlatformUnavailable)
@@ -321,7 +321,7 @@ def _what_the_platform_took_with_it_was_recorded_once() -> Assertion[httpx.Respo
     return assertion
 
 
-def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx.Response]:
+def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx2.Response]:
     """The three remaining platform candidates were passed over, not tried.
 
     Stated as a count of attempts because that is where passing over is
@@ -334,7 +334,7 @@ def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx.Resp
     reason the event's contents are: a sixth mitigation on this platform has to
     be covered by this assertion without anybody remembering to add it.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         recorded = the_incidents_events(incident_id_from(response))
         through_it = [
             event for event in recorded
@@ -357,7 +357,7 @@ def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx.Resp
     return assertion
 
 
-def _the_action_that_ended_it_was_a_revert_of(flag: str) -> Assertion[httpx.Response]:
+def _the_action_that_ended_it_was_a_revert_of(flag: str) -> Assertion[httpx2.Response]:
     """The last action, on the one platform that was still answering.
 
     The last rather than the only one: the rollback came first by design, and a
@@ -368,7 +368,7 @@ def _the_action_that_ended_it_was_a_revert_of(flag: str) -> Assertion[httpx.Resp
     is the half of the sentence nobody can act on - and a revert that switched
     this flag on would be a mitigation that staged the incident again.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         recorded = the_incidents_events(incident_id_from(response))
         taken = [event for event in recorded if isinstance(event, ActionTaken)]
 

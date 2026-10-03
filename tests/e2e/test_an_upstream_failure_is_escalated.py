@@ -19,7 +19,7 @@ from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
@@ -90,7 +90,7 @@ def test_an_incident_arriving_from_outside_is_named_and_handed_to_a_person() -> 
 
 def _the_payment_provider_stopped_answering() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "upstream-dependency-failure"},
             timeout=10.0
@@ -110,7 +110,7 @@ def _the_service_is_still_failing() -> Assertion[Any]:
     something in the stack ended an outage it does not own.
     """
     def assertion(dont_care_response: Any) -> bool:
-        response = httpx.get(f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=10.0)
+        response = httpx2.get(f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=10.0)
         response.raise_for_status()
         buckets = response.json()
 

@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from agent_mitigation import Undone
@@ -291,7 +291,7 @@ def test_a_withdrawn_rollback_splits_the_fleet_again() -> None:
 
 def _argus_is_withdrawn_after_somebody_else_changed_the_flag(
     alert: dict[str, object]
-) -> Callable[[], httpx.Response]:
+) -> Callable[[], httpx2.Response]:
     """The same walk, with a person reaching in between the change and the undo.
 
     The order is the whole case: Argus turns the flag off, somebody turns it
@@ -303,7 +303,7 @@ def _argus_is_withdrawn_after_somebody_else_changed_the_flag(
     that plays a person - a change Argus is recorded as having made is one it
     would rightly read as its own.
     """
-    def step() -> httpx.Response:
+    def step() -> httpx2.Response:
         response = argus_is_triggered_with_alert(alert)()
         incident_id = incident_id_from(response)
 
@@ -315,7 +315,7 @@ def _argus_is_withdrawn_after_somebody_else_changed_the_flag(
                 f"so nothing below is about a flag changed from outside."
             )
 
-        withdrawn = httpx.post(
+        withdrawn = httpx2.post(
             f"{ARGUS_WEB_BASE_URL}/incidents/{incident_id}/withdraw",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -333,7 +333,7 @@ def _argus_is_withdrawn_after_somebody_else_changed_the_flag(
 
 def _argus_is_withdrawn_once_it_has_acted_on(
     alert: dict[str, object]
-) -> Callable[[], httpx.Response]:
+) -> Callable[[], httpx2.Response]:
     """Fires the alert, waits for Argus to change something, and takes it back.
 
     The wait is what makes this a withdrawal mid-walk rather than a withdrawal
@@ -345,13 +345,13 @@ def _argus_is_withdrawn_once_it_has_acted_on(
     Answers with the webhook's response, like every other `when` here, because
     that is the only handle the assertions have on the incident.
     """
-    def step() -> httpx.Response:
+    def step() -> httpx2.Response:
         response = argus_is_triggered_with_alert(alert)()
         incident_id = incident_id_from(response)
 
         _wait_until_argus_turns_the_flag_off()
 
-        withdrawn = httpx.post(
+        withdrawn = httpx2.post(
             f"{ARGUS_WEB_BASE_URL}/incidents/{incident_id}/withdraw",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -388,7 +388,7 @@ def _wait_until_argus_turns_the_flag_off() -> None:
         time.sleep(_A_POLL)
 
 
-def _the_flag_was_put_back_the_way_argus_found_it() -> Assertion[httpx.Response]:
+def _the_flag_was_put_back_the_way_argus_found_it() -> Assertion[httpx2.Response]:
     """On, which is the state that broke the shop - and the point.
 
     An unwind restores what Argus changed, not what a healthy shop looks like.
@@ -396,7 +396,7 @@ def _the_flag_was_put_back_the_way_argus_found_it() -> Assertion[httpx.Response]
     service Argus had quietly half-fixed would be handing them a system in a
     state nobody chose.
     """
-    def assertion(_response: httpx.Response) -> bool:
+    def assertion(_response: httpx2.Response) -> bool:
         evaluating = flags_evaluating_true()
 
         if THE_DEMO_FLAG not in evaluating:
@@ -410,14 +410,14 @@ def _the_flag_was_put_back_the_way_argus_found_it() -> Assertion[httpx.Response]
     return assertion
 
 
-def _nothing_was_written_up() -> Assertion[httpx.Response]:
+def _nothing_was_written_up() -> Assertion[httpx2.Response]:
     """No postmortem, because there was no response to write one about.
 
     The observable form of "the walk stopped": a graph that carried on past a
     withdrawal would reach the Postmortem node like any other run, and would do
     it quietly.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -434,7 +434,7 @@ def _nothing_was_written_up() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_incident_left_the_flag_as_found() -> Assertion[httpx.Response]:
+def _the_incident_left_the_flag_as_found() -> Assertion[httpx2.Response]:
     """The unwind recorded a decision, not a restore.
 
     Asserted on the record rather than on the flag, and it has to be: the flag
@@ -446,7 +446,7 @@ def _the_incident_left_the_flag_as_found() -> Assertion[httpx.Response]:
     answers, and "left as found" is the one that means somebody else owns the
     flag now.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -469,7 +469,7 @@ def _the_incident_left_the_flag_as_found() -> Assertion[httpx.Response]:
 
 def _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(
     alert: dict[str, object]
-) -> Callable[[], httpx.Response]:
+) -> Callable[[], httpx2.Response]:
     """Fires the alert, waits for Argus to suspend the sync, and takes the
     incident back.
 
@@ -486,13 +486,13 @@ def _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(
     still not reconciling looks right from every angle a reader has, while
     receiving nothing anybody ships to it.
     """
-    def step() -> httpx.Response:
+    def step() -> httpx2.Response:
         response = argus_is_triggered_with_alert(alert)()
         incident_id = incident_id_from(response)
 
         _wait_until_the_shop_stops_reconciling_itself()
 
-        withdrawn = httpx.post(
+        withdrawn = httpx2.post(
             f"{ARGUS_WEB_BASE_URL}/incidents/{incident_id}/withdraw",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -538,7 +538,7 @@ def _the_shop_reconciles_itself() -> bool:
     reading it as false here would have this wait return the moment the stack
     came up.
     """
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
@@ -547,7 +547,7 @@ def _the_shop_reconciles_itself() -> bool:
     return response.json()["spec"]["syncPolicy"].get("automated") is not None
 
 
-def _the_deployment_was_put_back() -> Assertion[httpx.Response]:
+def _the_deployment_was_put_back() -> Assertion[httpx2.Response]:
     """The unwind returned the application to the revision Argus found it on.
 
     Asserted on the record rather than on the platform, and it has to be: the
@@ -558,7 +558,7 @@ def _the_deployment_was_put_back() -> Assertion[httpx.Response]:
     anyway - a restore Argus did not manage is one it has to say it did not
     manage.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -584,7 +584,7 @@ def _the_deployment_was_put_back() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_shop_is_running_the_size_it_is_declared_with() -> Assertion[httpx.Response]:
+def _the_shop_is_running_the_size_it_is_declared_with() -> Assertion[httpx2.Response]:
     """The count in force, read from the platform rather than from the record.
 
     The one restore in this file that can be checked against the world instead of
@@ -597,8 +597,8 @@ def _the_shop_is_running_the_size_it_is_declared_with() -> Assertion[httpx.Respo
     The manifest arrives as text, which is Argo CD's own shape for it, so this
     parses it the way the write tier has to.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -619,7 +619,7 @@ def _the_shop_is_running_the_size_it_is_declared_with() -> Assertion[httpx.Respo
     return assertion
 
 
-def _the_shop_reconciles_itself_again() -> Assertion[httpx.Response]:
+def _the_shop_reconciles_itself_again() -> Assertion[httpx2.Response]:
     """The other half of the restore, read from the platform.
 
     Both halves or it is not undone, and this is the one the record alone cannot
@@ -628,7 +628,7 @@ def _the_shop_reconciles_itself_again() -> Assertion[httpx.Response]:
     left the sync suspended would hand somebody an application quietly out of the
     delivery path, which is worse than the state Argus found.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         if not _the_shop_reconciles_itself():
             raise AssertionError(
                 f"Expected [{THE_SERVICE_NAME}] to be reconciling itself again "
@@ -642,7 +642,7 @@ def _the_shop_reconciles_itself_again() -> Assertion[httpx.Response]:
 
 
 def _the_autoscaler_may_fall_as_far_as_it_could_before(
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """The floor in force, read from the platform rather than from the record.
 
     The second restore in this file that can be checked against the world, and it
@@ -652,8 +652,8 @@ def _the_autoscaler_may_fall_as_far_as_it_could_before(
     the count held still would be keeping a mitigation alive under an incident that
     has ended, and nobody would be watching it.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
             params=AN_AUTOSCALER,
             timeout=REQUEST_TIMEOUT_SECONDS
@@ -675,7 +675,7 @@ def _the_autoscaler_may_fall_as_far_as_it_could_before(
     return assertion
 
 
-def _the_fleet_is_split_again() -> Assertion[httpx.Response]:
+def _the_fleet_is_split_again() -> Assertion[httpx2.Response]:
     """The rollout is back where the incident found it, read from the platform.
 
     The third restore in this file that can be checked against the world, and the
@@ -690,8 +690,8 @@ def _the_fleet_is_split_again() -> Assertion[httpx.Response]:
     fleet converged would be keeping a mitigation alive under an incident that has
     ended, held by nobody who chose it.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
             timeout=REQUEST_TIMEOUT_SECONDS
         )

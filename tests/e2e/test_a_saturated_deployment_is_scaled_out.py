@@ -63,7 +63,7 @@ from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core.events import ActionTaken, VerdictReached
 from argus_core.models import SCALE_OUT, FailureMode, IncidentStatus, Verdict
@@ -150,7 +150,7 @@ def test_a_shop_that_outgrew_its_capacity_is_scaled_out_and_left_mitigated() -> 
         )
 
 
-def _the_action_taken_was_a_scale_out_of(application: str) -> Assertion[httpx.Response]:
+def _the_action_taken_was_a_scale_out_of(application: str) -> Assertion[httpx2.Response]:
     """Read from the incident's own account rather than from the platform.
 
     What the platform was asked is a fact about the fixture; what Argus decided to
@@ -159,7 +159,7 @@ def _the_action_taken_was_a_scale_out_of(application: str) -> Assertion[httpx.Re
     tier's to have resolved from what was running, so an event claiming a number
     here would be describing a decision nothing at this layer made.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
             event for event in the_incidents_events(incident_id)
@@ -197,7 +197,7 @@ def _the_action_taken_was_a_scale_out_of(application: str) -> Assertion[httpx.Re
     return assertion
 
 
-def _the_scale_out_was_confirmed() -> Assertion[httpx.Response]:
+def _the_scale_out_was_confirmed() -> Assertion[httpx2.Response]:
     """The service answered for the action, and answered well.
 
     Stated beside the status rather than left to it, because the two say
@@ -206,7 +206,7 @@ def _the_scale_out_was_confirmed() -> Assertion[httpx.Response]:
     found healthy. A walk that reached `mitigated` off a refutation and a second
     attempt would satisfy one and not the other.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         verdicts = [
             event.outcome for event in the_incidents_events(incident_id)
@@ -226,7 +226,7 @@ def _the_scale_out_was_confirmed() -> Assertion[httpx.Response]:
 
 
 def _the_shop_is_running_more_replicas_than_it_was_declared_with(
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """The count in force, read where the only honest answer to that lives.
 
     From the platform's live resource and not from the repository: the values
@@ -237,7 +237,7 @@ def _the_shop_is_running_more_replicas_than_it_was_declared_with(
     The manifest arrives as text, which is Argo CD's own shape for it, so this
     parses it the way the write tier has to.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         running = _the_replicas_the_platform_reports()
 
         if running <= THE_SIZE_THE_SHOP_IS_DECLARED_WITH:
@@ -254,7 +254,7 @@ def _the_shop_is_running_more_replicas_than_it_was_declared_with(
 
 
 def _the_window_holds_the_saturation_and_the_capacity_that_ended_it(
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """Both halves, in one window, in one pair of series.
 
     The saturated minutes have to still be there afterwards. Capacity is a
@@ -270,7 +270,7 @@ def _the_window_holds_the_saturation_and_the_capacity_that_ended_it(
     later change that made the limit one replica's would leave the gauge pinned
     for ever and no reader able to see the mitigation at all.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         ceilings = [
             minute["cpu_limit_cores"] for minute in window
@@ -316,7 +316,7 @@ def _the_window_holds_the_saturation_and_the_capacity_that_ended_it(
     return assertion
 
 
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
+def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
     """What makes this mitigated rather than over, and what a timer would undo.
 
     Argo CD puts a live replica count back to what the repository holds at its
@@ -327,8 +327,8 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
     incident straight back to itself while looking in every other respect like a
     success.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -351,7 +351,7 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
 
 def _the_replicas_the_platform_reports() -> int:
     """How many replicas are serving, as the platform holds the manifest."""
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
@@ -364,7 +364,7 @@ def _the_replicas_the_platform_reports() -> int:
 
 def _the_shop_was_left_short_of_capacity() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "cpu-saturation"},
             timeout=REQUEST_TIMEOUT_SECONDS

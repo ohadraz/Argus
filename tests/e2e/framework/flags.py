@@ -5,7 +5,7 @@ anything changed. These read the flag provider and the Target Service directly,
 so a mitigation that reported success without turning a flag off, or turned one
 off without the service recovering, fails here rather than passing quietly.
 
-Everything takes the webhook's `httpx.Response` for the same reason the rest of
+Everything takes the webhook's `httpx2.Response` for the same reason the rest of
 the e2e framework does - it is what a `Scenario`'s `when` produces - even where
 the assertion does not need it.
 """
@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import httpx
+import httpx2
 import psycopg
 from argus_core import get_settings
 from argus_core.anomaly import has_recovered_since
@@ -133,7 +133,7 @@ def another_flag_was_toggled_on(flag: str) -> Callable[[], bool]:
 
 def switch_flag(flag: str, enabled: bool) -> bool:
     settings = get_settings()
-    response = httpx.post(
+    response = httpx2.post(
         f"{settings.unleash_base_url}"
         f"/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}/environments/{settings.unleash_environment}"
@@ -147,7 +147,7 @@ def switch_flag(flag: str, enabled: bool) -> bool:
 
 def flags_evaluating_true() -> list[str]:
     settings = get_settings()
-    response = httpx.get(
+    response = httpx2.get(
         f"{settings.unleash_base_url}/api/frontend",
         headers={"Authorization": settings.unleash_frontend_token},
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -237,7 +237,7 @@ def _the_flags_the_provider_holds() -> list[str]:
     one - a flag that is off still exists, and existing is the thing being
     cleaned up here."""
     settings = get_settings()
-    response = httpx.get(
+    response = httpx2.get(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
         f"/features",
         headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
@@ -252,13 +252,13 @@ def _the_flags_the_provider_holds() -> list[str]:
 def _delete_flag(flag: str) -> None:
     settings = get_settings()
     headers = {"Authorization": THE_HUMANS_ADMIN_TOKEN}
-    httpx.delete(
+    httpx2.delete(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}",
         headers=headers,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
-    httpx.delete(
+    httpx2.delete(
         f"{settings.unleash_base_url}/api/admin/archive/{flag}",
         headers=headers,
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -267,7 +267,7 @@ def _delete_flag(flag: str) -> None:
 
 def _create_flag_if_absent(flag: str) -> None:
     settings = get_settings()
-    httpx.post(
+    httpx2.post(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}/features",
         headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         json={"name": flag, "type": "release"},
@@ -275,7 +275,7 @@ def _create_flag_if_absent(flag: str) -> None:
     )
     # A flag with no strategy never evaluates true however it is toggled, so
     # the second flag would be invisible to the very read this arranges for.
-    httpx.post(
+    httpx2.post(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}/environments/{settings.unleash_environment}/strategies",
         headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
@@ -285,7 +285,7 @@ def _create_flag_if_absent(flag: str) -> None:
 
 
 def _target_service_metrics() -> list[MetricBucket]:
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()

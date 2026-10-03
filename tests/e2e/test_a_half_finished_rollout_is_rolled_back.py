@@ -55,7 +55,7 @@ import json
 from statistics import median
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
@@ -146,7 +146,7 @@ def test_a_rollout_stopped_half_way_is_ended_by_converging_the_fleet() -> None:
         )
 
 
-def _the_shop_failed_and_then_stopped_failing() -> Assertion[httpx.Response]:
+def _the_shop_failed_and_then_stopped_failing() -> Assertion[httpx2.Response]:
     """The incident is in the window, and so is its end.
 
     Both halves in one assertion because either alone passes against a world
@@ -157,7 +157,7 @@ def _the_shop_failed_and_then_stopped_failing() -> Assertion[httpx.Response]:
     The last minute is excluded. It is the minute in progress, and its rate is
     taken over however many requests have arrived so far.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()[:-1]
         rates = [minute["error_rate"] for minute in window]
 
@@ -180,7 +180,7 @@ def _the_shop_failed_and_then_stopped_failing() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _no_quantile_ever_moved() -> Assertion[httpx.Response]:
+def _no_quantile_ever_moved() -> Assertion[httpx2.Response]:
     """Latency is where it was, throughout, which is half of what makes this hard.
 
     A page that cannot read a cache entry fails immediately, so nothing waits.
@@ -197,7 +197,7 @@ def _no_quantile_ever_moved() -> Assertion[httpx.Response]:
     in this fixture multiplies a quantile and the smallest of them more than
     triples it, so a real move clears this bound many times over.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()[:-1]
         during = [
             minute for minute in window
@@ -238,7 +238,7 @@ def _no_quantile_ever_moved() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _every_replica_is_on_one_revision() -> Assertion[httpx.Response]:
+def _every_replica_is_on_one_revision() -> Assertion[httpx2.Response]:
     """The fleet converged, which is what the rollback actually achieved.
 
     Asserted rather than inferred from the call having been made, because this is
@@ -246,7 +246,7 @@ def _every_replica_is_on_one_revision() -> Assertion[httpx.Response]:
     deployment removed nothing that was wrong, and what ended the incident is
     that one version is now reading and writing one shape.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         manifest = _the_running_deployment()
         status: dict[str, Any] = manifest.get("status", {})
         serving = status.get("replicas")
@@ -264,14 +264,14 @@ def _every_replica_is_on_one_revision() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_rolling_update_is_no_longer_paused() -> Assertion[httpx.Response]:
+def _the_rolling_update_is_no_longer_paused() -> Assertion[httpx2.Response]:
     """The thing that held the fleet apart is gone.
 
     Separate from the count because the two can disagree and the disagreement is
     informative: a paused rollout that happens to be converged is a deployment
     one sync away from splitting again.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         paused = _the_running_deployment().get("spec", {}).get("paused")
 
         if paused:
@@ -285,7 +285,7 @@ def _the_rolling_update_is_no_longer_paused() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
+def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
     """What makes this mitigated rather than over.
 
     The rollback moved what is deployed and touched nothing in the repository, so
@@ -295,8 +295,8 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
     handed the incident straight back, while looking in every other respect like a
     success.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -324,7 +324,7 @@ def _the_running_deployment() -> dict[str, Any]:
     this holds what a rollback made true. The manifest is carried as a string,
     which is Argo CD's own shape for this response.
     """
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
         timeout=REQUEST_TIMEOUT_SECONDS
     )

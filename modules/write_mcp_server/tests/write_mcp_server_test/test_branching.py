@@ -21,7 +21,7 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
@@ -50,7 +50,7 @@ REFS = "/git/refs"
 # rather than left as `Any`, because the wrappers below hand one answer straight
 # back - and `Any` returned from a function promising a `Response` is the one
 # thing mypy cannot check for you.
-_Answering = Callable[..., httpx.Response]
+_Answering = Callable[..., httpx2.Response]
 
 
 @pytest.mark.unit
@@ -305,7 +305,7 @@ def test_a_repository_that_refuses_the_branch_is_not_reported_as_written() -> No
 @pytest.mark.unit
 def test_an_unreachable_repository_is_not_reported_as_written() -> None:
     repository = a_repository_whose_head_is(SOME_BASE_HEAD)
-    repository.get.side_effect = httpx.ConnectError("connection refused")
+    repository.get.side_effect = httpx2.ConnectError("connection refused")
 
     Scenario() \
         .when(attempting(lambda: _writing_to(repository))) \
@@ -541,11 +541,11 @@ def _writing_to(repository: _Repository) -> Any:
     )
 
 
-def _an_answer(body: dict[str, Any], status_code: int = 200) -> httpx.Response:
-    return httpx.Response(
+def _an_answer(body: dict[str, Any], status_code: int = 200) -> httpx2.Response:
+    return httpx2.Response(
         status_code=status_code,
         json=body,
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
 
@@ -556,7 +556,7 @@ def _reading(head: str) -> _Answering:
     one more thing, and re-counted wrongly it passes a ref answer off as a
     commit - which is a green test for code that cannot work.
     """
-    def answer(url: str, **_: Any) -> httpx.Response:
+    def answer(url: str, **_: Any) -> httpx2.Response:
         if "/git/ref/heads/" in url:
             return _an_answer({"object": {"sha": head}})
 
@@ -571,7 +571,7 @@ def _reading(head: str) -> _Answering:
 def _reading_but_refusing_the_commit(head: str) -> _Answering:
     answering = _reading(head)
 
-    def answer(url: str, **called: Any) -> httpx.Response:
+    def answer(url: str, **called: Any) -> httpx2.Response:
         if f"/git/commits/{head}" in url:
             return _an_answer({"message": "Not Found"}, status_code=404)
 
@@ -582,7 +582,7 @@ def _reading_but_refusing_the_commit(head: str) -> _Answering:
 
 def _writing() -> _Answering:
     """Answers the three writes by the URL written to, for the same reason."""
-    def answer(url: str, **_: Any) -> httpx.Response:
+    def answer(url: str, **_: Any) -> httpx2.Response:
         if url.endswith(TREES):
             return _an_answer({"sha": SOME_WRITTEN_TREE}, status_code=201)
 
@@ -603,7 +603,7 @@ def _refusing(endpoint: str, *, status_code: int, saying: str) -> _Answering:
     """A repository that answers every write but the one endpoint named."""
     answering = _writing()
 
-    def answer(url: str, **called: Any) -> httpx.Response:
+    def answer(url: str, **called: Any) -> httpx2.Response:
         if url.endswith(endpoint):
             return _an_answer({"message": saying}, status_code=status_code)
 
@@ -614,8 +614,8 @@ def _refusing(endpoint: str, *, status_code: int, saying: str) -> _Answering:
 
 class _Repository:
     def __init__(self) -> None:
-        self.get: Any = create_autospec(httpx.get)
-        self.post: Any = create_autospec(httpx.post)
+        self.get: Any = create_autospec(httpx2.get)
+        self.post: Any = create_autospec(httpx2.post)
 
 
 def a_repository_whose_head_is(head: str) -> _Repository:

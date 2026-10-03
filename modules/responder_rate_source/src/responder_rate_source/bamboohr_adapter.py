@@ -15,7 +15,7 @@ One fetch, because the endpoint takes no parameters and cannot be asked about a
 single title. A lookup per title would be this same call, made once per
 responder, answering the same thing every time.
 
-Plain HTTP through `httpx` rather than the vendor's SDK, unlike the on-call and
+Plain HTTP through `httpx2` rather than the vendor's SDK, unlike the on-call and
 revenue adapters. What is read is one unparameterised GET returning one
 document, so an SDK would contribute a credential header and nothing else - and
 its bindings are not documented anywhere this repo can check them, which is a
@@ -29,7 +29,7 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Any, Final
 
-import httpx
+import httpx2
 
 from responder_rate_source.bands import (
     PayBand,
@@ -41,9 +41,9 @@ from responder_rate_source.bands import (
 # How the request is made. Injected rather than called outright so a test can
 # answer it without a network, and without monkeypatching a name this module
 # imported. The seam sits at the request rather than at the shape of the
-# answer: what comes back is a real `httpx.Response`, so the parsing under test
+# answer: what comes back is a real `httpx2.Response`, so the parsing under test
 # is the parsing a live call would get.
-type AskHrSource = Callable[..., httpx.Response]
+type AskHrSource = Callable[..., httpx2.Response]
 
 # The resource this reads. A path rather than a URL: the client joins it to
 # whichever base address it was built with, which is the whole point of aiming
@@ -69,7 +69,7 @@ _CURRENCY_CODE: Final = "currencyCode"
 
 
 def pay_bands(settings: ResponderRateSettings,
-              asking: AskHrSource = httpx.get) -> PayBandsByTitle:
+              asking: AskHrSource = httpx2.get) -> PayBandsByTitle:
     """Every job title the HR source prices, against its own level's band.
 
     Raises `PayBandsUnavailable` for anything the source fails to answer, and
@@ -100,7 +100,7 @@ def _read(settings: ResponderRateSettings, asking: AskHrSource) -> dict[str, Any
         answer.raise_for_status()
 
         return dict(answer.json())
-    except (httpx.HTTPError, ValueError) as error:
+    except (httpx2.HTTPError, ValueError) as error:
         raise PayBandsUnavailable(
             f"the HR source could not be read: {error}"
         ) from error

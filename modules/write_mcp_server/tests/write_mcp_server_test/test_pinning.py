@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
@@ -95,9 +95,9 @@ class _Platform:
     tidiness - so the order is asserted rather than assumed.
     """
 
-    get: MagicMock = field(default_factory=lambda: create_autospec(httpx.get))
-    post: MagicMock = field(default_factory=lambda: create_autospec(httpx.post))
-    put: MagicMock = field(default_factory=lambda: create_autospec(httpx.put))
+    get: MagicMock = field(default_factory=lambda: create_autospec(httpx2.get))
+    post: MagicMock = field(default_factory=lambda: create_autospec(httpx2.post))
+    put: MagicMock = field(default_factory=lambda: create_autospec(httpx2.put))
     wrote: list[str] = field(default_factory=list)
 
 
@@ -197,11 +197,11 @@ def _a_managed_autoscaler(floor: int, ceiling: int) -> dict[str, Any]:
     }
 
 
-def _an_ok(body: dict[str, Any] | None = None) -> httpx.Response:
-    return httpx.Response(
+def _an_ok(body: dict[str, Any] | None = None) -> httpx2.Response:
+    return httpx2.Response(
         status_code=200,
         json=body if body is not None else {},
-        request=httpx.Request("GET", DONT_CARE_URL)
+        request=httpx2.Request("GET", DONT_CARE_URL)
     )
 
 
@@ -211,7 +211,7 @@ def a_platform(floor: int = THE_FLOOR,
                holding_an_autoscaler: bool = True) -> _Platform:
     platform = _Platform()
 
-    def answering(url: str, **dont_care_rest: Any) -> httpx.Response:
+    def answering(url: str, **dont_care_rest: Any) -> httpx2.Response:
         if url.endswith("/resource-tree"):
             return _an_ok(_a_resource_tree(holding_an_autoscaler))
 
@@ -220,13 +220,13 @@ def a_platform(floor: int = THE_FLOOR,
 
         return _an_ok(_an_application(reconciling_itself))
 
-    def patching(dont_care_url: str, **dont_care_rest: Any) -> httpx.Response:
+    def patching(dont_care_url: str, **dont_care_rest: Any) -> httpx2.Response:
         platform.wrote.append(THE_PATCH)
 
         return _an_ok()
 
     def writing_the_policy(dont_care_url: str,
-                           **dont_care_rest: Any) -> httpx.Response:
+                           **dont_care_rest: Any) -> httpx2.Response:
         platform.wrote.append(THE_SYNC_POLICY)
 
         return _an_ok()
@@ -467,7 +467,7 @@ def test_a_floor_already_past_what_argus_may_ask_for_is_refused() -> None:
 @pytest.mark.unit
 def test_a_platform_that_will_not_answer_is_not_reported_as_pinned() -> None:
     platform = a_platform()
-    platform.get.side_effect = httpx.ConnectError("no route to the platform")
+    platform.get.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(platform) \
@@ -487,10 +487,10 @@ def test_a_resource_the_platform_will_not_report_is_not_reported_as_pinned() -> 
     platform.get.side_effect = lambda url, **dont_care_rest: (
         _an_ok(_a_resource_tree(holding_an_autoscaler=True))
         if url.endswith("/resource-tree")
-        else httpx.Response(
+        else httpx2.Response(
             status_code=404,
             json={"detail": "not found"},
-            request=httpx.Request("GET", DONT_CARE_URL)
+            request=httpx2.Request("GET", DONT_CARE_URL)
         )
     )
 
@@ -605,7 +605,7 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
     # floor looks right from every angle a reader has, while the application
     # receives nothing anybody ships to it.
     platform = a_platform()
-    platform.put.side_effect = httpx.ConnectError("no route to the platform")
+    platform.put.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -616,8 +616,8 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform()
-    platform.post.side_effect = httpx.ConnectError("no route to the platform")
-    platform.put.side_effect = httpx.ConnectError("no route to the platform")
+    platform.post.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.put.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -645,7 +645,7 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
     # a platform that is down this is where it finds out. Nothing has been
     # touched, which is what makes the report honest.
     platform = a_platform()
-    platform.get.side_effect = httpx.ConnectError("no route to host")
+    platform.get.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -673,7 +673,7 @@ def test_a_platform_that_died_before_a_pin_that_changed_nothing_is_unreachable()
     # the first write - and a platform that stopped answering before it took
     # nothing with it.
     platform = a_platform(reconciling_itself=False)
-    platform.post.side_effect = httpx.ConnectError("no route to host")
+    platform.post.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -693,7 +693,7 @@ def test_a_pin_that_left_sync_suspended_says_so_and_still_reports_the_platform()
     # so the two coincide; a case that raised the ceiling past that cap would
     # have to name the cap instead.
     platform = a_platform(reconciling_itself=True)
-    platform.post.side_effect = httpx.ConnectError("no route to host")
+    platform.post.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -724,12 +724,12 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
         .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
 
 
-def _answering(status: int) -> httpx.Response:
+def _answering(status: int) -> httpx2.Response:
     """One of the platform's own answers, as `raise_for_status` will read it."""
-    return httpx.Response(
+    return httpx2.Response(
         status_code=status,
         json={},
-        request=httpx.Request("PUT", DONT_CARE_URL)
+        request=httpx2.Request("PUT", DONT_CARE_URL)
     )
 
 

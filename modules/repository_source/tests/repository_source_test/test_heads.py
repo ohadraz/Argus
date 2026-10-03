@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit.assertions import Assertion, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
@@ -70,8 +70,8 @@ def test_a_branch_that_could_not_be_read_is_refused_rather_than_answered() -> No
     # be compared against the indexed commit, differ from it, and have the
     # catch-up pass try to build an index at a commit that does not exist - every
     # pass, forever.
-    refused = create_autospec(httpx.get)
-    refused.side_effect = httpx.ConnectError("no route to host")
+    refused = create_autospec(httpx2.get)
+    refused.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .when(
@@ -110,11 +110,11 @@ def _the_request_ended_with(repository: Any, path: str) -> Assertion[Any]:
 
 def a_branch_at(sha: str) -> Any:
     """GitHub's answer for a branch: the commit it points at, among much else."""
-    repository = create_autospec(httpx.get)
-    repository.return_value = httpx.Response(
+    repository = create_autospec(httpx2.get)
+    repository.return_value = httpx2.Response(
         status_code=200,
         json={"sha": sha, "commit": {"message": "a commit somebody pushed"}},
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
     return repository

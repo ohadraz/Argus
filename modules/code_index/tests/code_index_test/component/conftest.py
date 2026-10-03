@@ -23,7 +23,7 @@ import subprocess
 import time
 from collections.abc import Iterator
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from argus_core import connect_from_env
@@ -124,9 +124,9 @@ def _wait_until_it_answers(url: str) -> None:
 
     while time.monotonic() < gave_up_at:
         try:
-            if httpx.get(f"{url}/readyz", timeout=2.0).status_code == httpx.codes.OK:
+            if httpx2.get(f"{url}/readyz", timeout=2.0).status_code == httpx2.codes.OK:
                 return
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             pass
 
         time.sleep(BETWEEN_POLLS_SECONDS)

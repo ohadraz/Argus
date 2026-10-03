@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 
-import httpx
+import httpx2
 import pytest
 from argus_core import connect_from_env, get_settings
 from argus_incidents.repository import incidents
@@ -141,7 +141,7 @@ def _every_live_incident_was_withdrawn() -> None:
         ]
 
     for incident in live:
-        httpx.post(
+        httpx2.post(
             f"{ARGUS_WEB_BASE_URL}/incidents/{incident.id}/withdraw",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -280,13 +280,13 @@ def _long_term_memory_was_forgotten() -> None:
 
 
 def _the_repository_double_was_put_back() -> None:
-    httpx.post(
+    httpx2.post(
         f"{GITHUB_DOUBLE_BASE_URL}/double-control/reset",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
 
 
 def _the_target_service_scenario_was_reset() -> None:
-    httpx.post(
+    httpx2.post(
         f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=REQUEST_TIMEOUT_SECONDS
     )

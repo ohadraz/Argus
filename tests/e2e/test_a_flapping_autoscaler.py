@@ -47,7 +47,7 @@ from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core.events import ActionTaken, VerdictReached
 from argus_core.models import (
@@ -141,7 +141,7 @@ def test_a_flapping_autoscaler_is_pinned_and_left_mitigated() -> None:
         )
 
 
-def _the_action_that_ended_it_was_a_pin_of(application: str) -> Assertion[httpx.Response]:
+def _the_action_that_ended_it_was_a_pin_of(application: str) -> Assertion[httpx2.Response]:
     """The *last* action, not the only one.
 
     A walk that tried capacity first and was refuted by the controller is the
@@ -149,7 +149,7 @@ def _the_action_that_ended_it_was_a_pin_of(application: str) -> Assertion[httpx.
     action would fail on the very behaviour the fixture exists to demonstrate.
     What matters is that the thing Argus finished on is the one that holds.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
             event for event in the_incidents_events(incident_id)
@@ -183,7 +183,7 @@ def _the_action_that_ended_it_was_a_pin_of(application: str) -> Assertion[httpx.
     return assertion
 
 
-def _the_walk_tried_capacity(response: httpx.Response) -> bool:
+def _the_walk_tried_capacity(response: httpx2.Response) -> bool:
     """Whether the near-miss was made at all, which is the model's choice.
 
     The recording takes this path, so a replayed walk reaches for capacity before
@@ -197,7 +197,7 @@ def _the_walk_tried_capacity(response: httpx.Response) -> bool:
     )
 
 
-def _that_attempt_was_not_confirmed() -> Assertion[httpx.Response]:
+def _that_attempt_was_not_confirmed() -> Assertion[httpx2.Response]:
     """What must hold wherever capacity was tried.
 
     The obvious answer here is wrong and nothing in Argus says so: a reader who
@@ -212,7 +212,7 @@ def _that_attempt_was_not_confirmed() -> Assertion[httpx.Response]:
     refuses the write and answers `NOT_ATTEMPTED` - a different mechanism arriving
     at the same place.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         story = _the_actions_and_their_outcomes(response)
 
         if any(
@@ -232,7 +232,7 @@ def _that_attempt_was_not_confirmed() -> Assertion[httpx.Response]:
 
 
 def _the_actions_and_their_outcomes(
-    response: httpx.Response
+    response: httpx2.Response
 ) -> list[tuple[ActionType, Verdict | None]]:
     """Each action the walk took, in order, beside what the shop said about it.
 
@@ -252,7 +252,7 @@ def _the_actions_and_their_outcomes(
     return story
 
 
-def _the_pin_was_confirmed() -> Assertion[httpx.Response]:
+def _the_pin_was_confirmed() -> Assertion[httpx2.Response]:
     """The service answered for the action, and answered well.
 
     Stated beside the status because the two claim different things, and here the
@@ -261,7 +261,7 @@ def _the_pin_was_confirmed() -> Assertion[httpx.Response]:
     measured against the detector and found clear. The running cycle supplies no
     such minutes, which is what the refuted attempt above is the evidence of.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         verdicts = [
             event.outcome for event in the_incidents_events(incident_id)
@@ -280,14 +280,14 @@ def _the_pin_was_confirmed() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_autoscalers_floor_now_meets_its_ceiling() -> Assertion[httpx.Response]:
+def _the_autoscalers_floor_now_meets_its_ceiling() -> Assertion[httpx2.Response]:
     """Read from the live resource, which is the only place the floor in force is.
 
     The values file still asks for the floor that flapped - that is what makes this
     mitigated rather than over - so the repository is the wrong place to ask. The
     manifest arrives as text, which is Argo CD's own shape for it.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         floor, ceiling = _the_bounds_the_platform_reports()
 
         if floor != ceiling:
@@ -312,7 +312,7 @@ def _the_autoscalers_floor_now_meets_its_ceiling() -> Assertion[httpx.Response]:
 
 
 def _the_window_holds_the_flapping_and_the_count_that_stopped(
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """Both halves, in the one series that separates this mode from the surge.
 
     The oscillating minutes have to still be there afterwards: capacity is derived
@@ -321,7 +321,7 @@ def _the_window_holds_the_flapping_and_the_count_that_stopped(
     judging against it - and this case would pass against a shop that never
     flapped.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         capacities = [
             minute["cpu_limit_cores"] for minute in the_shops_window()
             if minute["cpu_limit_cores"] is not None
@@ -358,7 +358,7 @@ def _the_window_holds_the_flapping_and_the_count_that_stopped(
     return assertion
 
 
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
+def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
     """What makes this mitigated rather than over, and what a timer would undo.
 
     Argo CD re-applies an autoscaler's whole manifest at its next sync, floor
@@ -368,8 +368,8 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
     put the policy back would have handed the incident to itself while looking in
     every other respect like a success.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -390,7 +390,7 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
 
 def _the_bounds_the_platform_reports() -> tuple[int, int]:
     """The floor and ceiling in force, as the platform holds the manifest."""
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}/resource",
         params=AN_AUTOSCALER,
         timeout=REQUEST_TIMEOUT_SECONDS
@@ -405,7 +405,7 @@ def _the_bounds_the_platform_reports() -> tuple[int, int]:
 
 def _the_shops_autoscaler_was_left_flapping() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "autoscaler-flapping"},
             timeout=REQUEST_TIMEOUT_SECONDS

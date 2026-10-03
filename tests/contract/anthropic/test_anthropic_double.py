@@ -17,7 +17,6 @@ from typing import Any, Final, cast
 from uuid import uuid4
 
 import anthropic
-import httpx
 import httpx2
 import pytest
 from agent_investigator.tools import investigator_tools
@@ -107,8 +106,8 @@ def _recordings_that_stopped_for(reason: str) -> list[str]:
 
 
 @pytest.fixture
-def double() -> Iterator[httpx.Client]:
-    with httpx.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
+def double() -> Iterator[httpx2.Client]:
+    with httpx2.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
         control.post("/double-control/reset").raise_for_status()
         yield control
         control.post("/double-control/reset").raise_for_status()
@@ -223,7 +222,7 @@ def test_the_real_api_still_serves_a_repeated_prefix_from_cache() -> None:
 @pytest.mark.contract
 @pytest.mark.parametrize("recording", _recordings_that_stopped_for(TOOL_USE_STOP_REASON))
 def test_a_stored_tool_use_recording_still_parses_as_a_tool_use_turn(
-    double: httpx.Client, recording: str
+    double: httpx2.Client, recording: str
 ) -> None:
     # The same staleness check for the other kind of answer, and it is needed
     # for the same reason: a tool-use recording is what the Investigator's loop
@@ -255,7 +254,7 @@ def test_a_stored_tool_use_recording_still_parses_as_a_tool_use_turn(
 @pytest.mark.contract
 @needs_the_real_api
 def test_a_rejected_request_raises_the_same_error_class_from_both(
-    double: httpx.Client
+    double: httpx2.Client
 ) -> None:
     # Not the same *request* - the double never inspects one, so it cannot
     # reject a bad model on its own. What is compared is the rejection: given
@@ -447,7 +446,7 @@ def _the_tool_calls_in(answer: anthropic.types.Message) -> list[anthropic.types.
 def _a_real_streamed_answer() -> str:
     """One streamed tool-use turn from the real API, as bytes off the wire.
 
-    Asked with raw `httpx` rather than through the SDK, because the SDK's
+    Asked with a plain client rather than through the SDK, because the SDK's
     whole job here is to be the second opinion: a stream it had already
     parsed would make this a test of one parser run twice.
 
@@ -457,7 +456,7 @@ def _a_real_streamed_answer() -> str:
     which is the part of the assembly with something to get wrong.
     """
     settings = get_settings()
-    with httpx.Client(base_url="https://api.anthropic.com", timeout=120.0) as client:
+    with httpx2.Client(base_url="https://api.anthropic.com", timeout=120.0) as client:
         answer = client.post(
             "/v1/messages",
             headers={
@@ -487,10 +486,6 @@ def _as_the_sdk_reads(events: str) -> anthropic.types.Message:
     Served back to the SDK from memory rather than from a second call, so that
     the two readers are given one stream and can be compared field by field.
     """
-    # `httpx2`, not `httpx`: the SDK is built on the vendored fork and will not
-    # take a client from the other one. The raw call above stays on plain
-    # `httpx`, which is the point - the bytes the SDK parses here must be bytes
-    # no part of the SDK produced.
     def serve(dont_care_request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(
             200, content=events.encode(), headers={"content-type": SSE_MEDIA_TYPE}

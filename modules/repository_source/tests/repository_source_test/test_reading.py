@@ -21,7 +21,7 @@ import tarfile
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from repository_source import (
@@ -110,7 +110,7 @@ def test_a_repository_that_could_not_be_fetched_is_refused_rather_than_empty() -
     # opposite things, and an empty answer would have a caller conclude the
     # first while the second happened.
     some_repository = _a_repository()
-    some_repository.get.side_effect = httpx.ConnectError("no route to host")
+    some_repository.get.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .when(
@@ -153,7 +153,7 @@ def test_the_commit_asked_about_is_the_one_fetched() -> None:
 
 class _Repository:
     def __init__(self) -> None:
-        self.get: Any = create_autospec(httpx.get)
+        self.get: Any = create_autospec(httpx2.get)
 
 
 def _a_repository() -> _Repository:
@@ -173,7 +173,7 @@ def _a_repository_whose_source_is(
     return repository
 
 
-def _an_archive_of(entries: dict[str, bytes]) -> httpx.Response:
+def _an_archive_of(entries: dict[str, bytes]) -> httpx2.Response:
     """The repository as GitHub serves it whole - one gzipped tar, one request.
 
     Built rather than stubbed, so what the tests exercise is the real unpacking
@@ -188,10 +188,10 @@ def _an_archive_of(entries: dict[str, bytes]) -> httpx.Response:
             entry.size = len(held)
             writing.addfile(entry, io.BytesIO(held))
 
-    return httpx.Response(
-        status_code=httpx.codes.OK,
+    return httpx2.Response(
+        status_code=httpx2.codes.OK,
         content=archive.getvalue(),
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
 

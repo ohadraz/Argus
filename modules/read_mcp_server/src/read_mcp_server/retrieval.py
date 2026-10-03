@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice, parse_iso, to_iso
 from argus_core.models import ChangeEvent, MetricBucket
 
@@ -69,7 +69,7 @@ def target_service_logs(settings: TargetServiceSettings) -> FetchLogs:
     with a lambda. The address is bound once, where the server is built.
     """
     def fetch() -> list[str]:
-        response = httpx.get(f"{settings.target_service_url}/logs", timeout=10.0)
+        response = httpx2.get(f"{settings.target_service_url}/logs", timeout=10.0)
         response.raise_for_status()
         logs: list[str] = response.json()
 
@@ -81,7 +81,7 @@ def target_service_logs(settings: TargetServiceSettings) -> FetchLogs:
 def target_service_metrics(settings: TargetServiceSettings) -> FetchMetrics:
     """The real metrics fetcher, bound the way the log fetcher above is."""
     def fetch() -> list[MetricBucket]:
-        response = httpx.get(f"{settings.target_service_url}/metrics", timeout=10.0)
+        response = httpx2.get(f"{settings.target_service_url}/metrics", timeout=10.0)
         response.raise_for_status()
 
         return [MetricBucket.model_validate(bucket) for bucket in response.json()]

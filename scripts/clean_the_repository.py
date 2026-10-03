@@ -33,7 +33,7 @@ from __future__ import annotations
 import sys
 from typing import Any, Final
 
-import httpx
+import httpx2
 from argus_core import get_settings
 
 # What Argus names a branch it cuts, and the only thing this deletes. Kept in
@@ -76,7 +76,7 @@ def main() -> int:
     }
 
     try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers=headers) as github:
+        with httpx2.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers=headers) as github:
             closed = _close_what_argus_proposed(github, base)
             deleted = _delete_what_argus_branched(github, base, closed)
     except Exception as error:
@@ -92,7 +92,7 @@ def main() -> int:
     return 0
 
 
-def _close_what_argus_proposed(github: httpx.Client, base: str) -> list[str]:
+def _close_what_argus_proposed(github: httpx2.Client, base: str) -> list[str]:
     """Closes every open pull request Argus opened, and says which branches they were on.
 
     Closed rather than deleted, because a pull request cannot be deleted at all -
@@ -125,7 +125,7 @@ def _close_what_argus_proposed(github: httpx.Client, base: str) -> list[str]:
     return on_branches
 
 
-def _delete_what_argus_branched(github: httpx.Client,
+def _delete_what_argus_branched(github: httpx2.Client,
                                 base: str,
                                 closed: list[str]) -> list[str]:
     """Deletes every branch Argus cut, whether or not a proposal sat on it.
@@ -152,7 +152,7 @@ def _delete_what_argus_branched(github: httpx.Client,
     for branch in sorted(mine | set(closed)):
         removing = github.delete(f"{base}/git/refs/heads/{branch}")
 
-        if removing.status_code in (httpx.codes.NO_CONTENT, httpx.codes.OK):
+        if removing.status_code in (httpx2.codes.NO_CONTENT, httpx2.codes.OK):
             print(f"  deleted {branch}")
             deleted.append(branch)
 

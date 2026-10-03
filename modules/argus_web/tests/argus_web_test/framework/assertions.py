@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from http import HTTPStatus as HttpStatus
 
-import httpx
+import httpx2
 from argus_testkit import Assertion
 
 from argus_web_test.framework.reading import attribute
@@ -76,7 +76,7 @@ def the_page_keeps_asking() -> Assertion[str]:
     return assertion
 
 
-def the_response_was(expected: HttpStatus) -> Assertion[httpx.Response]:
+def the_response_was(expected: HttpStatus) -> Assertion[httpx2.Response]:
     """The status an endpoint answered with.
 
     Named for the response rather than for the answer, because `the_answer_was`
@@ -84,7 +84,7 @@ def the_response_was(expected: HttpStatus) -> Assertion[httpx.Response]:
     into the response for a status and reports the body when it disagrees,
     which is the part that says why.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         if response.status_code != expected:
             raise AssertionError(
                 f"Expected [{expected}], got [{response.status_code}]: {response.text}."

@@ -22,7 +22,7 @@ dev = [
     "argus-argus_core[migrations]",
     "argus-argus_testkit",
     "argus-slack_double",
-    "httpx",
+    "httpx2",
     "uvicorn[standard]>=0.30",
 ]
 

@@ -14,7 +14,7 @@ name for its failure is what that action's callers catch.
 
 from __future__ import annotations
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from write_mcp_server.argocd import could_not_be_reached
@@ -24,7 +24,7 @@ SOME_URL = "http://argocd.invalid/api/v1/applications/io-shop"
 
 @pytest.mark.unit
 def test_a_platform_that_refused_the_connection_could_not_be_reached() -> None:
-    refused = httpx.ConnectError("connection refused")
+    refused = httpx2.ConnectError("connection refused")
 
     Scenario() \
         .given(refused) \
@@ -37,7 +37,7 @@ def test_a_request_that_ran_out_of_time_could_not_be_reached() -> None:
     # The platform Argus would have acted through took longer than an action may
     # take. Nothing was changed, and the read that matters is unchanged too: a
     # caller cannot act through this, whether it is down or merely unresponsive.
-    ran_out = httpx.ReadTimeout("timed out")
+    ran_out = httpx2.ReadTimeout("timed out")
 
     Scenario() \
         .given(ran_out) \
@@ -111,19 +111,19 @@ def test_a_failure_that_is_not_the_platform_at_all_is_not_unreachability() -> No
         .then(all_of(_it_is_not_read_as_an_unreachable_platform()))
 
 
-def _what_a_platform_answers(status: int) -> httpx.HTTPStatusError:
+def _what_a_platform_answers(status: int) -> httpx2.HTTPStatusError:
     """The failure `raise_for_status` raises for one of the platform's answers.
 
     Built whole rather than stubbed, because what the predicate reads is the
     response hanging off the error, and an error carrying no response would be a
     different case from every one of these.
     """
-    request = httpx.Request("POST", SOME_URL)
+    request = httpx2.Request("POST", SOME_URL)
 
-    return httpx.HTTPStatusError(
+    return httpx2.HTTPStatusError(
         f"answered {status}",
         request=request,
-        response=httpx.Response(status, request=request)
+        response=httpx2.Response(status, request=request)
     )
 
 

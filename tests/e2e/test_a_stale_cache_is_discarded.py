@@ -58,7 +58,7 @@ from __future__ import annotations
 import re
 from typing import Any, Final
 
-import httpx
+import httpx2
 import pytest
 from argus_core import parse_iso
 from argus_core.events import (
@@ -141,7 +141,7 @@ def test_a_cache_serving_figures_the_ledger_moved_past_is_discarded() -> None:
         )
 
 
-def _the_onset_argus_holds_is_the_one_the_alert_stated() -> Assertion[httpx.Response]:
+def _the_onset_argus_holds_is_the_one_the_alert_stated() -> Assertion[httpx2.Response]:
     """Two things Argus holds, compared against each other.
 
     A measured onset is preferred wherever there is one, and this window has no
@@ -159,7 +159,7 @@ def _the_onset_argus_holds_is_the_one_the_alert_stated() -> Assertion[httpx.Resp
     absences: an alert that stated nothing and a walk that published nothing
     agree with each other perfectly.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         recorded = the_incidents_events(incident_id)
 
@@ -203,7 +203,7 @@ def _the_onset_argus_holds_is_the_one_the_alert_stated() -> Assertion[httpx.Resp
 
 def _the_action_that_ended_it_was_a_discard_of(
     service: str
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """The *last* action, not the only one.
 
     A walk that reached for something else first and was refuted is a walk that
@@ -219,7 +219,7 @@ def _the_action_that_ended_it_was_a_discard_of(
     state they could have been moved to instead - so an event reporting one would
     describe a different action from the one taken.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
             event for event in the_incidents_events(incident_id)
@@ -256,7 +256,7 @@ def _the_action_that_ended_it_was_a_discard_of(
     return assertion
 
 
-def _as_many_figures_went_as_the_evidence_named() -> Assertion[httpx.Response]:
+def _as_many_figures_went_as_the_evidence_named() -> Assertion[httpx2.Response]:
     """The store's count against the alert's, and neither of them zero.
 
     Two things Argus holds, which is what lets this be asserted at all: the
@@ -274,7 +274,7 @@ def _as_many_figures_went_as_the_evidence_named() -> Assertion[httpx.Response]:
     read wrong here is a count nothing else contradicts and the incident closes
     `MITIGATED` over a shop nobody fixed.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         recorded = the_incidents_events(incident_id)
 

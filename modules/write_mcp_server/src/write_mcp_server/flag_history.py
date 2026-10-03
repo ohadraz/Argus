@@ -22,13 +22,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import httpx
+import httpx2
 from argus_core import parse_iso, to_iso
 from argus_core.models import FlagChange
 
 from write_mcp_server.flag_state import FlagWriteSettings
 
-HttpGet = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -54,7 +54,7 @@ class FlagHistoryUnavailable(Exception):
 def recent_flag_changes(
     since: str,
     settings: FlagWriteSettings,
-    get: HttpGet = httpx.get,
+    get: HttpGet = httpx2.get,
 ) -> list[FlagChange]:
     """The flag toggles recorded in the configured environment since `since`,
     oldest first.

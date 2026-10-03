@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice, parse_iso
 from argus_core.models import ChangeEvent, ChangeKind
 
@@ -37,7 +37,7 @@ class ArgocdSettings(SettingsSlice):
     argocd_auth_token: str
 
 
-HttpGet = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 
 class FetchApplication(Protocol):
@@ -57,7 +57,7 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 def fetch_argocd_application(
     application: str,
     settings: ArgocdSettings,
-    get: HttpGet = httpx.get,
+    get: HttpGet = httpx2.get,
 ) -> dict[str, Any]:
     """Asks an Argo CD server for one application's current state.
 

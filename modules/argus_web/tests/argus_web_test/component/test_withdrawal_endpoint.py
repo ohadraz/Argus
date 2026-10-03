@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from http import HTTPStatus as HttpStatus
 
-import httpx
+import httpx2
 import pytest
 from argus_core import connect_from_env
 from argus_core.models import Alert, IncidentStatus
@@ -87,8 +87,8 @@ def test_withdrawing_an_incident_nobody_has_is_not_found() -> None:
 
 
 def _the_incident_is(incident_id: str,
-                     status: IncidentStatus) -> Assertion[httpx.Response]:
-    def assertion(_response: httpx.Response) -> bool:
+                     status: IncidentStatus) -> Assertion[httpx2.Response]:
+    def assertion(_response: httpx2.Response) -> bool:
         with connect_from_env() as conn:
             incident = incidents.get(conn, incident_id)
 

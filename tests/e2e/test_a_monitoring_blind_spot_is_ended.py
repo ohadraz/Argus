@@ -53,7 +53,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from http import HTTPStatus as HttpStatus
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
@@ -176,7 +176,7 @@ def _the_deployment_history_was_staged() -> Callable[[], bool]:
     """
     def stage_them() -> bool:
         return all(
-            httpx.post(
+            httpx2.post(
                 f"{GITHUB_DOUBLE_BASE_URL}/double-control/stage-commit",
                 json={"sha": sha, "files": {THE_MANIFEST: manifest}},
                 timeout=REQUEST_TIMEOUT_SECONDS
@@ -190,7 +190,7 @@ def _the_deployment_history_was_staged() -> Callable[[], bool]:
     return stage_them
 
 
-def _the_rows_stopped_and_came_back() -> Assertion[httpx.Response]:
+def _the_rows_stopped_and_came_back() -> Assertion[httpx2.Response]:
     """The incident and its end, both read off the one channel that stopped.
 
     Both halves are required. A window with no hole in it never staged this
@@ -206,7 +206,7 @@ def _the_rows_stopped_and_came_back() -> Assertion[httpx.Response]:
     and nothing keeps them, so what the rollback restores is the sight of the
     shop and not the record of it.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         published = sorted(
             datetime.fromisoformat(minute["bucket_id"].replace("Z", "+00:00"))
             for minute in the_shops_window()
@@ -257,7 +257,7 @@ def _the_rows_stopped_and_came_back() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_shop_was_well_throughout() -> Assertion[httpx.Response]:
+def _the_shop_was_well_throughout() -> Assertion[httpx2.Response]:
     """That nothing was ever wrong with the service itself.
 
     The corroboration this mode rests on, asserted from the rows that do exist.
@@ -274,7 +274,7 @@ def _the_shop_was_well_throughout() -> Assertion[httpx.Response]:
     moved and came back would mean the fixture was staging a fault it is not
     supposed to have.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         worst_rate = max(minute["error_rate"] for minute in window)
         calmest_median = min(minute["p50_ms"] for minute in window)

@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
-import httpx
+import httpx2
 
 from repository_source.comparing import (
     BETWEEN,
@@ -107,7 +107,7 @@ class SourceDifference:
 def the_difference_between(base: str,
                            head: str,
                            settings: RepositorySourceSettings,
-                           get: HttpGet = httpx.get) -> SourceDifference:
+                           get: HttpGet = httpx2.get) -> SourceDifference:
     """Every file that differs between the two commits, and what changed in each.
 
     Ordered, and it matters: reversed, the difference describes putting a

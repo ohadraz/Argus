@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-import httpx
+import httpx2
 import pytest
 from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
 from argus_core import get_settings
@@ -110,7 +110,7 @@ def _the_double_refusing_the_same_way() -> Posted:
     the answer was. That is the comparison - not that the double invents the
     refusal, but that it says it the way the workspace said it.
     """
-    httpx.post(
+    httpx2.post(
         f"{DEFAULT_BASE_URL}/double-control/seed",
         json={"error": CHANNEL_NOT_FOUND},
         timeout=10.0

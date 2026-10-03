@@ -44,7 +44,7 @@ from io import TextIOWrapper
 from pathlib import Path
 from typing import Any, Final, NamedTuple
 
-import httpx
+import httpx2
 import psycopg
 from anthropic_double.recordings import RECORDINGS_DIR
 from argus_core import get_settings, to_iso
@@ -610,7 +610,7 @@ def _replay_from(name: str) -> None:
     before escalating for want of evidence. That reads as a walk that went
     wrong, which is precisely the thing this is used to rule out.
     """
-    with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
         control.post("/double-control/reset").raise_for_status()
         for answered_once in _the_set_named(name):
             control.post(
@@ -653,7 +653,7 @@ def _arm_the_double(name: str) -> None:
     The reset is not optional: a seeded answer is served ahead of record mode,
     so a double still holding a seed would replay it and store nothing.
     """
-    with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
         control.post("/double-control/reset").raise_for_status()
         control.post("/double-control/record", json={"name": name}).raise_for_status()
 
@@ -683,7 +683,7 @@ def _a_world_this_recording_can_be_captured_in() -> None:
     model had ranked it right; what changed the answer was a store neither
     recording mentions.
     """
-    httpx.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=30.0)
+    httpx2.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=30.0)
     the_boot_flags_were_put_back()
     only_the_boot_flags_were_left_in_the_provider()
     the_flag_provider_forgot_every_change()
@@ -712,7 +712,7 @@ def _stage(scenario_id: str) -> str | None:
     here: the shop decides what its window hangs off, and a moment taken on
     this side would differ from it by however long the call took.
     """
-    staged = httpx.post(
+    staged = httpx2.post(
         f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
         json={"scenario_id": scenario_id},
         timeout=30.0,
@@ -774,7 +774,7 @@ def _an_incident_was_opened_by(service: str, alert_name: str | None) -> str:
         # The shop holds this open until Argus's webhook answers, which it does
         # as soon as the incident is written down - so this returns with an id
         # and the walk carries on behind it, exactly as the posted payload does.
-        raised = httpx.post(
+        raised = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/monitoring/alert",
             timeout=A_WHOLE_INVESTIGATION_SECONDS,
         )
@@ -782,7 +782,7 @@ def _an_incident_was_opened_by(service: str, alert_name: str | None) -> str:
 
         return str(raised.json().get("incident_id") or "unknown")
 
-    response = httpx.post(
+    response = httpx2.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
         json=_an_alert_for(service, alert_name),
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -1073,7 +1073,7 @@ def main() -> int:
     # `line_buffering` for a second reason, and it is the one that shows. A run
     # this long is always started in the background with its output redirected,
     # and Python block-buffers a redirected stream - so the file stays empty of
-    # everything this script says while the httpx logs, which go through
+    # everything this script says while the httpx2 logs, which go through
     # `logging`, fill it. Every line of progress then arrives at once, at the
     # end, which is exactly when nobody needs it: the question a person asks of
     # a run like this is how far it has got, and the answer was in the buffer.

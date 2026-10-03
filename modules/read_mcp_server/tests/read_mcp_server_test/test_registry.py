@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_core import Settings
 from argus_core.models import Ownership, ServiceDependency
@@ -185,7 +185,7 @@ def test_the_request_goes_to_the_service_it_was_asked_about() -> None:
 @pytest.mark.unit
 def test_a_register_answering_an_error_status_is_an_outage() -> None:
     get = a_mock_http_get()
-    get.side_effect = httpx.HTTPError("500 Server Error")
+    get.side_effect = httpx2.HTTPError("500 Server Error")
 
     Scenario() \
         .given(
@@ -271,7 +271,7 @@ def a_mock_registry() -> Any:
 
 
 def a_mock_http_get() -> Any:
-    return create_autospec(httpx.get)
+    return create_autospec(httpx2.get)
 
 
 def a_register_listing(*entries: dict[str, Any]) -> dict[str, Any]:
@@ -293,7 +293,7 @@ def _an_entry(name: str = "some-service",
 
 
 def _a_response(body: dict[str, Any]) -> Any:
-    response = create_autospec(httpx.Response, instance=True)
+    response = create_autospec(httpx2.Response, instance=True)
     response.json.return_value = body
 
     return response

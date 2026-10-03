@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit.assertions import Assertion, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
@@ -162,8 +162,8 @@ def test_a_comparison_that_could_not_be_made_raises() -> None:
     # Not an empty list. "Nothing changed" would have the catch-up pass record
     # the index as current over passages nobody updated, which is the one
     # outcome the watermark exists to prevent.
-    refused = create_autospec(httpx.get)
-    refused.side_effect = httpx.ConnectError("no route to host")
+    refused = create_autospec(httpx2.get)
+    refused.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .when(
@@ -239,11 +239,11 @@ def _the_request_ended_with(compared: Any, path: str) -> Assertion[Any]:
 
 def a_comparison_of(*files: dict[str, str]) -> Any:
     """GitHub's answer for two commits, carrying the entries it lists."""
-    compared = create_autospec(httpx.get)
-    compared.return_value = httpx.Response(
+    compared = create_autospec(httpx2.get)
+    compared.return_value = httpx2.Response(
         status_code=200,
         json={"files": list(files)},
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
     return compared

@@ -20,7 +20,7 @@ from datetime import timedelta
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from argus_core import parse_iso
@@ -91,7 +91,7 @@ def test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent() -> 
         )
 
 
-def _the_provider_paged_the_people_this_test_assumes() -> Assertion[httpx.Response]:
+def _the_provider_paged_the_people_this_test_assumes() -> Assertion[httpx2.Response]:
     """The stand-in still authors the acknowledgements mirrored above.
 
     Checked first and separately, because everything below computes an expected
@@ -99,7 +99,7 @@ def _the_provider_paged_the_people_this_test_assumes() -> Assertion[httpx.Respon
     instantly, the arithmetic below would still agree with Argus and would have
     stopped proving anything.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         reported = _the_incident_as_the_provider_holds_it(
             incident_id_from(response))
         began_at = parse_iso(reported["created_at"])
@@ -125,7 +125,7 @@ def _the_provider_paged_the_people_this_test_assumes() -> Assertion[httpx.Respon
     return assertion
 
 
-def _the_postmortem_reports_the_minutes_they_spent() -> Assertion[httpx.Response]:
+def _the_postmortem_reports_the_minutes_they_spent() -> Assertion[httpx2.Response]:
     """Person-minutes, from each acknowledgement to the end of the incident.
 
     Derived from the provider's own answer rather than written out: the
@@ -138,7 +138,7 @@ def _the_postmortem_reports_the_minutes_they_spent() -> Assertion[httpx.Response
     that is the difference between "the minutes are missing" and knowing which
     way they went missing.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         postmortem = _the_postmortem_for(incident_id)
         reported = _the_incident_as_the_provider_holds_it(incident_id)
@@ -163,14 +163,14 @@ def _the_postmortem_reports_the_minutes_they_spent() -> Assertion[httpx.Response
     return assertion
 
 
-def _the_responders_were_counted() -> Assertion[httpx.Response]:
+def _the_responders_were_counted() -> Assertion[httpx2.Response]:
     """As many people as the provider says acknowledged it.
 
     A count is what stops the minutes above being read as one person's night:
     the same total means something different shared between two people, and a
     document reporting minutes without the headcount says the wrong one.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         postmortem = _the_postmortem_for(incident_id)
 
@@ -202,7 +202,7 @@ def _the_incident_as_the_provider_holds_it(incident_id: str) -> dict[str, Any]:
     from it cannot drift from the fixture, and the two disagreeing is exactly
     the failure worth reporting.
     """
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/pagerduty/incidents/{incident_id}",
         timeout=10.0,
     )

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from agent_investigator import investigate
@@ -48,8 +48,8 @@ DATABASE_URL = get_settings().database_url
 
 
 @pytest.fixture
-def double() -> Iterator[httpx.Client]:
-    with httpx.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
+def double() -> Iterator[httpx2.Client]:
+    with httpx2.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
         control.post("/double-control/reset").raise_for_status()
         control.post(
             "/double-control/seed",
@@ -61,7 +61,7 @@ def double() -> Iterator[httpx.Client]:
 
 @pytest.mark.integration
 def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
-    double: httpx.Client,
+    double: httpx2.Client,
 ) -> None:
     # The same run, counted twice, by two modules that share no code. Asserted
     # as equality rather than as a ratio: a bound that stopped an

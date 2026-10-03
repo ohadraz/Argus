@@ -51,7 +51,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
 from argus_core.models import (
@@ -84,7 +84,7 @@ AUTOSCALER_KIND: Final = "HorizontalPodAutoscaler"
 # alternatives replace or re-order what they do not mention.
 #
 # The `+` in it is the documented trap on this endpoint, and the reason the type
-# travels in `params` rather than in a url assembled here: httpx percent-encodes a
+# travels in `params` rather than in a url assembled here: httpx2 percent-encodes a
 # query value, where a hand-built query string carries the `+` through to a server
 # that reads it as a space and refuses a patch type it has never heard of. Anybody
 # tempted to format this into the url is undoing that.
@@ -156,9 +156,9 @@ class _TheAutoscaler:
     namespace: str
 
 
-HttpGet = Callable[..., httpx.Response]
-HttpPost = Callable[..., httpx.Response]
-HttpPut = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
+HttpPost = Callable[..., httpx2.Response]
+HttpPut = Callable[..., httpx2.Response]
 
 
 class AlreadyHeldStill(Exception):
@@ -209,9 +209,9 @@ def _refusing(said: str, error: Exception,
 
 def pin_autoscaler(application: str,
                    settings: PinSettings,
-                   get: HttpGet = httpx.get,
-                   post: HttpPost = httpx.post,
-                   put: HttpPut = httpx.put) -> AutoscalerUndo:
+                   get: HttpGet = httpx2.get,
+                   post: HttpPost = httpx2.post,
+                   put: HttpPut = httpx2.put) -> AutoscalerUndo:
     """Raises `application`'s autoscaler floor to its ceiling, and reports what
     that cost.
 
@@ -273,9 +273,9 @@ def pin_autoscaler(application: str,
 
 def restore_autoscaler_floor(descriptor: AutoscalerUndo,
                              settings: PinSettings,
-                             get: HttpGet = httpx.get,
-                             post: HttpPost = httpx.post,
-                             put: HttpPut = httpx.put) -> AutoscalingRestored:
+                             get: HttpGet = httpx2.get,
+                             post: HttpPost = httpx2.post,
+                             put: HttpPut = httpx2.put) -> AutoscalingRestored:
     """Puts back both of the things a pin changed, and says which it managed.
 
     A pair rather than an exception, for the reason the scale-out's restore answers

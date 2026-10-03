@@ -22,7 +22,7 @@ from email.utils import format_datetime
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import FlagUndo
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
@@ -187,7 +187,7 @@ def test_a_flag_that_never_reaches_the_requested_state_is_not_reported_as_set() 
 
 @pytest.mark.unit
 def test_an_unreachable_provider_is_not_reported_as_set() -> None:
-    some_transport_error = httpx.ConnectError("connection refused")
+    some_transport_error = httpx2.ConnectError("connection refused")
     provider = a_flag_provider_reporting([])
     provider.post.side_effect = some_transport_error
 
@@ -312,7 +312,7 @@ def test_a_provider_that_dates_nothing_leaves_the_moment_absent() -> None:
 
 class _FlagProvider:
     def __init__(self) -> None:
-        self.post: Any = create_autospec(httpx.post)
+        self.post: Any = create_autospec(httpx2.post)
         # Spec'd against the port, not `evaluated_flags`: that reads under
         # a credential, and confirming a write needs only the answer.
         self.evaluate: Any = create_autospec(EvaluateFlags, instance=True)
@@ -320,10 +320,10 @@ class _FlagProvider:
 
 def a_flag_provider() -> _FlagProvider:
     provider = _FlagProvider()
-    provider.post.return_value = httpx.Response(
+    provider.post.return_value = httpx2.Response(
         status_code=200,
         json={},
-        request=httpx.Request("POST", "http://flags.invalid/")
+        request=httpx2.Request("POST", "http://flags.invalid/")
     )
     return provider
 
@@ -357,11 +357,11 @@ def a_flag_provider_still_reporting_it_off_twice() -> _FlagProvider:
 def a_flag_provider_dating_its_write(moment: datetime) -> _FlagProvider:
     dont_care_provider_url = "http://kuki.com/"
     provider = a_flag_provider_reporting([])
-    provider.post.return_value = httpx.Response(
+    provider.post.return_value = httpx2.Response(
         status_code=200,
         json={},
         headers={"Date": format_datetime(moment, usegmt=True)},
-        request=httpx.Request("POST", dont_care_provider_url)
+        request=httpx2.Request("POST", dont_care_provider_url)
     )
 
     return provider

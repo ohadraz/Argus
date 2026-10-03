@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
@@ -68,9 +68,9 @@ class _Platform:
     out of the wrong document.
     """
 
-    get: MagicMock = field(default_factory=lambda: create_autospec(httpx.get))
-    post: MagicMock = field(default_factory=lambda: create_autospec(httpx.post))
-    put: MagicMock = field(default_factory=lambda: create_autospec(httpx.put))
+    get: MagicMock = field(default_factory=lambda: create_autospec(httpx2.get))
+    post: MagicMock = field(default_factory=lambda: create_autospec(httpx2.post))
+    put: MagicMock = field(default_factory=lambda: create_autospec(httpx2.put))
 
 
 def _settings() -> ScaleSettings:
@@ -110,11 +110,11 @@ def _a_managed_deployment(replicas: int) -> dict[str, Any]:
     }
 
 
-def _an_ok(body: dict[str, Any] | None = None) -> httpx.Response:
-    return httpx.Response(
+def _an_ok(body: dict[str, Any] | None = None) -> httpx2.Response:
+    return httpx2.Response(
         status_code=200,
         json=body if body is not None else {},
-        request=httpx.Request("GET", DONT_CARE_URL)
+        request=httpx2.Request("GET", DONT_CARE_URL)
     )
 
 
@@ -122,7 +122,7 @@ def a_platform(replicas: int = THE_COUNT_RUNNING,
                reconciling_itself: bool = True) -> _Platform:
     platform = _Platform()
 
-    def answering(url: str, **dont_care_rest: Any) -> httpx.Response:
+    def answering(url: str, **dont_care_rest: Any) -> httpx2.Response:
         if url.endswith("/resource"):
             return _an_ok(_a_managed_deployment(replicas))
 
@@ -253,7 +253,7 @@ def test_a_deployment_already_at_the_ceiling_is_refused_before_anything_changes(
 @pytest.mark.unit
 def test_a_platform_that_will_not_answer_is_not_reported_as_scaled() -> None:
     platform = a_platform()
-    platform.get.side_effect = httpx.ConnectError("no route to the platform")
+    platform.get.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(platform) \
@@ -324,7 +324,7 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
     # looks right from every angle a reader has, while receiving nothing anybody
     # ships to it.
     platform = a_platform()
-    platform.put.side_effect = httpx.ConnectError("no route to the platform")
+    platform.put.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -335,8 +335,8 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform()
-    platform.post.side_effect = httpx.ConnectError("no route to the platform")
-    platform.put.side_effect = httpx.ConnectError("no route to the platform")
+    platform.post.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.put.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -365,7 +365,7 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
     # are unavailable and told nothing about a state somebody has to put back,
     # which is exactly what is true.
     platform = a_platform()
-    platform.get.side_effect = httpx.ConnectError("no route to host")
+    platform.get.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -392,7 +392,7 @@ def test_a_platform_that_died_before_a_scale_out_that_changed_nothing_is_unreach
     # the first write - and a platform that stopped answering before it took
     # nothing with it.
     platform = a_platform(reconciling_itself=False)
-    platform.post.side_effect = httpx.ConnectError("no route to host")
+    platform.post.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -408,7 +408,7 @@ def test_a_scale_out_that_left_sync_suspended_says_so_and_still_reports_the_plat
     # the failure, so the walk can narrow itself and still know an application is
     # sitting un-reconciled.
     platform = a_platform(reconciling_itself=True)
-    platform.post.side_effect = httpx.ConnectError("no route to host")
+    platform.post.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -437,12 +437,12 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
         .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
 
 
-def _answering(status: int) -> httpx.Response:
+def _answering(status: int) -> httpx2.Response:
     """One of the platform's own answers, as `raise_for_status` will read it."""
-    return httpx.Response(
+    return httpx2.Response(
         status_code=status,
         json={},
-        request=httpx.Request("PUT", DONT_CARE_URL)
+        request=httpx2.Request("PUT", DONT_CARE_URL)
     )
 
 

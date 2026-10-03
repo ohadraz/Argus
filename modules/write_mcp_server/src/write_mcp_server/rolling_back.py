@@ -39,7 +39,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Final
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.mcp_transport import an_unreachable_platform
 from argus_core.models import (
@@ -84,9 +84,9 @@ class RollbackSettings(SettingsSlice):
     argocd_auth_token: str
 
 
-HttpGet = Callable[..., httpx.Response]
-HttpPost = Callable[..., httpx.Response]
-HttpPut = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
+HttpPost = Callable[..., httpx2.Response]
+HttpPut = Callable[..., httpx2.Response]
 
 
 class NoEarlierRevision(Exception):
@@ -134,9 +134,9 @@ def _refusing(said: str, error: Exception,
 def roll_back_deployment(
     application: str,
     settings: RollbackSettings,
-    get: HttpGet = httpx.get,
-    post: HttpPost = httpx.post,
-    put: HttpPut = httpx.put
+    get: HttpGet = httpx2.get,
+    post: HttpPost = httpx2.post,
+    put: HttpPut = httpx2.put
 ) -> DeploymentRollbackUndo:
     """Returns `application` to the revision it was running before the current
     one, and reports what that cost.
@@ -191,8 +191,8 @@ def roll_back_deployment(
 
 def restore_deployment(descriptor: DeploymentRollbackUndo,
                        settings: RollbackSettings,
-                       post: HttpPost = httpx.post,
-                       put: HttpPut = httpx.put) -> DeploymentRestored:
+                       post: HttpPost = httpx2.post,
+                       put: HttpPut = httpx2.put) -> DeploymentRestored:
     """Puts back both of the things a rollback changed, and says which it
     managed.
 

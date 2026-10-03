@@ -18,7 +18,7 @@ import base64
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
@@ -188,10 +188,10 @@ def test_a_file_that_is_not_there_is_said_to_be_missing_rather_than_empty() -> N
     # exist would conclude the module is empty and write a fix for a file that
     # is not the file.
     repository = a_repository_whose_file_says("dont care source")
-    repository.get.return_value = httpx.Response(
+    repository.get.return_value = httpx2.Response(
         status_code=404,
         json={"message": "Not Found"},
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
     Scenario() \
@@ -215,7 +215,7 @@ def test_a_file_that_is_not_there_is_said_to_be_missing_rather_than_empty() -> N
 @pytest.mark.unit
 def test_an_unreachable_repository_is_not_reported_as_an_empty_one() -> None:
     repository = a_repository_holding("dont/care.py")
-    repository.get.side_effect = httpx.ConnectError("connection refused")
+    repository.get.side_effect = httpx2.ConnectError("connection refused")
 
     Scenario() \
         .when(
@@ -238,10 +238,10 @@ def test_a_file_that_is_not_text_is_refused_rather_than_mangled() -> None:
     # UTF-8 either raises somewhere unhelpful or produces replacement
     # characters that reach a model as though they were code.
     repository = a_repository_whose_file_says("dont care source")
-    repository.get.return_value = httpx.Response(
+    repository.get.return_value = httpx2.Response(
         status_code=200,
         json={"content": base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()},
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
     Scenario() \
@@ -526,8 +526,8 @@ def _the_request_was_authorized_with(repository: _Repository,
 
 def _a_tree_answer(blobs: list[str],
                    trees: list[str] | None = None,
-                   truncated: bool = False) -> httpx.Response:
-    return httpx.Response(
+                   truncated: bool = False) -> httpx2.Response:
+    return httpx2.Response(
         status_code=200,
         json={
             "truncated": truncated,
@@ -536,13 +536,13 @@ def _a_tree_answer(blobs: list[str],
                 *({"path": path, "type": "blob"} for path in blobs)
             ]
         },
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
 
 class _Repository:
     def __init__(self) -> None:
-        self.get: Any = create_autospec(httpx.get)
+        self.get: Any = create_autospec(httpx2.get)
 
 
 def a_repository_holding(*paths: str) -> _Repository:
@@ -554,10 +554,10 @@ def a_repository_holding(*paths: str) -> _Repository:
 
 def a_repository_whose_file_says(source: str) -> _Repository:
     repository = _Repository()
-    repository.get.return_value = httpx.Response(
+    repository.get.return_value = httpx2.Response(
         status_code=200,
         json={"content": base64.b64encode(source.encode()).decode()},
-        request=httpx.Request("GET", "http://github.invalid/")
+        request=httpx2.Request("GET", "http://github.invalid/")
     )
 
     return repository

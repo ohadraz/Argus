@@ -43,7 +43,7 @@ from http import HTTPStatus as HttpStatus
 from statistics import median
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core import get_settings
 from argus_core.anomaly import find_onset, has_recovered_since
@@ -351,7 +351,7 @@ def _recovery_is_confirmed_since() -> Assertion[datetime]:
 
 def _the_shop_was_restarted() -> datetime:
     """Brings the process back, the way the restart mitigation does."""
-    response = httpx.post(
+    response = httpx2.post(
         f"{TARGET_SERVICE_BASE_URL}/scenario/restart",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
@@ -376,7 +376,7 @@ def _the_deployment_was_rolled_back() -> datetime:
     being rolled out, and the platform reads a rollback aimed at that as a
     withdrawal - which is the direction that puts the split fleet back.
     """
-    suspended = httpx.put(
+    suspended = httpx2.put(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_APPLICATION}/spec",
         json=NOTHING_RECONCILES_IT,
         timeout=REQUEST_TIMEOUT_SECONDS
@@ -388,7 +388,7 @@ def _the_deployment_was_rolled_back() -> datetime:
             f"{suspended.status_code} {suspended.text}."
         )
 
-    response = httpx.post(
+    response = httpx2.post(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_APPLICATION}/rollback",
         json={"id": _the_entry_before_the_newest()},
         timeout=REQUEST_TIMEOUT_SECONDS
@@ -409,7 +409,7 @@ def _the_entry_before_the_newest() -> int:
     Read from the platform rather than stated, because the id is the platform's
     to assign and a literal here would be a number this case had guessed.
     """
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_APPLICATION}",
         timeout=REQUEST_TIMEOUT_SECONDS
     )

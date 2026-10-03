@@ -51,7 +51,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
@@ -140,7 +140,7 @@ def test_a_revision_that_slowed_every_page_is_ended_by_rolling_the_deployment_ba
         )
 
 
-def _every_percentile_moved_together() -> Assertion[httpx.Response]:
+def _every_percentile_moved_together() -> Assertion[httpx2.Response]:
     """The shape that makes this a deployment, asserted across all three.
 
     Any one of them on its own is just a latency incident. What is only true when
@@ -153,7 +153,7 @@ def _every_percentile_moved_together() -> Assertion[httpx.Response]:
     is unambiguous here - so that the multiple each percentile moved by is measured
     rather than assumed.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         quickest = min(minute["p50_ms"] for minute in window)
         quiet = [
@@ -197,7 +197,7 @@ def _every_percentile_moved_together() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _nothing_ever_failed() -> Assertion[httpx.Response]:
+def _nothing_ever_failed() -> Assertion[httpx2.Response]:
     """The half of the shape a reader would otherwise diagnose from.
 
     An incident whose error rate moved is one somebody could explain without ever
@@ -205,7 +205,7 @@ def _nothing_ever_failed() -> Assertion[httpx.Response]:
     whole reason this scenario is here. So a shop that started failing has staged
     a different incident from the one under test, however slow it also got.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         worst = max(minute["error_rate"] for minute in window)
 
@@ -222,7 +222,7 @@ def _nothing_ever_failed() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_shop_is_quick_again() -> Assertion[httpx.Response]:
+def _the_shop_is_quick_again() -> Assertion[httpx2.Response]:
     """The incident genuinely ended, and the minutes it lasted are still there.
 
     Both halves in one window, for the reason the leak case asserts its climb
@@ -230,7 +230,7 @@ def _the_shop_is_quick_again() -> Assertion[httpx.Response]:
     the incident at the moment it was mitigated, and this case would then pass
     against a shop that had never been slow at all.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         quickest = min(minute["p50_ms"] for minute in window)
         slowest = max(minute["p50_ms"] for minute in window)
@@ -256,7 +256,7 @@ def _the_shop_is_quick_again() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
+def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
     """What makes this mitigated rather than over.
 
     The rollback moved what is deployed and touched nothing in the repository, so
@@ -266,8 +266,8 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
     policy back would have handed the incident straight back, while looking in
     every other respect like a success.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )

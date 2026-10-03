@@ -25,7 +25,7 @@ from __future__ import annotations
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core import get_settings
 from argus_core.models import IncidentStatus
@@ -89,7 +89,7 @@ def _slack() -> str:
 
 def _posted() -> list[dict[str, Any]]:
     """Every message Slack holds, read back through the double's control seam."""
-    answered: dict[str, Any] = httpx.get(f"{_slack()}/double-control/posted").json()
+    answered: dict[str, Any] = httpx2.get(f"{_slack()}/double-control/posted").json()
     held: list[dict[str, Any]] = answered["posted"]
 
     return held
@@ -110,14 +110,14 @@ def _said_since(already: int) -> list[dict[str, Any]]:
 
 
 def _slack_was_told_the_alert_arrived(already: int,
-                                      alert_name: str) -> Assertion[httpx.Response]:
+                                      alert_name: str) -> Assertion[httpx2.Response]:
     """The opening line, in the channel itself.
 
     In the channel because nobody can have chosen to follow this incident yet -
     it is what there is to follow. A reply would reach only people who already
     knew.
     """
-    def assertion(_: httpx.Response) -> bool:
+    def assertion(_: httpx2.Response) -> bool:
         opening = [message for message in _said_since(already)
                    if alert_name in message["text"] and message["thread_ts"] is None]
         if not opening:
@@ -132,9 +132,9 @@ def _slack_was_told_the_alert_arrived(already: int,
 
 
 def _slack_was_told_how_it_ended(already: int,
-                                 ending: IncidentStatus) -> Assertion[httpx.Response]:
+                                 ending: IncidentStatus) -> Assertion[httpx2.Response]:
     """The closing line, back in the channel, naming the status it ended in."""
-    def assertion(_: httpx.Response) -> bool:
+    def assertion(_: httpx2.Response) -> bool:
         said = str(ending).upper()
         announced = [message for message in _said_since(already)
                      if said in message["text"] and message["thread_ts"] is None]
@@ -149,7 +149,7 @@ def _slack_was_told_how_it_ended(already: int,
     return assertion
 
 
-def _what_argus_did_arrived_as_replies(already: int) -> Assertion[httpx.Response]:
+def _what_argus_did_arrived_as_replies(already: int) -> Assertion[httpx2.Response]:
     """The body of the incident, inside a conversation rather than beside it.
 
     Replies rather than channel messages, and all of them in the same one: an
@@ -157,7 +157,7 @@ def _what_argus_did_arrived_as_replies(already: int) -> Assertion[httpx.Response
     incidents, which is the state two concurrent failures would leave a reader
     in.
     """
-    def assertion(_: httpx.Response) -> bool:
+    def assertion(_: httpx2.Response) -> bool:
         replies = [message for message in _said_since(already)
                    if message["thread_ts"] is not None]
         if not replies:
@@ -179,9 +179,9 @@ def _what_argus_did_arrived_as_replies(already: int) -> Assertion[httpx.Response
     return assertion
 
 
-def _slack_was_not_told_what_argus_read(already: int) -> Assertion[httpx.Response]:
+def _slack_was_not_told_what_argus_read(already: int) -> Assertion[httpx2.Response]:
     """The retrievals, absent - which is the delivery policy, end to end."""
-    def assertion(_: httpx.Response) -> bool:
+    def assertion(_: httpx2.Response) -> bool:
         reading = [message["text"] for message in _said_since(already)
                    if message["text"].startswith(WHAT_READING_SOUNDS_LIKE)
                    or any(sounds in message["text"] for sounds in WHAT_READING_SOUNDS_LIKE)]
@@ -195,7 +195,7 @@ def _slack_was_not_told_what_argus_read(already: int) -> Assertion[httpx.Respons
     return assertion
 
 
-def _slack_was_given_the_postmortem(already: int) -> Assertion[httpx.Response]:
+def _slack_was_given_the_postmortem(already: int) -> Assertion[httpx2.Response]:
     """The write-up itself, in the channel, linking to the page that holds it.
 
     In the channel rather than the thread, and in this stack the war room
@@ -207,7 +207,7 @@ def _slack_was_given_the_postmortem(already: int) -> Assertion[httpx.Response]:
     answers is a deployment fact the suite has no opinion about; that a reader
     is given somewhere to go for the rest of it is the claim.
     """
-    def assertion(_: httpx.Response) -> bool:
+    def assertion(_: httpx2.Response) -> bool:
         write_ups = [message for message in _said_since(already)
                      if "Wrote the postmortem" in message["text"]
                      and message["thread_ts"] is None]

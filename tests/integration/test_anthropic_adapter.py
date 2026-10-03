@@ -7,7 +7,7 @@ from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import anthropic
-import httpx
+import httpx2
 import pytest
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
@@ -26,8 +26,8 @@ DONT_CARE_TRANSCRIPT: Transcript = [Ask(text="dont care what was asked")]
 
 
 @pytest.fixture
-def double() -> Iterator[httpx.Client]:
-    with httpx.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
+def double() -> Iterator[httpx2.Client]:
+    with httpx2.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as control:
         control.post("/double-control/reset").raise_for_status()
         yield control
         control.post("/double-control/reset").raise_for_status()
@@ -44,7 +44,7 @@ def client() -> AnthropicLLMClient:
 
 @pytest.mark.integration
 def test_a_refusal_is_not_reported_as_a_malformed_answer(
-    double: httpx.Client, client: AnthropicLLMClient
+    double: httpx2.Client, client: AnthropicLLMClient
 ) -> None:
     # A refusal is a complete, well-formed response that declines.
     _the_llm_stopped_due_to_refusale = partial(_the_llm_stopped_due_to, 
@@ -65,7 +65,7 @@ def test_a_refusal_is_not_reported_as_a_malformed_answer(
 
 @pytest.mark.integration
 def test_a_truncated_response_is_not_reported_as_a_malformed_answer(
-    double: httpx.Client, client: AnthropicLLMClient
+    double: httpx2.Client, client: AnthropicLLMClient
 ) -> None:
     _the_llm_stopped_due_to_max_token = partial(_the_llm_stopped_due_to, 
                                                 double, "max_tokens")
@@ -85,7 +85,7 @@ def test_a_truncated_response_is_not_reported_as_a_malformed_answer(
 
 @pytest.mark.integration
 def test_a_rate_limit_reaches_the_caller_as_the_sdks_own_error(
-    double: httpx.Client, client: AnthropicLLMClient
+    double: httpx2.Client, client: AnthropicLLMClient
 ) -> None:
     # Not wrapped: a rate limit is a transport fact, and the SDK already has
     # the right word for it. Wrapping would only hide the retry-after header.
@@ -107,7 +107,7 @@ def test_a_rate_limit_reaches_the_caller_as_the_sdks_own_error(
 
 @pytest.mark.integration
 def test_a_paused_turn_reaches_the_loop_as_a_pause(
-    double: httpx.Client, client: AnthropicLLMClient
+    double: httpx2.Client, client: AnthropicLLMClient
 ) -> None:
     # The third of the taxonomy, and the one no recording has ever carried -
     # which is why it is worth staging. A pause the adapter did not recognise
@@ -129,7 +129,7 @@ def test_a_paused_turn_reaches_the_loop_as_a_pause(
 
 @pytest.mark.integration
 def test_a_completed_turn_reaches_the_loop_as_the_calls_it_asked_for(
-    double: httpx.Client, client: AnthropicLLMClient
+    double: httpx2.Client, client: AnthropicLLMClient
 ) -> None:
     # The path the others are all departures from: a real recorded body,
     # through the real adapter, arriving as something the loop can dispatch on.
@@ -170,7 +170,7 @@ def _it_asked_for_something() -> Assertion[Turn]:
     return assertion
 
 
-def _the_llm_answered_from(double: httpx.Client, recording: str) -> None:
+def _the_llm_answered_from(double: httpx2.Client, recording: str) -> None:
     double.post("/double-control/seed", json={"recording": recording, "repeat": None})
 
 
@@ -188,9 +188,9 @@ def _a_response_that_stopped_for(stop_reason: str) -> dict[str, Any]:
     return body
 
 
-def _the_llm_stopped_due_to(double: httpx.Client, reason: str) -> None:
+def _the_llm_stopped_due_to(double: httpx2.Client, reason: str) -> None:
     double.post("/double-control/seed", json={"body": _a_response_that_stopped_for(reason)})
 
 
-def _llm_returned_status(double: httpx.Client, status: HttpStatus) -> None:
+def _llm_returned_status(double: httpx2.Client, status: HttpStatus) -> None:
     double.post("/double-control/seed", json={"status": status, "repeat": None})

@@ -21,7 +21,7 @@ import os
 from collections import deque
 from typing import Any
 
-import httpx
+import httpx2
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, model_validator
@@ -54,7 +54,7 @@ _ERROR_TYPES: dict[int, str] = {
 
 # Headers worth carrying upstream while recording. Everything else - `host`,
 # `content-length`, the connection headers - is either wrong for the new
-# destination or recomputed by httpx.
+# destination or recomputed by httpx2.
 _FORWARDED_HEADERS = ("x-api-key", "authorization", "anthropic-version", "anthropic-beta")
 
 
@@ -260,7 +260,7 @@ async def _record_upstream(request: Request, streaming: bool) -> Response:
     }
     sent = await request.body()
 
-    async with httpx.AsyncClient(base_url=UPSTREAM_BASE_URL, timeout=600.0) as client:
+    async with httpx2.AsyncClient(base_url=UPSTREAM_BASE_URL, timeout=600.0) as client:
         if not streaming:
             upstream = await client.post("/v1/messages", content=sent, headers=headers)
             answered: dict[str, Any] = upstream.json()

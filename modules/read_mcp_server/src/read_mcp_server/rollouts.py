@@ -39,7 +39,7 @@ import json
 from collections.abc import Callable
 from typing import Any, Final, Protocol
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import ChangeEvent, RolloutProgress
 
@@ -82,7 +82,7 @@ class RolloutReadSettings(SettingsSlice):
     argocd_auth_token: str
 
 
-HttpGet = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 
 class RolloutUnreadable(Exception):
@@ -110,7 +110,7 @@ class FetchLiveDeployment(Protocol):
 
 def fetch_live_deployment(application: str,
                           settings: RolloutReadSettings,
-                          get: HttpGet = httpx.get) -> dict[str, Any]:
+                          get: HttpGet = httpx2.get) -> dict[str, Any]:
     """Asks the platform for one application's running Deployment.
 
     Any failure to get an answer - unreachable host, error status, unreadable

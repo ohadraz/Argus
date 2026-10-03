@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-import httpx
+import httpx2
 
 # Argo CD's own wire vocabulary for the parts of an application both actions read
 # and write. Named once rather than spelled at each lookup: they are another
@@ -73,10 +73,10 @@ def could_not_be_reached(error: Exception) -> bool:
     nothing. Each action names its own failure, and that name is what the
     action's callers catch.
     """
-    if isinstance(error, httpx.HTTPStatusError):
+    if isinstance(error, httpx2.HTTPStatusError):
         return error.response.status_code >= _THE_SERVERS_OWN_FAULT
 
-    return isinstance(error, httpx.TransportError)
+    return isinstance(error, httpx2.TransportError)
 
 
 def is_reconciling_itself(application_state: dict[str, Any]) -> bool:

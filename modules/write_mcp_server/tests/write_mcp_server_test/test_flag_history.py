@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import FlagChange
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
@@ -236,7 +236,7 @@ def test_an_unreachable_provider_is_not_reported_as_an_empty_history() -> None:
     # "Nothing changed" is a conclusion Mitigation acts on - it escalates. An
     # outage read as an empty history would look like an environment with
     # nothing to revert, which is a different incident entirely.
-    some_transport_error = httpx.ConnectError("connection refused")
+    some_transport_error = httpx2.ConnectError("connection refused")
     provider = a_provider_reporting([])
     provider.get.side_effect = some_transport_error
 
@@ -255,15 +255,15 @@ def test_an_unreachable_provider_is_not_reported_as_an_empty_history() -> None:
 
 class _Provider:
     def __init__(self) -> None:
-        self.get: Any = create_autospec(httpx.get)
+        self.get: Any = create_autospec(httpx2.get)
 
 
 def a_provider_reporting(events: list[dict[str, Any]]) -> _Provider:
     provider = _Provider()
-    provider.get.return_value = httpx.Response(
+    provider.get.return_value = httpx2.Response(
         status_code=200,
         json={"version": 1, "events": events, "totalEvents": len(events)},
-        request=httpx.Request("GET", "http://flags.invalid/")
+        request=httpx2.Request("GET", "http://flags.invalid/")
     )
     return provider
 

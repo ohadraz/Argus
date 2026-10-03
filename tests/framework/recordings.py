@@ -24,13 +24,13 @@ different recording, a shared constant would silently move the other.
 
 from __future__ import annotations
 
-import httpx
+import httpx2
 from anthropic_double import recordings
 
 RECORDED_TOOL_USE_TURN = "grep-feature-flag-toggle"
 
 
-def the_double_is_answering(dont_care_double: httpx.Client) -> bool:
+def the_double_is_answering(dont_care_double: httpx2.Client) -> bool:
     """That the recording these suites rest on is actually in the store.
 
     Checked rather than assumed: a missing recording makes the double answer

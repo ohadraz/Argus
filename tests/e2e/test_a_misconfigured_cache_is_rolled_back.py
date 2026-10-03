@@ -46,7 +46,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
@@ -128,7 +128,7 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
         )
 
 
-def _only_the_median_ever_moved() -> Assertion[httpx.Response]:
+def _only_the_median_ever_moved() -> Assertion[httpx2.Response]:
     """The property that makes this scenario worth having, asserted both ways.
 
     One half on its own proves nothing. A median that climbed could be any
@@ -149,7 +149,7 @@ def _only_the_median_ever_moved() -> Assertion[httpx.Response]:
     number that was never the point and would read mostly healthy minutes on a
     fast run.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         served = [
             minute for minute in window
@@ -194,7 +194,7 @@ def _only_the_median_ever_moved() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_shop_is_reaching_its_cache_again() -> Assertion[httpx.Response]:
+def _the_shop_is_reaching_its_cache_again() -> Assertion[httpx2.Response]:
     """The incident genuinely ended, and the minutes it lasted are still there.
 
     Both halves in one window, for the reason the leak case asserts its climb
@@ -202,7 +202,7 @@ def _the_shop_is_reaching_its_cache_again() -> Assertion[httpx.Response]:
     the incident at the moment it was mitigated, and this case would then pass
     against a shop whose cache had never been unreachable at all.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
+    def assertion(dont_care_response: httpx2.Response) -> bool:
         window = the_shops_window()
         ratios = [
             minute["cache_hit_ratio"] for minute in window
@@ -235,7 +235,7 @@ def _the_shop_is_reaching_its_cache_again() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
+def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
     """What makes this mitigated rather than over.
 
     The rollback moved the running configuration and touched nothing in the
@@ -245,8 +245,8 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
     sync policy back would have handed the incident straight back, while looking
     in every other respect like a success.
     """
-    def assertion(dont_care_response: httpx.Response) -> bool:
-        response = httpx.get(
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        response = httpx2.get(
             f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -268,7 +268,7 @@ def _the_application_no_longer_syncs_itself() -> Assertion[httpx.Response]:
 
 def _the_cache_was_moved_out_of_reach() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "cache-misconfigured"},
             timeout=REQUEST_TIMEOUT_SECONDS

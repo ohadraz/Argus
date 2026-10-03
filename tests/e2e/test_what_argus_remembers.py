@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from argus_core import get_settings
@@ -117,14 +117,14 @@ def _a_flag_was_toggled() -> Callable[[], bool]:
 
 def _it_was_remembered_as_having_tried(
     subject: str, verdict: Verdict
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """What the collection holds for the incident that just ended.
 
     Searched rather than fetched by id, because searching is what a later walk
     does: a record that was written and cannot be found is, from where it
     matters, a record that was not written.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         settings = get_settings()
         store = QdrantClient(url=settings.qdrant_url)
@@ -163,7 +163,7 @@ def _it_was_remembered_as_having_tried(
     return assertion
 
 
-def _the_walk_said_it_recalled(incident_id: str) -> Assertion[httpx.Response]:
+def _the_walk_said_it_recalled(incident_id: str) -> Assertion[httpx2.Response]:
     """That the walk searched memory and, on its own timeline, named what it
     found.
 
@@ -172,7 +172,7 @@ def _the_walk_said_it_recalled(incident_id: str) -> Assertion[httpx.Response]:
     that the walk reached memory during the incident and said so, and a record
     sitting in a collection proves only that this test put it there.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         with psycopg.connect(DATABASE_URL) as conn:
             recorded = events.get_by_incident(conn, incident_id_from(response))
 

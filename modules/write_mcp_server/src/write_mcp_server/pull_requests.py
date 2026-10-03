@@ -23,11 +23,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import OpenedPullRequest
 
-HttpPost = Callable[..., httpx.Response]
+HttpPost = Callable[..., httpx2.Response]
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -83,7 +83,7 @@ def open_pull_request(head_branch: str,
                       title: str,
                       body: str,
                       settings: RepositoryWriteSettings,
-                      post: HttpPost = httpx.post) -> OpenedPullRequest:
+                      post: HttpPost = httpx2.post) -> OpenedPullRequest:
     """Opens a draft pull request from `head_branch` onto `base_branch`.
 
     `title` and `body` are the agent's own words and are passed through
@@ -167,7 +167,7 @@ def _what_the_repository_said(error: Exception) -> str:
     return f" - the repository said: {'; '.join(words)}" if words else ""
 
 
-def _as_an_opened_pull_request(response: httpx.Response,
+def _as_an_opened_pull_request(response: httpx2.Response,
                                head_branch: str,
                                url: str) -> OpenedPullRequest:
     """What came back, or the failure that it was not a pull request.

@@ -149,7 +149,7 @@ dev = [
     { name = "argus-argus-core", extra = ["migrations"] },
     { name = "argus-argus-testkit" },
     { name = "argus-slack-double" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -167,7 +167,7 @@ dev = [
     { name = "argus-argus-core", extras = ["migrations"], editable = "modules/argus_core" },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
     { name = "argus-slack-double", editable = "modules/slack_double" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 
@@ -238,14 +238,14 @@ version = "0.1.0"
 source = { editable = "modules/anthropic_double" }
 dependencies = [
     { name = "fastapi" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 
@@ -440,7 +440,7 @@ version = "0.1.0"
 source = { editable = "modules/exchange_rate_source" }
 dependencies = [
     { name = "argus-argus-core" },
-    { name = "httpx" },
+    { name = "httpx2" },
 ]
 
 [package.dev-dependencies]
@@ -451,7 +451,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.12" },
 ]
 
 [package.metadata.requires-dev]
@@ -616,7 +616,7 @@ dependencies = [
     { name = "argus-argus-core" },
     { name = "argus-code-index", extra = ["store"] },
     { name = "argus-repository-source" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
 ]
 
@@ -630,7 +630,7 @@ requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-code-index", extras = ["store"], editable = "modules/code_index" },
     { name = "argus-repository-source", editable = "modules/repository_source" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
 ]
 
@@ -643,7 +643,7 @@ version = "0.1.0"
 source = { editable = "modules/repository_source" }
 dependencies = [
     { name = "argus-argus-core" },
-    { name = "httpx" },
+    { name = "httpx2" },
 ]
 
 [package.dev-dependencies]
@@ -654,7 +654,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
-    { name = "httpx" },
+    { name = "httpx2" },
 ]
 
 [package.metadata.requires-dev]
@@ -666,7 +666,7 @@ version = "0.1.0"
 source = { editable = "modules/responder_rate_source" }
 dependencies = [
     { name = "argus-argus-core" },
-    { name = "httpx" },
+    { name = "httpx2" },
 ]
 
 [package.dev-dependencies]
@@ -677,7 +677,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.12" },
 ]
 
 [package.metadata.requires-dev]
@@ -732,7 +732,7 @@ source = { virtual = "." }
 dev = [
     { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "import-linter" },
     { name = "mypy" },
     { name = "nox" },
@@ -751,7 +751,7 @@ dev = [
 dev = [
     { name = "argus-anthropic-double", editable = "modules/anthropic_double" },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "import-linter", specifier = ">=2.15" },
     { name = "mypy" },
     { name = "nox" },
@@ -793,7 +793,7 @@ version = "0.1.0"
 source = { editable = "modules/write_mcp_server" }
 dependencies = [
     { name = "argus-argus-core" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "redis" },
 ]
@@ -806,7 +806,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
     { name = "redis", specifier = ">=5.0" },
 ]

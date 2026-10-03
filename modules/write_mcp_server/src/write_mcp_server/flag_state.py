@@ -27,7 +27,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Protocol
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import FlagUndo
 
@@ -53,8 +53,8 @@ class FlagWriteSettings(SettingsSlice):
     unleash_environment: str
 
 
-HttpPost = Callable[..., httpx.Response]
-HttpGet = Callable[..., httpx.Response]
+HttpPost = Callable[..., httpx2.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 
 class EvaluateFlags(Protocol):
@@ -95,7 +95,7 @@ class FlagNotSet(Exception):
 
 def evaluated_flags(
     settings: FlagWriteSettings,
-    get: HttpGet = httpx.get,
+    get: HttpGet = httpx2.get,
 ) -> list[str]:
     """The flags currently evaluating true, read with the evaluation credential.
 
@@ -125,7 +125,7 @@ def set_flag(
     flag: str,
     enabled: bool,
     settings: FlagWriteSettings,
-    post: HttpPost = httpx.post,
+    post: HttpPost = httpx2.post,
     *,
     evaluate: EvaluateFlags,
 ) -> FlagUndo:
@@ -165,7 +165,7 @@ def set_flag(
     )
 
 
-def _when_the_provider_recorded(response: httpx.Response) -> datetime | None:
+def _when_the_provider_recorded(response: httpx2.Response) -> datetime | None:
     """The provider's own time for this write, or `None` where it gave none.
 
     Read from the response rather than taken from this process's clock, because

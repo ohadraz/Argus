@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-import httpx
+import httpx2
 
 from repository_source.reading import (
     ACCEPT_HEADER,
@@ -40,7 +40,7 @@ HEAD_TIMEOUT_SECONDS: Final = 10.0
 
 def the_head_of(branch: str,
                 settings: RepositorySourceSettings,
-                get: HttpGet = httpx.get) -> str:
+                get: HttpGet = httpx2.get) -> str:
     """The commit `branch` points at.
 
     Raises `RepositoryUnreadable` rather than answering emptily. Nothing

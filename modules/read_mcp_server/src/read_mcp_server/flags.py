@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 
 
@@ -42,7 +42,7 @@ class FlagReadSettings(SettingsSlice):
     unleash_frontend_token: str
 
 
-HttpGet = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 
 class FetchToggles(Protocol):
@@ -74,7 +74,7 @@ class FlagProviderUnavailable(Exception):
 
 def fetch_evaluated_toggles(
     settings: FlagReadSettings,
-    get: HttpGet = httpx.get,
+    get: HttpGet = httpx2.get,
 ) -> list[dict[str, Any]]:
     """Asks the provider which flags evaluate true for this credential.
 

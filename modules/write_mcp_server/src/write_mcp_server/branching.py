@@ -33,12 +33,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any, Final
 
-import httpx
+import httpx2
 
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 
-HttpGet = Callable[..., httpx.Response]
-HttpPost = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
+HttpPost = Callable[..., httpx2.Response]
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -88,8 +88,8 @@ def commit_to_new_branch(branch: str,
                          files: Mapping[str, str],
                          message: str,
                          settings: RepositoryWriteSettings,
-                         get: HttpGet = httpx.get,
-                         post: HttpPost = httpx.post) -> str:
+                         get: HttpGet = httpx2.get,
+                         post: HttpPost = httpx2.post) -> str:
     """Commits `files` as one change and creates `branch` pointing at it.
 
     `files` maps a repository path to that file's **whole** new content, not to

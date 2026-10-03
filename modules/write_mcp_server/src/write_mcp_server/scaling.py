@@ -56,7 +56,7 @@ import json
 from collections.abc import Callable
 from typing import Any, Final
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
 from argus_core.models import DEPLOYMENT_PLATFORM, CapacityRestored, ReplicaUndo
@@ -126,9 +126,9 @@ class ScaleSettings(SettingsSlice):
     scale_namespace: str
 
 
-HttpGet = Callable[..., httpx.Response]
-HttpPost = Callable[..., httpx.Response]
-HttpPut = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
+HttpPost = Callable[..., httpx2.Response]
+HttpPut = Callable[..., httpx2.Response]
 
 
 class AlreadyAtItsLargest(Exception):
@@ -178,9 +178,9 @@ def _refusing(said: str, error: Exception,
 
 def scale_out(application: str,
               settings: ScaleSettings,
-              get: HttpGet = httpx.get,
-              post: HttpPost = httpx.post,
-              put: HttpPut = httpx.put) -> ReplicaUndo:
+              get: HttpGet = httpx2.get,
+              post: HttpPost = httpx2.post,
+              put: HttpPut = httpx2.put) -> ReplicaUndo:
     """Doubles what `application` is running, and reports what that cost.
 
     Doubling rather than a figure somebody chose: what a saturated deployment
@@ -235,8 +235,8 @@ def scale_out(application: str,
 
 def restore_replica_count(descriptor: ReplicaUndo,
                           settings: ScaleSettings,
-                          post: HttpPost = httpx.post,
-                          put: HttpPut = httpx.put) -> CapacityRestored:
+                          post: HttpPost = httpx2.post,
+                          put: HttpPut = httpx2.put) -> CapacityRestored:
     """Puts back both of the things a scale-out changed, and says which it managed.
 
     A pair rather than an exception, for the reason the rollback's restore answers

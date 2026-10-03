@@ -17,7 +17,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from agent_communicator.delivering import a_destination_per_register, a_slack_delivery
@@ -349,7 +349,7 @@ def _the_write_up_of(incident_id: str) -> IncidentEvent:
 
 def _slack_will_refuse(base_url: str) -> None:
     """Queues the refusal the next post is met with."""
-    httpx.post(f"{base_url}/double-control/seed",
+    httpx2.post(f"{base_url}/double-control/seed",
                json={"error": "channel_not_found"}).raise_for_status()
 
 

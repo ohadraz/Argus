@@ -4,7 +4,7 @@ Shared by every e2e test rather than restated in each: an assertion about
 "the incident this webhook call created" is the same assertion whichever
 scenario is driving it, and two copies drift the moment one is fixed.
 
-Everything here takes the webhook's `httpx.Response`, because that is what a
+Everything here takes the webhook's `httpx2.Response`, because that is what a
 `Scenario`'s `when` produces and the only handle a test has on the incident
 Argus created for it.
 """
@@ -17,7 +17,7 @@ from http import HTTPStatus as HttpStatus
 from pathlib import Path
 from typing import Any, Final
 
-import httpx
+import httpx2
 import psycopg
 from agent_investigator.tools.windows import WINDOW_END_ARG, WINDOW_START_ARG
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
@@ -141,7 +141,7 @@ def stored_as(recording: str) -> str:
 
 def argus_is_triggered_with_alert(
     payload: dict[str, Any]
-) -> Callable[[], httpx.Response]:
+) -> Callable[[], httpx2.Response]:
     """Fires the alert, and waits for everything it starts.
 
     The wait is the whole incident, not a round trip: the webhook runs the graph
@@ -152,8 +152,8 @@ def argus_is_triggered_with_alert(
     the shorter one fails the *client* while Argus is still working, which reads
     like a hung stack and is not one.
     """
-    def step() -> httpx.Response:
-        return httpx.post(
+    def step() -> httpx2.Response:
+        return httpx2.post(
             f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
             json=payload,
             timeout=WALK_TIMEOUT_SECONDS,
@@ -162,7 +162,7 @@ def argus_is_triggered_with_alert(
     return step
 
 
-def the_shop_raises_its_own_alert() -> Callable[[], httpx.Response]:
+def the_shop_raises_its_own_alert() -> Callable[[], httpx2.Response]:
     """Asks the shop's monitoring to page Argus, instead of posting a payload.
 
     The one case where the alert cannot be built here. Every other alert in
@@ -177,8 +177,8 @@ def the_shop_raises_its_own_alert() -> Callable[[], httpx.Response]:
     route: the shop holds this request open until Argus's webhook answers, so
     the whole incident runs inside it.
     """
-    def step() -> httpx.Response:
-        return httpx.post(
+    def step() -> httpx2.Response:
+        return httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/monitoring/alert",
             timeout=WALK_TIMEOUT_SECONDS,
         )
@@ -186,7 +186,7 @@ def the_shop_raises_its_own_alert() -> Callable[[], httpx.Response]:
     return step
 
 
-def incident_id_from(response: httpx.Response) -> str:
+def incident_id_from(response: httpx2.Response) -> str:
     incident_id = response.json().get("incident_id")
 
     if not incident_id:
@@ -195,8 +195,8 @@ def incident_id_from(response: httpx.Response) -> str:
     return str(incident_id)
 
 
-def argus_returns_status(expected_status: int | HttpStatus) -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
+def argus_returns_status(expected_status: int | HttpStatus) -> Assertion[httpx2.Response]:
+    def assertion(response: httpx2.Response) -> bool:
         if response.status_code != expected_status:
             raise AssertionError(
                 f"Expected status [{expected_status}], but got [{response.status_code}]."
@@ -209,13 +209,13 @@ def argus_returns_status(expected_status: int | HttpStatus) -> Assertion[httpx.R
 
 def about_the_hypothesis(
     *hypothesis_assertions: Assertion[Any]
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """Adapts assertions about a `Hypothesis` to the webhook response a
     scenario ends with, so the domain assertions in `tests/framework` stay
     shared with the eval and integration tiers rather than being restated
     against a database row here.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -229,8 +229,8 @@ def about_the_hypothesis(
     return assertion
 
 
-def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
+def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx2.Response]:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -250,7 +250,7 @@ def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx.
     return assertion
 
 
-def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx.Response]:
+def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx2.Response]:
     """Every status the incident entered, in order, as it published them.
 
     Read from the account rather than from a table of transitions: the move and
@@ -259,7 +259,7 @@ def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx.Re
     it is published as the alert arriving and the first transition is a worker
     picking it up.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -279,7 +279,7 @@ def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx.Re
     return assertion
 
 
-def argus_read_a_change_event() -> Assertion[httpx.Response]:
+def argus_read_a_change_event() -> Assertion[httpx2.Response]:
     """That the change channel answered, and answered with something.
 
     The one assertion that makes the Argo CD path load-bearing in a case that
@@ -293,7 +293,7 @@ def argus_read_a_change_event() -> Assertion[httpx.Response]:
     because a model can name a deploy it inferred from prose. This is the
     record of the adapter having actually fetched one.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -312,7 +312,7 @@ def argus_read_a_change_event() -> Assertion[httpx.Response]:
     return assertion
 
 
-def argus_took_a_rollback_of(application: str) -> Assertion[httpx.Response]:
+def argus_took_a_rollback_of(application: str) -> Assertion[httpx2.Response]:
     """Read from the incident's own account rather than from the platform.
 
     What the platform was asked is a fact about the fixture; what Argus decided
@@ -327,7 +327,7 @@ def argus_took_a_rollback_of(application: str) -> Assertion[httpx.Response]:
     afterwards, never by what is done about them now - so a copy per case would
     be two spellings of a single claim.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         taken = [
             event for event in _the_incidents_events(incident_id)
@@ -377,13 +377,13 @@ def _the_incidents_events(incident_id: str) -> list[Any]:
 
 def argus_registered_an_incident_for_the_alert(
     alert_payload: dict[str, Any]
-) -> Assertion[httpx.Response]:
+) -> Assertion[httpx2.Response]:
     """The alert reached the database in Argus's own shape.
 
     The absent `labels` key is the point: a vendor's nesting must not survive
     past the webhook adapter (spec §7.9, §25).
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
         alert = alert_payload["alerts"][0]
 
@@ -420,8 +420,8 @@ def argus_registered_an_incident_for_the_alert(
     return assertion
 
 
-def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
+def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx2.Response]:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -457,7 +457,7 @@ def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx.Response]:
     return assertion
 
 
-def argus_wrote_a_postmortem() -> Assertion[httpx.Response]:
+def argus_wrote_a_postmortem() -> Assertion[httpx2.Response]:
     """The row exists, and nothing about what it says.
 
     The one thing about a postmortem worth waiting for. It is written in a
@@ -469,7 +469,7 @@ def argus_wrote_a_postmortem() -> Assertion[httpx.Response]:
     So a suite waits on this and asserts the contents once, rather than
     retrying the contents until a deadline that only the absent row deserved.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -521,7 +521,7 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
         stored = stored_as(recording)
         shift = _how_far_the_world_has_moved_since(stored)
 
-        with httpx.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
 
             for answered_once in _the_answers_recorded_for(stored, control):
@@ -593,7 +593,7 @@ def _the_instant_this_run_was_seeded() -> datetime | None:
     reading taken here would be a second opinion about it that drifts by
     however long the call took.
     """
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/scenario/status",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
@@ -632,7 +632,7 @@ def _rebased(answer: dict[str, Any], shift: timedelta) -> dict[str, Any]:
     return {**answer, "content": content}
 
 
-def _the_answers_recorded_for(recording: str, control: httpx.Client) -> list[str]:
+def _the_answers_recorded_for(recording: str, control: httpx2.Client) -> list[str]:
     """Every stored answer belonging to one incident, in the order it was given.
 
     Asked of the double rather than the filesystem: the recordings belong to it,

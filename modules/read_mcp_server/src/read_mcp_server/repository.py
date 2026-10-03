@@ -25,7 +25,7 @@ import binascii
 from collections.abc import Callable
 from typing import Any, Final, Protocol
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.source_scope import belongs_to_the_service
 from repository_source import RepositorySourceSettings, the_source_at
@@ -36,7 +36,7 @@ from repository_source import RepositorySourceSettings, the_source_at
 # want that said out loud instead of inferred from an import.
 from repository_source import RepositoryUnreadable as RepositoryUnreadable
 
-HttpGet = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -107,7 +107,7 @@ class RepositoryReadSettings(SettingsSlice):
 
 def list_repository_files(ref: str,
                           settings: RepositoryReadSettings,
-                          get: HttpGet = httpx.get) -> list[str]:
+                          get: HttpGet = httpx2.get) -> list[str]:
     """Every file in the repository at `ref`, as paths from its root.
 
     Directories are left out. The tree answers with both, and a directory is not
@@ -268,7 +268,7 @@ def _is_the_service_s_own(path: str, settings: RepositoryReadSettings) -> bool:
 def read_repository_file(path: str,
                          ref: str,
                          settings: RepositoryReadSettings,
-                         get: HttpGet = httpx.get) -> str:
+                         get: HttpGet = httpx2.get) -> str:
     """What one file says, at `ref`, as text.
 
     Raises `RepositoryUnreadable` for a path that is not there rather than

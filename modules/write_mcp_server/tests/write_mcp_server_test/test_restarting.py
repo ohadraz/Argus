@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_core.mcp_transport import UNREACHABLE_PLATFORM_MARKER
 from argus_core.models import RestartedService
@@ -765,8 +765,8 @@ class _Platform:
     """
 
     def __init__(self) -> None:
-        self.post: Any = create_autospec(httpx.post)
-        # Spec'd against the port rather than `httpx.get`: what confirms the
+        self.post: Any = create_autospec(httpx2.post)
+        # Spec'd against the port rather than `httpx2.get`: what confirms the
         # restart is a reading about one application, and where it is read
         # from is bound once, where the server is built.
         self.observe: Any = create_autospec(ObserveStartTime, instance=True)
@@ -775,10 +775,10 @@ class _Platform:
 def a_platform() -> _Platform:
     """A platform that accepts the action, serving a process that then rolls."""
     platform = _Platform()
-    platform.post.return_value = httpx.Response(
+    platform.post.return_value = httpx2.Response(
         status_code=200,
         json={},
-        request=httpx.Request("POST", DONT_CARE_URL)
+        request=httpx2.Request("POST", DONT_CARE_URL)
     )
     platform.observe.side_effect = [
         THE_PROCESS_THAT_WAS_SERVING, THE_PROCESS_THAT_CAME_UP
@@ -816,7 +816,7 @@ def a_platform_serving_nothing_before() -> _Platform:
 def a_platform_whose_gauge_fails_after_the_action() -> _Platform:
     platform = a_platform()
     platform.observe.side_effect = [
-        THE_PROCESS_THAT_WAS_SERVING, httpx.ConnectError("connection refused")
+        THE_PROCESS_THAT_WAS_SERVING, httpx2.ConnectError("connection refused")
     ]
 
     return platform
@@ -824,10 +824,10 @@ def a_platform_whose_gauge_fails_after_the_action() -> _Platform:
 
 def a_platform_that_refuses_the_action() -> _Platform:
     platform = a_platform()
-    platform.post.return_value = httpx.Response(
+    platform.post.return_value = httpx2.Response(
         status_code=403,
         json={"error": "permission denied"},
-        request=httpx.Request("POST", DONT_CARE_URL)
+        request=httpx2.Request("POST", DONT_CARE_URL)
     )
 
     return platform
@@ -835,7 +835,7 @@ def a_platform_that_refuses_the_action() -> _Platform:
 
 def a_platform_that_cannot_be_reached() -> _Platform:
     platform = a_platform()
-    platform.post.side_effect = httpx.ConnectError("connection refused")
+    platform.post.side_effect = httpx2.ConnectError("connection refused")
 
     return platform
 
@@ -843,10 +843,10 @@ def a_platform_that_cannot_be_reached() -> _Platform:
 def a_platform_answering_that_it_is_unavailable() -> _Platform:
     """A platform whose API server is not serving, as its ingress reports it."""
     platform = a_platform()
-    platform.post.return_value = httpx.Response(
+    platform.post.return_value = httpx2.Response(
         status_code=503,
         json={"error": "upstream connect error"},
-        request=httpx.Request("POST", DONT_CARE_URL)
+        request=httpx2.Request("POST", DONT_CARE_URL)
     )
 
     return platform
@@ -861,7 +861,7 @@ def a_platform_that_cannot_say_what_is_running() -> _Platform:
     platform at all unless this reading says so.
     """
     platform = a_platform()
-    platform.observe.side_effect = httpx.ConnectError("connection refused")
+    platform.observe.side_effect = httpx2.ConnectError("connection refused")
 
     return platform
 
@@ -878,11 +878,11 @@ def a_pod(came_up: str) -> dict[str, Any]:
 
 def a_platform_whose_tree_holds(nodes: list[dict[str, Any]]) -> Any:
     """The resource-tree route, answering with the objects it was given."""
-    get: Any = create_autospec(httpx.get)
-    get.return_value = httpx.Response(
+    get: Any = create_autospec(httpx2.get)
+    get.return_value = httpx2.Response(
         status_code=200,
         json={"nodes": nodes},
-        request=httpx.Request("GET", DONT_CARE_URL)
+        request=httpx2.Request("GET", DONT_CARE_URL)
     )
 
     return get

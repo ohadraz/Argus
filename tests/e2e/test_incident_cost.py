@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from agent_postmortem import EXCHANGE_RATE_ASSUMPTION_LABEL
@@ -77,7 +77,7 @@ def test_an_incident_over_a_trading_window_costs_a_measured_amount() -> None:
         )
 
 
-def _the_postmortem_estimates_a_loss() -> Assertion[httpx.Response]:
+def _the_postmortem_estimates_a_loss() -> Assertion[httpx2.Response]:
     """The document carries a figure the payment provider is behind.
 
     The assumptions are reported on failure and not asserted on: when the
@@ -85,7 +85,7 @@ def _the_postmortem_estimates_a_loss() -> Assertion[httpx.Response]:
     failure that reprints that reason is the difference between "the estimate
     is missing" and knowing which of the four ways it went missing.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:
@@ -111,7 +111,7 @@ def _the_postmortem_estimates_a_loss() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_conversion_was_disclosed() -> Assertion[httpx.Response]:
+def _the_conversion_was_disclosed() -> Assertion[httpx2.Response]:
     """The figure came through a rate, and the document says which.
 
     The shop takes a minority of its orders in euros, so an estimate that
@@ -119,7 +119,7 @@ def _the_conversion_was_disclosed() -> Assertion[httpx.Response]:
     arithmetic would look right and the money would be short. This is the one
     assertion here that could not pass without the rate source in the path.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
         with psycopg.connect(DATABASE_URL) as conn:

@@ -24,10 +24,10 @@ import tarfile
 from collections.abc import Callable
 from typing import Final
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 
-HttpGet = Callable[..., httpx.Response]
+HttpGet = Callable[..., httpx2.Response]
 
 ACCEPT_HEADER: Final = "application/vnd.github+json"
 
@@ -64,7 +64,7 @@ class RepositoryUnreadable(Exception):
 
 def the_source_at(ref: str,
                   settings: RepositorySourceSettings,
-                  get: HttpGet = httpx.get) -> dict[str, str]:
+                  get: HttpGet = httpx2.get) -> dict[str, str]:
     """Every readable file at `ref`, keyed by its path from the repository root.
 
     Files that are not text are skipped rather than refused. A repository's

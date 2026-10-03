@@ -10,7 +10,7 @@ and do not move again. That is exactly the shape a cache wants, and the reason
 the day a table was published is part of the table rather than a detail of the
 request.
 
-Nothing above this module imports `httpx`, and nothing above it sees a
+Nothing above this module imports `httpx2`, and nothing above it sees a
 transport error: a provider that cannot be read leaves here as
 `RatesUnavailable`.
 """
@@ -22,7 +22,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Final
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import PublishedRates, RatesUnavailable
 
@@ -38,10 +38,10 @@ class ExchangeRateSettings(SettingsSlice):
     exchange_rate_base_url: str
 
 # How the request is made. Injected rather than called outright so a test can
-# answer with a real `httpx.Response` - the provider's own body, parsed by the
+# answer with a real `httpx2.Response` - the provider's own body, parsed by the
 # same code that parses the live one - without a network and without
 # monkeypatching a name this module imported.
-type Asking = Callable[..., httpx.Response]
+type Asking = Callable[..., httpx2.Response]
 
 # The provider's own query and response vocabulary.
 _BASE: Final = "base"
@@ -61,7 +61,7 @@ _A_PATIENT_WAIT: Final = 10.0
 
 def rates_published_for(base: str,
                         settings: ExchangeRateSettings,
-                        asking: Asking = httpx.get) -> PublishedRates:
+                        asking: Asking = httpx2.get) -> PublishedRates:
     """The most recent table the provider has, quoted against `base`.
 
     The whole table, because it is one request either way and a postmortem
@@ -82,7 +82,7 @@ def rates_published_for(base: str,
         answered.raise_for_status()
 
         return _the_table_in(answered.json(), asked_for=base)
-    except httpx.HTTPError as error:
+    except httpx2.HTTPError as error:
         raise RatesUnavailable(
             f"the exchange rate provider could not be read: {error}"
         ) from error

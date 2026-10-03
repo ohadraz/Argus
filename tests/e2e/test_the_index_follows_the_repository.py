@@ -33,7 +33,7 @@ from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 from typing import Any, Final
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from argus_core import get_settings
@@ -122,14 +122,14 @@ def test_a_push_nobody_signed_moves_nothing() -> None:
         )
 
 
-def _the_delivery_reported_recording(sha: str) -> Assertion[httpx.Response]:
+def _the_delivery_reported_recording(sha: str) -> Assertion[httpx2.Response]:
     """The endpoint's own answer, which is what GitHub would see.
 
     Asserted beside the row because the two can disagree in the direction that
     matters: a delivery filtered out for being about another branch is a `202`
     carrying nothing, and it looks exactly like a recorded push from the outside.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         recorded = response.json().get("recorded")
 
         if recorded != sha:
@@ -219,12 +219,12 @@ def _what_the_index_records() -> RepositoryIndex | None:
         return the_index_recorded_for(conn, get_settings().github_repository)
 
 
-def _a_signed_push_of(sha: str) -> Callable[[], httpx.Response]:
+def _a_signed_push_of(sha: str) -> Callable[[], httpx2.Response]:
     """The delivery as GitHub sends it, signed with the secret it was given."""
-    def step() -> httpx.Response:
+    def step() -> httpx2.Response:
         body = _a_push_naming(sha)
 
-        return httpx.post(
+        return httpx2.post(
             f"{ARGUS_WEB_BASE_URL}{PUSH_WEBHOOK_PATH}",
             content=body,
             headers={SIGNATURE_HEADER: _the_signature_over(body)},
@@ -234,10 +234,10 @@ def _a_signed_push_of(sha: str) -> Callable[[], httpx.Response]:
     return step
 
 
-def _an_unsigned_push_of(sha: str) -> Callable[[], httpx.Response]:
+def _an_unsigned_push_of(sha: str) -> Callable[[], httpx2.Response]:
     """The same delivery from somebody who does not have the secret."""
-    def step() -> httpx.Response:
-        return httpx.post(
+    def step() -> httpx2.Response:
+        return httpx2.post(
             f"{ARGUS_WEB_BASE_URL}{PUSH_WEBHOOK_PATH}",
             content=_a_push_naming(sha),
             timeout=REQUEST_TIMEOUT_SECONDS
@@ -324,7 +324,7 @@ def _the_repository_answered(method: str,
     """One call to the repository Argus is pointed at, which for a suite is the
     double - the same address the read and write tiers use, so a case cannot be
     arranging one repository while Argus reads another."""
-    response = httpx.request(
+    response = httpx2.request(
         method,
         f"{GITHUB_DOUBLE_BASE_URL}/repos/{get_settings().github_repository}{path}",
         json=asked,

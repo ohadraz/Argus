@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from read_mcp_server.flags import (
@@ -102,7 +102,7 @@ def test_an_unreachable_provider_raises_rather_than_reporting_nothing_enabled() 
     # would look like an environment with no flag to revert at all.
     Scenario() \
         .given(
-            some_transport_error := httpx.ConnectError("connection refused"),
+            some_transport_error := httpx2.ConnectError("connection refused"),
             get := _a_mock_http_get(raises=some_transport_error)
         ) \
         .when(
@@ -165,11 +165,11 @@ def _a_toggle(name: str, enabled: bool = True) -> dict[str, Any]:
     return {"name": name, "enabled": enabled, "variant": {"name": "disabled"}}
 
 
-def _a_response(status_code: int, body: dict[str, Any]) -> httpx.Response:
-    return httpx.Response(
+def _a_response(status_code: int, body: dict[str, Any]) -> httpx2.Response:
+    return httpx2.Response(
         status_code=status_code,
         json=body,
-        request=httpx.Request("GET", "http://flags.invalid/api/frontend")
+        request=httpx2.Request("GET", "http://flags.invalid/api/frontend")
     )
 
 
@@ -187,7 +187,7 @@ def _a_flag_provider_reporting(*toggles: dict[str, Any]) -> Any:
     return provider
 
 
-def _a_mock_http_get(answers: httpx.Response | None = None,
+def _a_mock_http_get(answers: httpx2.Response | None = None,
                      raises: Exception | None = None) -> Any:
     """A stand-in transport, already answering the way the test needs.
 
@@ -195,7 +195,7 @@ def _a_mock_http_get(answers: httpx.Response | None = None,
     whole world in one expression instead of a value and then a statement
     about it.
     """
-    get = create_autospec(httpx.get)
+    get = create_autospec(httpx2.get)
 
     if raises is not None:
         get.side_effect = raises

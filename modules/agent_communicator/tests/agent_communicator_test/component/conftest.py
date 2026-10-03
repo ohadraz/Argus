@@ -17,7 +17,7 @@ import threading
 import time
 from collections.abc import Iterator
 
-import httpx
+import httpx2
 import pytest
 import uvicorn
 from slack_double import DEFAULT_BASE_URL, DEFAULT_PORT
@@ -48,7 +48,7 @@ def slack() -> Iterator[str]:
 @pytest.fixture(autouse=True)
 def nothing_posted_yet(slack: str) -> None:
     """Empties the double, so each test reads back only its own messages."""
-    httpx.post(f"{slack}/double-control/reset").raise_for_status()
+    httpx2.post(f"{slack}/double-control/reset").raise_for_status()
 
 
 def _once_it_answers() -> None:
@@ -61,9 +61,9 @@ def _once_it_answers() -> None:
     giving_up_at = time.monotonic() + _LONG_ENOUGH_TO_COME_UP
     while time.monotonic() < giving_up_at:
         try:
-            httpx.get(f"{DEFAULT_BASE_URL}/health", timeout=_A_MOMENT).raise_for_status()
+            httpx2.get(f"{DEFAULT_BASE_URL}/health", timeout=_A_MOMENT).raise_for_status()
             return
-        except (httpx.HTTPError, OSError):
+        except (httpx2.HTTPError, OSError):
             time.sleep(_A_MOMENT)
 
     raise RuntimeError(

@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from argus_core import get_settings
@@ -95,7 +95,7 @@ def test_a_mitigated_incident_leaves_a_draft_pull_request_for_a_person() -> None
         )
 
 
-def _a_fix_was_proposed() -> Assertion[httpx.Response]:
+def _a_fix_was_proposed() -> Assertion[httpx2.Response]:
     """The incident's own account says Code-Fix opened something.
 
     Read from the events rather than from the status, because the status cannot
@@ -105,7 +105,7 @@ def _a_fix_was_proposed() -> Assertion[httpx.Response]:
     "the repository refused" and "there was nothing to change" are different
     mornings for whoever reads a red run.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         attempted = _the_fix_attempted_on(incident_id_from(response))
 
         if attempted.outcome is not FixOutcome.PROPOSED:
@@ -125,7 +125,7 @@ def _a_fix_was_proposed() -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_repository_holds_the_proposal_the_incident_names() -> Assertion[httpx.Response]:
+def _the_repository_holds_the_proposal_the_incident_names() -> Assertion[httpx2.Response]:
     """What Argus said it did, and what the repository was actually asked for.
 
     Both halves, because either alone passes for the wrong reason: an event
@@ -134,7 +134,7 @@ def _the_repository_holds_the_proposal_the_incident_names() -> Assertion[httpx.R
     branch, and the branch has to exist - a proposal is a promise about one, and
     a pull request pointing at nothing is a review nobody can do.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         proposal = _the_fix_attempted_on(incident_id_from(response)).pull_request
 
         if proposal is None:
@@ -165,7 +165,7 @@ def _the_repository_holds_the_proposal_the_incident_names() -> Assertion[httpx.R
     return assertion
 
 
-def _it_is_a_draft_onto_the_deployed_branch() -> Assertion[httpx.Response]:
+def _it_is_a_draft_onto_the_deployed_branch() -> Assertion[httpx2.Response]:
     """Proposed to a human, onto what is running, and never merged (§13).
 
     The one assertion here that is about autonomy rather than about the walk
@@ -173,7 +173,7 @@ def _it_is_a_draft_onto_the_deployed_branch() -> Assertion[httpx.Response]:
     ready to merge, or aimed somewhere other than the deployed branch, is the
     write tier having quietly widened what Argus may do to a repository.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         proposal = _the_fix_attempted_on(incident_id_from(response)).pull_request
 
         if proposal is None:
@@ -235,7 +235,7 @@ def _the_proposal_numbered(number: int) -> dict[str, Any] | None:
 
 
 def _what_was_proposed() -> list[dict[str, Any]]:
-    response = httpx.get(
+    response = httpx2.get(
         f"{GITHUB_DOUBLE_BASE_URL}/double-control/pulls",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
@@ -246,7 +246,7 @@ def _what_was_proposed() -> list[dict[str, Any]]:
 
 
 def _the_branches_written() -> list[str]:
-    response = httpx.get(
+    response = httpx2.get(
         f"{GITHUB_DOUBLE_BASE_URL}/double-control/branches",
         timeout=REQUEST_TIMEOUT_SECONDS
     )

@@ -33,7 +33,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Final, Protocol
 
-import httpx
+import httpx2
 from argus_core import SettingsSlice
 from argus_core.mcp_transport import an_unreachable_platform
 from argus_core.models import DEPLOYMENT_PLATFORM, RestartedService
@@ -103,8 +103,8 @@ class RestartSettings(SettingsSlice):
     argocd_resource_tree_path: str
 
 
-HttpPost = Callable[..., httpx.Response]
-HttpGet = Callable[..., httpx.Response]
+HttpPost = Callable[..., httpx2.Response]
+HttpGet = Callable[..., httpx2.Response]
 # How the wait between looks is spent. Injected for the reason the metrics
 # reading is: a rollout that never arrives is a case worth a test, and one
 # spending a real minute of it is a case nobody runs.
@@ -169,7 +169,7 @@ def _not_restarted(said: str, error: Exception) -> ServiceNotRestarted:
 
 
 def the_pod_start_time(settings: RestartSettings,
-                       get: HttpGet = httpx.get) -> ObserveStartTime:
+                       get: HttpGet = httpx2.get) -> ObserveStartTime:
     """Reads when the process now serving a service came up, from the platform.
 
     Argo CD's resource tree is how anybody finds out what is actually running,
@@ -237,7 +237,7 @@ def _when_it_came_up(created_at: str | None) -> float | None:
 def restart_service(
     service: str,
     settings: RestartSettings,
-    post: HttpPost = httpx.post,
+    post: HttpPost = httpx2.post,
     *,
     observe: ObserveStartTime,
     sleep: Sleeper = time.sleep

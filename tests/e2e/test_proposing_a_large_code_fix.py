@@ -48,7 +48,7 @@ from __future__ import annotations
 import base64
 from typing import Any
 
-import httpx
+import httpx2
 import psycopg
 import pytest
 from argus_core import get_settings
@@ -122,7 +122,7 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_repository() -> None:
         )
 
 
-def _the_proposal_rewrote_a_whole_large_file() -> Assertion[httpx.Response]:
+def _the_proposal_rewrote_a_whole_large_file() -> Assertion[httpx2.Response]:
     """The branch carries a file far larger than any fix here has ever written.
 
     Read from the repository rather than from anything Argus said about itself,
@@ -137,7 +137,7 @@ def _the_proposal_rewrote_a_whole_large_file() -> Assertion[httpx.Response]:
     wrote a small file chose a different file, and a fix that wrote a truncated
     one is the defect this case was built for.
     """
-    def assertion(response: httpx.Response) -> bool:
+    def assertion(response: httpx2.Response) -> bool:
         attempted = _the_fix_attempted_on(incident_id_from(response))
 
         if attempted.outcome is not FixOutcome.PROPOSED:
@@ -200,7 +200,7 @@ def _the_fix_attempted_on(incident_id: str) -> FixAttempted:
 def _what_changed_on(branch: str) -> list[str]:
     """Every path this branch changed against the branch that is deployed."""
     settings = get_settings()
-    response = httpx.get(
+    response = httpx2.get(
         f"{GITHUB_DOUBLE_BASE_URL}/repos/{settings.github_repository}/compare/"
         f"{settings.github_base_branch}...{branch}",
         timeout=REQUEST_TIMEOUT_SECONDS
@@ -214,7 +214,7 @@ def _what_changed_on(branch: str) -> list[str]:
 def _the_text_of(path: str, branch: str) -> str:
     """One file as the branch holds it, decoded the way the API sends it."""
     settings = get_settings()
-    response = httpx.get(
+    response = httpx2.get(
         f"{GITHUB_DOUBLE_BASE_URL}/repos/{settings.github_repository}/contents/{path}",
         params={"ref": branch},
         timeout=REQUEST_TIMEOUT_SECONDS

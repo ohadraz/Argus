@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core",
-    "httpx",
+    "httpx2",
     "mcp>=1.29.0",
     # The store the cache lives in, for the one action that reaches a datastore
     # rather than a control plane. Without `hiredis`: that extra is a compiled

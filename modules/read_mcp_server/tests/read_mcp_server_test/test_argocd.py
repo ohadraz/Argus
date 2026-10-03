@@ -5,7 +5,7 @@ from functools import partial
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_core import parse_iso, to_iso
 from argus_core.models import ChangeEvent, ChangeKind
@@ -337,7 +337,7 @@ def test_an_unreachable_server_raises_rather_than_reporting_no_changes() -> None
 
     Scenario() \
         .given(
-            calling(the_server_was_unreachable(httpx.ConnectError("no route to host")))
+            calling(the_server_was_unreachable(httpx2.ConnectError("no route to host")))
         ) \
         .when(
             attempting(
@@ -448,7 +448,7 @@ def a_mock_argocd_server() -> Any:
 
 
 def a_mock_http_get() -> Any:
-    return create_autospec(httpx.get)
+    return create_autospec(httpx2.get)
 
 
 def _some_argocd_settings(
@@ -630,19 +630,19 @@ def _the_requested_url_was(get: Any, expected_url: str) -> Assertion[Any]:
 
     return assertion
 
-def an_ok_response() -> httpx.Response:
+def an_ok_response() -> httpx2.Response:
     return _a_response(200, json=an_application_that_never_deployed())
 
 
-def an_error_response() -> httpx.Response:
+def an_error_response() -> httpx2.Response:
     return _a_response(500, text="argocd is unwell")
 
 
-def _a_response(status_code: int, **body: Any) -> httpx.Response:
+def _a_response(status_code: int, **body: Any) -> httpx2.Response:
     # A response needs the request that produced it, or `raise_for_status()`
-    # refuses to say anything about it - and a `RuntimeError` from httpx would
+    # refuses to say anything about it - and a `RuntimeError` from httpx2 would
     # be indistinguishable, to the test, from the adapter handling a real HTTP
     # error correctly.
-    return httpx.Response(
-        status_code, request=httpx.Request("GET", "http://kuki-argocd:9000"), **body
+    return httpx2.Response(
+        status_code, request=httpx2.Request("GET", "http://kuki-argocd:9000"), **body
     )

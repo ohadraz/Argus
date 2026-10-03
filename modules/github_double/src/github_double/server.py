@@ -146,7 +146,7 @@ def download_the_archive(owner: str, repo: str, ref: str) -> Response:
 
     Served directly rather than through the redirect the real API answers with.
     The read tier already follows redirects, so the hop is real behaviour this
-    could imitate - but imitating it would only test httpx, and a double that
+    could imitate - but imitating it would only test httpx2, and a double that
     redirected to a second host of its own would be two fixtures.
     """
     try:

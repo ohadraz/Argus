@@ -14,7 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, NamedTuple
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
@@ -208,9 +208,9 @@ def _a_group(*levels: dict[str, Any]) -> dict[str, Any]:
 
 
 def _a_source_answering(document: dict[str, Any]) -> AskHrSource:
-    def answering(dont_care_url: str, **dont_care_kwargs: Any) -> httpx.Response:
-        return httpx.Response(200,
-                              request=httpx.Request("GET", DONT_CARE_URL),
+    def answering(dont_care_url: str, **dont_care_kwargs: Any) -> httpx2.Response:
+        return httpx2.Response(200,
+                              request=httpx2.Request("GET", DONT_CARE_URL),
                               json=document)
 
     return answering
@@ -245,8 +245,8 @@ def _no_band_was_priced_for(title: str) -> Assertion[PayBandsByTitle]:
 
 
 def _a_source_that_cannot_be_read() -> AskHrSource:
-    def answering(dont_care_url: str, **dont_care_kwargs: Any) -> httpx.Response:
-        raise httpx.ConnectError("nothing is listening")
+    def answering(dont_care_url: str, **dont_care_kwargs: Any) -> httpx2.Response:
+        raise httpx2.ConnectError("nothing is listening")
 
     return answering
 
@@ -292,11 +292,11 @@ def _settings_with(api_key: str) -> ResponderRateSettings:
 def _a_source_recording_the_request_into(request: Kept[_AskedFor]) -> AskHrSource:
     def answering(url: str,
                   auth: tuple[str, str] | None = None,
-                  timeout: float | None = None) -> httpx.Response:
+                  timeout: float | None = None) -> httpx2.Response:
         request.take(_AskedFor(url=url, auth=auth))
 
-        return httpx.Response(200,
-                              request=httpx.Request("GET", DONT_CARE_URL),
+        return httpx2.Response(200,
+                              request=httpx2.Request("GET", DONT_CARE_URL),
                               json=_a_group())
 
     return answering

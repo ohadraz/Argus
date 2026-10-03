@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit.assertions import (
     Assertion,
@@ -203,10 +203,10 @@ def test_a_repository_that_refuses_is_not_reported_as_a_pull_request_opened() ->
     # tell a human where to look, and a fix reported as proposed but never
     # opened is an incident closed on a link to nothing.
     repository = a_repository_that_opens_pull_requests()
-    repository.post.return_value = httpx.Response(
+    repository.post.return_value = httpx2.Response(
         status_code=422,
         json={"message": "No commits between main and argus/fix"},
-        request=httpx.Request("POST", "http://github.invalid/")
+        request=httpx2.Request("POST", "http://github.invalid/")
     )
 
     Scenario() \
@@ -231,13 +231,13 @@ def test_a_refusal_carries_what_the_repository_said_was_wrong() -> None:
     # and this sentence is read in a timeline.
     said_what_was_wrong = "body is too long (maximum is 65536 characters)"
     repository = a_repository_that_opens_pull_requests()
-    repository.post.return_value = httpx.Response(
+    repository.post.return_value = httpx2.Response(
         status_code=422,
         json={"message": "Validation Failed", "errors": [
             {"resource": "PullRequest", "field": "body",
              "message": said_what_was_wrong}
         ]},
-        request=httpx.Request("POST", "http://github.invalid/")
+        request=httpx2.Request("POST", "http://github.invalid/")
     )
 
     Scenario() \
@@ -252,7 +252,7 @@ def test_a_refusal_carries_what_the_repository_said_was_wrong() -> None:
 
 @pytest.mark.unit
 def test_an_unreachable_repository_is_not_reported_as_a_pull_request_opened() -> None:
-    some_transport_error = httpx.ConnectError("connection refused")
+    some_transport_error = httpx2.ConnectError("connection refused")
     repository = a_repository_that_opens_pull_requests()
     repository.post.side_effect = some_transport_error
 
@@ -272,10 +272,10 @@ def test_a_repository_answering_without_a_pull_request_is_not_reported_as_one() 
     # the number as absent-but-fine would record a proposal with no proposal
     # behind it.
     repository = a_repository_that_opens_pull_requests()
-    repository.post.return_value = httpx.Response(
+    repository.post.return_value = httpx2.Response(
         status_code=200,
         json={},
-        request=httpx.Request("POST", "http://github.invalid/")
+        request=httpx2.Request("POST", "http://github.invalid/")
     )
 
     Scenario() \
@@ -402,7 +402,7 @@ def _opening_against(repository: _Repository) -> Any:
 
 class _Repository:
     def __init__(self) -> None:
-        self.post: Any = create_autospec(httpx.post)
+        self.post: Any = create_autospec(httpx2.post)
 
 
 def a_repository_that_opens_pull_requests(
@@ -410,10 +410,10 @@ def a_repository_that_opens_pull_requests(
         url: str = "https://github.invalid/dont-care/dont-care/pull/1"
 ) -> _Repository:
     repository = _Repository()
-    repository.post.return_value = httpx.Response(
+    repository.post.return_value = httpx2.Response(
         status_code=201,
         json={"number": number, "html_url": url},
-        request=httpx.Request("POST", "http://github.invalid/")
+        request=httpx2.Request("POST", "http://github.invalid/")
     )
 
     return repository

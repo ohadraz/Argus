@@ -1,6 +1,6 @@
 """Reading a day's rates from the provider that publishes them.
 
-The provider's body is answered as a real `httpx.Response`, so the parsing
+The provider's body is answered as a real `httpx2.Response`, so the parsing
 under test is the same parsing a live call would get - the seam sits at the
 request, not at the shape of the answer. What is asserted is only what Argus
 depends on: the rates, the day they were published, and the currencies named
@@ -18,7 +18,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import PublishedRates, RatesUnavailable
 from argus_testkit import Assertion, Scenario, all_of, attempting
@@ -142,10 +142,10 @@ def _the_provider_publishing(on: date,
                              rates: dict[str, float]) -> Any:
     """The provider answering as it really does - upper-cased currency codes,
     an ISO day, and the base echoed back."""
-    def answering(*dont_care_args: Any, **dont_care_kwargs: Any) -> httpx.Response:
-        return httpx.Response(
+    def answering(*dont_care_args: Any, **dont_care_kwargs: Any) -> httpx2.Response:
+        return httpx2.Response(
             200,
-            request=httpx.Request("GET", DONT_CARE_BASE_URL),
+            request=httpx2.Request("GET", DONT_CARE_BASE_URL),
             json={"amount": 1.0,
                   "base": SOME_BASE_CURRENCY.upper(),
                   "date": on.isoformat(),
@@ -156,16 +156,16 @@ def _the_provider_publishing(on: date,
 
 
 def _a_provider_that_refuses() -> Any:
-    def answering(*dont_care_args: Any, **dont_care_kwargs: Any) -> httpx.Response:
-        raise httpx.ConnectError("nothing is listening")
+    def answering(*dont_care_args: Any, **dont_care_kwargs: Any) -> httpx2.Response:
+        raise httpx2.ConnectError("nothing is listening")
 
     return answering
 
 
 def _a_provider_answering_nonsense() -> Any:
-    def answering(*dont_care_args: Any, **dont_care_kwargs: Any) -> httpx.Response:
-        return httpx.Response(200,
-                              request=httpx.Request("GET", DONT_CARE_BASE_URL),
+    def answering(*dont_care_args: Any, **dont_care_kwargs: Any) -> httpx2.Response:
+        return httpx2.Response(200,
+                              request=httpx2.Request("GET", DONT_CARE_BASE_URL),
                               json={"detail": "not what you asked for"})
 
     return answering
@@ -173,12 +173,12 @@ def _a_provider_answering_nonsense() -> Any:
 
 def _the_provider_recording_the_request_into(asked_for: Kept[dict[str, Any]],
                                              on: date) -> Any:
-    def answering(*dont_care_args: Any, **kwargs: Any) -> httpx.Response:
+    def answering(*dont_care_args: Any, **kwargs: Any) -> httpx2.Response:
         asked_for.take(kwargs.get("params", {}))
 
-        return httpx.Response(
+        return httpx2.Response(
             200,
-            request=httpx.Request("GET", DONT_CARE_BASE_URL),
+            request=httpx2.Request("GET", DONT_CARE_BASE_URL),
             json={"amount": 1.0,
                   "base": SOME_BASE_CURRENCY.upper(),
                   "date": on.isoformat(),

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
 from argus_testkit import Assertion, Scenario, all_of, attempting
@@ -175,7 +175,7 @@ def _slack_will_answer(base_url: str, error: str, retry_after: int | None = None
     if retry_after is not None:
         seeded["retry_after"] = retry_after
 
-    httpx.post(f"{base_url}/double-control/seed", json=seeded).raise_for_status()
+    httpx2.post(f"{base_url}/double-control/seed", json=seeded).raise_for_status()
 
     return error
 
@@ -200,7 +200,7 @@ def _nothing_was_raised() -> Assertion[Exception | None]:
 
 def _slack_holds_nothing(base_url: str) -> Assertion[Any]:
     def assertion(_result: Any) -> bool:
-        held = httpx.get(f"{base_url}/double-control/posted").json()["posted"]
+        held = httpx2.get(f"{base_url}/double-control/posted").json()["posted"]
         if held:
             raise AssertionError(f"Expected nothing delivered, got {held}")
 

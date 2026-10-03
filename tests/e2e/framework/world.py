@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterable
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import psycopg
 from argus_incidents.repository import events
 
@@ -41,7 +41,7 @@ def a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
     rather than when it is assembled.
     """
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": scenario_id},
             timeout=REQUEST_TIMEOUT_SECONDS
@@ -59,7 +59,7 @@ def the_shops_window() -> list[dict[str, Any]]:
     reading taken through the code under test would agree with that code about
     anything it got wrong.
     """
-    response = httpx.get(
+    response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()

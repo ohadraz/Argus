@@ -23,7 +23,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
 
-import httpx
+import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
@@ -96,7 +96,7 @@ def test_an_incident_nothing_could_confirm_is_recommended_rather_than_acted_on()
 
 def _the_totals_stopped_keeping_up() -> Callable[[], bool]:
     def seed_scenario() -> bool:
-        response = httpx.post(
+        response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": "silent-data-corruption"},
             timeout=10.0
