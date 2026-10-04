@@ -5,19 +5,20 @@ Windowed, aggregated-then-scoped retrieval of metrics and logs: a cheap
 per-minute metrics summary locates the anomalous stretch of an incident, and
 raw log retrieval is then scoped to those minutes rather than dumping the
 full log (spec §16).
-
 ## Requirements
 ### Requirement: argus-read-mcp exposes get_metrics_summary
 The system SHALL provide a
 `get_metrics_summary(alert_time, window_start, window_end)` tool on
 `argus-read-mcp` returning per-minute pre-aggregated buckets - each
 carrying its bucket id, error rate, p50 and p95 latency, and request volume -
-for the Target Service's currently active scenario.
+for the Target Service, read through the configured metrics source and asked
+of it for the resolved window rather than fetched whole and filtered.
 
-#### Scenario: Buckets are returned for the active scenario
+#### Scenario: A call with no window returns the configured span up to now
 - **GIVEN** a scenario is active on the Target Service
 - **WHEN** `get_metrics_summary` is called with no window
-- **THEN** it returns that scenario's full list of per-minute buckets
+- **THEN** it returns the buckets of the last `metrics_window_minutes` up to
+  now
 
 #### Scenario: Buckets outside the window are excluded
 - **GIVEN** a scenario is active whose buckets span several minutes
@@ -29,6 +30,11 @@ for the Target Service's currently active scenario.
 - **GIVEN** the Target Service has no active scenario
 - **WHEN** `get_metrics_summary` is called
 - **THEN** it returns an empty list
+
+#### Scenario: An unreadable metrics source is not an empty summary
+- **GIVEN** the metrics source cannot be read
+- **WHEN** `get_metrics_summary` is called
+- **THEN** the call fails, rather than returning an empty list
 
 ### Requirement: The metrics summary identifies anomalous minutes
 The system SHALL return bucket values that distinguish anomalous minutes from
@@ -149,3 +155,4 @@ arguments.
   window anchored on the onset taken from its result
 - **THEN** both calls succeed and the log lines returned fall within that
   window
+

@@ -27,7 +27,7 @@ change to the logic rather than the removal of a marker.
   remainder succeed, so the service reads as degraded rather than as wholly down
 
 ### Requirement: Metrics and logs are computed from live flag state at request time
-The Target Service SHALL derive `GET /metrics` and `GET /logs` from the current
+The Target Service SHALL derive `GET /scenario/metrics` and `GET /logs` from the current
 flag state and the record of when that state changed, computed when the request
 arrives, by exercising the real checkout code path. No background task, timer,
 or self-directed request traffic SHALL be required for the derived content to
@@ -35,12 +35,12 @@ stay current.
 
 #### Scenario: Minutes during which the flag was on read as degraded
 - **GIVEN** the flag has been on for several minutes
-- **WHEN** `GET /metrics` is requested
+- **WHEN** `GET /scenario/metrics` is requested
 - **THEN** the buckets covering those minutes carry an elevated error rate
 
 #### Scenario: Minutes after the flag went off read as healthy
 - **GIVEN** the flag was on and has since been turned off
-- **WHEN** `GET /metrics` is requested after a further minute has elapsed
+- **WHEN** `GET /scenario/metrics` is requested after a further minute has elapsed
 - **THEN** the bucket covering that minute carries an error rate at the
   service's healthy baseline
 
@@ -97,7 +97,7 @@ staged.
 
 #### Scenario: The three failure modes stay distinguishable
 - **GIVEN** the flag has been on for several minutes
-- **WHEN** `GET /metrics` is requested
+- **WHEN** `GET /scenario/metrics` is requested
 - **THEN** the affected buckets show an elevated error rate, with latency
   percentiles and memory within their normal ranges
 
@@ -111,13 +111,13 @@ is not a baseline.
 
 #### Scenario: A calm service reports steady resource usage
 - **GIVEN** no scenario is staged
-- **WHEN** `GET /metrics` is requested
+- **WHEN** `GET /scenario/metrics` is requested
 - **THEN** every bucket reports memory near a steady baseline, well under its
   limit, and an unchanging process start time
 
 #### Scenario: The flag scenario's resource usage stays flat
 - **GIVEN** the flag has been on for several minutes
-- **WHEN** `GET /metrics` is requested
+- **WHEN** `GET /scenario/metrics` is requested
 - **THEN** the affected buckets show an elevated error rate and memory within
   its normal range
 
@@ -130,13 +130,13 @@ completes.
 #### Scenario: The in-progress bucket reflects a mid-minute revert
 - **GIVEN** the flag was on and is turned off part-way through the current
   minute
-- **WHEN** `GET /metrics` is requested repeatedly during the remainder of that
+- **WHEN** `GET /scenario/metrics` is requested repeatedly during the remainder of that
   minute
 - **THEN** the newest bucket's error rate falls with each read
 
 #### Scenario: The in-progress bucket is present from the first second
 - **GIVEN** the current minute has only just begun
-- **WHEN** `GET /metrics` is requested
+- **WHEN** `GET /scenario/metrics` is requested
 - **THEN** a bucket for the minute in progress is returned
 
 ### Requirement: Completed minutes read the same every time
@@ -145,7 +145,7 @@ completed, however many times it is read, so that two reads of the same past
 minute can be compared. Only the minute in progress SHALL change between reads.
 
 #### Scenario: A past minute is stable across reads
-- **GIVEN** `GET /metrics` has been requested
+- **GIVEN** `GET /scenario/metrics` has been requested
 - **WHEN** it is requested again later without any flag change
 - **THEN** every bucket for a minute that had already completed carries the same
   values as before
@@ -157,6 +157,6 @@ about what happened in that minute.
 
 #### Scenario: A degraded minute appears in both channels
 - **GIVEN** a minute during which the flag was on
-- **WHEN** both `GET /logs` and `GET /metrics` are requested
+- **WHEN** both `GET /logs` and `GET /scenario/metrics` are requested
 - **THEN** that minute carries an elevated error rate in the metrics and failure
   lines in the log, under the same minute identifier

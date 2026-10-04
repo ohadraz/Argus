@@ -32,7 +32,7 @@ the absence of evidence that there is nothing to find.
 
 ### Requirement: The window stops at the onset rather than being empty or flat
 
-`GET /metrics` SHALL carry a row for every minute before the revision landed
+`GET /scenario/metrics` SHALL carry a row for every minute before the revision landed
 and **no row for any minute at or after it**.
 
 The onset is the minute the revision landed, which is the first minute carrying

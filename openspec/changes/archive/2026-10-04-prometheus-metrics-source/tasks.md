@@ -10,7 +10,7 @@
 - [x] 2.3a Reporting lag setting (0 or 1, default 0 until the nightly sets 1): at 0 serve the unfinished minute at the step it ends on, at 1 withhold it
 - [x] 2.4 Serve `GET /metrics` as text exposition (`text/plain; version=0.0.4`) of the latest values
 - [x] 2.5 Tests pinning each query's samples to the JSON rows, value for value
-- [ ] 2.6 Commit and push the demo app
+- [x] 2.6 Commit and push the demo app
 
 ## 3. metrics_source module (TDD - tests proposed in chat)
 
@@ -37,5 +37,5 @@
 
 - [x] 6.1 lint, typecheck, guard_layering green; affected module suites green
 - [x] 6.2 `e2e_replay(mode='both')` green with no re-record
-- [ ] 6.3 Rename `GET /metrics` to `GET /scenario/metrics` in `flag-driven-telemetry` and `monitoring-blind-spot-scenario` specs at sync
-- [ ] 6.4 Note the follow-up: contract test against a real Prometheus in `tests/contract/prometheus/`
+- [x] 6.3 Rename `GET /metrics` to `GET /scenario/metrics` in `flag-driven-telemetry` and `monitoring-blind-spot-scenario` specs at sync
+- [x] 6.4 Note the follow-up: contract test against a real Prometheus in `tests/contract/prometheus/`
