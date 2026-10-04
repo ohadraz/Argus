@@ -1,8 +1,17 @@
 # conditional-action-undo
 
 ## Purpose
-
-TBD
+Putting back what Argus changed, but only where the world still holds it. Every
+reversible mitigation owes an undo, and an undo run blindly is a second
+unrequested write - it overwrites whatever a person did to the subject after
+Argus acted, which is exactly what they were doing when they withdrew the
+incident. So the question is asked of the provider's record of who changed what
+and when, never by comparing the subject's current value against the value Argus
+wrote: a provider serving current state from its own cache reports an empty room
+for as long as that cache is stale, and the change at risk of being overwritten
+in that window is a deliberate human one. Where the subject was touched, the
+undo declines and says it was overridden from outside, which is a different fact
+from an undo that was attempted and failed.
 
 ## Requirements
 
