@@ -55,9 +55,10 @@ jobs:
       - name: Guard e2e test placement
         run: uv run python -m nox -s guard_e2e_boundary
 
-      # The free half of the contract - Slack, which charges nothing for a
-      # message, and Prometheus, which runs here - so it belongs in the nightly
-      # rather than beside the suites that spend tokens. What it guards rots
+      # The free half of the contract - Slack and a Stripe sandbox, which charge
+      # nothing, Frankfurter, which is public, and Prometheus, which runs here -
+      # so it belongs in the nightly rather than beside the suites that spend
+      # tokens. What it guards rots
       # the same way a recording does - a stand-in is believed by every other
       # suite that reads through it, and a real party that changed an answer
       # under it would leave all of them passing against one that no longer
@@ -85,7 +86,16 @@ jobs:
             exit 1
           fi
 
-      - name: Free contract (real Slack workspace, Stripe sandbox, real Prometheus)
+      # The contract finds each stand-in where the demo is configured to, and
+      # this job has no `.env` - so without one, Stripe's and Frankfurter's
+      # would fall back to the code's defaults, which are the real services,
+      # and each case would refuse to compare a service with itself. Right
+      # before the contract rather than at the top, so the steps above go on
+      # running on the defaults they always have.
+      - name: The demo's configuration
+        run: cp .env.example .env
+
+      - name: Free contract (Slack workspace, Stripe sandbox, Frankfurter, Prometheus)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_WAR_ROOM_CHANNEL: ${{ vars.SLACK_WAR_ROOM_CHANNEL }}

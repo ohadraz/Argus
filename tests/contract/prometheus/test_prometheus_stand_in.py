@@ -8,11 +8,14 @@ adapter can read. That is checked here, the one way it can be: the same window
 asked of both through the adapter, and the two answers required to read the
 same.
 
-Read the same rather than equal. A real Prometheus works a rate out of the
-counters it scraped, where the stand-in hands back the figure the shop wrote
-for that minute; the two will not agree to the digit, and nothing depends on
-their agreeing. What everything depends on is that a minute comes back at all,
-with the same fields filled, and that a refusal comes back as one.
+Read the same, and equal where equal is possible. A real Prometheus works a
+rate out of the counters it scraped, where the stand-in hands back the figure
+the shop wrote for that minute, so a rate or a latency will not agree to the
+digit. A figure that holds still from minute to minute - a limit, the instant
+the process started - has no arithmetic between the shop and the answer, and
+does: a units slip on either side shows there and nowhere else. Beyond that,
+what everything depends on is that a minute comes back at all, with the same
+fields filled, and that a refusal comes back as one.
 
 The real half has to be given data, and a scrape is how a real Prometheus gets
 it. So the shop is seeded, Prometheus scrapes it every five seconds (see
@@ -28,6 +31,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx2
 import pytest
+from argus_core import get_settings
 from argus_core.models import MetricBucket
 from argus_testkit import (
     Assertion,
@@ -41,11 +45,13 @@ from argus_testkit import (
 from metrics_source import MetricsSettings, MetricsUnavailable
 from metrics_source.prometheus_adapter import buckets_between
 
-# Where each half answers. The real one is the `prometheus` service in
-# `docker-compose.yml`, scraping the shop; the stand-in is the shop itself.
+# Where each half answers. The real one is the `prometheus` service in Argus's
+# `docker-compose.yml`, published there on 9090 and read by nothing but this
+# suite. The stand-in, and the shop it stands in for, are wherever Argus itself
+# is configured to find them.
 THE_REAL_ONE = "http://localhost:9090"
-THE_STAND_IN = "http://localhost:8080/prometheus"
-THE_SHOP = "http://localhost:8080"
+THE_STAND_IN = get_settings().prometheus_base_url
+THE_SHOP = get_settings().target_service_url
 
 # A generated scenario, because a generated one goes on writing a minute every
 # minute and fills every field a bucket has - so the counters the rates are
@@ -66,6 +72,12 @@ A_FEW_MINUTES = timedelta(minutes=5)
 
 A_MINUTE = timedelta(minutes=1)
 
+# The fields a real Prometheus answers from a scraped gauge with nothing worked
+# out in between, and that the seeded scenario never moves - nothing in this
+# suite restarts or scales the shop. So a minute's reading of each is the
+# shop's own figure on both sides, and the two have to be equal.
+FIGURES_THAT_HOLD_STILL = ("memory_limit_bytes", "cpu_limit_cores", "process_start_time_seconds")
+
 # What Prometheus calls a query it will not run. The one part of a refusal the
 # adapter carries into what it raises, and so the part a reader acts on.
 BAD_DATA = "bad_data"
@@ -78,7 +90,8 @@ def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it() -> None:
     # without was answered - so one minute back from a real Prometheus says
     # each of those expressions parsed, ran, and answered a matrix the adapter
     # read. The comparison then says no field the stand-in fills is one a real
-    # Prometheus would leave empty.
+    # Prometheus would leave empty, and that the figures which hold still are
+    # the same figures.
     Scenario() \
         .given(
             seeded_at := _the_shop_was_seeded_with(A_SCENARIO_THAT_GOES_ON_REPORTING),
@@ -87,7 +100,10 @@ def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it() -> None:
         .when(lambda: buckets_between(*_the_last_few_minutes(), _settings_for(THE_REAL_ONE))) \
         .then(all_of(
             _some_minute_came_back(),
-            _it_reads_as(buckets_between(*_the_last_few_minutes(), _settings_for(THE_STAND_IN)))
+            _it_reads_as(at_the_stand_in := buckets_between(
+                *_the_last_few_minutes(), _settings_for(THE_STAND_IN)
+            )),
+            _its_still_figures_are_the_stand_ins(at_the_stand_in)
         ))
 
 
@@ -146,6 +162,15 @@ def _the_last_few_minutes() -> tuple[datetime, datetime]:
 
 
 def _settings_for(base_url: str) -> MetricsSettings:
+    """Refuses a stand-in configured as the real one: the two halves would
+    then be one Prometheus compared with itself, which passes and proves
+    nothing."""
+    if base_url == THE_STAND_IN == THE_REAL_ONE:
+        raise AssertionError(
+            f"Expected PROMETHEUS_BASE_URL to name the stand-in, it names the real "
+            f"Prometheus [{THE_REAL_ONE}]."
+        )
+
     return MetricsSettings(prometheus_base_url=base_url)
 
 
@@ -167,8 +192,8 @@ def _it_reads_as(at_the_stand_in: list[MetricBucket]) -> Assertion[list[MetricBu
 
     Minute by minute, for the minutes both answered for: the same fields
     filled. Not the same figures - a rate Prometheus worked out of two scrapes
-    and a figure the shop wrote down are never the same number, and nothing in
-    Argus compares them.
+    and a figure the shop wrote down are never the same number. The ones that
+    can be are `_its_still_figures_are_the_stand_ins`.
     """
     def assertion(from_prometheus: list[MetricBucket]) -> bool:
         stood_in = {bucket.bucket_id: _the_fields_filled_in(bucket) for bucket in at_the_stand_in}
@@ -191,6 +216,33 @@ def _it_reads_as(at_the_stand_in: list[MetricBucket]) -> Assertion[list[MetricBu
                     f"Prometheus left {sorted(stand_in - real)} empty "
                     f"and filled {sorted(real - stand_in)} the stand-in did not."
                 )
+
+        return True
+
+    return assertion
+
+
+def _its_still_figures_are_the_stand_ins(
+    at_the_stand_in: list[MetricBucket]
+) -> Assertion[list[MetricBucket]]:
+    """For the minutes both answered for, each figure that holds still is the
+    same figure on both sides."""
+    def assertion(from_prometheus: list[MetricBucket]) -> bool:
+        stood_in = {bucket.bucket_id: bucket for bucket in at_the_stand_in}
+
+        for bucket in from_prometheus:
+            if bucket.bucket_id not in stood_in:
+                continue
+
+            for field in FIGURES_THAT_HOLD_STILL:
+                real = getattr(bucket, field)
+                stand_in = getattr(stood_in[bucket.bucket_id], field)
+
+                if real != stand_in:
+                    raise AssertionError(
+                        f"Expected [{field}] in minute [{bucket.bucket_id}] to be the "
+                        f"stand-in's [{stand_in}], Prometheus answered [{real}]."
+                    )
 
         return True
 
