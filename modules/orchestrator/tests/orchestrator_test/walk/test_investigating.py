@@ -33,6 +33,7 @@ import agent_investigator
 import pytest
 from argus_core.events import (
     AgentInvoked,
+    AlarmDisproven,
     CandidatesReordered,
     FlagChangesRetrieved,
     IncidentEvent,
@@ -44,6 +45,7 @@ from argus_core.models import (
     Actor,
     Alert,
     Attempt,
+    Disproof,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -107,6 +109,13 @@ WHAT_THE_REGISTER_LISTS = [
         ownership=Ownership.INTERNAL
     )
 ]
+
+A_DISPROOF = Disproof(
+    signals_judged=("error_rate", "p95_ms"),
+    earliest_minute="2026-10-03T09:00Z",
+    latest_minute="2026-10-03T09:29Z",
+    minutes_judged=30
+)
 
 
 @pytest.fixture
@@ -418,6 +427,108 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
             ),
             assert_that(record_hypothesis).was_called_with(a_hypothesis_with_no_cause)
         ))
+
+
+@pytest.mark.unit
+def test_a_round_that_disproved_the_alarm_carries_the_window_that_did_it(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The round that found there was nothing to investigate, and the one thing
+    # it leaves behind. The disproof travels with its own evidence because
+    # nothing later in the walk or after it can check the claim - no recovery
+    # confirms it and no next poll contradicts it.
+    #
+    # No hypothesis and no candidate, though the findings carried one. A
+    # candidate is an explanation of a fault, and what this round established is
+    # that there was no fault - so a row offering one would be the record
+    # naming something to doubt where there is nothing to act on.
+    #
+    # The round is still counted. It happened and it read the metrics, and a
+    # count that skipped it would make the only thing this walk did invisible to
+    # anything totalling what Argus spent.
+    an_investigating_incident = _an_investigating_incident()
+    a_hypothesis_nobody_will_use = an_undetermined_hypothesis(
+        an_investigating_incident.incident_id
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_disproved_the_alarm(
+                investigate, a_hypothesis_nobody_will_use
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(all_of(
+            the_result_is(
+                StateDelta(
+                    disproof=A_DISPROOF,
+                    rounds=1,
+                    narration=Narration(
+                        action="the alarm's own claim was not in the window"
+                    )
+                )
+            ),
+            _nothing_was_recorded(record_hypothesis)
+        ))
+
+
+@pytest.mark.unit
+def test_a_disproved_alarm_reads_no_channel_and_searches_no_memory(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # What the short-circuit is for. Every read this round would otherwise make
+    # asks what changed around a fault that did not happen, and memory would be
+    # searched for earlier incidents resembling a service that was well - so the
+    # round that establishes there is nothing to investigate must not go on
+    # investigating.
+    #
+    # Asserted as the collaborators not having been reached rather than as the
+    # delta being small, because a delta can be small for the wrong reason: a
+    # node that read all three and then discarded the answers would satisfy the
+    # case above and none of this one.
+    an_investigating_incident = _an_investigating_incident()
+    published: Kept[IncidentEvent] = Kept()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_disproved_the_alarm(
+                investigate,
+                an_undetermined_hypothesis(an_investigating_incident.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      publisher=published.take)
+        ) \
+        .then(all_of(
+            _no_channel_was_read(fetch_flag_changes, fetch_dependencies),
+            _the_disproof_published_names(A_DISPROOF, published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_disproved_alarm_leaves_the_walk_without_trying_a_mitigation() -> None:
+    # The ending it reaches, and the one it must not: an incident with nothing
+    # wrong with it has nothing to mitigate, so the route out of this node is the
+    # one that leads to the write-up rather than to the proposal.
+    Scenario() \
+        .given(a_disproven_incident := _an_incident_in(IncidentStatus.DISPROVEN)) \
+        .when(lambda: route_after_investigation(a_disproven_incident)) \
+        .then(the_route_is(ESCALATED_ROUTE))
 
 
 @pytest.mark.unit
@@ -1347,6 +1458,99 @@ def _a_diverging_incident() -> IncidentState:
 
     return an_incident_state(the_alert_that_found_them,
                              IncidentStatus.INVESTIGATING)
+
+
+def _no_channel_was_read(*channels: MagicMock) -> Assertion[StateDelta]:
+    """That none of the named collaborators was reached at all.
+
+    The whole set rather than the first, because the failure this guards against
+    is a short-circuit that was never taken - in which case every one of them was
+    reached, and a message naming one would understate it.
+    """
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        read = [channel for channel in channels if channel.called]
+
+        if read:
+            raise AssertionError(
+                f"Expected no channel to be read, and {len(read)} of "
+                f"{len(channels)} were - so the round went on investigating a "
+                f"service it had already established was well."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_recorded(record_hypothesis: MagicMock) -> Assertion[StateDelta]:
+    """That no candidate reached the incident's record.
+
+    A candidate is an explanation of a fault. A row offering one here would be
+    the record naming something for a reader to doubt where there was nothing to
+    act on.
+    """
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        if record_hypothesis.called:
+            raise AssertionError(
+                f"Expected no candidate to be recorded, and "
+                f"{record_hypothesis.call_count} were."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_disproof_published_names(expected: Disproof,
+                                  published: Kept[IncidentEvent]
+                                  ) -> Assertion[StateDelta]:
+    """That the timeline carries the disproof, with the grounds it was made on.
+
+    The grounds are the assertion. A disproof is the one claim in a walk that
+    nothing later can check, so an event announcing one without saying what was
+    judged and over how long would leave the record with a verdict and no case.
+    """
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        said = [
+            event for event in published.taken if isinstance(event, AlarmDisproven)
+        ]
+
+        if len(said) != 1:
+            raise AssertionError(
+                f"Expected exactly one disproof to be published, got {said}."
+            )
+
+        grounds = (
+            said[0].signals_judged, said[0].earliest_minute,
+            said[0].latest_minute, said[0].minutes_judged
+        )
+        wanted = (
+            expected.signals_judged, expected.earliest_minute,
+            expected.latest_minute, expected.minutes_judged
+        )
+
+        if grounds != wanted:
+            raise AssertionError(
+                f"Expected the disproof to have been published on the grounds "
+                f"{wanted}, and it was published on {grounds}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_investigation_disproved_the_alarm(investigate: MagicMock,
+                                           *candidates: Hypothesis) -> None:
+    """An investigation whose window held none of what the alarm claimed.
+
+    The candidates are still handed back, because findings always carry at
+    least one - the point of the cases below is that this node does nothing
+    with them.
+    """
+    investigate.return_value = agent_investigator.Findings(
+        candidates=list(candidates), already_read=[], disproof=A_DISPROOF
+    )
 
 
 def _the_investigation_returned(investigate: MagicMock,

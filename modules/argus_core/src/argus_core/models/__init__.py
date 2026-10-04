@@ -50,11 +50,12 @@ from argus_core.models.action import (
     the_subject_of,
 )
 from argus_core.models.actor import Actor
-from argus_core.models.alert import Alert
+from argus_core.models.alert import AlarmClaim, Alert
 from argus_core.models.attempt import Attempt
 from argus_core.models.candidate import WhatWouldBeTried
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.code_search import CodeSearch
+from argus_core.models.disproof import Disproof
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
 from argus_core.models.findings import Findings
@@ -129,6 +130,7 @@ __all__ = [
     "ActionIdentity",
     "ActionType",
     "Actor",
+    "AlarmClaim",
     "Alert",
     "Ask",
     "Attempt",
@@ -136,6 +138,7 @@ __all__ = [
     "ChangeEvent",
     "ChangeKind",
     "CodeSearch",
+    "Disproof",
     "Evidence",
     "Exchange",
     "Findings",

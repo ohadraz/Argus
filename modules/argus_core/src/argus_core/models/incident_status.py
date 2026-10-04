@@ -34,6 +34,20 @@ class IncidentStatus(StrEnum):
     # to work out what to do or go and do a named thing, which is exactly what a
     # shared status would erase.
     RECOMMENDED = "recommended"
+    # There was no incident. The alarm reported a condition on a series the
+    # system also retrieves, and the window holds no departure in any series it
+    # judges - so what fired is the rule rather than the service.
+    #
+    # Not a kind of escalation, and the distinction is the whole of why it is
+    # here. An escalation hands a human an incident nobody has explained, and
+    # sends them to look at the service; this hands over nothing, and sends them
+    # to look at the rule. Reported as one status, a dashboard of spurious pages
+    # is indistinguishable from a dashboard of unsolved outages.
+    #
+    # Deliberately not `refuted`, which already means a mitigation attempt the
+    # evidence undid. One word for both would make every later reader work out
+    # which was meant.
+    DISPROVEN = "disproven"
     # A human took the incident back: they had it in hand, and Argus was told to
     # stop. Its own status rather than a kind of escalation, because escalation
     # is Argus running out of moves and handing over, and this is a handover
@@ -77,11 +91,16 @@ class IncidentStatus(StrEnum):
         has stopped not because it ran out of moves but because it declined the
         one it had, so there is nothing of its own still running and nothing it
         is waiting for.
+
+        `disproven` is the plainest terminal of the set, and the only one with
+        nothing owed at all. Every other ending is as far as Argus could take
+        something; this is as far as there was anything to take.
         """
         return self in (
             IncidentStatus.MITIGATED,
             IncidentStatus.RESOLVED,
             IncidentStatus.ESCALATED,
             IncidentStatus.RECOMMENDED,
+            IncidentStatus.DISPROVEN,
             IncidentStatus.WITHDRAWN
         )

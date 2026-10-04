@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from argus_core.models.disproof import Disproof
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.reading import Reading
 
@@ -47,3 +48,16 @@ class Findings:
     # `True` by default because that is what every incident before this field
     # existed was: a window with readings throughout, either departing or flat.
     readings_cover_the_incident: bool = True
+    # The window that held none of what the alarm claimed, where the alarm was
+    # one a window can contradict and this one did.
+    #
+    # Here for the reason the field above is: only an investigation holds both
+    # halves. It has the alert, which says what kind of claim its rule made, and
+    # the window, which says what the series did - and neither alone decides
+    # anything. The gate that reads this has the one and never the other.
+    #
+    # `None` for every other outcome, which is every incident there has been.
+    # Absent rather than a flag beside a reason, because what a reader of this
+    # ending needs is the evidence: an alarm reported wrong on no stated grounds
+    # is a second unreviewable claim replacing the first.
+    disproof: Disproof | None = None

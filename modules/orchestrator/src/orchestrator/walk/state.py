@@ -14,6 +14,7 @@ from argus_core.models import (
     Action,
     Alert,
     Attempt,
+    Disproof,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -115,6 +116,20 @@ class IncidentState(BaseModel):
     # worked through everything it was offered - the two leave the same list
     # behind, and they are not the same incident.
     nothing_worth_trying: bool = False
+    # The window that held none of what the alarm claimed, where the alarm was
+    # one a window can contradict and this one did.
+    #
+    # Beside `nothing_worth_trying` and not folded into it, because the two are
+    # opposite findings that leave the same empty candidate list behind. One says
+    # Argus could not explain the incident; this says there was none, and the
+    # service was well across every minute that was judged. A reader of the first
+    # goes to look at the service and a reader of the second goes to look at the
+    # rule.
+    #
+    # Carried rather than re-derived, and carrying its evidence rather than a
+    # flag: a disproof is the one claim in a walk that nothing later can check,
+    # so what it was made over travels with it.
+    disproof: Disproof | None = None
     # What Code-Fix found, and `None` until it has run. Three-valued rather than
     # a bool, because "no fix yet" and "no fix to be had" are the difference
     # between an incident still being worked on and one a human now owns.
@@ -149,11 +164,14 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     business knowing how Argus is configured, and the caller already holds the
     value.
 
-    The order of the questions is the design, and the first of them is "did the
-    symptom stop". A confirmed action is the strongest evidence anything here
-    has - metrics re-queried after the change and recovered - so it is asked
-    first, and it is asked before `fix_found` because an incident that was
-    mitigated and then had a fix proposed for it carries both at once.
+    The order of the questions is the design, and the first of them asks whether
+    there was an incident at all: an alarm the window contradicted is `disproven`,
+    and every rule under it is about how far Argus got with something it was
+    working on. Of the questions about that, the first is "did the symptom stop".
+    A confirmed action is the strongest evidence anything here has - metrics
+    re-queried after the change and recovered - so it is asked first, and it is
+    asked before `fix_found` because an incident that was mitigated and then had
+    a fix proposed for it carries both at once.
 
     Only then does the walk's own arithmetic decide, and `fixing` is what is
     left when every question above it has been answered no.
@@ -167,6 +185,23 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     node that set the previous one back in the business this function takes it
     out of.
     """
+    # Asked before everything below it, the confirmed action included, and the
+    # reason is not that the two can both be true - nothing is ever acted on in a
+    # disproven walk. It is that this is the one question here that is not about
+    # how far Argus got: every rule below decides what an incident Argus was
+    # working on has reached, and this one says there was no incident. A rule
+    # about whether the subject exists belongs above every rule about the
+    # subject's state.
+    #
+    # Placed above the escalation rules rather than merely before them, because
+    # a disproven walk leaves the fields those rules read exactly as an
+    # untouched incident leaves them - no candidate, no action, no fix - and the
+    # last of them sends anything that reaches it onwards rather than to an
+    # ending. A rule that sits below them answers a question they have already
+    # answered differently.
+    if state.disproof is not None:
+        return IncidentStatus.DISPROVEN
+
     if state.action_outcome == Verdict.CONFIRMED:
         return IncidentStatus.MITIGATED
 

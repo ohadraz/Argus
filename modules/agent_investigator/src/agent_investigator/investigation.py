@@ -17,10 +17,12 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from dataclasses import replace
+from enum import StrEnum
 from typing import Any, Final, assert_never
 
 from argus_core import parse_iso, to_iso, to_iso_minute
 from argus_core.anomaly import (
+    THE_JUDGED_SIGNALS,
     AnomalyThresholds,
     earliest_bucket_is_anomalous,
     find_onset,
@@ -52,9 +54,11 @@ from argus_core.models import (
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
+    AlarmClaim,
     Alert,
     Ask,
     Attempt,
+    Disproof,
     Evidence,
     Exchange,
     Findings,
@@ -185,6 +189,34 @@ first is tried first, and the rest are tried in turn if it does not help.\
 
 _MILLISECONDS_PER_SECOND: Final = 1000
 _SECONDS_IN_A_MINUTE: Final = 60
+
+
+class HowTheMinuteIsKnown(StrEnum):
+    """Where the minute an investigation works from came from.
+
+    Three grades rather than measured-or-not, because the model is told a
+    different thing in each and the difference is not a caveat. What it is told
+    about a measured minute is a departure it can see in the rows below; about a
+    stated one, testimony it cannot check; about the third, that the minute dates
+    nothing at all and is only where to look from.
+
+    Public because `_the_opening_message` names it in a signature a reader of
+    this module has to be able to follow, not because anything outside calls it.
+    """
+
+    # The first minute a judged signal departed and stayed departed - derived
+    # from the buckets Argus retrieved, and re-derivable by anyone reading the
+    # incident.
+    MEASURED = "measured"
+    # Testimony from whatever raised the alert, for a window in which nothing
+    # departs. Checkable against nothing Argus holds, which is exactly why the
+    # model is told which of the two it has.
+    STATED_BY_THE_ALERT = "stated-by-the-alert"
+    # Neither. The window is flat, the alert dated nothing, and what stands in
+    # for an onset is the minute the alarm itself fired in. Reached only by an
+    # alert reporting a finding no series carries - a flat window under a rule
+    # watching a series is a disproof rather than an incident with no date.
+    NOTHING_DATES_IT = "nothing-dates-it"
 
 _A_TURN_THAT_ANSWERED_NOTHING: Final = (
     "That turn asked for nothing and answered nothing. Ask for the evidence you need, "
@@ -332,14 +364,50 @@ def investigate(
     # the alert. Where both exist they should agree; where they do not, the one
     # that can be checked is the one to keep.
     measured_onset = find_onset(metric_buckets, thresholds)
-    onset = measured_onset or _the_onset_the_alert_states(alert)
+    stated_onset = _the_onset_the_alert_states(alert)
+    onset = measured_onset or stated_onset
+
+    if (
+        onset is None
+        and alert.claim is not AlarmClaim.ITS_OWN_FINDING
+        and metric_buckets
+    ):
+        # The window was read, it holds no departure in any judged signal, and
+        # the rule that fired was watching one of those signals. So the window is
+        # not short of evidence about this alarm - it is evidence against it.
+        #
+        # A window with no minutes in it is not that, and falls through. The
+        # retrieval answered and had nothing to say, which is nearer to not
+        # having been able to see than to having seen a well service - and an
+        # alarm closed on an empty window would be closed on no evidence.
+        return _the_alarm_was_disproven(
+            alert, incident_id, metric_buckets, narrator
+        )
+
+    if onset is None and alert.claim is AlarmClaim.ITS_OWN_FINDING:
+        # A rule whose subject no series carries, and no date. Nothing here
+        # contradicts the alarm, so the investigation goes on - but it has to be
+        # anchored on something, and the only minute anybody knows is the one the
+        # alarm fired in. That is where to look from and not when this began.
+        #
+        # Conditioned on the claim, which the branch above is conditioned on the
+        # other way round, and the gap between the two is a real case rather than
+        # a formality: a series alarm over a window with *no minutes in it* is
+        # disproved by nothing and anchored by nothing either. It ends below,
+        # where every undated incident ended before any of this - and the one
+        # time this condition was missing, that case walked a whole
+        # investigation of a service nothing had been read about.
+        onset = _the_minute_the_alarm_fired_in(alert)
 
     if onset is None:
         # Nothing was read beyond the metrics, and nothing was spent. There is
         # also nothing to converse about: every window the model could ask for
         # is anchored on an onset the metrics do not contain, and nothing else
-        # has offered one.
+        # has offered one - not even the minute the alarm fired in, which this
+        # alert did not say.
         return _nothing_to_say(alert, incident_id, metric_buckets, narrator)
+
+    how_the_minute_is_known = _how_the_minute_is_known(measured_onset, stated_onset)
 
     narrator.say(OnsetDetected, onset=onset)
 
@@ -395,7 +463,7 @@ def investigate(
             # alert. The message says which, because the two ask the model for
             # different readings of the same flat rows: evidence it has already
             # seen, or evidence it does not have.
-            corroborated=measured_onset is not None,
+            how_the_minute_is_known=how_the_minute_is_known,
             # The last minute the window carries, where it carries none as late as
             # the alert. A measurement rather than prose for the reason the
             # elevation above is one: the model is told when the alert fired and
@@ -657,6 +725,38 @@ def _declined(alert: Alert,
     return Findings(candidates=[undetermined], already_read=dispatcher.readings)
 
 
+def _the_minute_the_alarm_fired_in(alert: Alert) -> str | None:
+    """The minute the alert went off, as a bucket id, where it says.
+
+    An anchor rather than an onset, and the only thing standing in for one where
+    nothing dates the incident at all. A minute is what every window here is
+    anchored on, so an investigation with no minute cannot ask for anything -
+    and the alarm's own firing is the one minute somebody actually recorded.
+
+    `None` where the alert did not say when it fired, which leaves an
+    investigation with nothing to work from and ends it where the ordinary
+    undated incident ends.
+    """
+    return to_iso_minute(alert.started_at) if alert.started_at is not None else None
+
+
+def _how_the_minute_is_known(measured_onset: str | None,
+                             stated_onset: str | None) -> HowTheMinuteIsKnown:
+    """Which of the three the minute in hand came from.
+
+    Read off the two candidates rather than carried alongside them, so that the
+    answer cannot disagree with the minute it describes: a flag set at one branch
+    and a minute chosen at another is two facts that can come apart.
+    """
+    if measured_onset is not None:
+        return HowTheMinuteIsKnown.MEASURED
+
+    if stated_onset is not None:
+        return HowTheMinuteIsKnown.STATED_BY_THE_ALERT
+
+    return HowTheMinuteIsKnown.NOTHING_DATES_IT
+
+
 def _the_onset_the_alert_states(alert: Alert) -> str | None:
     """When the alert says the incident began, where it says anything at all.
 
@@ -685,6 +785,50 @@ def _nothing_to_say(alert: Alert,
     _say_formed(narrator, undetermined)
 
     return Findings(candidates=[undetermined], already_read=[])
+
+
+def _the_alarm_was_disproven(alert: Alert,
+                             incident_id: str,
+                             metric_buckets: list[MetricBucket],
+                             narrator: Narrator) -> Findings:
+    """The outcome when the window contradicts what the alarm claimed.
+
+    A third shape beside `_nothing_to_say` and `_nothing_could_be_read`, and the
+    reason the three are separate is the reason those two are: they are different
+    claims about the service. One says Argus could not work out what is wrong;
+    one says Argus could not see; this says there is nothing wrong, and the rule
+    that said otherwise was looking at a series that never moved.
+
+    Reached only for a rule watching such a series. A rule reporting a finding no
+    series carries is not contradicted by a flat window and never arrives here.
+
+    It still carries an undetermined candidate, because `Findings.candidates` is
+    never empty and a reader walking the candidates should find the account there
+    like any other. What makes this ending its own is the disproof beside them.
+    """
+    disproof = Disproof(
+        signals_judged=THE_JUDGED_SIGNALS,
+        earliest_minute=metric_buckets[0].bucket_id,
+        latest_minute=metric_buckets[-1].bucket_id,
+        minutes_judged=len(metric_buckets)
+    )
+    undetermined = _undetermined(
+        alert,
+        incident_id,
+        (
+            f"the alarm reported a condition on a series, and no minute of the "
+            f"{disproof.minutes_judged} read between {disproof.earliest_minute} "
+            f"and {disproof.latest_minute} departs from the service's baseline in "
+            f"any of {', '.join(disproof.signals_judged)} - so what fired is the "
+            f"rule rather than the service"
+        ),
+        metric_buckets
+    )
+    _say_formed(narrator, undetermined)
+
+    return Findings(
+        candidates=[undetermined], already_read=[], disproof=disproof
+    )
 
 
 def _nothing_could_be_read(alert: Alert,
@@ -773,7 +917,7 @@ def _the_opening_message(alert: Alert,
                          already_refuted: Sequence[Attempt],
                          already_read: Sequence[Reading],
                          opened_already_elevated: bool,
-                         corroborated: bool,
+                         how_the_minute_is_known: HowTheMinuteIsKnown,
                          rows_stop_at: str | None = None) -> str:
     """Everything about *this incident* the model is told before it decides.
 
@@ -789,13 +933,14 @@ def _the_opening_message(alert: Alert,
     its window may have opened mid-incident cannot know to reach further back,
     and confidence will not tell it: it cannot miss what it was never shown.
 
-    `corroborated` says whether that fact was measured or merely stated, and the
-    paragraph changes rather than gaining a caveat. An uncorroborated onset comes
-    with a window in which nothing departs, and a model reading flat rows under a
-    sentence about a measured departure has been handed a contradiction to
-    resolve on its own - which it resolves, reasonably, by concluding the service
-    is well and there is nothing here. So the flatness is named as the shape of
-    the fault, in the same breath as the minute it cannot be seen at.
+    `how_the_minute_is_known` says whether that fact was measured, stated by the
+    alert, or neither - and the paragraph changes rather than gaining a caveat. An
+    unmeasured onset comes with a window in which nothing departs, and a model
+    reading flat rows under a sentence about a measured departure has been handed
+    a contradiction to resolve on its own - which it resolves, reasonably, by
+    concluding the service is well and there is nothing here. So the flatness is
+    named as the shape of the fault, in the same breath as the minute it cannot be
+    seen at.
     """
     said = [
         "## Alert",
@@ -806,7 +951,7 @@ def _the_opening_message(alert: Alert,
         f"summary: {alert.summary or 'none given'}",
         "",
         "## Onset",
-        _the_onset_paragraph(alert, onset, corroborated, rows_stop_at)
+        _the_onset_paragraph(alert, onset, how_the_minute_is_known, rows_stop_at)
     ]
 
     if opened_already_elevated:
@@ -825,7 +970,7 @@ def _the_opening_message(alert: Alert,
         "",
         "## Per-minute metrics",
         f"One row per minute, in time order, comma-separated under the header. "
-        f"{_what_the_rows_are(corroborated, rows_stop_at)} An empty cell is a "
+        f"{_what_the_rows_are(how_the_minute_is_known, rows_stop_at)} An empty cell is a "
         f"reading this service does not have at all, which is not the same as a "
         f"reading of zero.",
         _the_minutes_as_rows(metric_buckets)
@@ -880,27 +1025,44 @@ def _where_the_rows_stop(metric_buckets: list[MetricBucket],
 
 def _the_onset_paragraph(alert: Alert,
                          onset: str,
-                         corroborated: bool,
+                         how_the_minute_is_known: HowTheMinuteIsKnown,
                          rows_stop_at: str | None) -> str:
     """What the model is told about the minute it is working from.
 
-    Three cases rather than two, and the third is the one a model gets wrong
-    unprompted. A measured onset is evidence the model can see for itself. A
-    stated onset over a window that was read throughout is testimony about rows
-    that are all present and all flat. A stated onset over a window whose rows
-    *stop* is testimony about rows that are not there - and the rows that are
-    there describe the time before the fault, which is exactly what makes them
-    misleading.
+    Four cases, and each of the last three is one a model gets wrong unprompted.
+    A measured onset is evidence the model can see for itself. A stated onset over
+    a window that was read throughout is testimony about rows that are all present
+    and all flat. A stated onset over a window whose rows *stop* is testimony about
+    rows that are not there - and the rows that are there describe the time before
+    the fault, which is exactly what makes them misleading.
+
+    The fourth is the minute the alarm fired in, standing in for an onset nobody
+    has. It is the only case where the minute given is not a claim about when
+    anything began, and a model told it plainly as an onset would date the
+    incident from the moment somebody noticed - then look for a change there and
+    find the one that was deploying while the alarm went off.
 
     The first two are left as they were. Every incident built before a window
     could stop walks one of them, and the flat wording was written for a window
     that is flat.
     """
-    if corroborated:
+    if how_the_minute_is_known is HowTheMinuteIsKnown.MEASURED:
         return (
             f"The incident began at {onset}, measured from the per-minute metrics "
             f"below: it is the first minute that departs from the service's own "
             f"baseline and stays departed."
+        )
+
+    if how_the_minute_is_known is HowTheMinuteIsKnown.NOTHING_DATES_IT:
+        return (
+            f"Nothing dates this incident. No series departs from its baseline "
+            f"anywhere in the window below, and whatever raised this did not say "
+            f"when it began - so {onset} is the minute the alarm fired in and is "
+            f"where to look from, not when anything started. Do not treat it as "
+            f"the onset and do not reach for a change at it: a change in that "
+            f"minute is a change that happened while somebody was being paged. "
+            f"What raised this knows something no series does, and how long it had "
+            f"been true before anybody looked is not in any of the evidence."
         )
 
     if rows_stop_at is not None:
@@ -947,17 +1109,23 @@ def _how_far_apart(rows_stop_at: str, alert: Alert) -> str:
     )
 
 
-def _what_the_rows_are(corroborated: bool, rows_stop_at: str | None) -> str:
+def _what_the_rows_are(how_the_minute_is_known: HowTheMinuteIsKnown,
+                       rows_stop_at: str | None) -> str:
     """What the rows below are evidence *of*, which is three questions not one.
 
-    The sentence this replaces told a model over any uncorroborated window that
+    The sentence this replaces told a model over any unmeasured window that
     none of the rows departs and that there is no more of the channel to ask for.
     Both are true of a flat window. Over a window that stops, the first is
     vacuously true of the minutes that are present and silent about the ones that
     are not, and the second is said about the one channel whose return is what
     ends the incident.
+
+    A window under an undated finding is the flat case, and deliberately not a
+    fourth sentence. What differs there is what the minute *means*, which the
+    onset paragraph says; what the rows are is the same thing it is whenever a
+    window is flat and present throughout.
     """
-    if corroborated:
+    if how_the_minute_is_known is HowTheMinuteIsKnown.MEASURED:
         return (
             "These are the minutes the onset was measured from, and they are the "
             "whole span the metrics source keeps - there is no more of this channel "

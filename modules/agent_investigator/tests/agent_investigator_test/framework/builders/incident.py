@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from argus_core.models import Alert, MetricBucket
+from argus_core.models import AlarmClaim, Alert, MetricBucket
 
 # Long enough for the anomaly detector to have a baseline to depart from.
 CALM_MINUTES = 10
@@ -56,6 +56,7 @@ A_SERVICE = "kuki"
 
 def an_alert(started_at: datetime | None = AN_ALERT_TIME,
              stated_onset: datetime | None = None,
+             claim: AlarmClaim = AlarmClaim.A_SERIES_CONDITION,
              stale_entry_keys: tuple[str, ...] | None = None) -> Alert:
     """The alert that opened the incident.
 
@@ -76,12 +77,19 @@ def an_alert(started_at: datetime | None = AN_ALERT_TIME,
     is a parameter so a case can put real addresses on the alert and watch them
     not arrive. The count goes with them because the model refuses a pair that
     does not account for itself.
+
+    `claim` is a series condition by default, which is what the alert name here
+    already is and what almost every rule in any stack is. A case hands in the
+    other reading to stage a rule whose subject no series carries - and that is
+    the whole of what decides whether a window with no departure in it closes
+    the incident or says nothing about it.
     """
     return Alert(
         service=A_SERVICE,
         alert_name="HighErrorRate",
         started_at=started_at,
         stated_onset=stated_onset,
+        claim=claim,
         stale_entry_keys=stale_entry_keys,
         stale_entries_found=None if stale_entry_keys is None else len(stale_entry_keys)
     )

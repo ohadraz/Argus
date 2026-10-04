@@ -20,6 +20,7 @@ import pytest
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     Alert,
+    Disproof,
     FailureMode,
     FlagUndo,
     Hypothesis,
@@ -363,6 +364,56 @@ def test_the_same_state_always_derives_the_same_status() -> None:
 
 
 @pytest.mark.unit
+def test_an_alarm_the_window_contradicted_is_disproven_rather_than_escalated() -> None:
+    # Asked before every other question here, and the ordering is the whole of
+    # it. An investigation that disproved the alarm also offered no candidate
+    # worth trying - it offered none at all - so `nothing_worth_trying` is set
+    # beside the disproof, and the first rule to match decides. Asked in the
+    # order the escalation rules already sit in, this would report `escalated`
+    # and lose the one thing the ending exists to say.
+    #
+    # The two are opposite findings, not grades of one. Escalated sends a
+    # responder to look at the service; this sends them to look at the rule,
+    # because the service was well across every minute that was judged.
+    Scenario() \
+        .given(
+            an_incident_whose_alarm_was_contradicted := _an_incident(
+                nothing_worth_trying=True,
+                disproof=_a_disproof()
+            )
+        ) \
+        .when(
+            lambda: status_after(
+                an_incident_whose_alarm_was_contradicted, SOME_MAX_ROUNDS
+            )
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.DISPROVEN)
+        )
+
+
+@pytest.mark.unit
+def test_an_investigation_that_found_nothing_is_escalated_as_it_always_was() -> None:
+    # The other half, asserted beside it because this is the branch every
+    # existing incident with nothing to try takes, and the one the rule above
+    # could quietly widen. No disproof means the window was never evidence
+    # against the alarm - so Argus could not explain the incident rather than
+    # having established there was none.
+    Scenario() \
+        .given(
+            an_incident_nothing_was_found_for := _an_incident(
+                nothing_worth_trying=True
+            )
+        ) \
+        .when(
+            lambda: status_after(an_incident_nothing_was_found_for, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.ESCALATED)
+        )
+
+
+@pytest.mark.unit
 def test_a_state_nothing_has_been_found_for_yet_assumes_nothing() -> None:
     Scenario() \
         .given(
@@ -400,6 +451,15 @@ def test_a_state_with_no_alert_is_refused() -> None:
         .then(
             an_error_was_raised(ValidationError)
         )
+
+
+def _a_disproof() -> Disproof:
+    return Disproof(
+        signals_judged=("error_rate", "p95_ms"),
+        earliest_minute="2026-10-03T09:00Z",
+        latest_minute="2026-10-03T09:29Z",
+        minutes_judged=30
+    )
 
 
 def _the_status_is(expected: IncidentStatus) -> Assertion[IncidentStatus]:

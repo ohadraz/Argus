@@ -29,6 +29,7 @@ from argus_core.events import (
     ActionRefused,
     ActionTaken,
     AgentInvoked,
+    AlarmDisproven,
     AlertAcknowledged,
     AwaitingRecovery,
     CandidateSelected,
@@ -399,6 +400,26 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = (
                 f"Left for a person to do - "
                 f"{what_the_action_does(event.action_type, emphasis)}"
+            )
+        case AlarmDisproven():
+            who = _ARGUS
+            # The condition the rule reported, because that is the thing found
+            # not to be there. Marking the service or the status instead would
+            # leave a reader knowing Argus stopped and not what it ruled out -
+            # and what they do next depends on which series the rule was about.
+            emphasis = event.condition
+            # The span and the count both, in the one line, for the reason the
+            # event carries both: nothing later checks a disproof, so a reader
+            # scanning the timeline is the last check there is. A window that
+            # holds fewer minutes than its ends suggest is the one a disproof
+            # should be doubted over, and that is invisible unless both are said.
+            text = (
+                f"Nothing in the window matched the alarm's own claim - "
+                f"{emphasis} - across {', '.join(event.signals_judged)}, over "
+                f"{event.minutes_judged} minute"
+                f"{'' if event.minutes_judged == 1 else 's'} read between "
+                f"{event.earliest_minute} and {event.latest_minute}. "
+                f"The rule fired rather than the service failing"
             )
         case MitigationResumed():
             who = _ARGUS

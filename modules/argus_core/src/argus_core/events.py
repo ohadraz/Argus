@@ -430,6 +430,35 @@ class ActionRecommended(_Event):
     subject: str | None
 
 
+class AlarmDisproven(_Event):
+    """The window held none of what the alarm claimed, and what it was judged on.
+
+    The one event here that reports the absence of an incident. Everything else
+    on a timeline says what Argus found or did about something that was
+    happening; this says the rule fired about a series the service never moved,
+    and that the rule rather than the service is what to look at.
+
+    Its own event rather than a kind of `StatusChanged`, for the reason
+    `ActionRecommended` is not a field on `ActionRefused`: a reader given the
+    status alone learns that Argus stopped and not why it was entitled to.
+
+    `signals_judged`, the two minutes and `minutes_judged` are the whole of why
+    the event exists. A disproof is the only claim in a walk that nothing later
+    can check - no recovery confirms it and no next poll contradicts it - so the
+    grounds travel with it or they are not recorded anywhere. The count is not
+    the span: a window whose readings stop part way through holds fewer minutes
+    than its ends suggest, and a reader has to be able to see which they were
+    handed.
+    """
+
+    kind: Literal["alarm-disproven"] = "alarm-disproven"
+    condition: str
+    signals_judged: tuple[str, ...]
+    earliest_minute: str
+    latest_minute: str
+    minutes_judged: int
+
+
 class PlatformUnavailable(_Event):
     """A platform Argus acts through did not answer, and what went with it.
 
@@ -692,6 +721,7 @@ type IncidentEvent = Annotated[
         | CandidateSelected
         | ActionRefused
         | ActionRecommended
+        | AlarmDisproven
         | PlatformUnavailable
         | RetrievalUnanswered
         | ActionTaken

@@ -24,7 +24,8 @@ from agent_investigator.retrieval import (
     RolloutFetcher,
 )
 from agent_investigator.tools import DEPENDENCIES_TOOL
-from argus_core import new_id, parse_iso, to_iso
+from argus_core import new_id, parse_iso, to_iso, to_iso_minute
+from argus_core.anomaly import THE_JUDGED_SIGNALS
 from argus_core.events import (
     ChannelsUnread,
     HypothesisFormed,
@@ -45,6 +46,7 @@ from argus_core.models import (
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     ActionIdentity,
+    AlarmClaim,
     Ask,
     Attempt,
     Evidence,
@@ -1108,6 +1110,118 @@ def test_a_flat_window_with_no_stated_onset_is_still_answered_without_the_model(
 
 
 @pytest.mark.unit
+def test_a_series_alarm_over_a_window_with_no_minutes_disproves_nothing() -> None:
+    # The gap between the two branches above and below, and a real case rather
+    # than a formality. A window that was read and holds no departure
+    # contradicts a series alarm; a window with no minutes in it contradicts
+    # nothing, because the retrieval answered and had nothing to say - which is
+    # nearer to not having been able to see than to having seen a well service.
+    #
+    # So it ends where every undated incident ended before any of this: no
+    # disproof, and no model. Both halves are asserted, because the way this
+    # breaks is the branch below reaching for an anchor it should not have - and
+    # a walk that invented one would investigate a service nothing was read
+    # about, which is what it did the one time this condition was missing.
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed([]))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            all_of(
+                _nothing_was_disproven(),
+                _the_model_was_never_asked(investigation.model),
+                _no_cause_was_determined()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_flat_window_under_a_series_alarm_reports_the_alarm_disproven() -> None:
+    # The same branch as the case above, asked the question that separates two
+    # findings it used to report as one. "I could not work out what is wrong"
+    # sends a responder to the service; "nothing is wrong and the rule was
+    # looking at a series that never moved" sends them to the rule, and only the
+    # second is true here.
+    #
+    # The signals and the span ride with it because a disproof is the one claim
+    # in a walk that nothing later can check. One made over a window too narrow
+    # to contain the condition reads exactly like a sound one.
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            _the_alarm_was_disproven_over(THE_JUDGED_SIGNALS)
+        )
+
+
+@pytest.mark.unit
+def test_a_flat_window_under_a_finding_of_the_rules_own_disproves_nothing() -> None:
+    # The seam the closure above must not swallow. A check comparing stored
+    # values against the records behind them can find a disagreement it cannot
+    # date, and the window it arrives with is flat for the same reason every
+    # window under such a check is: no series was ever its subject.
+    #
+    # So the investigation goes on, and the model is asked - where the case above
+    # ends without a model ever being opened.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None, claim=AlarmClaim.ITS_OWN_FINDING)
+            )
+        ) \
+        .then(
+            all_of(
+                _nothing_was_disproven(),
+                _the_model_was_asked(investigation.model, times=1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_undated_finding_is_anchored_on_the_minute_the_alarm_fired_in() -> None:
+    # What such an investigation works from, since it has to work from
+    # something: every window here is anchored on a minute, and the only minute
+    # anybody recorded is the one the alarm went off in.
+    #
+    # Asserted as the alert's own firing minute rather than as "some minute",
+    # because the alternative that would also pass a vaguer check is the one
+    # worth refusing: an onset invented from the window's first row, which would
+    # date the incident from wherever the metrics source happens to reach back to.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None, claim=AlarmClaim.ITS_OWN_FINDING),
+                publisher=published.append
+            )
+        ) \
+        .then(
+            _the_onset_published_was(published, to_iso_minute(AN_ALERT_TIME))
+        )
+
+
+@pytest.mark.unit
 def test_a_later_round_is_shown_what_was_tried_and_what_was_read() -> None:
     # The more valuable half of what a second round is bought with. The window
     # may reach further back, but a refutation is evidence the model has never
@@ -1410,6 +1524,55 @@ def _every_candidate_belongs_to(incident_id: str) -> Assertion[Findings]:
         if stray:
             raise AssertionError(f"Expected every candidate to belong to [{incident_id}], "
                                  f"but some belonged to {stray}.")
+
+        return True
+
+    return assertion
+
+
+def _the_alarm_was_disproven_over(signals: tuple[str, ...]) -> Assertion[Findings]:
+    """That the window was reported as contradicting the alarm, and over what.
+
+    The signals are half the assertion rather than decoration. A disproof is read
+    by people and resolved against nothing, so one that named no signals - or
+    named a signal nobody judged - is indistinguishable from a sound one, and
+    this is the only place the difference is visible.
+    """
+    def assertion(findings: Findings) -> bool:
+        if findings.disproof is None:
+            raise AssertionError(
+                "Expected the window to have disproven the alarm, and nothing "
+                "reported a disproof - so the incident would hand a human a "
+                "service that was well throughout."
+            )
+
+        if findings.disproof.signals_judged != signals:
+            raise AssertionError(
+                f"Expected the disproof to have been made over {signals}, and it "
+                f"names {findings.disproof.signals_judged}."
+            )
+
+        if findings.disproof.minutes_judged < 1:
+            raise AssertionError(
+                f"Expected a disproof made over minutes that were actually read, "
+                f"and it reports {findings.disproof.minutes_judged} - an alarm "
+                f"closed on an empty window is closed on no evidence."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_disproven() -> Assertion[Findings]:
+    """That no disproof was reported, whatever else the investigation concluded."""
+    def assertion(findings: Findings) -> bool:
+        if findings.disproof is not None:
+            raise AssertionError(
+                f"Expected no disproof, and the alarm was reported disproven over "
+                f"{findings.disproof.signals_judged} - a window says nothing "
+                f"about an alarm whose subject no series carries."
+            )
 
         return True
 

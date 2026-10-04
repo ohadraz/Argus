@@ -28,6 +28,7 @@ from argus_core.events import (
     ActionRefused,
     ActionTaken,
     AgentInvoked,
+    AlarmDisproven,
     AlertAcknowledged,
     CandidateSelected,
     CandidatesReordered,
@@ -492,6 +493,44 @@ def test_a_recommendation_names_the_action_somebody_should_take() -> None:
         .when(lambda: build_narration([some_recommendation])) \
         .then(all_of(
             _the_only_line_marks(some_flag),
+            _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_says_what_was_ruled_out_and_over_what() -> None:
+    # The only line on any timeline that reports the absence of an incident.
+    # Everything else says what Argus found or did about something that was
+    # happening, so a reader scanning for this one needs it to say plainly that
+    # the rule fired and the service did not fail.
+    #
+    # The condition is marked rather than the service or the status, because the
+    # condition is the thing found not to be there - and which series the rule
+    # was about decides what a reader does next.
+    #
+    # The span and the count are both in the line for the reason they are both
+    # on the event: nothing later checks a disproof, so whoever reads the
+    # timeline is the last check there is. A window holding fewer minutes than
+    # its ends suggest is exactly the one to doubt a disproof over, and that is
+    # invisible unless both figures are said.
+    some_condition = "error rate above 5% for 5m"
+    some_disproof = AlarmDisproven(
+        incident_id=new_id(),
+        condition=some_condition,
+        signals_judged=("error_rate", "p95_ms"),
+        earliest_minute="2026-10-03T09:00Z",
+        latest_minute="2026-10-03T09:29Z",
+        minutes_judged=30
+    )
+
+    Scenario() \
+        .given(some_disproof) \
+        .when(lambda: build_narration([some_disproof])) \
+        .then(all_of(
+            _the_only_line_marks(some_condition),
+            _the_only_line_says(
+                "error_rate", "p95_ms", "30", "2026-10-03T09:00Z",
+                "2026-10-03T09:29Z"
+            ),
             _the_lines_are_credited_to(["Argus"])))
 
 

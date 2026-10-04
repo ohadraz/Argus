@@ -357,6 +357,14 @@
      grey, and still like the other two endings - the incident is over, and
      the screen has to stop saying otherwise. */
   .status.withdrawn { color: #9aa0a6; border-color: var(--line); }
+  /* Disproven is the only ending on this page that reports there was nothing
+     wrong, and the only one with nothing owed. Green and solid, like
+     `resolved`: not dashed, because the dash is this page's mark for an ending
+     with something still owed and there is nothing - and not red, because a
+     screen read from across a room must not show a well service in the colour
+     of a failure. What is left to look at is the rule, which the stream says
+     and a colour cannot. */
+  .status.disproven { color: var(--good); border-color: var(--good); }
 
   /* The one control on the page. It reads as a control rather than a status -
      square rather than a pill, and it takes the pointer - because everything
@@ -398,6 +406,7 @@
   .moved-to.escalated { color: var(--bad); }
   .moved-to.recommended { color: var(--amber); }
   .moved-to.withdrawn { color: #9aa0a6; }
+  .moved-to.disproven { color: var(--good); }
 
   /* The verdict is the sentence the whole mitigation was for. Red or green and
      in capitals, so it is findable on a screen being read from across a room

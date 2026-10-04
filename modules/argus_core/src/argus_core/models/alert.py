@@ -1,8 +1,31 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, model_validator
+
+
+class AlarmClaim(StrEnum):
+    """What a rule looked at to decide it had something to say.
+
+    Named for the rule's own subject rather than for what Argus does with the
+    answer, because the rule is what knows it and a consumer is not. What the
+    answer decides is whether a window holding no departure is evidence against
+    this alarm or no evidence about it at all: a threshold on a series Argus also
+    retrieves can be contradicted by that series, and a check comparing stored
+    values against the records behind them cannot be contradicted by any series,
+    because none of them was ever the subject.
+    """
+
+    # A condition the rule measured on a series the system also retrieves - an
+    # error rate, a latency, a resource against its limit. Almost every rule in
+    # any monitoring stack, and the reading a silent sender is taken to mean.
+    A_SERIES_CONDITION = "series-condition"
+    # Something the rule worked out for itself and no series carries: stored
+    # totals that disagree with the records behind them, cached figures the
+    # records have moved past, readings that stopped arriving at all.
+    ITS_OWN_FINDING = "own-finding"
 
 
 class Alert(BaseModel):
@@ -32,6 +55,23 @@ class Alert(BaseModel):
     # that reason - that is when somebody noticed, and here the two differ by a
     # week.
     stated_onset: datetime | None = None
+    # What the rule that fired this looked at, which decides what a window with
+    # no departure in it proves.
+    #
+    # The one field here whose omission means something rather than nothing, and
+    # the only one carrying a default that is not `None`. A sender saying nothing
+    # is read as a threshold rule, because that is what almost every rule is -
+    # and the alternative is worse in the one direction that matters: a silence
+    # read as a finding of the rule's own would make a well service
+    # unfalsifiable, because nothing Argus retrieves could ever contradict it.
+    #
+    # Deliberately not derived from whether `stated_onset` is set. A check can
+    # find a disagreement it cannot date - what would date it is sometimes the
+    # very thing that went missing - and such an alert is indistinguishable from
+    # a threshold rule that stated nothing. Nor read off `alert_name`: that is a
+    # table every rule in the estate has to join, and it classifies a rule named
+    # after its service by its spelling rather than by what it watched.
+    claim: AlarmClaim = AlarmClaim.A_SERIES_CONDITION
     # The entries a reconciliation found holding a value the records behind them
     # have moved past, addressed as the store that holds them addresses them.
     #

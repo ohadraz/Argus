@@ -24,6 +24,7 @@ from typing import Any
 from argus_core.models import (
     Action,
     Attempt,
+    Disproof,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -114,6 +115,10 @@ class StateDelta(BaseModel):
     # the router after the gate, takes as an action in flight.
     recommended_action: Action | None = None
     nothing_worth_trying: bool | None = None
+    # The window that contradicted what the alarm claimed, where it did. Set by
+    # the investigating node alone, and the one thing that ends a walk without
+    # anything having been found or done.
+    disproof: Disproof | None = None
     fix_found: bool | None = None
     confidence: float | None = None
     # The verdict itself, not its spelling. `str(verdict)` reaching the state

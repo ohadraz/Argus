@@ -27,6 +27,7 @@ from argus_core.events import (
     ActionRefused,
     ActionTaken,
     AgentInvoked,
+    AlarmDisproven,
     AlertAcknowledged,
     AwaitingRecovery,
     CandidateSelected,
@@ -117,6 +118,7 @@ def test_an_incident_opening_is_announced() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize("ending", [IncidentStatus.RESOLVED,
                                     IncidentStatus.ESCALATED,
+                                    IncidentStatus.DISPROVEN,
                                     IncidentStatus.WITHDRAWN])
 def test_an_incident_ending_is_announced(ending: IncidentStatus) -> None:
     # How it ended is addressed to everyone who did not follow it - including
@@ -129,6 +131,31 @@ def test_an_incident_ending_is_announced(ending: IncidentStatus) -> None:
         ) \
         .when(lambda: how_it_is_said(the_incident_ending)) \
         .then(_it_is_said(Register.ANNOUNCED))
+
+
+@pytest.mark.unit
+def test_the_grounds_for_a_disproof_are_followed_rather_than_announced() -> None:
+    # Which signals were judged and over how long is the case for the ending
+    # rather than the ending, and a case belongs where the incident is followed.
+    # The channel hears what happened; the thread is where somebody can check
+    # whether the window was wide enough to have held the condition at all.
+    #
+    # Not unsaid, though, which is where the policy's wildcard would leave it. A
+    # thread that went from an alert to a terminal status with nothing in between
+    # reads as an incident Argus could not work out - the opposite finding.
+    the_disproof = AlarmDisproven(
+        incident_id=AN_INCIDENT,
+        condition="error rate above 5% for 5m",
+        signals_judged=("error_rate", "p95_ms"),
+        earliest_minute="2026-10-03T09:00Z",
+        latest_minute="2026-10-03T09:29Z",
+        minutes_judged=30
+    )
+
+    Scenario() \
+        .given(the_disproof) \
+        .when(lambda: how_it_is_said(the_disproof)) \
+        .then(_it_is_said(Register.FOLLOWED))
 
 
 @pytest.mark.unit

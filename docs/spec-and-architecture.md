@@ -198,7 +198,7 @@ Reading is the other direction, and stays in the read tier: the Communicator is 
 
 ### 7.6 Postmortem agent
 
-Triggered once on transition into `resolved` or `escalated`. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, what it cost - two estimates with their assumptions and two measurements (§21.3) - and an executive summary.
+Triggered once on the transition that ends the incident, whichever ending the walk derived - `resolved`, `mitigated`, `recommended`, `escalated` or `disproven`, the last being the one where what was ruled out is the alarm itself and a reader is owed the grounds. Not on `withdrawn`, which is the one ending the walk does not derive: a withdrawn incident leaves the graph at the next node boundary rather than routing onwards, so there is no ending transition for this to hang off and the person who took the incident back is not waiting to be told what Argus made of it. Consumes the full incident timeline and produces the postmortem: timeline, root cause, actions taken, what it cost - two estimates with their assumptions and two measurements (§21.3) - and an executive summary.
 
 LLM-backed rather than agentic: it retrieves nothing and drives no tool loop, because everything it writes about has already happened and is already recorded. Every figure it publishes is computed from that record, and the model supplies none of them - it writes prose. What a figure rests on, the document states beside it: the windows compared, the exchange rate applied and its date, a currency left out of a total, the working year an annual pay band was divided by, and the band each responder's title was priced at.
 
@@ -317,6 +317,7 @@ stateDiagram-v2
     acknowledged --> investigating: a worker takes the run
     investigating --> mitigating: a named cause worth trying
     investigating --> escalated: budget spent, or nothing left to try
+    investigating --> disproven: the window held none of what the alarm claimed
     mitigating --> fixing: mitigation confirmed
     mitigating --> mitigating: mitigation refuted, another candidate to try
     mitigating --> investigating: candidates exhausted, rounds remain
@@ -329,6 +330,7 @@ stateDiagram-v2
     resolved --> [*]: postmortem generated
     recommended --> [*]: postmortem generated + the action a person must take
     escalated --> [*]: postmortem generated (partial) + human paged
+    disproven --> [*]: postmortem generated + the rule named as what to look at
     acknowledged --> withdrawn: a human takes the incident back
     investigating --> withdrawn: a human takes the incident back
     mitigating --> withdrawn: a human takes the incident back
@@ -342,11 +344,17 @@ What admits the walk is a *named* cause, not a confident one: a generic mitigati
 
 `acknowledged` is where an incident sits between being accepted and being picked up: Argus has the alert and has committed to handling it, and the walk is queued for a worker (§7.1). It is a status rather than an event because it is the incident's own state and can last - a worker that is down leaves incidents there, and a screen reporting them as `investigating` would claim attention nobody is paying. The interval between it and `investigating` is how long the incident waited for a worker, which is the one duration the timeline could not otherwise report.
 
-`mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. `mitigated`, `escalated`, `resolved`, `recommended` and `withdrawn` are terminal.
+`mitigating` is re-enterable: a refuted action self-loops on it for the next candidate, because an action that was taken and did not help leaves the incident in the same phase it was already in. `fixing` and `escalated` are not interchangeable - `fixing` says Code-Fix is looking for a permanent fix and Argus is still working; `escalated` says Argus is out of moves and a human owns it. `mitigated`, `escalated`, `resolved`, `recommended`, `disproven` and `withdrawn` are terminal.
 
 `recommended` is the ending for an incident Argus knows what to do about and must not do. It is not `escalated`, and the difference is the whole of it: escalation says nobody knows what to do, where this says somebody does and names the action - a cause identified, a mitigation worked out, and a reader handed an instruction rather than a problem. It is not `resolved` either, because nothing was done. Argus declining a move it holds is a different outcome from Argus running out of moves, and a record that spelled them the same way would report the one incident carrying an answer as the one carrying none.
 
 It is derived ahead of whether a fix was found, for the reason `mitigated` is: this walk goes on to Code-Fix, so both facts are settled by the time the status is read, and asking about the fix first would report the incident escalated and lose the one thing it exists to say. The recommended action is carried on the incident and stated wherever the incident is - the timeline, the page, the Slack message and the postmortem's outstanding work - because an action nobody is told about is one nobody takes.
+
+`disproven` is the ending for an incident there was none of. An alarm reporting a condition on a series Argus also retrieves can be contradicted by that series, and where the window holds no departure in any signal the detector judges, the window is not short of evidence about that alarm - it is evidence against it. Not `escalated`, and the difference is the one a responder acts on: escalation hands over an incident nobody has explained and sends them to the service, where this hands over nothing and sends them to the rule. Reported as one status, a dashboard of spurious pages is indistinguishable from a dashboard of unsolved outages.
+
+**What a window can contradict is a claim about a series, so the split is on what the alarm claims rather than on what the metrics show.** A rule that compared stored values against the records behind them, or noticed that no readings arrived at all, is about something no series carries - and a flat window is no evidence against it. Which of the two a rule is, only the rule knows, so the alert carries it: a silence means a series condition, which is what a threshold rule is and what a stack saying nothing about itself almost certainly has. Derived instead from whether the alert happened to state an onset, the one case the distinction exists for would be the one it got wrong - a check can find a disagreement it cannot date, because what would date it is sometimes the very thing that went missing.
+
+It is derived ahead of every other question, including the confirmed action, and not because the two can both be true - nothing is ever acted on in such a walk. Every other rule says how far Argus got with something it was working on, and this one says there was nothing to work on; a question about whether the subject exists belongs above every question about the subject's state. The grounds travel with it - which signals were judged and over what span - because a disproof is the one claim in a walk that nothing later can check: no recovery confirms it and no next poll contradicts it, so a reader of the record is the last check there is, and one made over a window too narrow to have held the condition reads exactly like a sound one.
 
 `withdrawn` is the one status Argus does not decide. It is reachable from every phase the walk passes through, because the moment somebody wants the incident back is not one Argus gets to choose, and it is the only transition written with `Actor.HUMAN` - the single row about something Argus did not do. `status_after` never returns it for that reason: it is set from outside the walk, and the walk finds out by reading the incident back rather than by being told.
 

@@ -14,6 +14,7 @@ import logging
 
 from argus_core.events import (
     AgentInvoked,
+    AlarmDisproven,
     CandidatesReordered,
     FlagChangesRetrieved,
     Publisher,
@@ -24,6 +25,7 @@ from argus_core.events import (
 )
 from argus_core.models import (
     Actor,
+    Disproof,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -94,6 +96,14 @@ def investigator_node(
         already_read=state.already_read,
         already_refuted=state.attempts,
     )
+    if findings.disproof is not None:
+        # The window contradicted what the alarm claimed, so there is no incident
+        # for the rest of this round to be about. Returned here rather than
+        # carried through it: every read below asks what changed around a fault
+        # that did not happen, and memory would be searched for incidents
+        # resembling a service that was well.
+        return _the_alarm_was_disproven(state, findings.disproof, publisher)
+
     # The flag provider's account of what changed, read here rather than in
     # the node that proposes an action. What memory compares is not a candidate
     # but the action that answers it, and that question cannot be asked before
@@ -321,6 +331,49 @@ def _what_the_register_lists(state: IncidentState,
         )
 
         return []
+
+
+def _the_alarm_was_disproven(state: IncidentState,
+                             disproof: Disproof,
+                             publisher: Publisher) -> StateDelta:
+    """The round that established there was nothing to investigate.
+
+    Nothing is recorded as a hypothesis and no candidate is carried on. A
+    candidate is an explanation of a fault, and what this round found is that
+    there was no fault - so a row offering an explanation would be the record
+    naming something for a reader to doubt instead of something to act on.
+
+    The round is still counted. It happened, it read the metrics, and a count
+    that skipped it would make the one thing this walk did invisible to anything
+    totalling what Argus spent.
+    """
+    publish(
+        AlarmDisproven(
+            incident_id=state.incident_id,
+            # The alert's own words for what it reported, rather than Argus's
+            # summary of them. The claim that was ruled out has to be the claim
+            # as the rule made it, or a reader cannot match the two.
+            condition=state.alert.summary or state.alert.alert_name,
+            signals_judged=disproof.signals_judged,
+            earliest_minute=disproof.earliest_minute,
+            latest_minute=disproof.latest_minute,
+            minutes_judged=disproof.minutes_judged
+        ),
+        publisher
+    )
+
+    return StateDelta(
+        disproof=disproof,
+        rounds=state.rounds + 1,
+        narration=Narration(
+            # Read in two places and written for the harder one. The
+            # timeline shows it beside the disproof event, which carries the
+            # grounds; the channel announcement shows it as the whole reason
+            # the incident ended, with nothing else beside it. So it says what
+            # was found rather than naming the finding.
+            action="the alarm's own claim was not in the window"
+        )
+    )
 
 
 def _what_the_investigation_did(hypothesis: Hypothesis) -> str:

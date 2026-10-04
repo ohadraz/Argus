@@ -143,6 +143,24 @@ def test_a_recommended_incident_has_nowhere_left_to_go() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_disproven_incident_has_nowhere_left_to_go() -> None:
+    # The metrics contradicted what the alarm claimed, so there was no incident
+    # to work on. Terminal in the plainest sense of any status here: the others
+    # are as far as Argus can take something, and this is as far as there was
+    # anything to take.
+    Scenario() \
+        .given(
+            disproven := IncidentStatus.DISPROVEN
+        ) \
+        .when(
+            lambda: disproven.is_terminal()
+        ) \
+        .then(
+            _nothing_more_is_coming()
+        )
+
+
 def _nothing_more_is_coming() -> Assertion[bool]:
     """That the status is terminal, and says so as a real `bool`.
 

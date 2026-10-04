@@ -8,7 +8,7 @@ and what may not.
 from __future__ import annotations
 
 import pytest
-from argus_core.models.alert import Alert
+from argus_core.models.alert import AlarmClaim, Alert
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from pydantic import ValidationError
 
@@ -29,6 +29,32 @@ def test_an_alert_that_said_no_more_than_it_had_to_assumes_nothing() -> None:
             _nothing_was_assumed_about(
                 "severity", "summary", "stale_entry_keys", "stale_entries_found"
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_saying_nothing_about_its_rule_is_taken_to_watch_a_series() -> None:
+    # The one field here whose omission means something rather than nothing, and
+    # it has to: what a rule looked at decides whether a window with no departure
+    # in it is evidence against that rule or no evidence at all. A sender that
+    # says nothing is a threshold rule, because that is what almost every rule in
+    # any monitoring stack is - and taking silence for a finding instead would
+    # make a well service unfalsifiable.
+    #
+    # Asserted as the series reading rather than as "not None", which is the
+    # posture every other optional field is tested for above. A default of `None`
+    # here would push the decision onto each consumer, and two consumers reading
+    # one silence differently is the failure this field exists to prevent.
+    Scenario() \
+        .given(
+            some_service := "checkout",
+            some_alert_name := "HighErrorRate"
+        ) \
+        .when(
+            lambda: Alert(service=some_service, alert_name=some_alert_name)
+        ) \
+        .then(
+            _the_claim_was(AlarmClaim.A_SERIES_CONDITION)
         )
 
 
@@ -115,6 +141,27 @@ def test_an_alert_carrying_stale_keys_keeps_every_one_of_them_in_order() -> None
         .then(
             _the_keys_came_back(the_keys)
         )
+
+
+def _the_claim_was(expected: AlarmClaim) -> Assertion[Alert]:
+    """That the alert reports the kind of claim its rule made.
+
+    Identity against the member rather than against its wire spelling: what a
+    consumer branches on is the member, and a test matching the string would go
+    on passing if the two ever came apart.
+    """
+    def assertion(alert: Alert) -> bool:
+        if alert.claim is not expected:
+            raise AssertionError(
+                f"Expected an alert that said nothing about its rule to claim "
+                f"{expected}, got {alert.claim} - what a rule looked at decides "
+                f"whether a window with no departure refutes it, so a silence "
+                f"read the other way makes a well service unfalsifiable."
+            )
+
+        return True
+
+    return assertion
 
 
 def _nothing_was_assumed_about(*fields: str) -> Assertion[Alert]:

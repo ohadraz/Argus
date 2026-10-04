@@ -1033,6 +1033,36 @@ def _departures(buckets: Sequence[MetricBucket],
     return [any(minute) for minute in zip(*each_series, strict=True)]
 
 
+# The five series a departure can appear in, each beside the name it is reported
+# under.
+#
+# One declaration carrying both halves, because both are now read. The arithmetic
+# below asks these five whether a signal moved; a consumer reporting that nothing
+# moved has to say what it asked, and a claim that nothing departed is worth
+# exactly as much as the signals behind it. Two lists - values here, names
+# somewhere else - would be one fact said twice, and the copy that drifted would
+# be the one nobody can check: a disproof naming a signal nobody judged reads
+# exactly like one naming a signal that was.
+_THE_SERIES_A_DEPARTURE_APPEARS_IN: tuple[
+    tuple[str, Callable[[MetricBucket], float]], ...
+] = (
+    ("error_rate", lambda bucket: bucket.error_rate),
+    ("p50_ms", lambda bucket: float(bucket.p50_ms)),
+    ("p95_ms", lambda bucket: float(bucket.p95_ms)),
+    ("p99_ms", lambda bucket: float(bucket.p99_ms)),
+    ("memory_used_bytes", lambda bucket: float(bucket.memory_used_bytes))
+)
+
+# What those five are called, for whoever has to say which signals were judged.
+#
+# Public where the pairs above are not: a caller reporting a judgement needs the
+# names and has no business with the accessors, and a module reading a bucket for
+# itself is a module not using this one's judgement at all.
+THE_JUDGED_SIGNALS: tuple[str, ...] = tuple(
+    name for name, _ in _THE_SERIES_A_DEPARTURE_APPEARS_IN
+)
+
+
 def _the_five_series(buckets: Sequence[MetricBucket]) -> list[list[float]]:
     """One window read as the five series a departure can appear in.
 
@@ -1041,11 +1071,8 @@ def _the_five_series(buckets: Sequence[MetricBucket]) -> list[list[float]]:
     rule wearing this one's name.
     """
     return [
-        [bucket.error_rate for bucket in buckets],
-        [float(bucket.p50_ms) for bucket in buckets],
-        [float(bucket.p95_ms) for bucket in buckets],
-        [float(bucket.p99_ms) for bucket in buckets],
-        [float(bucket.memory_used_bytes) for bucket in buckets]
+        [read(bucket) for bucket in buckets]
+        for _, read in _THE_SERIES_A_DEPARTURE_APPEARS_IN
     ]
 
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core import to_iso
-from argus_core.models import Alert
+from argus_core.models import AlarmClaim, Alert
 from argus_testkit import Assertion, Scenario
 from argus_web.grafana import parse_grafana_alert
 
@@ -136,6 +136,61 @@ def test_parse_grafana_alert_leaves_the_stale_keys_unset_when_none_are_named() -
         )
 
 
+@pytest.mark.unit
+def test_parse_grafana_alert_reads_the_kind_of_claim_a_rule_makes() -> None:
+    # What a rule looked at is the one thing about an alert that decides whether
+    # a window holding no departure contradicts it. A check comparing stored
+    # totals against the records behind them is not contradicted by any series,
+    # because no series was ever its subject - and only the rule knows that, so
+    # only the rule can say it.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(claim=AlarmClaim.ITS_OWN_FINDING)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_read_a_claim_of(AlarmClaim.ITS_OWN_FINDING)
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_takes_an_unspoken_claim_for_a_series_condition() -> None:
+    # Every alert that exists today, and the reason the default is this way
+    # round. Read as a finding instead, a well service would be unfalsifiable:
+    # nothing Argus retrieves could ever contradict an alarm about something no
+    # series carries, so every spurious page would survive its own refutation.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload()
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_read_a_claim_of(AlarmClaim.A_SERIES_CONDITION)
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_takes_a_claim_it_does_not_recognise_the_same_way() -> None:
+    # A rule from a stack nobody here configured, which is the case the default
+    # exists for rather than an error to refuse. Argus is not the only thing
+    # writing rules against this estate, and an alert rejected at the boundary is
+    # an incident nobody is told about.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(claim="whatever-some-other-tool-writes")
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_read_a_claim_of(AlarmClaim.A_SERIES_CONDITION)
+        )
+
+
 def _it_read(service: str, alert_name: str, severity: str) -> Assertion[Alert]:
     """The three fields lifted out of Grafana's labels, checked together.
 
@@ -175,6 +230,25 @@ def _nothing_of_grafanas_came_through(*fields: str) -> Assertion[Alert]:
 
         if leaked:
             raise AssertionError(f"Expected Grafana's {leaked} not to survive parsing.")
+
+        return True
+
+    return assertion
+
+
+def _it_read_a_claim_of(expected: AlarmClaim) -> Assertion[Alert]:
+    """What the alert says its rule looked at.
+
+    One assertion for every direction rather than a present/absent pair, for the
+    reason the onset has one: the failure worth catching is a parser that answers
+    the same way whatever it was handed, and a check that only asked "is it the
+    default?" would pass against one that ignored the annotation entirely.
+    """
+    def assertion(alert: Alert) -> bool:
+        if alert.claim is not expected:
+            raise AssertionError(
+                f"Expected the alert to claim [{expected}], got [{alert.claim}]."
+            )
 
         return True
 

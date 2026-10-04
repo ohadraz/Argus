@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core.anomaly import (
+    THE_JUDGED_SIGNALS,
     AnomalyThresholds,
     earliest_bucket_is_anomalous,
     find_onset,
@@ -1725,6 +1726,52 @@ def test_a_flat_window_recovers_from_an_incident_it_never_had() -> None:
         .then(
             _a_recovery_from_nothing_is_visible_as_one()
         )
+
+
+@pytest.mark.unit
+def test_every_judged_signal_is_a_series_a_window_actually_carries() -> None:
+    # The names exist so that a disproof can say what it was made over: an
+    # assertion that nothing departed is worth exactly as much as the signals
+    # behind it, and a reader handed no list has to take the claim on trust.
+    #
+    # What this pins is the one way such a list goes wrong. A name here that no
+    # bucket carries is a signal nobody judged, reported as one that was - and
+    # nothing downstream can tell the difference, because a disproof is read by
+    # people rather than resolved against anything.
+    Scenario() \
+        .given(
+            THE_JUDGED_SIGNALS
+        ) \
+        .when(
+            lambda: [
+                signal for signal in THE_JUDGED_SIGNALS
+                if signal not in MetricBucket.model_fields
+            ]
+        ) \
+        .then(
+            _no_signal_was_named_that_no_window_carries()
+        )
+
+
+def _no_signal_was_named_that_no_window_carries() -> Assertion[list[str]]:
+    """That every published signal name is a field of the bucket it is read from.
+
+    Reported as the whole set of strays rather than the first, because the way
+    this breaks is a field being renamed - and a rename that caught two signals
+    should not be read as having caught one.
+    """
+    def no_signal_was_named(strays: list[str]) -> bool:
+        if strays:
+            raise AssertionError(
+                f"Expected every judged signal to be a series a window carries, "
+                f"and {strays} are named by nothing in a bucket - so a disproof "
+                f"would report having judged a signal nobody judged, which no "
+                f"reader could catch."
+            )
+
+        return True
+
+    return no_signal_was_named
 
 
 def _a_recovery_from_nothing_is_visible_as_one() -> Assertion[dict[str, bool]]:

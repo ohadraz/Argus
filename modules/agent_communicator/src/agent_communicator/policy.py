@@ -28,6 +28,7 @@ from argus_core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
+    AlarmDisproven,
     AlertAcknowledged,
     AwaitingRecovery,
     CandidateSelected,
@@ -115,6 +116,18 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # on the page for whoever goes looking; this is a change nobody has
             # made to a service that is still wrong, and a reader who never
             # goes looking is a reader for whom the incident never ends.
+            return Register.FOLLOWED
+        case AlarmDisproven():
+            # The only line in any incident that says there was no incident, and
+            # the one place a silence would be read as agreement: a thread that
+            # went from an alert to a terminal status with nothing in between
+            # reads as an incident Argus could not work out, which is the
+            # opposite finding.
+            #
+            # Said here rather than in the channel announcement because this
+            # carries the grounds - which signals were judged and over how long -
+            # and grounds belong where the incident is followed. The channel
+            # hears the ending and its reason, as it does for every other ending.
             return Register.FOLLOWED
         case AwaitingRecovery():
             # Said, unlike the looks that follow it: this is the longest
