@@ -55,12 +55,13 @@ jobs:
       - name: Guard e2e test placement
         run: uv run python -m nox -s guard_e2e_boundary
 
-      # The Slack half of the contract, which is free: Slack charges nothing
-      # for a message, so this belongs in the nightly rather than beside the
-      # suites that spend tokens. What it guards rots the same way a recording
-      # does - the double is believed by every other Slack suite in the repo,
-      # and a workspace that changed an answer under it would leave all of them
-      # passing against a Slack that no longer exists.
+      # The free half of the contract - Slack, which charges nothing for a
+      # message, and Prometheus, which runs here - so it belongs in the nightly
+      # rather than beside the suites that spend tokens. What it guards rots
+      # the same way a recording does - a stand-in is believed by every other
+      # suite that reads through it, and a real party that changed an answer
+      # under it would leave all of them passing against one that no longer
+      # exists.
       #
       # The credential is checked before the run rather than left to the test.
       # The test skips itself without one, which is right on a laptop and wrong
@@ -78,11 +79,11 @@ jobs:
             exit 1
           fi
 
-      - name: Slack contract (real workspace)
+      - name: Free contract (real Slack workspace, real Prometheus)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_WAR_ROOM_CHANNEL: ${{ vars.SLACK_WAR_ROOM_CHANNEL }}
-        run: uv run python -m nox -s contract_slack
+        run: uv run python -m nox -s contract
 
   record-e2e-durations:
     runs-on: ubuntu-latest

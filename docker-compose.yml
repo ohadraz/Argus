@@ -86,6 +86,45 @@ services:
     # which is a little before it is ready - so readiness is polled from
     # outside, by whoever brought it up, against `/readyz`.
 
+  prometheus:
+    # A real one, for one job: `nox -s contract`, which checks that
+    # the Target Service's stand-in at `/prometheus` answers the adapter's
+    # queries as this does. Nothing else in the stack reads it - a scenario
+    # backdates hours of history, and a scrape can only record from now on.
+    #
+    # Pinned, as Qdrant is: what the contract proves is true of this version.
+    image: prom/prometheus:v3.15.0
+    # Behind a profile, which the rest of this file avoids, because it is the
+    # one service the e2e stack's bare `up` must not start. Naming it starts it
+    # regardless of the profile, which is how the session asks for it.
+    profiles: ["contract"]
+    configs:
+      - source: prometheus-config
+        target: /etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    healthcheck:
+      # The image is busybox-based, so `wget` is there to probe with.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9090/-/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+# Inline rather than a file of its own, so that this compose file stays the one
+# place the stack is described.
+configs:
+  prometheus-config:
+    # Every five seconds, because every rate the adapter asks for is over a
+    # minute and needs two samples inside it: at Prometheus's default of a
+    # minute, a range that long holds one and answers nothing.
+    content: |
+      global:
+        scrape_interval: 5s
+      scrape_configs:
+        - job_name: target-service
+          static_configs:
+            - targets: ["target-service:8000"]
+
 # One per compose project, which is one per suite: the name is scoped to the
 # project, so `argus-integration` and `argus-modules` get a volume each without
 # either being told about the other.

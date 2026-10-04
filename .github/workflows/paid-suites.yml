@@ -121,7 +121,7 @@ jobs:
 
       - name: Contract tests
         if: ${{ inputs.contract || github.event.schedule == '0 4 * * 0' }}
-        run: uv run python -m nox -s contract
+        run: uv run python -m nox -s paid_contract
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 

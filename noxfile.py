@@ -459,57 +459,79 @@ def guard_exports(session: nox.Session) -> None:
 def contract(session: nox.Session) -> None:
     """
     Registers `contract` as a nox session, i.e., runnable via `uv run python -m nox -s contract`.
+    Runs the free contract tests: that the Slack double still answers as a real
+    workspace does, and that the Target Service's stand-in at `/prometheus`
+    still answers the adapter's queries as a real Prometheus does. Brings up
+    the Slack double, and the Target Service with a real Prometheus scraping it
+    - one half of each comparison is the stand-in.
+
+    Free, which is the line between this and `paid_contract`. The Slack half
+    posts messages somebody can see and skips itself without `SLACK_BOT_TOKEN`
+    and a channel; the Prometheus half needs nothing but Docker, and waits up
+    to a minute and a half for Prometheus to watch a minute end - a rate over a
+    minute needs a minute watched.
+    """
+    _contract_against(
+        session, _SLACK_DOUBLE, ["tests/contract/slack", "tests/contract/prometheus"],
+        compose_services=("target-service", "prometheus")
+    )
+
+
+@nox.session
+def paid_contract(session: nox.Session) -> None:
+    """
+    Registers `paid_contract` as a nox session, i.e., runnable via
+    `uv run python -m nox -s paid_contract`.
     Runs the Anthropic contract tests, which check that the recording the
     suites replay still matches what the real API answers. Brings up the
     Anthropic double, because half of each comparison is a replayed recording;
     the other half talks to the real API and skips itself when no key is
     configured.
 
-    One party per session rather than the whole directory, because each party
-    is paid for separately: a workspace's contract has nothing to say about a
-    model's, and a run that wanted one should not have to spend on the other.
-    `contract_slack` is the other half.
+    Apart from `contract` because it spends tokens: a run that wanted the free
+    parties checked should not have to pay for the model's.
     """
-    _contract_against(session, _ANTHROPIC_DOUBLE, "tests/contract/anthropic")
+    _contract_against(session, _ANTHROPIC_DOUBLE, ["tests/contract/anthropic"])
 
 
-@nox.session
-def contract_slack(session: nox.Session) -> None:
-    """
-    Registers `contract_slack` as a nox session, i.e., runnable via
-    `uv run python -m nox -s contract_slack`.
-    Runs the Slack contract tests, which check that the double the suites post
-    at still answers as the real workspace does. Brings up the Slack double for
-    the same reason `contract` brings up the Anthropic one: one half of each
-    comparison is the stand-in.
-
-    Reaches a **real workspace**, so it needs `SLACK_BOT_TOKEN` and a channel to
-    post in, and it posts messages somebody can see. Kept out of `contract` so
-    that the Anthropic contract - which costs cents and needs no workspace - can
-    run without a Slack credential anywhere near it.
-    """
-    _contract_against(session, _SLACK_DOUBLE, "tests/contract/slack")
+# Its own compose project, so that its teardown takes only what it started. The
+# Target Service publishes fixed ports, so a stack already up under the default
+# project makes this one fail on the bind - rather than adopting that stack and
+# taking it down at the end.
+_CONTRACT_PROJECT: Final = ("-p", "argus-contract")
 
 
 def _contract_against(session: nox.Session,
                       double: tuple[str, list[str], str],
-                      tests: str) -> None:
-    """Brings one double up, runs the tests that compare it with the real thing.
+                      tests: list[str],
+                      compose_services: tuple[str, ...] = ()) -> None:
+    """Brings a double up, and any containers the real party runs in, then runs
+    the tests that compare the stand-ins with the real thing.
 
     Shared by the two contract sessions so the only difference between them is
-    which party is being checked - the double, and the directory holding the
-    comparisons. Anything after `--` goes to pytest, as everywhere else here.
+    which parties are being checked. `compose_services` is for a real party
+    that runs here rather than across the internet. Anything after `--` goes to
+    pytest, as everywhere else here.
     """
     name, module_args, ready_url = double
     double_process = _start_service(module_args)
     try:
         _wait_for_http(name, ready_url)
+        if compose_services:
+            session.run(
+                "docker", "compose", *_CONTRACT_PROJECT, "up", "-d", "--wait", "--build",
+                *compose_services, external=True
+            )
         session.run(
-            "uv", "run", "python", "-m", "pytest", tests, "-v",
+            "uv", "run", "python", "-m", "pytest", *tests, "-v",
             *session.posargs, external=True
         )
     finally:
         _stop_service(double_process)
+        if compose_services:
+            session.run(
+                "docker", "compose", *_CONTRACT_PROJECT, "down", "-v", external=True
+            )
 
 @nox.session
 def integration(session: nox.Session) -> None:

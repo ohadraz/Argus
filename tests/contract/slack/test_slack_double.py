@@ -12,7 +12,7 @@ what everything depends on is that a delivered message comes back with an id at
 all, and that a refusal comes back named and marked as one no retry will fix.
 
 These post real messages into a real channel, which is why they are behind
-their own session (`nox -s contract_slack`) and their own credential.
+the free contract session (`nox -s contract`) and their own credential.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 ---
 name: preflight-before-paid-runs
-description: Use before running anything that spends money or wall-clock hours - `nox -s record`, `nox -s e2e`, `nox -s contract`, `nox -s stack`, or any run that reaches the real Anthropic API. Establishes what must be proven for free first, so a paid run fails for a reason worth paying to learn.
+description: Use before running anything that spends money or wall-clock hours - `nox -s record`, `nox -s e2e`, `nox -s paid_contract`, `nox -s stack`, or any run that reaches the real Anthropic API. Establishes what must be proven for free first, so a paid run fails for a reason worth paying to learn.
 ---
 
 # Prove it for free before it costs money

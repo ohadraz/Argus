@@ -1,0 +1,220 @@
+"""Whether the stand-in still answers as Prometheus does.
+
+Every suite that reads a service's minutes reads them from the Target Service's
+stand-in at `/prometheus`, which knows the adapter's expressions word for word
+and parses none of them. So nothing those suites prove says the expressions are
+PromQL at all, or that what a real Prometheus answers to them is something the
+adapter can read. That is checked here, the one way it can be: the same window
+asked of both through the adapter, and the two answers required to read the
+same.
+
+Read the same rather than equal. A real Prometheus works a rate out of the
+counters it scraped, where the stand-in hands back the figure the shop wrote
+for that minute; the two will not agree to the digit, and nothing depends on
+their agreeing. What everything depends on is that a minute comes back at all,
+with the same fields filled, and that a refusal comes back as one.
+
+The real half has to be given data, and a scrape is how a real Prometheus gets
+it. So the shop is seeded, Prometheus scrapes it every five seconds (see
+`docker-compose.yml`), and the first minute it can answer for is the first one
+it watched end. That is the one wait in here - up to a minute and a half - and
+no clock can be injected into it, because the clock is Prometheus's.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import UTC, datetime, timedelta
+
+import httpx2
+import pytest
+from argus_core.models import MetricBucket
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    the_error_mentioned,
+)
+from metrics_source import MetricsSettings, MetricsUnavailable
+from metrics_source.prometheus_adapter import buckets_between
+
+# Where each half answers. The real one is the `prometheus` service in
+# `docker-compose.yml`, scraping the shop; the stand-in is the shop itself.
+THE_REAL_ONE = "http://localhost:9090"
+THE_STAND_IN = "http://localhost:8080/prometheus"
+THE_SHOP = "http://localhost:8080"
+
+# A generated scenario, because a generated one goes on writing a minute every
+# minute and fills every field a bucket has - so the counters the rates are
+# worked out from keep moving while Prometheus watches.
+A_SCENARIO_THAT_GOES_ON_REPORTING = "resource-leak"
+
+# How long after seeding a minute has to end for Prometheus to have scraped the
+# shop at least twice inside it. A rate over a minute needs two samples in the
+# minute, and at a five-second interval twenty seconds holds three.
+TIME_TO_SCRAPE_TWICE = timedelta(seconds=20)
+
+# Past the end of that minute, so the scrape at its edge has been written.
+A_MOMENT_TO_WRITE_IT = timedelta(seconds=2)
+
+# How far back the window asked for starts. Far enough to hold the first minute
+# Prometheus watched end, whenever in a minute the shop was seeded.
+A_FEW_MINUTES = timedelta(minutes=5)
+
+A_MINUTE = timedelta(minutes=1)
+
+# What Prometheus calls a query it will not run. The one part of a refusal the
+# adapter carries into what it raises, and so the part a reader acts on.
+BAD_DATA = "bad_data"
+
+
+@pytest.mark.contract
+def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it() -> None:
+    # The whole of the happy path. Each field of a bucket is its own
+    # expression, and a minute comes back only if every field it cannot be
+    # without was answered - so one minute back from a real Prometheus says
+    # each of those expressions parsed, ran, and answered a matrix the adapter
+    # read. The comparison then says no field the stand-in fills is one a real
+    # Prometheus would leave empty.
+    Scenario() \
+        .given(
+            seeded_at := _the_shop_was_seeded_with(A_SCENARIO_THAT_GOES_ON_REPORTING),
+            calling(lambda: _until_prometheus_has_watched_a_minute_end_since(seeded_at))
+        ) \
+        .when(lambda: buckets_between(*_the_last_few_minutes(), _settings_for(THE_REAL_ONE))) \
+        .then(all_of(
+            _some_minute_came_back(),
+            _it_reads_as(buckets_between(*_the_last_few_minutes(), _settings_for(THE_STAND_IN)))
+        ))
+
+
+@pytest.mark.contract
+def test_a_window_that_ends_before_it_starts_is_refused_as_the_stand_in_refuses_it() -> None:
+    # The refusal the adapter reads. Prometheus answers a query it will not run
+    # with an error status and an envelope naming the fault, and the adapter
+    # carries that name into what it raises. A stand-in refusing in any other
+    # shape would have every suite reading a different error from the one a
+    # real source produces.
+    Scenario() \
+        .given(started_at := datetime.now(UTC), ended_at := started_at - A_FEW_MINUTES) \
+        .when(attempting(
+            lambda: buckets_between(started_at, ended_at, _settings_for(THE_REAL_ONE))
+        )) \
+        .then(all_of(
+            an_error_was_raised(MetricsUnavailable),
+            the_error_mentioned(BAD_DATA),
+            _it_was_refused_as(attempting(
+                lambda: buckets_between(started_at, ended_at, _settings_for(THE_STAND_IN))
+            )())
+        ))
+
+
+def _the_shop_was_seeded_with(scenario_id: str) -> datetime:
+    """Stages a scenario, and says when - the instant Prometheus's watch of
+    it starts from."""
+    httpx2.post(
+        f"{THE_SHOP}/scenario/seed", json={"scenario_id": scenario_id}, timeout=10.0
+    ).raise_for_status()
+
+    return datetime.now(UTC)
+
+
+def _until_prometheus_has_watched_a_minute_end_since(seeded_at: datetime) -> None:
+    """Waits out the first minute a real Prometheus can answer for.
+
+    That is the first to end at least two scrapes after the shop was seeded.
+    Before it, a rate over the minute has one sample or none to work from and
+    Prometheus answers nothing for it - which is Prometheus being right, not
+    the adapter being wrong, and not what this suite asks.
+    """
+    the_first_minute_watched = (
+        (seeded_at + TIME_TO_SCRAPE_TWICE).replace(second=0, microsecond=0) + A_MINUTE
+    )
+    still_to_go = the_first_minute_watched + A_MOMENT_TO_WRITE_IT - datetime.now(UTC)
+
+    time.sleep(max(still_to_go.total_seconds(), 0.0))
+
+
+def _the_last_few_minutes() -> tuple[datetime, datetime]:
+    """A window ending now, as `buckets_between` takes one."""
+    now = datetime.now(UTC)
+
+    return now - A_FEW_MINUTES, now
+
+
+def _settings_for(base_url: str) -> MetricsSettings:
+    return MetricsSettings(prometheus_base_url=base_url)
+
+
+def _some_minute_came_back() -> Assertion[list[MetricBucket]]:
+    def assertion(buckets: list[MetricBucket]) -> bool:
+        if not buckets:
+            raise AssertionError(
+                "Expected Prometheus to answer for a minute it watched end, it answered "
+                "for none: a field every bucket needs went unanswered in every minute."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_reads_as(at_the_stand_in: list[MetricBucket]) -> Assertion[list[MetricBucket]]:
+    """The two answers, as the adapter reads them.
+
+    Minute by minute, for the minutes both answered for: the same fields
+    filled. Not the same figures - a rate Prometheus worked out of two scrapes
+    and a figure the shop wrote down are never the same number, and nothing in
+    Argus compares them.
+    """
+    def assertion(from_prometheus: list[MetricBucket]) -> bool:
+        stood_in = {bucket.bucket_id: _the_fields_filled_in(bucket) for bucket in at_the_stand_in}
+        both_answered = [bucket for bucket in from_prometheus if bucket.bucket_id in stood_in]
+
+        if not both_answered:
+            raise AssertionError(
+                f"Expected the stand-in to answer for a minute Prometheus answered for "
+                f"{[bucket.bucket_id for bucket in from_prometheus]}, "
+                f"it answered for {sorted(stood_in)}."
+            )
+
+        for bucket in both_answered:
+            real = _the_fields_filled_in(bucket)
+            stand_in = stood_in[bucket.bucket_id]
+
+            if real != stand_in:
+                raise AssertionError(
+                    f"Expected minute [{bucket.bucket_id}] filled as the stand-in fills it, "
+                    f"Prometheus left {sorted(stand_in - real)} empty "
+                    f"and filled {sorted(real - stand_in)} the stand-in did not."
+                )
+
+        return True
+
+    return assertion
+
+
+def _it_was_refused_as(at_the_stand_in: Exception | None) -> Assertion[Exception | None]:
+    """The two refusals, as the adapter reads them: the same error, naming the
+    same fault. Not the same sentence - the wording after the fault's name is
+    whoever refused's own, and the stand-in deliberately does not copy it."""
+    def assertion(from_prometheus: Exception | None) -> bool:
+        real = (type(from_prometheus).__name__, BAD_DATA in str(from_prometheus))
+        stood_in = (type(at_the_stand_in).__name__, BAD_DATA in str(at_the_stand_in))
+
+        if real != stood_in:
+            raise AssertionError(
+                f"Expected the stand-in to refuse as Prometheus did {real}, "
+                f"it refused {stood_in}: [{at_the_stand_in}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_fields_filled_in(bucket: MetricBucket) -> frozenset[str]:
+    return frozenset(bucket.model_dump(exclude_none=True))
