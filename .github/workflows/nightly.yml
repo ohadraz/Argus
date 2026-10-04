@@ -68,21 +68,28 @@ jobs:
       # here: a nightly whose whole job is to notice drift, reporting green
       # because it quietly checked nothing, is the failure this step exists to
       # make impossible.
-      - name: A workspace to check the contract against
+      - name: A workspace and a sandbox to check the contract against
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_WAR_ROOM_CHANNEL: ${{ vars.SLACK_WAR_ROOM_CHANNEL }}
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
         run: |
           if [ -z "$SLACK_BOT_TOKEN" ] || [ -z "$SLACK_WAR_ROOM_CHANNEL" ]; then
             echo "::error::the Slack contract has no workspace to check against - set the"
             echo "::error::SLACK_BOT_TOKEN secret and the SLACK_WAR_ROOM_CHANNEL variable"
             exit 1
           fi
+          if [ -z "$STRIPE_API_KEY" ]; then
+            echo "::error::the Stripe contract has no sandbox to check against - set the"
+            echo "::error::STRIPE_API_KEY secret to a sandbox's secret key"
+            exit 1
+          fi
 
-      - name: Free contract (real Slack workspace, real Prometheus)
+      - name: Free contract (real Slack workspace, Stripe sandbox, real Prometheus)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_WAR_ROOM_CHANNEL: ${{ vars.SLACK_WAR_ROOM_CHANNEL }}
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
         run: uv run python -m nox -s contract
 
   record-e2e-durations:

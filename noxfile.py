@@ -460,19 +460,21 @@ def contract(session: nox.Session) -> None:
     """
     Registers `contract` as a nox session, i.e., runnable via `uv run python -m nox -s contract`.
     Runs the free contract tests: that the Slack double still answers as a real
-    workspace does, and that the Target Service's stand-in at `/prometheus`
-    still answers the adapter's queries as a real Prometheus does. Brings up
-    the Slack double, and the Target Service with a real Prometheus scraping it
-    - one half of each comparison is the stand-in.
+    workspace does, and that the Target Service's stand-ins at `/prometheus`
+    and `/stripe` still answer the adapters as a real Prometheus and a Stripe
+    sandbox do. Brings up the Slack double, and the Target Service with a real
+    Prometheus scraping it - one half of each comparison is the stand-in.
 
     Free, which is the line between this and `paid_contract`. The Slack half
     posts messages somebody can see and skips itself without `SLACK_BOT_TOKEN`
-    and a channel; the Prometheus half needs nothing but Docker, and waits up
-    to a minute and a half for Prometheus to watch a minute end - a rate over a
-    minute needs a minute watched.
+    and a channel; the Stripe half takes a charge in a sandbox and skips itself
+    without `STRIPE_API_KEY`; the Prometheus half needs nothing but Docker, and
+    waits up to a minute and a half for Prometheus to watch a minute end - a
+    rate over a minute needs a minute watched.
     """
     _contract_against(
-        session, _SLACK_DOUBLE, ["tests/contract/slack", "tests/contract/prometheus"],
+        session, _SLACK_DOUBLE,
+        ["tests/contract/slack", "tests/contract/prometheus", "tests/contract/stripe"],
         compose_services=("target-service", "prometheus")
     )
 
