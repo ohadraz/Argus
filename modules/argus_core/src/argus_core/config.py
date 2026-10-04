@@ -32,6 +32,11 @@ class Settings(BaseSettings):
 
     target_service_url: str = Field(default="http://localhost:8080")
 
+    # Where the service's metrics are read from: a Prometheus, whose own paths
+    # follow this. The default is the Target Environment's stand-in, mounted
+    # under the shop's prefix; a real deployment points it at its Prometheus.
+    prometheus_base_url: str = Field(default="http://localhost:8080/prometheus")
+
     read_mcp_host: str = Field(default="localhost")
     read_mcp_port: int = Field(default=8090)
 
@@ -281,6 +286,13 @@ class Settings(BaseSettings):
     # hypothesis the evidence has already answered, and the walk has other
     # candidates to spend its time on.
     mitigation_attempts_per_subject: int = Field(default=1, gt=0)
+
+    # How many minutes after a minute ends the metrics source reports it. One for
+    # a real Prometheus, which answers a minute once it is over; mitigation's
+    # recovery wait is extended by it, or the wait ends before the minute that
+    # decides it can be read. Zero where the source also reports the minute in
+    # progress, as the Target Environment's stand-in does by default.
+    metrics_reporting_lag_minutes: int = Field(default=1, ge=0)
 
     # How long a worker waits before asking the queue again, having found it
     # empty. The wait a real alert pays before anything starts on it, so it is

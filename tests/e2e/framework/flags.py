@@ -286,7 +286,7 @@ def _create_flag_if_absent(flag: str) -> None:
 
 def _target_service_metrics() -> list[MetricBucket]:
     response = httpx2.get(
-        f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
+        f"{TARGET_SERVICE_BASE_URL}/scenario/metrics", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
 

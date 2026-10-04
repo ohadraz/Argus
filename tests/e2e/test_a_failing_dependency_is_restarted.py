@@ -238,7 +238,7 @@ def _the_error_rate_never_moved() -> Assertion[httpx2.Response]:
 def _the_shops_window() -> list[dict[str, Any]]:
     """The Target Service's own metrics, insisting there are some."""
     response = httpx2.get(
-        f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
+        f"{TARGET_SERVICE_BASE_URL}/scenario/metrics", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
     window: list[dict[str, Any]] = response.json()

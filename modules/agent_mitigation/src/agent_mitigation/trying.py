@@ -730,7 +730,8 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             # being judged by, so the wait would grow for exactly as long as the
             # service kept misbehaving and the verdict would never be reached.
             watch_until = _when_a_recovery_would_have_shown(
-                first_minute_begins, buckets, thresholds
+                first_minute_begins, buckets, thresholds,
+                reporting_lag_minutes=settings.metrics_reporting_lag_minutes
             )
 
             # Announced here rather than before the first read, because the
@@ -933,13 +934,20 @@ def _when_the_change_reached_the_service(has_arrived: HasArrived,
 
 def _when_a_recovery_would_have_shown(first_minute_begins: datetime,
                                       buckets: Sequence[MetricBucket],
-                                      thresholds: AnomalyThresholds) -> datetime:
+                                      thresholds: AnomalyThresholds,
+                                      reporting_lag_minutes: int) -> datetime:
     """The moment past which there is nothing left to wait for.
 
     The clear minutes a recovery has to show, counted from the first minute that
-    could be one of them, ending when the last of them has finished. After that
-    instant no further waiting can change the answer: the minutes that would have
-    carried the recovery are all in the past and judged.
+    could be one of them, ending when the last of them has finished - and then
+    reported. After that instant no further waiting can change the answer: the
+    minutes that would have carried the recovery are all in the past and judged.
+
+    Reported is the metrics source's own lag. A source that reports a minute
+    only once it has ended hands over the last of them a minute after it
+    finished, and a wait that stopped as it finished would refute the action
+    that worked for want of a reading still on its way - which is what a
+    rollback met the first time the walk read such a source.
 
     How many is the window's own answer rather than a setting -
     `minutes_a_recovery_must_hold`. The figure it replaces was a flat three
@@ -962,7 +970,7 @@ def _when_a_recovery_would_have_shown(first_minute_begins: datetime,
     turning that into an instant needs the moment the wait started from.
     """
     return first_minute_begins + timedelta(
-        minutes=minutes_a_recovery_must_hold(buckets, thresholds)
+        minutes=minutes_a_recovery_must_hold(buckets, thresholds) + reporting_lag_minutes
     )
 
 

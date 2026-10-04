@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx2
-from argus_core import SettingsSlice, parse_iso, to_iso
+from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
 from argus_core.models import ChangeEvent, MetricBucket
+from metrics_source import MetricsSource
 
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.window import (
@@ -29,7 +30,6 @@ class TargetServiceSettings(SettingsSlice):
 
 
 FetchLogs = Callable[[], list[str]]
-FetchMetrics = Callable[[], list[MetricBucket]]
 
 
 def _parse_log_timestamp(line: str) -> datetime | None:
@@ -74,17 +74,6 @@ def target_service_logs(settings: TargetServiceSettings) -> FetchLogs:
         logs: list[str] = response.json()
 
         return logs
-
-    return fetch
-
-
-def target_service_metrics(settings: TargetServiceSettings) -> FetchMetrics:
-    """The real metrics fetcher, bound the way the log fetcher above is."""
-    def fetch() -> list[MetricBucket]:
-        response = httpx2.get(f"{settings.target_service_url}/metrics", timeout=10.0)
-        response.raise_for_status()
-
-        return [MetricBucket.model_validate(bucket) for bucket in response.json()]
 
     return fetch
 
@@ -145,26 +134,34 @@ def get_metrics_summary(alert_time: str | None = None,
                         window_end: str | None = None,
                         *,
                         settings: RetrievalSettings,
-                        fetch: FetchMetrics) -> list[MetricBucket]:
+                        source: MetricsSource,
+                        now: Callable[[], datetime] = utc_now) -> list[MetricBucket]:
     """Returns per-minute aggregated metrics for one window of an incident.
 
     Phase one of spec §16's two-phase retrieval: cheap enough to read whole,
     it shows the incident's shape - which minutes are anomalous, and whether
     error rate or latency moved - so a caller can locate the onset and anchor
-    a log window on it. Windowing follows `resolve_metrics_window`;
-    the `fetch` seam is here for the same reason as in `get_log_lines`.
+    a log window on it. Windowing follows `resolve_metrics_window`, and the
+    window is the source's to honour rather than this function's to filter: a
+    metrics source answers for a window, and asking it for everything to throw
+    most of it away would be the whole retention per question.
+
+    No window at all becomes the configured span up to now, since a source has
+    to be asked for one - and that span is what an unanchored reader has
+    always been handed. A source that cannot be read raises
+    `MetricsUnavailable`, which propagates: "could not ask" must never arrive
+    as an empty summary.
     """
-    buckets = fetch()
     window = resolve_metrics_window(
         alert_time, window_start, window_end, settings=settings
     )
 
-    if window.start is None and window.end is None:
-        return buckets
+    if window.start is None or window.end is None:
+        until = now()
 
-    return [
-        bucket for bucket in buckets if _in_window(parse_iso(bucket.bucket_id), window)
-    ]
+        return source(until - timedelta(minutes=settings.metrics_window_minutes), until)
+
+    return source(window.start, window.end)
 
 
 def get_change_events(service: str,

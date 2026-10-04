@@ -288,7 +288,7 @@ def _the_shops_window() -> list[dict[str, Any]]:
 
     """
     response = httpx2.get(
-        f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=REQUEST_TIMEOUT_SECONDS
+        f"{TARGET_SERVICE_BASE_URL}/scenario/metrics", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
     window: list[dict[str, Any]] = response.json()

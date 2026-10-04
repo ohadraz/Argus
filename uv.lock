@@ -23,6 +23,7 @@ members = [
     "argus-exchange-rate-source",
     "argus-github-double",
     "argus-incident-memory",
+    "argus-metrics-source",
     "argus-oncall-source",
     "argus-orchestrator",
     "argus-read-mcp-client",
@@ -508,6 +509,29 @@ dev = [
 ]
 
 [[package]]
+name = "argus-metrics-source"
+version = "0.1.0"
+source = { editable = "modules/metrics_source" }
+dependencies = [
+    { name = "argus-argus-core" },
+    { name = "httpx2" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "httpx2" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "modules/argus_testkit" }]
+
+[[package]]
 name = "argus-oncall-source"
 version = "0.1.0"
 source = { editable = "modules/oncall_source" }
@@ -615,6 +639,7 @@ source = { editable = "modules/read_mcp_server" }
 dependencies = [
     { name = "argus-argus-core" },
     { name = "argus-code-index", extra = ["store"] },
+    { name = "argus-metrics-source" },
     { name = "argus-repository-source" },
     { name = "httpx2" },
     { name = "mcp" },
@@ -629,6 +654,7 @@ dev = [
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-code-index", extras = ["store"], editable = "modules/code_index" },
+    { name = "argus-metrics-source", editable = "modules/metrics_source" },
     { name = "argus-repository-source", editable = "modules/repository_source" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },

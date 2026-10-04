@@ -1381,8 +1381,20 @@ def _a_qdrant_for(module: str) -> dict[str, str]:
 # intake, investigation, revert, verdict - finishes in 22-81s. The window is
 # only ever paid in full where recovery never comes, which is why halving it
 # takes about six minutes off a run and nothing off what a green run means.
+_THE_REPORTING_LAG: Final = os.environ.get("METRICS_REPORTING_LAG_MINUTES", "0")
 _E2E_SETTINGS = {
     "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "180",
+    # Where the service's metrics are read from: the Target Service's own
+    # Prometheus stand-in, at Prometheus's paths under the shop's prefix.
+    "PROMETHEUS_BASE_URL": "http://localhost:8080/prometheus",
+    # How late that stand-in reports a minute, said once and handed to both
+    # sides - the stand-in that withholds the minute in progress and the walk
+    # that waits for it - because the two disagreeing is a walk that refutes a
+    # recovery or one that waits a minute for nothing. 0 on every push, so a run
+    # is as fast as the shop always was; the nightly passes 1, so the path a
+    # real Prometheus produces is still walked end to end.
+    "METRICS_REPORTING_LAG_MINUTES": _THE_REPORTING_LAG,
+    "PROMETHEUS_REPORTING_LAG_MINUTES": _THE_REPORTING_LAG,
     # What the shop took, read from the Target Service's own Stripe-shaped
     # endpoint instead of from Stripe - the arrangement `e2e_replay` has with
     # the Anthropic double, one address below the vendor's SDK, so the SDK's

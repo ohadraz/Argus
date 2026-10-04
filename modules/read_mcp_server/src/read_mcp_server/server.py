@@ -13,6 +13,7 @@ in a comment.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from argus_core import (
@@ -30,6 +31,8 @@ from argus_core.models import (
 )
 from code_index.embedding import an_embedder
 from mcp.server.fastmcp import FastMCP
+from metrics_source import MetricsSettings, MetricsSource
+from metrics_source.prometheus_adapter import buckets_between
 
 from read_mcp_server import (
     deployments,
@@ -61,6 +64,7 @@ from read_mcp_server.window import RetrievalSettings
 def build_server(endpoint: ReadMcpEndpoint,
                  retrieval_settings: RetrievalSettings,
                  target_service: TargetServiceSettings,
+                 metrics_settings: MetricsSettings,
                  flag_settings: FlagReadSettings,
                  argocd_settings: ArgocdSettings,
                  rollout_settings: RolloutReadSettings,
@@ -87,7 +91,13 @@ def build_server(endpoint: ReadMcpEndpoint,
     )
 
     fetch_logs = retrieval.target_service_logs(target_service)
-    fetch_metrics = retrieval.target_service_metrics(target_service)
+
+    # The port bound to the one vendor this deployment reads metrics from, so
+    # that what the tool is handed names a window and nothing else.
+    def metrics(started_at: datetime, ended_at: datetime) -> list[MetricBucket]:
+        return buckets_between(started_at, ended_at, metrics_settings)
+
+    metrics_source: MetricsSource = metrics
 
     def toggles() -> list[dict[str, object]]:
         return list(flags.fetch_evaluated_toggles(flag_settings))
@@ -173,7 +183,7 @@ def build_server(endpoint: ReadMcpEndpoint,
             window_start,
             window_end,
             settings=retrieval_settings,
-            fetch=fetch_metrics
+            source=metrics_source
         )
 
     @mcp.tool()
@@ -495,6 +505,7 @@ def main() -> None:
             ReadMcpEndpoint.of(settings),
             RetrievalSettings.of(settings),
             TargetServiceSettings.of(settings),
+            MetricsSettings.of(settings),
             FlagReadSettings.of(settings),
             ArgocdSettings.of(settings),
             RolloutReadSettings.of(settings),

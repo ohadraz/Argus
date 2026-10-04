@@ -188,5 +188,6 @@ def _some_mitigation_settings() -> MitigationSettings:
         unleash_actor=SOME_ARGUS_USER,
         argocd_actor=SOME_ARGUS_USER,
         mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches,
+        metrics_reporting_lag_minutes=0,
         mitigation_attempts_per_subject=1
     )

@@ -110,7 +110,7 @@ def _the_service_is_still_failing() -> Assertion[Any]:
     something in the stack ended an outage it does not own.
     """
     def assertion(dont_care_response: Any) -> bool:
-        response = httpx2.get(f"{TARGET_SERVICE_BASE_URL}/metrics", timeout=10.0)
+        response = httpx2.get(f"{TARGET_SERVICE_BASE_URL}/scenario/metrics", timeout=10.0)
         response.raise_for_status()
         buckets = response.json()
 

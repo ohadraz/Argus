@@ -131,6 +131,7 @@ root_packages = [
     "code_index",
     "exchange_rate_source",
     "incident_memory",
+    "metrics_source",
     "oncall_source",
     "orchestrator",
     "read_mcp_client",

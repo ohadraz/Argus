@@ -8,7 +8,9 @@ look exactly like one that found more evidence.
 
 The changes channel carries one claim the other two do not: a source that could
 not be reached must not arrive looking like one that was read and found nothing.
-"No change explains this" is a conclusion something acts on.
+"No change explains this" is a conclusion something acts on. The metrics
+channel carries the same claim now that it too reads from a source that can be
+down.
 
 The source is a seam in every test. What these functions do with an answer is
 the subject; where the answer came from is not.
@@ -34,6 +36,7 @@ from argus_testkit import (
     raising,
     returning,
 )
+from metrics_source.minutes import MetricsSource, MetricsUnavailable
 from read_mcp_server.change_source import ChangeSource, ChangeSourceUnavailable
 from read_mcp_server.retrieval import (
     get_change_events,
@@ -194,20 +197,20 @@ def test_get_log_lines_drops_lines_with_no_timestamp_when_windowed() -> None:
 
 
 @pytest.mark.unit
-def test_get_metrics_summary_returns_every_bucket_without_a_window() -> None:
+def test_get_metrics_summary_returns_what_the_source_reports() -> None:
     some_alert_time = _an_alert_time()
-    some_buckets = [
-        _a_bucket(some_alert_time - timedelta(minutes=CONFIGURED_WINDOWS.metrics_window_minutes)),
-        _a_bucket(some_alert_time)
-    ]
+    some_buckets = [_a_bucket(some_alert_time), _a_bucket(some_alert_time + timedelta(minutes=1))]
+    metrics_source = _a_mock_metrics_source()
 
     Scenario() \
         .given(
-            some_buckets
+            calling(returning(metrics_source, some_buckets))
         ) \
         .when(
             lambda: get_metrics_summary(
-                fetch=lambda: some_buckets, settings=CONFIGURED_WINDOWS
+                alert_time=an_iso_minute(some_alert_time),
+                settings=CONFIGURED_WINDOWS,
+                source=metrics_source
             )
         ) \
         .then(
@@ -216,48 +219,85 @@ def test_get_metrics_summary_returns_every_bucket_without_a_window() -> None:
 
 
 @pytest.mark.unit
-def test_get_metrics_summary_excludes_buckets_outside_the_window() -> None:
+def test_get_metrics_summary_asks_the_source_for_the_window_around_the_alert() -> None:
+    # The window is the source's to honour, not this function's to filter:
+    # Prometheus answers for a window, and asking it for everything to throw
+    # most of it away would be six hours of series per question.
     some_alert_time = _an_alert_time()
-    a_metrics_window = timedelta(minutes=CONFIGURED_WINDOWS.metrics_window_minutes)
-    a_minute_past_the_window = a_metrics_window + timedelta(minutes=1)
-    the_bucket_on_the_window_edge = _a_bucket(some_alert_time - a_metrics_window)
-    some_buckets = [
-        _a_bucket(some_alert_time - a_minute_past_the_window),
-        the_bucket_on_the_window_edge,
-        _a_bucket(some_alert_time + a_minute_past_the_window)
-    ]
+    the_metrics_window = timedelta(minutes=CONFIGURED_WINDOWS.metrics_window_minutes)
+    metrics_source = _a_mock_metrics_source()
 
     Scenario() \
         .given(
-            some_alert_time, the_bucket_on_the_window_edge, some_buckets
+            calling(returning(metrics_source, []))
         ) \
         .when(
             lambda: get_metrics_summary(
                 alert_time=an_iso_minute(some_alert_time),
-                fetch=lambda: some_buckets,
-                settings=CONFIGURED_WINDOWS
+                settings=CONFIGURED_WINDOWS,
+                source=metrics_source
             )
         ) \
         .then(
-            _the_buckets_are([the_bucket_on_the_window_edge])
+            _the_metrics_source_was_asked_for(
+                metrics_source,
+                started_at=some_alert_time - the_metrics_window,
+                ended_at=some_alert_time + the_metrics_window
+            )
         )
 
 
 @pytest.mark.unit
-def test_get_metrics_summary_with_no_active_scenario_returns_no_buckets() -> None:
+def test_get_metrics_summary_without_a_window_asks_for_the_span_up_to_now() -> None:
+    # A source answers for a window, so "no window" has to become one. The
+    # configured span up to now is what an unanchored reader - mitigation,
+    # judging whether a recovery holds - has always been handed.
+    some_now = datetime.now(UTC).replace(microsecond=0)
+    the_metrics_window = timedelta(minutes=CONFIGURED_WINDOWS.metrics_window_minutes)
+    metrics_source = _a_mock_metrics_source()
+
     Scenario() \
         .given(
-            some_alert_time := _an_alert_time()
+            calling(returning(metrics_source, []))
         ) \
         .when(
             lambda: get_metrics_summary(
-                alert_time=an_iso_minute(some_alert_time),
-                fetch=list,
-                settings=CONFIGURED_WINDOWS
+                settings=CONFIGURED_WINDOWS,
+                source=metrics_source,
+                now=lambda: some_now
             )
         ) \
         .then(
-            _the_buckets_are([])
+            _the_metrics_source_was_asked_for(
+                metrics_source,
+                started_at=some_now - the_metrics_window,
+                ended_at=some_now
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_unreadable_metrics_source_surfaces_as_a_failure() -> None:
+    # The same claim the change channel makes: "could not ask" must not reach
+    # the caller as an empty summary, which reads as a service nobody is
+    # hearing from.
+    metrics_source = _a_mock_metrics_source()
+
+    Scenario() \
+        .given(
+            calling(raising(metrics_source, MetricsUnavailable("could not read metrics")))
+        ) \
+        .when(
+            attempting(
+                lambda: get_metrics_summary(
+                    alert_time=an_iso_minute(_an_alert_time()),
+                    settings=CONFIGURED_WINDOWS,
+                    source=metrics_source
+                )
+            )
+        ) \
+        .then(
+            an_error_was_raised(MetricsUnavailable)
         )
 
 
@@ -464,7 +504,7 @@ def _a_timeline_around(alert_time: datetime,
         inside_lookahead=alert_time + timedelta(
             minutes=random.randint(1, lookahead_minutes - 1)),
         too_late=alert_time + timedelta(
-            minutes=lookahead_minutes + random_minutes_beyond_an_edge()),
+            minutes=lookahead_minutes + random_minutes_beyond_an_edge())
     )
 
 
@@ -472,7 +512,7 @@ def _a_log_timeline_around(alert_time: datetime) -> _Timeline:
     return _a_timeline_around(
         alert_time,
         lookback_minutes=CONFIGURED_WINDOWS.log_initial_lookback_minutes,
-        lookahead_minutes=CONFIGURED_WINDOWS.log_initial_lookahead_minutes,
+        lookahead_minutes=CONFIGURED_WINDOWS.log_initial_lookahead_minutes
     )
 
 
@@ -495,7 +535,7 @@ def _a_bucket(minute: datetime, error_rate: float = 0.01) -> MetricBucket:
         memory_used_bytes=440 * 1024**2,
         process_start_time_seconds=1_756_000_000.0,
         cpu_used_cores=0.77,
-        cpu_limit_cores=3.0,
+        cpu_limit_cores=3.0
     )
 
 
@@ -519,6 +559,31 @@ def _a_while_before(moment: str) -> str:
 
 def _a_while_after(moment: str) -> str:
     return to_iso(parse_iso(moment) + A_WHILE)
+
+
+def _a_mock_metrics_source() -> Any:
+    """A stand-in for the metrics channel, spec'd against the port rather than
+    against any adapter: what `get_metrics_summary` is handed takes a window
+    and nothing else."""
+    return create_autospec(MetricsSource, instance=True)
+
+
+def _the_metrics_source_was_asked_for(metrics_source: Any,
+                                      started_at: datetime,
+                                      ended_at: datetime) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        asked = tuple(metrics_source.call_args.args)
+
+        if asked != (started_at, ended_at):
+            raise AssertionError(
+                f"Expected the metrics source to be asked for "
+                f"[{to_iso(started_at)}..{to_iso(ended_at)}], but it was asked for "
+                f"[{'..'.join(to_iso(moment) for moment in asked)}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_mock_change_source() -> Any:

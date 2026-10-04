@@ -135,7 +135,8 @@ def test_one_session_serves_every_call_made_over_it(
     Scenario() \
         .given(
             calling(the_target_service_has(
-                metrics=[a_metric_at(datetime(2026, 8, 20, 11, 45, 0, tzinfo=UTC))],
+                metrics=[a_metric_at(
+                    datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=5))],
                 logs=some_logs
             ))
         ) \

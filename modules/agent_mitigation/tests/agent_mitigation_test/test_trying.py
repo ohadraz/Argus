@@ -972,6 +972,47 @@ def test_an_incident_with_no_rhythm_is_given_the_one_clear_minute_it_needs() -> 
 
 
 @pytest.mark.unit
+def test_a_source_that_reports_a_minute_late_is_waited_for_a_minute_longer() -> None:
+    # A source that reports a minute only once it has ended - Prometheus, read
+    # at the end of each minute - hands over the minute a recovery shows in a
+    # minute after it happened. A wait ending as that minute ends would end
+    # before the reading that decides it could arrive, and refute the action
+    # that worked: which is what the first run against such a source did to a
+    # rollback. So the wait allows the lag on top of what the recovery needs.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_service_never_recovers := a_still_failing_window(),
+            a_source_a_minute_late := 1,
+            # 11:10:30 to 11:11 is thirty seconds, the one clear minute ends at
+            # 11:12, and its reading arrives a minute after that.
+            the_wait_a_late_reading_earns := 30 + 60 + 60
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(reporting_lag_minutes=a_source_a_minute_late),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                writes=the_writes(
+                    set_state=(set_state := _a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=True
+                    ))
+                ),
+                fetch_metrics=metrics_reading(the_service_never_recovers),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_allowed(published, the_wait_a_late_reading_earns)
+        ))
+
+
+@pytest.mark.unit
 def test_the_minute_a_verdict_is_read_from_follows_the_change_arriving() -> None:
     # Which minute the verdict is read off is the action's own question, and the
     # action is not in force when the tier acknowledges it. A rollback is
@@ -2830,20 +2871,23 @@ def _nothing_was_narrated(published: list[IncidentEvent]) -> Assertion[Outcome]:
     return assertion
 
 
-def _some_mitigation_settings() -> MitigationSettings:
+def _some_mitigation_settings(reporting_lag_minutes: int = 0) -> MitigationSettings:
     """How Mitigation behaves, as this suite sets it.
 
     The lookback and the actor are named because the attribution tests turn on
     them; the wait is named because the expiry tests do. The cap is named only
     because the slice requires one - how many attempts a subject is allowed is
-    the gate's question, and nothing taken here ever asks it twice.
+    the gate's question, and nothing taken here ever asks it twice. The
+    reporting lag is 0 unless a test names it: a source that reports the minute
+    in progress, which is what every other case here reads.
     """
     return MitigationSettings(
         mitigation_change_lookback_minutes=60,
         unleash_actor="argus",
         argocd_actor="argus",
         mitigation_verification_timeout_seconds=A_SHORT_WAIT_IN_SECONDS,
-        mitigation_attempts_per_subject=1
+        mitigation_attempts_per_subject=1,
+        metrics_reporting_lag_minutes=reporting_lag_minutes
     )
 
 

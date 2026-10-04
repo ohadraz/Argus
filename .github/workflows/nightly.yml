@@ -223,3 +223,10 @@ jobs:
           # The same fixture credential every job running the stack has to
           # name - see `ci.yml` for why it has no default.
           UNLEASH_ADMIN_TOKEN: "*:*.argus-agent-token"
+          # A minute reported only once it has ended, as a real Prometheus
+          # reports it - the stand-in withholds the minute in progress and the
+          # walk waits a minute longer for it. Every push runs at 0, which is
+          # faster and never walks this path; these runs are where it is
+          # walked. Here rather than on the timing run above, whose figures
+          # shard the push-time suite and would be a minute a case too long.
+          METRICS_REPORTING_LAG_MINUTES: "1"

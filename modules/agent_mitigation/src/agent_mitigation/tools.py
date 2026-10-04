@@ -337,7 +337,9 @@ class MitigationSettings(SettingsSlice):
     How far back a window of recent changes reaches, whose changes Argus
     recognises as its own, and how long it waits while nothing has been measured.
     Not how long the service is watched for: that is measured off the window the
-    service answers with.
+    service answers with - plus `metrics_reporting_lag_minutes`, how long after a
+    minute ends the metrics source reports it, without which the wait ends before
+    the minute that decides it can be read.
 
     `unleash_actor` and `argocd_actor` are empty where Argus and its operators
     share one credential on that system. That is a real deployment and not a
@@ -350,6 +352,7 @@ class MitigationSettings(SettingsSlice):
     argocd_actor: str
     mitigation_verification_timeout_seconds: float
     mitigation_attempts_per_subject: int
+    metrics_reporting_lag_minutes: int
 
 
 def flag_changes_over(client: McpClient) -> FlagChangesSince:
