@@ -25,5 +25,5 @@ __all__ = [
     "RevenueSettings",
     "RevenueUnavailable",
     "Takings",
-    "taken_between",
+    "taken_between"
 ]

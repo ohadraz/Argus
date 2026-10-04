@@ -56,7 +56,7 @@ def test_argus_recognises_the_change_it_made_and_no_other(
             _the_answer_is(True),
             _a_flag_argus_did_not_touch_answers(
                 THE_FALLBACK_FLAG, since, False, write_tier
-            ),
+            )
         ))
 
 

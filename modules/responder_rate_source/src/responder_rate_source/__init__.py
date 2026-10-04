@@ -28,5 +28,5 @@ __all__ = [
     "PayBandsByTitle",
     "PayBandsUnavailable",
     "ResponderRateSettings",
-    "pay_bands",
+    "pay_bands"
 ]

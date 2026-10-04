@@ -103,7 +103,7 @@ def _deltas_for(block: dict[str, Any]) -> list[dict[str, Any]]:
     if kind == "thinking":
         return [
             {"type": THINKING_DELTA, "thinking": block["thinking"]},
-            {"type": SIGNATURE_DELTA, "signature": block["signature"]},
+            {"type": SIGNATURE_DELTA, "signature": block["signature"]}
         ]
 
     if kind == TOOL_USE_TYPE:

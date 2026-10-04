@@ -156,7 +156,7 @@ def test_one_change_that_cannot_be_read_does_not_stop_the_others(
             outcome=Undone.NOT_ESTABLISHED,
             detail="dont care",
         ),
-        _restored("checkout-kill-switch"),
+        _restored("checkout-kill-switch")
     ]
 
     Scenario() \

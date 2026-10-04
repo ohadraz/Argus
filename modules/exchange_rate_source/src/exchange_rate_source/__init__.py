@@ -12,5 +12,5 @@ from __future__ import annotations
 from exchange_rate_source.frankfurter import rates_published_for
 
 __all__ = [
-    "rates_published_for",
+    "rates_published_for"
 ]

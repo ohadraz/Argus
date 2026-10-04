@@ -51,7 +51,7 @@ __all__ = [
     "Undone",
     "Verdict",
     "propose_action",
-    "state_name",
+    "state_name"
 ]
 
 class ActionTaker(Protocol):

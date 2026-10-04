@@ -49,5 +49,5 @@ __all__ = [
     "PayBand",
     "RateTable",
     "Sources",
-    "write_postmortem",
+    "write_postmortem"
 ]

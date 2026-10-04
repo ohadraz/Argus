@@ -63,10 +63,10 @@ def test_an_alert_over_a_window_nobody_could_read_escalates_with_a_postmortem() 
                     # taking the run up.
                     argus_went_through_statuses(
                         IncidentStatus.INVESTIGATING,
-                        IncidentStatus.ESCALATED,
+                        IncidentStatus.ESCALATED
                     ),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
-                    argus_created_a_postmortem_for_the_incident(),
+                    argus_created_a_postmortem_for_the_incident()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
             )

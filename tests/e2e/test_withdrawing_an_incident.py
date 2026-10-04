@@ -100,7 +100,7 @@ def test_an_incident_withdrawn_mid_walk_stops_and_puts_its_flag_back() -> None:
                 all_of(
                     argus_ended_with_status(IncidentStatus.WITHDRAWN),
                     _the_flag_was_put_back_the_way_argus_found_it(),
-                    _nothing_was_written_up(),
+                    _nothing_was_written_up()
                 ),
                 timeout=MITIGATION_TIMEOUT_SECONDS
             )
@@ -127,7 +127,7 @@ def test_a_flag_changed_from_outside_is_left_alone_when_the_incident_is_withdraw
             eventually(
                 all_of(
                     argus_ended_with_status(IncidentStatus.WITHDRAWN),
-                    _the_incident_left_the_flag_as_found(),
+                    _the_incident_left_the_flag_as_found()
                 ),
                 timeout=MITIGATION_TIMEOUT_SECONDS
             )

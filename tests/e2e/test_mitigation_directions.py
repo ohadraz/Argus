@@ -67,9 +67,9 @@ def test_a_flag_switched_off_is_mitigated_by_switching_it_back_on() -> None:
             eventually(
                 all_of(
                     argus_ended_with_status(IncidentStatus.MITIGATED),
-                    the_flag_provider_reports(THE_FALLBACK_FLAG, enabled=True),
+                    the_flag_provider_reports(THE_FALLBACK_FLAG, enabled=True)
                 ),
-                timeout=MITIGATION_TIMEOUT_SECONDS,
+                timeout=MITIGATION_TIMEOUT_SECONDS
             )
         )
 
@@ -114,12 +114,12 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
             eventually(
                 all_of(
                     about_the_hypothesis(
-                        the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE),
+                        the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE)
                     ),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
-                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=True),
+                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=True)
                 ),
-                timeout=WALK_TIMEOUT_SECONDS,
+                timeout=WALK_TIMEOUT_SECONDS
             )
         )
 

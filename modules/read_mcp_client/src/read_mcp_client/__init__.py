@@ -36,5 +36,5 @@ __all__ = [
     "read_mcp",
     "read_repository_file",
     "search_repository",
-    "search_repository_by_meaning",
+    "search_repository_by_meaning"
 ]

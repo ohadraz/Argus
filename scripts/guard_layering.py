@@ -300,7 +300,7 @@ def _every_suite_file() -> list[Path]:
         for path in [
             *sorted((REPOSITORY / "tests").rglob("*.py")),
             *sorted((REPOSITORY / "scripts").rglob("*.py")),
-            *sorted(REPOSITORY.glob("modules/*/tests/**/*.py")),
+            *sorted(REPOSITORY.glob("modules/*/tests/**/*.py"))
         ]
         if THE_KERNELS_OWN_SUITE not in path.as_posix()
     ]

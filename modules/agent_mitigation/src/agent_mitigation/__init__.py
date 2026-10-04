@@ -111,5 +111,5 @@ __all__ = [
     "recent_metrics_over",
     "propose_action",
     "take_action",
-    "undo_change",
+    "undo_change"
 ]

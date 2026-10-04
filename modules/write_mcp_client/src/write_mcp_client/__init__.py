@@ -35,5 +35,5 @@ __all__ = [
     "roll_back_deployment",
     "scale_out",
     "set_feature_flag",
-    "write_mcp",
+    "write_mcp"
 ]

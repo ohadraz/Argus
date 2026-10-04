@@ -36,5 +36,5 @@ __all__ = [
     "METRICS_TOOL",
     "ROLLOUT_TOOL",
     "Dispatcher",
-    "investigator_tools",
+    "investigator_tools"
 ]

@@ -204,7 +204,7 @@ def _the_incident_as_the_provider_holds_it(incident_id: str) -> dict[str, Any]:
     """
     response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/pagerduty/incidents/{incident_id}",
-        timeout=10.0,
+        timeout=10.0
     )
 
     if response.status_code != HttpStatus.OK:

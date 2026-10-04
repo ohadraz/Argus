@@ -14,5 +14,5 @@ __all__ = [
     "DEFAULT_PORT",
     "Posted",
     "Seed",
-    "app",
+    "app"
 ]
