@@ -384,12 +384,23 @@ cause with - by the damage outliving the change. There, removing the change ends
 the incident; here, removing the change stops the drift and leaves every wrong
 value where it was.
 
+The kind of change at the onset SHALL NOT decide the mode. A flag change and a
+deployment there are both causes of the same mode, and naming the incident by its
+cause - `feature-flag-toggle` or `bad-deployment` - is the near-miss in each case.
+
 #### Scenario: A flat window with a reconciliation finding is named as corruption
 - **GIVEN** an incident whose alert reports totals that do not reconcile, whose
   series are all at baseline, and whose change history holds a flag change at the
   stated onset
 - **WHEN** the cause is determined
 - **THEN** the mode is `silent-data-corruption`
+
+#### Scenario: The same finding with a deployment at the onset is still corruption
+- **GIVEN** an incident whose alert reports totals that do not reconcile, whose
+  series are all at baseline, and whose change history holds a deployment and no
+  flag change at the stated onset
+- **WHEN** the cause is determined
+- **THEN** the mode is `silent-data-corruption`, not `bad-deployment`
 
 #### Scenario: The cause is looked for at the stated onset, not at the alert
 - **GIVEN** an incident whose alert fired a week after the onset it states
