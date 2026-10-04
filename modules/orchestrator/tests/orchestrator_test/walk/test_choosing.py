@@ -37,6 +37,7 @@ from argus_core.models import (
     IncidentStatus,
     RestartService,
     RevertFeatureFlag,
+    RollBackDeployment,
     the_actions_through,
 )
 from argus_testkit import Assertion, Scenario, all_of
@@ -53,6 +54,8 @@ from orchestrator.walk.state import IncidentState, status_after
 from orchestrator_test.framework.assertions import the_updates_carry
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
+    a_corruption_blamed_on,
+    a_deployment,
     a_determined_hypothesis,
     a_divergence_blamed_on,
     a_random_id,
@@ -388,6 +391,33 @@ def test_a_candidate_answered_by_a_discard_already_taken_is_skipped() -> None:
             the_updates_carry("candidate_index", 2)))
 
 
+@pytest.mark.unit
+def test_a_corruption_answered_by_a_rollback_already_taken_is_skipped() -> None:
+    # The guard once more, for the candidate whose answer is read off the deploy
+    # history. Two rounds word one corruption two ways, and both are answered
+    # by returning the deployment the platform recorded - which this node knows
+    # only while it is still passing that history down. Stop passing it and the
+    # second wording reads as answered by nothing, which the guard cannot match
+    # against the rollback already taken.
+    incident_id = a_random_id()
+    a_candidate_blaming_a_flag = a_candidate_blaming(incident_id, ANOTHER_FLAG)
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_that_rolled_back(
+                incident_id,
+                [a_corruption_blamed_on(incident_id, "monthly totals look wrong"),
+                 a_corruption_blamed_on(incident_id, "the totals fell behind"),
+                 a_candidate_blaming_a_flag],
+                index=0
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            the_updates_carry("hypothesis", a_candidate_blaming_a_flag),
+            the_updates_carry("candidate_index", 2)))
+
+
 def _every_round() -> int:
     return SOME_ROUND_BUDGET
 
@@ -475,6 +505,36 @@ def _a_walk_that_discarded_entries(incident_id: str,
                 service=the_alert_that_found_them.service,
                 keys=the_entries_the_check_found
             )
+        }
+    )
+
+
+def _a_walk_that_rolled_back(incident_id: str,
+                             candidates: list[Hypothesis],
+                             index: int) -> IncidentState:
+    """The same walk, after returning the deployment the platform recorded.
+
+    The deploy history is carried with it, because a corruption is answered by
+    a rollback only where the platform recorded a deployment - so whether a
+    second wording of one is the same experiment can only be known while this
+    node is still handing that history down.
+
+    The flag history holds the flag candidates' flags alone. `_a_walk_at`
+    records every subject as a flag that moved, and a corruption's subject is
+    prose - left in, it would be answered by a flag revert, and the case would
+    be about the flag history instead of the deploy history.
+    """
+    return _a_walk_at(incident_id, candidates, index).model_copy(
+        update={
+            "flag_changes": [
+                FlagChange(flag=candidate.subject, enabled=True,
+                           occurred_at=DONT_CARE_MOMENT)
+                for candidate in candidates
+                if candidate.failure_mode is FailureMode.FEATURE_FLAG_TOGGLE
+                and candidate.subject is not None
+            ],
+            "deployments": [a_deployment()],
+            "proposed_action": RollBackDeployment(application=DONT_CARE_ALERT.service)
         }
     )
 

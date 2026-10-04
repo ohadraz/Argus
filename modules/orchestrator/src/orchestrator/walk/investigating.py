@@ -11,6 +11,7 @@ the provider rather than two.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from argus_core.events import (
     AgentInvoked,
@@ -25,6 +26,7 @@ from argus_core.events import (
 )
 from argus_core.models import (
     Actor,
+    ChangeEvent,
     Disproof,
     FlagChange,
     Hypothesis,
@@ -44,6 +46,7 @@ from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     FetchDependencies,
+    FetchDeployments,
     FetchFlagChanges,
     Investigate,
     RecallSimilar,
@@ -62,6 +65,7 @@ def investigator_node(
     recall_similar: RecallSimilar,
     fetch_flag_changes: FetchFlagChanges,
     fetch_dependencies: FetchDependencies,
+    fetch_deployments: FetchDeployments | None = None,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
 ) -> StateDelta:
@@ -76,7 +80,13 @@ def investigator_node(
     repository write, injectable so this node's logic can be unit tested without
     a live Target Service or database - mirroring the seams
     `agent_investigator.investigate()` establishes for its own retrieval and
-    model calls."""
+    model calls.
+
+    `fetch_deployments` is the one collaborator that may be absent, and absent
+    means the history was never read rather than that nothing was deployed: it
+    is carried as `None`, which is what an unreadable history is carried as. One
+    mode reads it, so a walk without it loses that mode's rollback and nothing
+    else."""
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.INVESTIGATOR), publisher)
 
     findings = investigate(
@@ -111,6 +121,12 @@ def investigator_node(
     # carried to everything in the round that needs it.
     flag_changes = _what_the_provider_recorded(
         state, findings.readings_cover_the_incident, fetch_flag_changes, publisher
+    )
+    # And the platform's account of what was deployed, over the same window: a
+    # mode that names the damage rather than the change is answered by undoing
+    # whichever of the two sits at the onset, so the two are read as one.
+    deployments = _what_the_platform_recorded(
+        state, findings.readings_cover_the_incident, fetch_deployments, publisher
     )
     # The estate this incident is allowed to reach into, read in the same
     # breath. Nothing in this round uses it: it is read here because it is
@@ -157,7 +173,8 @@ def investigator_node(
     reordered = demoting_what_was_refuted(
         what_each_would_do(findings.candidates, flag_changes,
                            state.alert.service,
-                           state.alert.stale_entry_keys or ()),
+                           state.alert.stale_entry_keys or (),
+                           deployments or ()),
         recalled
     )
     candidates = [entry.candidate for entry in reordered.candidates]
@@ -213,6 +230,7 @@ def investigator_node(
         # that could not be read has to reach them as that rather than as a
         # history that happens to be empty.
         flag_changes=flag_changes,
+        deployments=deployments,
         # Carried on for the gate, which is where it is finally asked a
         # question. Empty where the register would not answer, deliberately
         # indistinguishable from a register that listed nothing: both leave
@@ -260,19 +278,8 @@ def _what_the_provider_recorded(state: IncidentState,
     `ChannelsUnread` exists to draw and cannot draw on its own.
     """
     try:
-        # The onset the alert stated, or nothing - which is what every alert
-        # that measured its own says, and what leaves the window ending where
-        # it always ended.
-        #
-        # Nothing, too, where no reading covers the incident's own minutes. A
-        # stated onset is ordinarily the minute the incident began; where the
-        # readings stop at it, it is the last one there was, and what ended them
-        # is the change - so the change lies at or after that minute and a window
-        # ending there holds none of it. Asking for the present is then the right
-        # question for the reason it is the wrong one for a weekly check: this
-        # incident is happening now, and the flag is still where it was moved to.
         flag_changes = fetch_flag_changes(
-            onset=state.alert.stated_onset if readings_cover_the_incident else None
+            onset=_where_the_change_window_ends(state, readings_cover_the_incident)
         )
     except Exception as unanswered:
         # No minute, because there is none to name: this is the window the round
@@ -295,6 +302,63 @@ def _what_the_provider_recorded(state: IncidentState,
     )
 
     return flag_changes
+
+
+def _what_the_platform_recorded(state: IncidentState,
+                                readings_cover_the_incident: bool,
+                                fetch_deployments: FetchDeployments | None,
+                                publisher: Publisher) -> list[ChangeEvent] | None:
+    """What the platform says was deployed to the alerting service, or `None`
+    where it would not say or nobody wired it.
+
+    The flag history's twin, over the same window and failing the same way: an
+    unreadable history is `None` and is said to have gone unanswered, never an
+    empty list, which would state that nothing was deployed.
+
+    Not published when it answers. The Investigator reads the same channel
+    itself and its reading is already in the account; this is a second read,
+    over the flag history's window rather than the Investigator's, held for the
+    one mode whose action it decides.
+    """
+    if fetch_deployments is None:
+        return None
+
+    try:
+        return fetch_deployments(
+            service=state.alert.service,
+            onset=_where_the_change_window_ends(state, readings_cover_the_incident)
+        )
+    except Exception as unanswered:
+        publish(
+            RetrievalUnanswered(
+                incident_id=state.incident_id,
+                what_was_asked="what the platform recorded deploying",
+                because=str(unanswered)
+            ),
+            publisher
+        )
+
+        return None
+
+
+def _where_the_change_window_ends(state: IncidentState,
+                                  readings_cover_the_incident: bool
+                                  ) -> datetime | None:
+    """The onset a change history's window ends at, or `None` for the present.
+
+    The onset the alert stated, or nothing - which is what every alert that
+    measured its own says, and what leaves the window ending where it always
+    ended.
+
+    Nothing, too, where no reading covers the incident's own minutes. A stated
+    onset is ordinarily the minute the incident began; where the readings stop at
+    it, it is the last one there was, and what ended them is the change - so the
+    change lies at or after that minute and a window ending there holds none of
+    it. Asking for the present is then the right question for the reason it is
+    the wrong one for a weekly check: this incident is happening now, and the
+    change is still in force.
+    """
+    return state.alert.stated_onset if readings_cover_the_incident else None
 
 
 def _what_the_register_lists(state: IncidentState,

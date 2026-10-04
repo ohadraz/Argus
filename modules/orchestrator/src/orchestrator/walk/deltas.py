@@ -24,6 +24,7 @@ from typing import Any
 from argus_core.models import (
     Action,
     Attempt,
+    ChangeEvent,
     Disproof,
     FlagChange,
     Hypothesis,
@@ -100,6 +101,9 @@ class StateDelta(BaseModel):
     # `model_fields_set` is what makes that possible: a `None` a node chose is
     # sent on, where a `None` it never mentioned is not.
     flag_changes: list[FlagChange] | None = None
+    # The platform's deploy history, set beside the flag history and `None` in
+    # the same circumstance, for the same reason.
+    deployments: list[ChangeEvent] | None = None
     # What the register says the alerting service calls, read in the same round
     # as the flag history. Optional here for the reason every field above is -
     # a node that did not set it must not overwrite what another node decided -

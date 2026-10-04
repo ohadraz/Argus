@@ -9,16 +9,29 @@ An agent that then blames it is investigating itself.
 The provider answers this by recording an author on every change, which is only
 useful if Argus writes under a name of its own - see `Settings.unleash_actor`
 and the credential the Target Environment seeds for it.
+
+The platform's deploy history is the same problem a second time: a rollback is
+recorded as a deployment, attributed to the account that asked for it - see
+`Settings.argocd_actor`. So the filter is asked of anything a source records an
+author on, not of flags alone.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Protocol
 
 from argus_core.models import FlagChange
 
 
-def changes_not_made_by(actor: str, changes: Sequence[FlagChange]) -> list[FlagChange]:
+class Attributed(Protocol):
+    """Anything its source records an author on - a flag change, a deployment."""
+
+    @property
+    def actor(self) -> str | None: ...
+
+
+def changes_not_made_by[C: Attributed](actor: str, changes: Sequence[C]) -> list[C]:
     """`changes`, less the ones `actor` made, in the order they arrived.
 
     Order is preserved because callers read the last mention of a flag as its

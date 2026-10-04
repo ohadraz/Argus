@@ -86,6 +86,7 @@ CASE_THE_LEAK = "resource-leak-is-told-from-demand-saturation"
 CASE_THE_FLAPPING_AUTOSCALER = "autoscaling-pathology-is-told-from-demand-saturation"
 CASE_THE_STOPPED_ROLLOUT = "in-flight-compatibility-break-is-told-from-a-bad-deployment"
 CASE_THE_SILENT_CORRUPTION = "silent-data-corruption-is-told-from-a-flag-toggle"
+CASE_THE_DEPLOYED_CORRUPTION = "silent-data-corruption-is-told-from-a-bad-deployment"
 CASE_THE_STOPPED_READINGS = "monitoring-blind-spot-is-told-from-a-bad-deployment"
 CASE_A_WINDOW_THAT_STOPS = "a-window-that-stops-is-not-read-as-a-well-service"
 CASE_THE_STALE_CACHE = "state-divergence-is-told-from-silent-data-corruption"
@@ -169,6 +170,11 @@ MUST_IDENTIFY_THE_STOPPED_ROLLOUT = 9  # UNMEASURED - no pooled samples yet
 # the more expensive of the two - it reports a service that failed, in a window
 # a reader can see was well from end to end.
 MUST_IDENTIFY_THE_SILENT_CORRUPTION = 9  # UNMEASURED - no pooled samples yet
+# The fourth pair's other change, unmeasured for its siblings' reason. The same
+# drift behind a revision rather than a flag, and so up against `bad-deployment`
+# where its sibling was up against a toggle - the near miss a deploy at the
+# onset invites, refused by a window in which nothing failed.
+MUST_IDENTIFY_THE_DEPLOYED_CORRUPTION = 9  # UNMEASURED - no pooled samples yet
 # The fifth matched pair, unmeasured for its siblings' reason and the closest
 # of them all: its two members differ in no series, no window shape and no
 # onset-dating, only in which side of a reconciliation the alert says
@@ -448,6 +454,34 @@ WHAT_THE_RESHAPED_ENTRY_SHIPPED = [
     "  +    return Summary(Cents(int(amount)), int(items))"
 ]
 
+# The revision that stopped carrying a running total, and what it shipped. A
+# real commit in the Target Service, as the others here are, and the diff is its
+# own: the conditional addition to the month's figure removed, the lifetime one
+# kept, and nothing that reads the month changed to work it out instead. The
+# docstring says it will be derived "whenever anybody wants it" - which is the
+# whole of the defect, and a model has to read past the intention to see it.
+THE_REVISION_THAT_DROPPED_A_RUNNING_TOTAL = "26f1d7e"
+WHAT_THE_DROPPED_RUNNING_TOTAL_SHIPPED = [
+    f"Deployment of revision {THE_REVISION_THAT_DROPPED_A_RUNNING_TOTAL} to "
+    f"io-shop, compared against 4c810f2 - the revision deployed before it.",
+    "modified src/io_shop/purchase_ledger.py",
+    "  @@ -29,24 +29,21 @@ def record_purchase(account, purchase):",
+    "  +    The month is no longer carried. Every purchase says whether it falls",
+    "  +    in the current month, so what a shopper has spent this month adds up",
+    "  +    from the history whenever anybody wants it.",
+    "       return replace(",
+    "           account,",
+    "           purchases=(*account.purchases, purchase),",
+    "  -        total_cents=account.total_cents + purchase.price_cents,",
+    "  -        total_this_month_cents=(",
+    "  -            account.total_this_month_cents + purchase.price_cents",
+    "  -            if purchase.in_current_month",
+    "  -            else account.total_this_month_cents",
+    "  -        )",
+    "  +        total_cents=account.total_cents + purchase.price_cents",
+    "       )"
+]
+
 A_FAILURE_READING_A_CACHE_ENTRY = (
     "ERROR checkout: summary cache entry could not be read - ValueError: "
     "summary cache entry '2400/8' is not a figure in cents"
@@ -470,7 +504,7 @@ def test_a_flag_toggled_on_before_the_error_spike_is_identified() -> None:
             _scored(
                 CASE_THE_FLAG_TOGGLE,
                 MUST_IDENTIFY_THE_FLAG_TOGGLE,
-                _a_run_where(the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE)),
+                _a_run_where(the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE))
             )
         )
 
@@ -837,7 +871,7 @@ def test_a_change_that_does_not_explain_the_symptoms_is_not_blamed() -> None:
                 all_of(
                     _a_run_where_nothing_was_claimed_confidently(),
                     _the_deploy_was_not_blamed()
-                ),
+                )
             )
         )
 
@@ -870,7 +904,7 @@ def test_an_onset_that_is_only_a_lower_bound_is_read_past() -> None:
             _scored(
                 CASE_THE_LOWER_BOUND,
                 MUST_READ_PAST_THE_LOWER_BOUND,
-                _a_run_where_the_logs_were_read_before(_the_default_log_window_opens_at()),
+                _a_run_where_the_logs_were_read_before(_the_default_log_window_opens_at())
             )
         )
 
@@ -908,6 +942,47 @@ def test_data_that_went_wrong_silently_is_told_from_a_flag_that_broke_the_servic
             _scored(
                 CASE_THE_SILENT_CORRUPTION,
                 MUST_IDENTIFY_THE_SILENT_CORRUPTION,
+                _a_run_where(
+                    the_cause_was_identified_as(
+                        FailureMode.SILENT_DATA_CORRUPTION
+                    )
+                )
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
+def test_data_a_deployment_got_wrong_silently_is_told_from_a_bad_deployment() -> None:
+    # The fourth pair's other change. The case above stages the drift behind a
+    # flag; this stages the same drift behind a revision, and so meets a near
+    # miss the flag never did. A deploy at the onset is the shape `bad-deployment`
+    # is named from, and a model that reads "revision, then trouble" stops there.
+    #
+    # What separates them is what separates the case above from its twin: the
+    # window. `bad-deployment` claims a revision broke the service, and nothing
+    # failed and nothing slowed - only what was written afterwards is wrong. The
+    # diff says the same thing from the other side: one addition to a stored
+    # figure dropped, and nothing on any request path touched.
+    #
+    # Either name reaches the same recommendation: both are answered by a
+    # rollback, and the gate holds back any action an alert-dated incident could
+    # not confirm, whichever mode proposed it. So the wrong name costs the
+    # account rather than the action - a postmortem saying a revision broke a
+    # service that served every request.
+    some_incident = an_incident_where_a_deployment_stopped_the_totals_keeping_up()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_DEPLOYED_CORRUPTION,
+                MUST_IDENTIFY_THE_DEPLOYED_CORRUPTION,
                 _a_run_where(
                     the_cause_was_identified_as(
                         FailureMode.SILENT_DATA_CORRUPTION
@@ -1380,6 +1455,46 @@ def an_incident_where_the_totals_stopped_keeping_up() -> Incident:
     )
 
 
+def an_incident_where_a_deployment_stopped_the_totals_keeping_up() -> Incident:
+    """The same drift as the case above, by a revision rather than a flag.
+
+    Everything a model can read apart from the change is shared with it: the
+    alert dating the fault a week back, a window flat from end to end, ordinary
+    trade in the logs. What sits at the onset is a deployment, and its diff is
+    the only place the cause is written - one addition to a stored figure
+    dropped, with nothing that reads the figure changed to derive it instead.
+
+    A deploy at the onset is also the shape `bad-deployment` is named from, which
+    is what makes this the near miss. That mode claims a revision broke the
+    service, and the window says it did not: every request was served and only
+    what was written afterwards is wrong.
+    """
+    a_week_in_minutes = 7 * 24 * 60
+
+    return _an_incident(
+        alert=an_integrity_alert(),
+        buckets=_a_window_in_which_nothing_happened(),
+        log_lines=[
+            a_log_line_at(-2, A_SUCCESS),
+            a_log_line_at(-1, A_SUCCESS),
+            a_log_line_at(1, A_SUCCESS)
+        ],
+        changes=[
+            a_deploy_at(
+                -a_week_in_minutes,
+                THE_REVISION_THAT_DROPPED_A_RUNNING_TOTAL,
+                _as_a_deploy_is_actually_summarised(
+                    THE_REVISION_THAT_DROPPED_A_RUNNING_TOTAL
+                )
+            )
+        ],
+        what_each_deployment_changed={
+            THE_REVISION_THAT_DROPPED_A_RUNNING_TOTAL:
+                WHAT_THE_DROPPED_RUNNING_TOTAL_SHIPPED
+        }
+    )
+
+
 def an_incident_where_the_cache_fell_behind_the_ledger() -> Incident:
     """A copy that stopped being updated, where the records behind it are fine.
 
@@ -1813,8 +1928,7 @@ def _an_incident(alert: Alert,
                     rollout=rollout or [])
 
 
-def _the_register_for(incident: Incident
-                      ) -> Callable[[str], list[ServiceDependency]]:
+def _the_register_for(incident: Incident) -> Callable[[str], list[ServiceDependency]]:
     """What the register says this service calls, as the real channel answers it.
 
     Per incident rather than one `no_dependencies` for every case, because

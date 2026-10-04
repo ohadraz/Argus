@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, Mock, create_autospec
 import pytest
 from agent_mitigation.tools import (
     Arrival,
+    DeploymentsBetween,
     FlagChangesSince,
     MitigationSettings,
     a_rollback_arriving_over,
@@ -22,6 +23,8 @@ from agent_mitigation.tools import (
     argus_changed_flag_since,
     deployment_restorer_over,
     deployment_roller_over,
+    deployments_over,
+    fetch_recent_deployments,
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
@@ -32,6 +35,7 @@ from argus_core import to_iso
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Action,
+    ChangeEvent,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     FlagChange,
@@ -43,6 +47,7 @@ from argus_core.models import (
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_mitigation_test.framework.builders import (
+    a_deployment,
     an_action_restarting,
     an_action_setting,
 )
@@ -64,6 +69,8 @@ FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 SET_FLAG_TOOL = "set_feature_flag"
 ROLL_BACK_TOOL = "roll_back_deployment"
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
+
+CHANGE_EVENTS_TOOL = "get_change_events"
 
 SOME_APPLICATION = "io-shop"
 A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
@@ -264,6 +271,129 @@ def test_changes_argus_made_itself_are_left_out() -> None:
         .then(
             _it_returned_only(somebody_elses)
         )
+
+
+@pytest.mark.unit
+def test_the_deploy_history_is_asked_for_the_lookback_before_a_stated_onset() -> None:
+    # The window the flag history is asked for, and for the same reason: a
+    # change a weekly check dated landed a week before the alert, and a window
+    # ending now reaches nothing that old.
+    some_lookback = timedelta(minutes=30)
+    a_week_earlier = THE_MOMENT_IT_WAS_CLAIMED - timedelta(days=7)
+
+    Scenario() \
+        .given(
+            fetch := _a_deploy_history_reporting()
+        ) \
+        .when(
+            lambda: fetch_recent_deployments(
+                _some_mitigation_settings(lookback=some_lookback),
+                fetch=fetch,
+                service=SOME_APPLICATION,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
+                onset=a_week_earlier
+            )
+        ) \
+        .then(
+            _it_asked_for_the_window(
+                fetch, SOME_APPLICATION, a_week_earlier - some_lookback, a_week_earlier
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_deploy_history_window_ends_now_where_no_onset_was_stated() -> None:
+    some_lookback = timedelta(minutes=30)
+
+    Scenario() \
+        .given(
+            fetch := _a_deploy_history_reporting()
+        ) \
+        .when(
+            lambda: fetch_recent_deployments(
+                _some_mitigation_settings(lookback=some_lookback),
+                fetch=fetch,
+                service=SOME_APPLICATION,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED
+            )
+        ) \
+        .then(
+            _it_asked_for_the_window(
+                fetch,
+                SOME_APPLICATION,
+                THE_MOMENT_IT_WAS_CLAIMED - some_lookback,
+                THE_MOMENT_IT_WAS_CLAIMED
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_deployments_the_history_reported_are_what_comes_back() -> None:
+    the_deployment = a_deployment()
+
+    Scenario() \
+        .given(
+            fetch := _a_deploy_history_reporting(the_deployment)
+        ) \
+        .when(
+            lambda: fetch_recent_deployments(
+                _some_mitigation_settings(),
+                fetch=fetch,
+                service=SOME_APPLICATION,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED
+            )
+        ) \
+        .then(
+            _it_returned_the_deployments(the_deployment)
+        )
+
+
+@pytest.mark.unit
+def test_deployments_argus_made_itself_are_left_out() -> None:
+    # Argus's own flag reverts are, and for the same reason: where no onset was
+    # stated the window ends now, so a round after Argus rolled back reads its
+    # rollback as the newest deployment - and proposes rolling that back.
+    somebody_elses = a_deployment(actor="some-human")
+
+    Scenario() \
+        .given(
+            fetch := _a_deploy_history_reporting(
+                a_deployment(actor=SOME_ARGUS_USER), somebody_elses
+            )
+        ) \
+        .when(
+            lambda: fetch_recent_deployments(
+                _some_mitigation_settings(),
+                fetch=fetch,
+                service=SOME_APPLICATION,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED
+            )
+        ) \
+        .then(
+            _it_returned_the_deployments(somebody_elses)
+        )
+
+
+@pytest.mark.integration
+def test_the_deploy_history_is_asked_over_the_read_tier() -> None:
+    # The platform's history is the read tier's, as it is for the Investigator's
+    # change channel. The write tier holds no such tool, so a history bound to
+    # it would fail every round rather than report anything.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write,
+                    lambda: deployments_over(read)(service=SOME_APPLICATION,
+                                                   window_start=SOME_MOMENT,
+                                                   window_end=SOME_MOMENT))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(CHANGE_EVENTS_TOOL),
+            _the_write_tier_was_asked_for()
+        ))
 
 
 @pytest.mark.integration
@@ -824,8 +954,52 @@ def _some_mitigation_settings(
     a_wait_nothing_here_reaches = 180.0
 
     return MitigationSettings(
-        flag_change_lookback_minutes=int(lookback.total_seconds() // 60),
+        mitigation_change_lookback_minutes=int(lookback.total_seconds() // 60),
         unleash_actor=actor,
+        argocd_actor=actor,
         mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches,
         mitigation_attempts_per_subject=1
     )
+
+
+def _a_deploy_history_reporting(*deployments: ChangeEvent) -> MagicMock:
+    fetch: MagicMock = create_autospec(DeploymentsBetween)
+    fetch.return_value = list(deployments)
+
+    return fetch
+
+
+def _it_asked_for_the_window(fetch: MagicMock,
+                             service: str,
+                             starting: datetime,
+                             ending: datetime) -> Assertion[list[ChangeEvent]]:
+    def assertion(dont_care_deployments: list[ChangeEvent]) -> bool:
+        expected = {
+            "service": service,
+            "window_start": to_iso(starting),
+            "window_end": to_iso(ending)
+        }
+
+        if fetch.call_args.kwargs != expected:
+            raise AssertionError(
+                f"Expected the deploy history to be asked for {expected}, "
+                f"got {fetch.call_args.kwargs}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_returned_the_deployments(
+    *expected: ChangeEvent
+) -> Assertion[list[ChangeEvent]]:
+    def assertion(deployments: list[ChangeEvent]) -> bool:
+        if tuple(deployments) != expected:
+            raise AssertionError(
+                f"Expected the deployments {expected}, got {tuple(deployments)}."
+            )
+
+        return True
+
+    return assertion

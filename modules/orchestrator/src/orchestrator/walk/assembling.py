@@ -34,6 +34,8 @@ from agent_mitigation import (
     MitigationSettings,
     an_undo_over,
     argus_changed_flag_since,
+    deployments_over,
+    fetch_recent_deployments,
     fetch_recent_flag_changes,
     flag_changes_over,
     how_a_change_arrives,
@@ -69,6 +71,7 @@ from orchestrator.walk.ports import (
     ChangeLanded,
     CompleteAction,
     FetchDependencies,
+    FetchDeployments,
     FetchFlagChanges,
     Investigate,
     ProposeFix,
@@ -103,6 +106,7 @@ class Collaborators:
     investigate: Investigate
     record_hypothesis: RecordHypothesis
     fetch_flag_changes: FetchFlagChanges
+    fetch_deployments: FetchDeployments
     fetch_dependencies: FetchDependencies
     record_outcome: RecordOutcome
     admitted: Admitted
@@ -273,6 +277,11 @@ def against(connections: Connections,
         # agent every time it is asked a question.
         fetch_flag_changes=partial(
             fetch_recent_flag_changes, mitigation, flag_history
+        ),
+        # The other change a service has, over the same lookback and read over
+        # the read tier the Investigator's change channel uses.
+        fetch_deployments=partial(
+            fetch_recent_deployments, mitigation, deployments_over(read)
         ),
         record_outcome=records.outcome,
         # The gate's question, answered by the agent that holds the set of

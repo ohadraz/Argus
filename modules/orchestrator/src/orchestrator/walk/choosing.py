@@ -65,7 +65,8 @@ def next_candidate_node(state: IncidentState,
     next_up = the_next_worth_trying(
         what_each_would_do(state.candidates, state.flag_changes,
                            state.alert.service,
-                           state.alert.stale_entry_keys or ()),
+                           state.alert.stale_entry_keys or (),
+                           state.deployments or ()),
         attempts,
         start=state.candidate_index + 1,
         # What an earlier attempt found was not answering. Passed in rather than

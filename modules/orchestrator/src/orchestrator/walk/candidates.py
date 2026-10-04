@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from agent_mitigation import propose_action
 from argus_core.models import (
     Attempt,
+    ChangeEvent,
     FlagChange,
     Hypothesis,
     Platform,
@@ -26,7 +27,8 @@ from argus_core.models import (
 def what_each_would_do(candidates: Sequence[Hypothesis],
                        flag_changes: Sequence[FlagChange] | None,
                        service: str,
-                       stale_entry_keys: Sequence[str] = ()
+                       stale_entry_keys: Sequence[str] = (),
+                       deployments: Sequence[ChangeEvent] = ()
                        ) -> list[WhatWouldBeTried]:
     """Every candidate, beside the action that answers it.
 
@@ -40,7 +42,7 @@ def what_each_would_do(candidates: Sequence[Hypothesis],
     Free of I/O and free of a model, for the same reason `propose_action` is:
     the flag history arrives as a value.
 
-    `stale_entry_keys` arrives the same way, and it is the one input here
+    `stale_entry_keys` arrives the same way, and it is one of two inputs here
     without which a candidate goes unanswered rather than answered differently.
     An entry in a store is addressed by a key, a key's format belongs to
     whoever wrote the store, and nothing in Argus may compose one - so the
@@ -48,6 +50,11 @@ def what_each_would_do(candidates: Sequence[Hypothesis],
     worked out from. Defaulted to nothing because every cause but one is
     answered without them, which is also what makes a caller that forgets them
     silent: the candidate is simply answered by no action at all.
+
+    `deployments` is the other, for the one candidate whose answer is read off
+    it: a corruption is undone by whichever change the histories hold, so asked
+    without this one, a corruption a revision caused is answered by nothing and
+    can never match a rollback already tried for it.
 
     A history nobody could read is `None`, and then nothing would be done
     about anything. Not because every kind of action needs the history - a
@@ -65,7 +72,8 @@ def what_each_would_do(candidates: Sequence[Hypothesis],
 
     proposals = (
         (candidate,
-         propose_action(candidate, flag_changes, service, stale_entry_keys))
+         propose_action(candidate, flag_changes, service, stale_entry_keys,
+                        deployments=deployments))
         for candidate in candidates
     )
 

@@ -36,6 +36,7 @@ from argus_core.models import (
     SCALE_OUT,
     Action,
     ActionType,
+    ChangeEvent,
     DiscardCacheEntries,
     FailureMode,
     FlagChange,
@@ -59,6 +60,7 @@ __all__ = [
     "RevertFeatureFlagStrategy",
     "ScaleOutStrategy",
     "Strategies",
+    "UndoTheRecordedChangeStrategy",
     "a_mitigation_answers"
 ]
 
@@ -66,31 +68,36 @@ __all__ = [
 class MitigationStrategy(Protocol):
     """One generic mitigation, and the cause it answers.
 
-    `action_type` is on the strategy rather than only on what it proposes, so
+    `action_types` is on the strategy rather than only on what it proposes, so
     that a strategy cannot be registered without saying which actions it
-    answers for - and so that the kind a cause maps to can be read without
-    building the action first.
+    answers for - and so that the kinds a cause maps to can be read without
+    building the action first. A set rather than one kind, because one mode
+    names the damage rather than the change, and its strategy answers with
+    whichever undo the record calls for.
     """
 
-    action_type: ActionType
+    action_types: frozenset[ActionType]
 
-    # The evidence is positional, the service and the keys are named. A protocol
-    # that fixes a parameter's *name* obliges every implementation to repeat it,
-    # which is a real constraint on a stand-in whose whole point is that it
-    # ignores what it is handed - `dont_care_hypothesis` is the right name there
-    # and an error against a protocol spelling it `hypothesis`. The two that
-    # follow stay named because callers name them, and a keyword argument is part
-    # of the call; a third positional would make every existing call wrong.
+    # The evidence is positional; the service, the keys and the deployments are
+    # named. A protocol that fixes a parameter's *name* obliges every
+    # implementation to repeat it, which is a real constraint on a stand-in whose
+    # whole point is that it ignores what it is handed - `dont_care_hypothesis`
+    # is the right name there and an error against a protocol spelling it
+    # `hypothesis`. The three that follow stay named because callers name them,
+    # and a keyword argument is part of the call; a third positional would make
+    # every existing call wrong.
     #
-    # The keys carry a default because one strategy of six reads them, and a
+    # The keys carry a default because one strategy of eight reads them, and a
     # required parameter would be every call site naming an input that answers
-    # nothing for it.
+    # nothing for it. The deployments are defaulted for the same reason, and
+    # read by one strategy too.
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 /,
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None: ...
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None: ...
 
 
 class RevertFeatureFlagStrategy:
@@ -104,13 +111,14 @@ class RevertFeatureFlagStrategy:
     every flag that has been off for a year.
     """
 
-    action_type: ActionType = REVERT_FEATURE_FLAG
+    action_types: frozenset[ActionType] = frozenset({REVERT_FEATURE_FLAG})
 
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         """The flag change to reverse, or `None` where the evidence names none.
 
         Reading the Investigator's conclusion is not a second investigation.
@@ -159,13 +167,14 @@ class RestartServiceStrategy:
     names a service because that is what an alert is about.
     """
 
-    action_type: ActionType = RESTART_SERVICE
+    action_types: frozenset[ActionType] = frozenset({RESTART_SERVICE})
 
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         """The service to restart - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. A leak
@@ -212,13 +221,14 @@ class RollBackDeploymentStrategy:
     inventing a state to ship.
     """
 
-    action_type: ActionType = ROLL_BACK_DEPLOYMENT
+    action_types: frozenset[ActionType] = frozenset({ROLL_BACK_DEPLOYMENT})
 
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         """The deployment to roll back - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. What was
@@ -264,13 +274,14 @@ class RestartDependencyStrategy:
     thing that decides how far Argus's authority reaches.
     """
 
-    action_type: ActionType = RESTART_SERVICE
+    action_types: frozenset[ActionType] = frozenset({RESTART_SERVICE})
 
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         """The dependency to restart, or `None` where the evidence names none.
 
         `None` rather than a restart of the alerting service, for the reason
@@ -321,13 +332,14 @@ class ScaleOutStrategy:
     stops being true the moment anybody has scaled anything.
     """
 
-    action_type: ActionType = SCALE_OUT
+    action_types: frozenset[ActionType] = frozenset({SCALE_OUT})
 
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         """The deployment to make larger - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. Traffic
@@ -377,13 +389,14 @@ class PinAutoscalerStrategy:
     principle.
     """
 
-    action_type: ActionType = PIN_AUTOSCALER
+    action_types: frozenset[ActionType] = frozenset({PIN_AUTOSCALER})
 
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         """The deployment whose autoscaler to hold - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. A controller
@@ -426,13 +439,14 @@ class DiscardCacheEntriesStrategy:
     that is perfectly well.
     """
 
-    action_type: ActionType = DISCARD_CACHE_ENTRIES
+    action_types: frozenset[ActionType] = frozenset({DISCARD_CACHE_ENTRIES})
 
     def propose(self,
                 hypothesis: Hypothesis,
                 flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         """The entries to discard, or `None` where the evidence named none.
 
         The keys are passed through exactly as they arrived - same keys, same
@@ -452,6 +466,56 @@ class DiscardCacheEntriesStrategy:
             return None
 
         return DiscardCacheEntries(service=service, keys=tuple(stale_entry_keys))
+
+
+class UndoTheRecordedChangeStrategy:
+    """Answering damage a change left behind by undoing whichever change the
+    record holds.
+
+    Every other strategy here answers a mode that is itself a statement about
+    what kind of thing went wrong - a flag, a revision, a heap, a controller. A
+    mode that names the damage instead says nothing of the sort: wrong data can
+    be written by a flag somebody turned on, by a revision somebody deployed, by
+    a migration or by a person at a console. So the mode chooses the family of
+    answers - undo the change - and the record chooses which member.
+
+    The flag revert is asked first, because it is the narrower claim. It answers
+    only where a recorded change matches the flag the candidate named, or - where
+    the candidate named none - is the only flag that moved; an estate deploys far
+    more often than it toggles, so a deployment in the window says less. The
+    rollback follows where the platform recorded one, and is addressed to the
+    alerting service as every rollback is.
+
+    Neither is a default. Where the record holds no change, nothing is proposed:
+    a rollback recommended with no deployment behind it sends a person to undo
+    somebody else's work for a fault it did not cause.
+    """
+
+    action_types: frozenset[ActionType] = frozenset(
+        {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT}
+    )
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                flag_changes: Sequence[FlagChange],
+                service: str,
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+        """The flag revert where the flag history names the change, else the
+        rollback where the platform recorded a deployment, else `None`."""
+        flag_revert = RevertFeatureFlagStrategy().propose(
+            hypothesis, flag_changes, service=service
+        )
+
+        if flag_revert is not None:
+            return flag_revert
+
+        if deployments:
+            return RollBackDeploymentStrategy().propose(
+                hypothesis, flag_changes, service=service
+            )
+
+        return None
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
@@ -512,14 +576,13 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.DEMAND_SATURATION: ScaleOutStrategy(),
     FailureMode.AUTOSCALING_PATHOLOGY: PinAutoscalerStrategy(),
     FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: RollBackDeploymentStrategy(),
-    # The flag toggle's own action, for a cause that really is a flag somebody
-    # moved - and the one entry here whose action the gate will decline. That
-    # refusal is the gate's judgement and not this table's: a mode absent from
-    # this mapping answers `None`, which is refused as nothing answering the
-    # kind of failure at all, and the incident then ends saying a person is
-    # needed without saying what for. Named here so there is something to
-    # recommend.
-    FailureMode.SILENT_DATA_CORRUPTION: RevertFeatureFlagStrategy(),
+    # Whichever change the record holds at the onset, undone - and the one entry
+    # here whose action the gate will decline. That refusal is the gate's
+    # judgement and not this table's: a mode absent from this mapping answers
+    # `None`, which is refused as nothing answering the kind of failure at all,
+    # and the incident then ends saying a person is needed without saying what
+    # for. Named here so there is something to recommend.
+    FailureMode.SILENT_DATA_CORRUPTION: UndoTheRecordedChangeStrategy(),
     # The fourth mode returning a deployment, and the only one where what comes
     # back is the sight of the service rather than its behaviour. Nothing about
     # the service got worse; a revision changed what reaches the scrape, and

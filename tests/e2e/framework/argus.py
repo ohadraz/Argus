@@ -90,6 +90,7 @@ RECORDED_SILENT_DATA_CORRUPTION = "silent-data-corruption"
 RECORDED_CONTROL_PLANE_UNREACHABLE = "control-plane-unreachable"
 RECORDED_MONITORING_BLIND_SPOT = "monitoring-blind-spot"
 RECORDED_STATE_DIVERGENCE = "cache-failed-over"
+RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,
@@ -641,6 +642,12 @@ def _the_answers_recorded_for(recording: str, control: httpx2.Client) -> list[st
 
     A name with no numbered siblings answers as itself, which is every case that
     resolves on its first verdict - so this changes nothing for them.
+
+    A name with no answers at all is refused here, before the alert is sent. The
+    double takes a seed by name without looking for it and fails only when the
+    model is first called, which ends the walk in a second - and the case then
+    polls an incident that has already ended until its walk timeout, eighteen
+    minutes spent reporting a recording nobody made.
     """
     state = control.get("/double-control/state")
     state.raise_for_status()
@@ -651,7 +658,13 @@ def _the_answers_recorded_for(recording: str, control: httpx2.Client) -> list[st
         if name == recording or _is_a_later_answer_of(name, recording)
     ]
 
-    return sorted(belonging, key=_the_order_it_was_answered_in) or [recording]
+    if not belonging:
+        raise AssertionError(
+            f"No recording named [{recording}] for the double to answer from - "
+            f"record it before replaying this case."
+        )
+
+    return sorted(belonging, key=_the_order_it_was_answered_in)
 
 
 def _is_a_later_answer_of(name: str, recording: str) -> bool:

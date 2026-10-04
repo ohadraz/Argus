@@ -112,6 +112,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     record_hypothesis=collaborators.record_hypothesis,
                     fetch_flag_changes=collaborators.fetch_flag_changes,
                     fetch_dependencies=collaborators.fetch_dependencies,
+                    fetch_deployments=collaborators.fetch_deployments,
                     publisher=collaborators.publisher,
                     recorder=collaborators.recorder)
         )

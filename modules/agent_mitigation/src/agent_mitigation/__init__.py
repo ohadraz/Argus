@@ -49,6 +49,7 @@ from agent_mitigation.strategies import (
     a_mitigation_answers,
 )
 from agent_mitigation.tools import (
+    DeploymentsBetween,
     FlagChangesSince,
     MitigationSettings,
     PerformingWrites,
@@ -57,6 +58,8 @@ from agent_mitigation.tools import (
     argus_changed_flag_since,
     deployment_restorer_over,
     deployment_roller_over,
+    deployments_over,
+    fetch_recent_deployments,
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
@@ -73,6 +76,7 @@ __all__ = [
     "Action",
     "ActionTaker",
     "AdmittedMitigations",
+    "DeploymentsBetween",
     "FlagChangesSince",
     "MitigationSettings",
     "MitigationStrategy",
@@ -94,6 +98,8 @@ __all__ = [
     "argus_changed_flag_since",
     "deployment_restorer_over",
     "deployment_roller_over",
+    "deployments_over",
+    "fetch_recent_deployments",
     "fetch_recent_flag_changes",
     "flag_changes_over",
     "flag_setter_over",

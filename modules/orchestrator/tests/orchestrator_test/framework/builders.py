@@ -11,6 +11,8 @@ from argus_core.models import (
     ActionIdentity,
     ActionType,
     Alert,
+    ChangeEvent,
+    ChangeKind,
     Evidence,
     FailureMode,
     Hypothesis,
@@ -177,6 +179,38 @@ def a_divergence_blamed_on(incident_id: str, prose: str) -> Hypothesis:
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
                       subject=prose)
+
+
+def a_corruption_blamed_on(incident_id: str, prose: str) -> Hypothesis:
+    """An explanation that what the service wrote is wrong, in the model's words.
+
+    Names no flag on purpose. The mode names the damage rather than the change,
+    so what answers it is read off the change histories rather than off the
+    candidate - and a candidate that named a flag would let the flag history
+    answer for a case that is about the deploy history.
+    """
+    some_confidence = 0.75
+
+    return Hypothesis(incident_id=incident_id,
+                      summary="monthly totals have stopped keeping up with purchases",
+                      failure_mode=FailureMode.SILENT_DATA_CORRUPTION,
+                      confidence=some_confidence,
+                      supporting_evidence=[Evidence(claim="some log line", at=None)],
+                      subject=prose)
+
+
+def a_deployment() -> ChangeEvent:
+    """A revision the platform recorded going out.
+
+    Which revision and when are nobody's concern here: what reads it asks only
+    whether the platform recorded one.
+    """
+    return ChangeEvent(
+        kind=ChangeKind.DEPLOY,
+        occurred_at="2026-09-27T09:14:00Z",
+        reference="26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2",
+        summary="dont-care-summary"
+    )
 
 
 def the_incident_is_still_wanted() -> IsStillWanted:

@@ -34,6 +34,8 @@ from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_
 
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
+    a_corruption_blamed_on,
+    a_deployment,
     a_determined_hypothesis,
     a_divergence_blamed_on,
     a_leak_blamed_on,
@@ -504,6 +506,27 @@ def test_a_divergence_candidate_is_answered_by_discarding_the_keys_handed_in() -
             the_keys_the_check_named
         )) \
         .then(_each_would_do([discarding(SOME_SERVICE)]))
+
+
+@pytest.mark.unit
+def test_a_corruption_candidate_is_answered_by_the_deployment_recorded() -> None:
+    # The other candidate whose answer the candidate cannot give. It names the
+    # damage and not the change, so what is undone is whichever change the
+    # histories hold - and asked without the deploy history, a corruption a
+    # revision caused would come back answered by nothing, and the walk would
+    # pass over the one explanation it had.
+    some_incident_id = a_random_id()
+
+    Scenario() \
+        .given(the_revision_that_went_out := [a_deployment()]) \
+        .when(lambda: what_each_would_do(
+            [a_corruption_blamed_on(some_incident_id,
+                                    "monthly totals fall behind the purchases")],
+            [],
+            SOME_SERVICE,
+            deployments=the_revision_that_went_out
+        )) \
+        .then(_each_would_do([rolling_back(SOME_SERVICE)]))
 
 
 def _a_change_to(flag: str) -> FlagChange:

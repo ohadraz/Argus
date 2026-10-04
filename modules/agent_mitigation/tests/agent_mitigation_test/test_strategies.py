@@ -21,9 +21,12 @@ from agent_mitigation import (
     a_mitigation_answers,
     propose_action,
 )
+from agent_mitigation.strategies import DEFAULT_STRATEGIES
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_DEPLOYMENT,
     ActionType,
+    ChangeEvent,
     DiscardCacheEntries,
     FailureMode,
     FlagChange,
@@ -38,6 +41,7 @@ from argus_testkit import Assertion, Scenario
 from agent_mitigation_test.framework.assertions import nothing_was_proposed
 from agent_mitigation_test.framework.builders import (
     DONT_CARE_FLAG,
+    a_deployment,
     a_hypothesis_blaming,
     an_action_setting,
     an_enabling_of,
@@ -315,6 +319,86 @@ def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it
             service=DONT_CARE_SERVICE
         )) \
         .then(_the_action_proposed_names(DONT_CARE_FLAG))
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> None:
+    # The mode names the damage and not the change, so the action follows the
+    # record rather than the mode. A walk that read a flat window and reached
+    # for a flag would have learned the flag scenario rather than the mode, and
+    # here it would find no flag to put back and recommend nothing at all.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
+            NO_FLAGS_CHANGED,
+            SOME_APPLICATION_THE_ALERT_NAMES,
+            deployments=[a_deployment()]
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_with_no_change_recorded_proposes_nothing() -> None:
+    # Not a rollback by default. A recommendation is still read and acted on by
+    # a person, and a rollback with no deployment behind it sends somebody to
+    # undo a week of somebody else's work for a fault it did not cause - a
+    # migration, a console edit, anything neither history records.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
+            NO_FLAGS_CHANGED,
+            SOME_APPLICATION_THE_ALERT_NAMES,
+            deployments=[]
+        )) \
+        .then(nothing_was_proposed())
+
+
+@pytest.mark.unit
+def test_a_flag_the_corruption_names_wins_over_a_deployment_beside_it() -> None:
+    # The more specific evidence is asked first. An estate deploys far more often
+    # than it toggles, so a deployment in the window is the weaker claim, and a
+    # recorded flag the candidate names is the stronger one.
+    the_flag_it_names = "kuki-flag"
+    naming_a_flag = a_hypothesis_blaming(
+        FailureMode.SILENT_DATA_CORRUPTION, subject=the_flag_it_names
+    )
+
+    Scenario() \
+        .given(naming_a_flag) \
+        .when(lambda: propose_action(
+            naming_a_flag,
+            [an_enabling_of(the_flag_it_names)],
+            SOME_APPLICATION_THE_ALERT_NAMES,
+            deployments=[a_deployment()]
+        )) \
+        .then(_the_action_proposed_names(the_flag_it_names))
+
+
+@pytest.mark.unit
+def test_a_deployment_recorded_changes_nothing_for_any_other_mode() -> None:
+    # One mode reads the deploy history. A leak answered by a restart must not
+    # change because a revision happened to go out while the heap climbed.
+    Scenario() \
+        .given(a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK)) \
+        .when(lambda: propose_action(
+            a_leak, NO_FLAGS_CHANGED, DONT_CARE_SERVICE, deployments=[a_deployment()]
+        )) \
+        .then(_the_service_to_restart_is(DONT_CARE_SERVICE))
+
+
+@pytest.mark.unit
+def test_the_strategy_answering_corruption_declares_both_actions_it_may_take() -> None:
+    # Which change is undone is the record's to say, so either kind may come
+    # back - and a declaration naming one would be wrong whenever the record
+    # held the other.
+    Scenario() \
+        .given(the_mode := FailureMode.SILENT_DATA_CORRUPTION) \
+        .when(lambda: DEFAULT_STRATEGIES[the_mode].action_types) \
+        .then(_the_kinds_declared_are(
+            frozenset({REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT})
+        ))
 
 
 @pytest.mark.unit
@@ -708,7 +792,7 @@ class _StandInStrategy:
     added for this file's benefit.
     """
 
-    action_type: ActionType = REVERT_FEATURE_FLAG
+    action_types: frozenset[ActionType] = frozenset({REVERT_FEATURE_FLAG})
 
     def __init__(self, proposing: Action | None) -> None:
         self._proposing = proposing
@@ -717,7 +801,8 @@ class _StandInStrategy:
                 dont_care_hypothesis: Hypothesis,
                 dont_care_flag_changes: Sequence[FlagChange],
                 service: str,
-                stale_entry_keys: Sequence[str] = ()) -> Action | None:
+                stale_entry_keys: Sequence[str] = (),
+                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
         return self._proposing
 
 
@@ -909,6 +994,21 @@ def _the_entries_discarded_are(expected: tuple[str, ...]) -> Assertion[Action | 
                 f"{action.keys}. Argus composes no key, so anything here the "
                 f"alert did not carry was invented, and anything missing was "
                 f"dropped on the way."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_kinds_declared_are(
+    expected: frozenset[ActionType]
+) -> Assertion[frozenset[ActionType]]:
+    def assertion(declared: frozenset[ActionType]) -> bool:
+        if declared != expected:
+            raise AssertionError(
+                f"Expected the strategy to declare it may answer with "
+                f"{sorted(expected)}, and it declares {sorted(declared)}."
             )
 
         return True

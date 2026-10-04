@@ -29,6 +29,7 @@ from typing import Protocol
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
     Action,
+    ChangeEvent,
     FlagChange,
     Hypothesis,
     Outcome,
@@ -104,7 +105,8 @@ def propose_action(hypothesis: Hypothesis,
                    flag_changes: Sequence[FlagChange],
                    service: str,
                    stale_entry_keys: Sequence[str] = (),
-                   strategies: Strategies = DEFAULT_STRATEGIES) -> Action | None:
+                   strategies: Strategies = DEFAULT_STRATEGIES,
+                   deployments: Sequence[ChangeEvent] = ()) -> Action | None:
     """The action that answers `hypothesis`, or `None` where none does
     (spec §7.3).
 
@@ -135,6 +137,10 @@ def propose_action(hypothesis: Hypothesis,
     value, and never through a model's conclusion. Defaulted to nothing, because
     every mode but one is answered without it.
 
+    `deployments` arrives the same way, as what the platform recorded over the
+    flag history's window. One mode reads it - the one that names damage rather
+    than a change, and is answered by undoing whichever change the record holds.
+
     `strategies` is a parameter so a caller can ask what a different set of
     them would propose. The default is the real registry rather than nothing,
     because proposing is policy: a caller that had to supply the policy in
@@ -149,5 +155,9 @@ def propose_action(hypothesis: Hypothesis,
         return None
 
     return strategy.propose(
-        hypothesis, flag_changes, service=service, stale_entry_keys=stale_entry_keys
+        hypothesis,
+        flag_changes,
+        service=service,
+        stale_entry_keys=stale_entry_keys,
+        deployments=deployments
     )

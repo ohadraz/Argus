@@ -18,6 +18,7 @@ from argus_core.models import (
     ActionType,
     Alert,
     Attempt,
+    ChangeEvent,
     Findings,
     FlagChange,
     Hypothesis,
@@ -82,6 +83,24 @@ class FetchFlagChanges(Protocol):
     """
 
     def __call__(self, *, onset: datetime | None) -> list[FlagChange]: ...
+
+
+class FetchDeployments(Protocol):
+    """The platform's own history of what was deployed to a service, and when.
+
+    The flag history's question asked of the other change a service has, over
+    the same window and ending at the same place. Takes the service where that
+    one takes nothing, because a deployment belongs to an application and the
+    platform is asked about one.
+
+    Keyword-only for the flag history's reason: the binding is a `partial` over
+    Mitigation's settings and the read tier's connection.
+    """
+
+    def __call__(self,
+                 *,
+                 service: str,
+                 onset: datetime | None) -> list[ChangeEvent]: ...
 
 
 class FetchDependencies(Protocol):

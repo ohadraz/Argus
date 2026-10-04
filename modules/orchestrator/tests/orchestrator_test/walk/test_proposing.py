@@ -37,6 +37,7 @@ from argus_core.models import (
     IncidentStatus,
     RestartService,
     RevertFeatureFlag,
+    RollBackDeployment,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.deltas import StateDelta
@@ -44,6 +45,8 @@ from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import (
+    a_corruption_blamed_on,
+    a_deployment,
     a_determined_hypothesis,
     a_divergence_blamed_on,
     an_incident_state,
@@ -114,6 +117,31 @@ def test_a_divergence_is_answered_by_discarding_the_entries_the_alert_named() ->
         ) \
         .when(lambda: mitigation_proposal_node(a_diverging_incident)) \
         .then(_the_proposed_action_discards(the_entries_the_check_found))
+
+
+@pytest.mark.unit
+def test_a_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> None:
+    # The node hands on the deploy history the round read, as it hands on the
+    # flag history. Without it, a corruption with no flag behind it would have
+    # nothing proposed for it, and an incident Argus had diagnosed correctly
+    # would end without the one thing it could recommend.
+    some_alert = Alert(service=SOME_SERVICE, alert_name="SpendTotalsDoNotReconcile")
+    state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
+
+    Scenario() \
+        .given(
+            a_corrupting_incident := state.model_copy(
+                update={
+                    "hypothesis": a_corruption_blamed_on(
+                        state.incident_id, "monthly totals fall behind the purchases"
+                    ),
+                    "flag_changes": [],
+                    "deployments": [a_deployment()]
+                }
+            )
+        ) \
+        .when(lambda: mitigation_proposal_node(a_corrupting_incident)) \
+        .then(_the_proposed_action_rolls_back(SOME_SERVICE))
 
 
 @pytest.mark.unit
@@ -279,6 +307,20 @@ def _nothing_was_proposed() -> Assertion[StateDelta]:
         if proposed is not None:
             raise AssertionError(
                 f"Expected no action to be proposed, got {proposed!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_proposed_action_rolls_back(application: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        proposed = updates.proposed_action
+        if not isinstance(proposed, RollBackDeployment) \
+                or proposed.application != application:
+            raise AssertionError(
+                f"Expected a rollback of [{application}], got [{proposed!r}]."
             )
 
         return True

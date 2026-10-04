@@ -49,6 +49,11 @@ def mitigation_proposal_node(state: IncidentState) -> StateDelta:
             state.hypothesis,
             state.flag_changes,
             state.alert.service,
-            state.alert.stale_entry_keys or ()
+            state.alert.stale_entry_keys or (),
+            # The platform's history beside the provider's. `or ()` because an
+            # unread one and an empty one answer the same here: one mode reads
+            # it, and that mode proposes a rollback only where a deployment was
+            # recorded.
+            deployments=state.deployments or ()
         )
     )

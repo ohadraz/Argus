@@ -15,6 +15,7 @@ from argus_core.models import (
     AutoscalingRestored,
     CacheEntriesDiscarded,
     CapacityRestored,
+    ChangeEvent,
     DeploymentRestored,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
@@ -30,7 +31,11 @@ from argus_core.models import (
     ScaleOut,
     UndoDescriptor,
 )
-from read_mcp_client import get_metrics_summary, get_rollout_progress
+from read_mcp_client import (
+    get_change_events,
+    get_metrics_summary,
+    get_rollout_progress,
+)
 from write_mcp_client import (
     discard_cache_entries,
     get_recent_flag_changes,
@@ -125,6 +130,21 @@ class FlagChangeFetcher(Protocol):
 # lookback is about something else entirely.
 class FlagChangesSince(Protocol):
     def __call__(self, since: str) -> list[FlagChange]: ...
+
+
+class DeploymentsBetween(Protocol):
+    """What Mitigation needs from whatever reads a service's deploy history.
+
+    A window rather than a moment, unlike the flag history above, because that
+    is how the platform is asked: a history entry belongs to an application, and
+    the read tier answers for a span of it.
+    """
+
+    def __call__(self,
+                 *,
+                 service: str,
+                 window_start: str,
+                 window_end: str) -> list[ChangeEvent]: ...
 # The service's own account of itself, and the one way to change what it does.
 # `Protocol` rather than a `Callable` alias for both, because a test stands each
 # in with `create_autospec` and specing against the function that answers them
@@ -314,18 +334,20 @@ ChangedFromOutside = Callable[[str, datetime], bool | None]
 class MitigationSettings(SettingsSlice):
     """How Mitigation behaves against the provider and the service.
 
-    How far back a window of recent flag changes reaches, whose changes Argus
+    How far back a window of recent changes reaches, whose changes Argus
     recognises as its own, and how long it waits while nothing has been measured.
     Not how long the service is watched for: that is measured off the window the
     service answers with.
 
-    `unleash_actor` is empty where Argus and its operators share one
-    credential. That is a real deployment and not a misconfiguration - the
-    attribution rules answer `None` there rather than guessing.
+    `unleash_actor` and `argocd_actor` are empty where Argus and its operators
+    share one credential on that system. That is a real deployment and not a
+    misconfiguration - the attribution rules answer `None` there rather than
+    guessing.
     """
 
-    flag_change_lookback_minutes: int
+    mitigation_change_lookback_minutes: int
     unleash_actor: str
+    argocd_actor: str
     mitigation_verification_timeout_seconds: float
     mitigation_attempts_per_subject: int
 
@@ -338,6 +360,16 @@ def flag_changes_over(client: McpClient) -> FlagChangesSince:
     history is strictly less than the write tier can already do.
     """
     return partial(_flag_changes_since, client=client)
+
+
+def deployments_over(client: McpClient) -> DeploymentsBetween:
+    """The platform's deploy history, asked over one connection to the read tier.
+
+    The read tier, unlike the flag history's, because the platform's history is
+    readable with the read tier's own credential - the Investigator's change
+    channel asks it there for the same reason.
+    """
+    return partial(get_change_events, client=client)
 
 
 def recent_metrics_over(client: McpClient) -> MetricsFetcher:
@@ -591,7 +623,7 @@ def fetch_recent_flag_changes(
     it drops is changes made after the incident began, which did not cause it,
     and that is the rule the Investigator's own default window already applies.
     """
-    lookback = timedelta(minutes=settings.flag_change_lookback_minutes)
+    lookback = timedelta(minutes=settings.mitigation_change_lookback_minutes)
     window_ends_at = onset if onset is not None else now()
 
     changes = changes_not_made_by(
@@ -603,6 +635,42 @@ def fetch_recent_flag_changes(
         change for change in changes
         if parse_iso(change.occurred_at) <= window_ends_at
     ]
+
+
+def fetch_recent_deployments(
+    settings: MitigationSettings,
+    fetch: DeploymentsBetween,
+    service: str,
+    now: Clock = utc_now,
+    onset: datetime | None = None
+) -> list[ChangeEvent]:
+    """The deployments of `service` recorded over the configured lookback,
+    oldest first.
+
+    The flag history's window, asked of the other change a service has: the
+    same lookback, ending at the same place - the onset where the alert stated
+    one, now where it did not. Not a lookback of its own, because the question
+    is the same one: what somebody changed just before this began. A mode that
+    names the damage rather than the change is answered by undoing whichever of
+    the two the record holds there, and the two records have to be read over
+    one span or the answer depends on which of them reached further.
+
+    Argus's own rollbacks are dropped, as its flag reverts are and for the same
+    reason: where no onset was stated the window ends now, and a round after
+    Argus rolled back would read its rollback as the newest deployment - and
+    propose rolling that back.
+    """
+    lookback = timedelta(minutes=settings.mitigation_change_lookback_minutes)
+    window_ends_at = onset if onset is not None else now()
+
+    return changes_not_made_by(
+        settings.argocd_actor,
+        fetch(
+            service=service,
+            window_start=to_iso(window_ends_at - lookback),
+            window_end=to_iso(window_ends_at)
+        )
+    )
 
 
 def argus_changed_flag_since(

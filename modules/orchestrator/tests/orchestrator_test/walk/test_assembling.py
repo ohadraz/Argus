@@ -43,6 +43,10 @@ WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"action"})
 # changes to undo and in what order belong to whoever holds the records.
 WHAT_AN_UNDO_IS_GIVEN = frozenset({"undo_descriptor"})
 
+# What the investigation node asks the deploy history: which service, and where
+# the window ends. The settings and the connection are the binding's.
+WHAT_THE_INVESTIGATION_NODE_ASKS = frozenset({"service", "onset"})
+
 
 @pytest.mark.unit
 def test_assembling_the_collaborators_opens_no_connection() -> None:
@@ -94,6 +98,23 @@ def test_taking_an_action_is_bound_with_every_tool_it_needs() -> None:
             _taking_an_action_needs_only(WHAT_THE_MITIGATION_NODE_SUPPLIES),
             _putting_a_change_back_needs_only(WHAT_AN_UNDO_IS_GIVEN)
         ))
+
+
+@pytest.mark.unit
+def test_the_deploy_history_is_bound_with_everything_but_the_question() -> None:
+    # Bound whole for the reason taking an action is. The investigation node asks
+    # it about a service and an onset and nothing else, and a partial short of
+    # anything more is well-typed until the first round reads it - which is in
+    # the middle of an incident, after the model has been paid for.
+    Scenario() \
+        .given(no_connections := _connections_that_must_not_be_opened()) \
+        .when(lambda: against(no_connections,
+                              _a_client_that_must_not_be_reached(),
+                              _a_client_that_must_not_be_reached(),
+                              None)) \
+        .then(
+            _reading_the_deploy_history_needs_only(WHAT_THE_INVESTIGATION_NODE_ASKS)
+        )
 
 
 def _a_client_that_must_not_be_reached() -> McpClient:
@@ -175,6 +196,21 @@ def _putting_a_change_back_needs_only(supplied: frozenset[str]) -> Assertion[Col
             )
 
         _nothing_beyond(supplied, _still_required_of(undo), "put a change back")
+
+        return True
+
+    return assertion
+
+
+def _reading_the_deploy_history_needs_only(
+    supplied: frozenset[str]
+) -> Assertion[Collaborators]:
+    def assertion(collaborators: Collaborators) -> bool:
+        _nothing_beyond(
+            supplied,
+            _still_required_of(collaborators.fetch_deployments),
+            "read what was deployed"
+        )
 
         return True
 

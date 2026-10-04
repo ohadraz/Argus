@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import pytest
 from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
-from argus_core.models import FlagChange
+from argus_core.models import ChangeEvent, FlagChange
 from argus_testkit import Assertion, Scenario
+
+from agent_mitigation_test.framework.builders import a_deployment
 
 AN_ACTOR = "Argus"
 A_HUMAN = "admin"
@@ -123,6 +125,27 @@ def test_the_remaining_changes_keep_their_order() -> None:
 
 
 @pytest.mark.unit
+def test_a_deployment_argus_made_is_dropped_as_its_flag_changes_are() -> None:
+    # A rollback is recorded as a deployment like any other, attributed to the
+    # account that asked for it. Kept, a round reading the history after Argus
+    # rolled back would find Argus's own rollback as the newest deployment, and
+    # propose undoing it.
+    Scenario() \
+        .given(
+            argus_own_rollback := a_deployment(actor=AN_ACTOR),
+            somebody_elses_deployment := a_deployment(actor=A_HUMAN)
+        ) \
+        .when(
+            lambda: changes_not_made_by(
+                AN_ACTOR, [argus_own_rollback, somebody_elses_deployment]
+            )
+        ) \
+        .then(
+            _the_deployments_kept_are(somebody_elses_deployment)
+        )
+
+
+@pytest.mark.unit
 def test_argus_own_change_to_the_flag_is_found() -> None:
     # The question a resumed walk asks: did the change I was making land? Asked
     # of the provider's log, which is the only place that knows.
@@ -229,3 +252,18 @@ def a_flag_change(flag: str = "some-flag", actor: str | None = None) -> FlagChan
         occurred_at="2026-08-29T16:00:00Z",
         actor=actor,
     )
+
+
+def _the_deployments_kept_are(*expected: ChangeEvent) -> Assertion[list[ChangeEvent]]:
+    """Exactly these deployments, in this order - the rule `_the_changes_kept_are`
+    states for flags, asked of the platform's history."""
+    def assertion(kept: list[ChangeEvent]) -> bool:
+        if kept != list(expected):
+            raise AssertionError(
+                f"Expected the deployments by {[each.actor for each in expected]} to "
+                f"be kept, got the ones by {[each.actor for each in kept]}."
+            )
+
+        return True
+
+    return assertion

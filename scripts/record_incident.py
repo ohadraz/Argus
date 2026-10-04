@@ -58,7 +58,7 @@ from argus_core.events import (
     SimilarIncidentsRecalled,
     VerdictReached,
 )
-from argus_core.models import FixOutcome, IncidentStatus
+from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
@@ -69,6 +69,7 @@ from tests.e2e.framework.argus import (
     RECORDED_CACHE_MISCONFIGURED,
     RECORDED_CONTROL_PLANE_UNREACHABLE,
     RECORDED_CPU_SATURATION,
+    RECORDED_DEPLOY_CAUSED_CORRUPTION,
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
@@ -171,6 +172,12 @@ _AN_ACTION_WAS_REFUSED: Final = _Published(ActionRefused)
 # somebody something to do. A recording held to the refusal alone would accept a
 # walk that stopped for one of the other five.
 _AN_ACTION_WAS_RECOMMENDED: Final = _Published(ActionRecommended)
+# The recommendation, held to its kind. Silent corruption's action follows the
+# change recorded at the onset, so a walk that recommended putting a flag back
+# recommended an answer to a different incident - one this scenario never staged.
+_A_ROLLBACK_WAS_RECOMMENDED: Final = _Published(
+    ActionRecommended, {"action_type": ROLL_BACK_DEPLOYMENT}
+)
 _A_VERDICT_WAS_REACHED: Final = _Published(VerdictReached)
 # The walk found out, mid-incident, that a platform it acts through is not
 # answering. Held to for the one recording captured against a refusing platform,
@@ -491,6 +498,20 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         (_A_HYPOTHESIS_WAS_FORMED,
          _AN_ACTION_WAS_REFUSED,
          _AN_ACTION_WAS_RECOMMENDED)
+    ),
+    # The same damage by the other change. No flag moved; a revision went out at
+    # the instant the oldest short total was written, and the deploy history is
+    # the only place that says so. Held to the rollback rather than to any
+    # recommendation, because the kind is the whole of what separates this walk
+    # from the flag one above it.
+    _Recording(
+        RECORDED_DEPLOY_CAUSED_CORRUPTION,
+        "monthly-totals-falling-behind",
+        None,
+        IncidentStatus.RECOMMENDED,
+        (_A_HYPOTHESIS_WAS_FORMED,
+         _AN_ACTION_WAS_REFUSED,
+         _A_ROLLBACK_WAS_RECOMMENDED)
     ),
     # The one incident staged against a platform that will not act. Two changes
     # moved in the window and the closer of them is the deployment, so the walk

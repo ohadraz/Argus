@@ -14,6 +14,7 @@ from argus_core.models import (
     Action,
     Alert,
     Attempt,
+    ChangeEvent,
     Disproof,
     FlagChange,
     Hypothesis,
@@ -85,6 +86,12 @@ class IncidentState(BaseModel):
     # while meaning the opposite thing, and an account that spelled them the
     # same would tell a reader nothing changed when nobody could say.
     flag_changes: list[FlagChange] | None = None
+    # What the platform recorded as deployed to this service, read in the same
+    # breath as the flag history and over the same window. Carried for the same
+    # reason, and `None` for the same reason: one mode is answered by undoing
+    # whichever of the two changes sits at its onset, and a history nobody could
+    # read must not be taken for one in which nothing was deployed.
+    deployments: list[ChangeEvent] | None = None
     # What the service register says this service calls, read once at the top of
     # each round beside the flag history. Carried for the same reason: the gate
     # reads it to decide whether the service an action is addressed to is one

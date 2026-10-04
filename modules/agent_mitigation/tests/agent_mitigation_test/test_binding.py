@@ -184,8 +184,9 @@ def _some_mitigation_settings() -> MitigationSettings:
     a_wait_nothing_here_reaches = 180.0
 
     return MitigationSettings(
-        flag_change_lookback_minutes=a_lookback_nothing_here_reaches,
+        mitigation_change_lookback_minutes=a_lookback_nothing_here_reaches,
         unleash_actor=SOME_ARGUS_USER,
+        argocd_actor=SOME_ARGUS_USER,
         mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches,
         mitigation_attempts_per_subject=1
     )

@@ -71,6 +71,8 @@ from orchestrator_test.framework.assertions import (
 )
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
+    a_corruption_blamed_on,
+    a_deployment,
     a_determined_hypothesis,
     a_divergence_blamed_on,
     a_leak_blamed_on,
@@ -80,6 +82,7 @@ from orchestrator_test.framework.builders import (
     discarding,
     putting_back,
     restarting,
+    rolling_back,
 )
 
 SOME_FLAG = "monthly-spend-feature"
@@ -117,6 +120,17 @@ A_DISPROOF = Disproof(
     minutes_judged=30
 )
 
+# What the platform's history holds around the onset. Non-empty for the reason
+# the two above are: an empty history is what an unreadable one would look like
+# carried forward, and a case about carrying it could not tell the two apart.
+WHAT_THE_PLATFORM_RECORDED = [a_deployment()]
+
+# What a source fails with when it cannot be reached. Named because the error is
+# carried onto the page, and it is how a case tells which source a line about an
+# unanswered retrieval is about.
+FLAG_PROVIDER_UNREACHABLE = "The Feature Flag provider could not be reached."
+PLATFORM_UNREACHABLE = "The deployment platform could not be reached."
+
 
 @pytest.fixture
 def investigate() -> MagicMock:
@@ -140,6 +154,14 @@ def fetch_flag_changes() -> MagicMock:
 def fetch_dependencies() -> MagicMock:
     fetch = cast(MagicMock, create_autospec(ports.FetchDependencies, instance=True))
     fetch.return_value = list(WHAT_THE_REGISTER_LISTS)
+
+    return fetch
+
+
+@pytest.fixture
+def fetch_deployments() -> MagicMock:
+    fetch = cast(MagicMock, create_autospec(ports.FetchDeployments, instance=True))
+    fetch.return_value = list(WHAT_THE_PLATFORM_RECORDED)
 
     return fetch
 
@@ -1037,9 +1059,152 @@ def test_a_flag_history_that_could_not_be_read_is_said_to_have_gone_unanswered(
                                       publisher=published.take)
         ) \
         .then(all_of(
-            _the_provider_was_said_to_have_not_answered(published),
+            _the_retrieval_was_said_to_have_not_answered(published, FLAG_PROVIDER_UNREACHABLE),
             _no_history_was_published(published),
             the_result_at("flag_changes", None)))
+
+
+@pytest.mark.unit
+def test_the_deploy_history_is_asked_at_an_onset_the_alert_stated(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
+    fetch_deployments: MagicMock
+) -> None:
+    # The flag history's question, asked of the other change a service has. A
+    # mode that names the damage rather than the change is answered by undoing
+    # whichever of the two sits at the onset, so both are read there - and read
+    # about the service that was paged, since a deployment belongs to one.
+    a_stated_onset = datetime(2026, 9, 22, 14, 10, tzinfo=UTC)
+    an_incident_found_by_a_check = an_incident_state(
+        Alert(
+            service=SOME_SERVICE,
+            alert_name="SpendTotalsDoNotReconcile",
+            stated_onset=a_stated_onset
+        ),
+        IncidentStatus.INVESTIGATING
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate, a_determined_hypothesis(
+                    an_incident_found_by_a_check.incident_id
+                )
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_incident_found_by_a_check,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      fetch_deployments=fetch_deployments)
+        ) \
+        .then(
+            assert_that(fetch_deployments).was_called_with(
+                service=SOME_SERVICE, onset=a_stated_onset
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_round_carries_the_deploy_history_it_read(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
+    fetch_deployments: MagicMock
+) -> None:
+    # Carried for the reason the flag history is: the candidate the round chose
+    # and the action proposed for it later must be reasoned from one account of
+    # what changed, not from two reads that could disagree.
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      fetch_deployments=fetch_deployments)
+        ) \
+        .then(
+            the_result_at("deployments", WHAT_THE_PLATFORM_RECORDED)
+        )
+
+
+@pytest.mark.unit
+def test_a_deploy_history_that_could_not_be_read_is_carried_as_unread(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
+    fetch_deployments: MagicMock
+) -> None:
+    # `None` rather than an empty history, as the flag history's failure is: an
+    # empty one says nothing was deployed, and a corruption whose cause was a
+    # deployment would then be answered by nothing for a reason that is false.
+    published: Kept[IncidentEvent] = Kept()
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_platform_cannot_be_reached(fetch_deployments)),
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      fetch_deployments=fetch_deployments,
+                                      publisher=published.take)
+        ) \
+        .then(all_of(
+            _the_retrieval_was_said_to_have_not_answered(published, PLATFORM_UNREACHABLE),
+            the_result_at("deployments", None)))
+
+
+@pytest.mark.unit
+def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
+    fetch_deployments: MagicMock
+) -> None:
+    # The guard once more, for the candidate whose answer is read off the deploy
+    # history. The round asks each candidate which action would answer it, and
+    # has to ask with the history it just read: asked without it, a corruption
+    # no flag caused reads as answered by nothing, which matches nothing already
+    # tried - so the walk would roll the same deployment back once per wording.
+    a_round_after_the_rollback = _an_investigating_incident().model_copy(
+        update={"attempts": [_an_attempt_to(rolling_back(SOME_SERVICE))]}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_corruption_blamed_on(a_round_after_the_rollback.incident_id,
+                                       "monthly totals fall behind the purchases")))
+        ) \
+        .when(
+            lambda: investigator_node(a_round_after_the_rollback,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      fetch_deployments=fetch_deployments)
+        ) \
+        .then(the_result_at("nothing_worth_trying", True))
 
 
 @pytest.mark.unit
@@ -1160,15 +1325,17 @@ def test_the_investigation_publishes_to_the_same_place_the_graph_does(
 
 
 def _the_provider_cannot_be_reached(fetch_flag_changes: MagicMock) -> None:
-    fetch_flag_changes.side_effect = RuntimeError(
-        "The Feature Flag provider could not be reached."
-    )
+    fetch_flag_changes.side_effect = RuntimeError(FLAG_PROVIDER_UNREACHABLE)
 
 
 def _the_register_cannot_be_reached(fetch_dependencies: MagicMock) -> None:
     fetch_dependencies.side_effect = RuntimeError(
         "The service register could not be reached."
     )
+
+
+def _the_platform_cannot_be_reached(fetch_deployments: MagicMock) -> None:
+    fetch_deployments.side_effect = RuntimeError(PLATFORM_UNREACHABLE)
 
 
 def _an_earlier_incident_that_refuted(
@@ -1390,20 +1557,26 @@ def _no_history_was_published(published: Kept[IncidentEvent]
     return assertion
 
 
-def _the_provider_was_said_to_have_not_answered(
-    published: Kept[IncidentEvent]
+def _the_retrieval_was_said_to_have_not_answered(
+    published: Kept[IncidentEvent],
+    because: str
 ) -> Assertion[StateDelta]:
-    """One line saying the provider would not answer, carrying no minute.
+    """One line saying a retrieval would not answer, carrying the error it
+    failed with and no minute.
+
+    The error is how a reader tells which retrieval it was. Each source here
+    fails with one of its own, so a line carrying the flag provider's error in
+    a case about the platform is a line about the wrong source.
 
     The companion to `_no_history_was_published` above, and the two are the
     whole claim between them: not an empty history, which would state that
     nothing changed, *and* not silence either, which states nothing at all and
     reads on the page as a channel nobody thought to try.
 
-    No minute, because there is none. A flag history is not about a minute the
-    way a verification's failed read is - it is the window the round asked
-    about - and a field filled in to look complete would put a moment on the
-    page that nothing here measured.
+    No minute, because there is none. A history is not about a minute the way
+    a verification's failed read is - it is the window the round asked about -
+    and a field filled in to look complete would put a moment on the page that
+    nothing here measured.
     """
     def assertion(dont_care_delta: StateDelta) -> bool:
         said = [event for event in published.taken
@@ -1411,15 +1584,22 @@ def _the_provider_was_said_to_have_not_answered(
 
         if len(said) != 1:
             raise AssertionError(
-                f"Expected one line saying the provider would not answer, and "
+                f"Expected one line saying a retrieval would not answer, and "
                 f"{len(said)} were published - so a reader cannot tell a "
-                f"provider that was asked and refused from one nobody asked."
+                f"source that was asked and refused from one nobody asked."
+            )
+
+        if said[0].because != because:
+            raise AssertionError(
+                f"Expected the line to carry [{because}], the error the source "
+                f"under test failed with, and it carries [{said[0].because}] - "
+                f"so it is about some other retrieval."
             )
 
         if said[0].minute is not None:
             raise AssertionError(
-                f"Expected no minute on a flag history that could not be read, "
-                f"and it names [{said[0].minute}] - which puts a moment on the "
+                f"Expected no minute on a history that could not be read, and "
+                f"it names [{said[0].minute}] - which puts a moment on the "
                 f"page that nothing here measured."
             )
 

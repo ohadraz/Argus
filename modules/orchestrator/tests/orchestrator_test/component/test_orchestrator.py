@@ -37,6 +37,7 @@ from argus_core.models import (
     PostmortemDocument,
     Reading,
     RevertFeatureFlag,
+    RollBackDeployment,
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
@@ -59,6 +60,8 @@ from orchestrator.walk.graph import (
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import (
+    a_corruption_blamed_on,
+    a_deployment,
     a_random_id,
     the_incident_is_still_wanted,
     the_incident_was_withdrawn,
@@ -90,6 +93,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         max_rounds=SOME_ROUND_BUDGET,
         record_hypothesis=lambda dont_care_hypothesis: None,
         fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG)),
+        fetch_deployments=lambda **dont_care_question: [],
         fetch_dependencies=lambda dont_care_service: [],
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
         admitted=lambda dont_care_action: True,
@@ -273,6 +277,39 @@ def test_an_action_nothing_could_confirm_is_recommended_rather_than_taken(
                            POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.RECOMMENDED),
             _the_action_recommended_was(SOME_FLAG)))
+
+
+@pytest.mark.component
+def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
+    collaborators: Collaborators
+) -> None:
+    # The same damage as the flag case above, left by the other kind of change.
+    # The flag history is quiet and the platform recorded a deployment, so the
+    # change to undo is the deployment - and it is recommended rather than
+    # taken for the same reason: the readings already cover the incident, and a
+    # rollback reports nothing of its own that would say whether it worked.
+    Scenario() \
+        .given(
+            a_deployment_behind_the_damage := replace(
+                collaborators,
+                investigate=_an_investigation_offering(
+                    a_corruption_blamed_on("dont-care", "some prose")
+                ),
+                fetch_flag_changes=_a_provider_reporting(),
+                fetch_deployments=lambda **dont_care_question: [a_deployment()]
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_dated_by_its_alert(),
+                                   a_deployment_behind_the_damage)) \
+        .then(all_of(
+            _the_walk_went(INVESTIGATOR_NODE,
+                           MITIGATION_PROPOSAL_NODE,
+                           TIER_GATE_NODE,
+                           CODEFIX_NODE,
+                           REMEMBERING_NODE,
+                           POSTMORTEM_NODE),
+            _the_incident_ended(IncidentStatus.RECOMMENDED),
+            _a_rollback_of_the_alerting_service_was_recommended()))
 
 
 def _the_walk_of(incident: IncidentState, collaborators: Collaborators) -> Walked:
@@ -470,6 +507,34 @@ def _nothing_was_written(transition_incident: MagicMock) -> Assertion[Walked]:
             raise AssertionError(
                 f"Expected nothing to be written, got "
                 f"{transition_incident.call_args_list}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_rollback_of_the_alerting_service_was_recommended() -> Assertion[Walked]:
+    """The rollback the incident is left recommending, and what it is addressed to.
+
+    Addressed by relation rather than by name: a rollback answers the service
+    that alerted, so a recommendation naming any other application is one
+    somebody would carry out against the wrong deployment.
+    """
+    def assertion(walked: Walked) -> bool:
+        final, dont_care_visited = walked
+
+        if not isinstance(final.recommended_action, RollBackDeployment):
+            raise AssertionError(
+                f"Expected the incident to recommend rolling a deployment back, "
+                f"it recommends [{final.recommended_action!r}]."
+            )
+
+        if final.recommended_action.application != final.alert.service:
+            raise AssertionError(
+                f"Expected the rollback to be addressed to the alerting service "
+                f"[{final.alert.service}], it is addressed to "
+                f"[{final.recommended_action.application}]."
             )
 
         return True

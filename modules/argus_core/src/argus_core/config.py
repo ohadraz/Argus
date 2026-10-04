@@ -251,13 +251,15 @@ class Settings(BaseSettings):
     # seeing it at all is a silent miss.
     metrics_window_minutes: int = Field(default=360)
 
-    # How far back Mitigation looks for the flag change an incident is about.
-    # Far shorter than `change_lookback_minutes`, and deliberately so: that one
-    # asks "how far back may a cause plausibly lie" for an investigation, where
-    # this asks "what did someone just change" about an incident happening now.
-    # Widening it makes an ambiguous environment - two flags changed, so no
-    # action - the common case rather than the exception.
-    flag_change_lookback_minutes: int = Field(default=60, gt=0)
+    # How far back Mitigation looks for the flag change or the deployment an
+    # incident is about - one span for both histories, so that which change is
+    # undone never depends on which of them reached further. Far shorter than
+    # `change_lookback_minutes`, and deliberately so: that one asks "how far back
+    # may a cause plausibly lie" for an investigation, where this asks "what did
+    # someone just change" about an incident happening now. Widening it makes an
+    # ambiguous environment - two flags changed, so no action - the common case
+    # rather than the exception.
+    mitigation_change_lookback_minutes: int = Field(default=60, gt=0)
 
     # How long Mitigation waits while nothing has been measured - a change still
     # arriving, a read tier that will not answer. It is not how long the service
@@ -559,6 +561,13 @@ class Settings(BaseSettings):
     argocd_application_path: str = Field(default="/argocd/{application}")
     # Empty means no credential is sent at all, rather than an invented one -
     # the stand-in needs none, and a real Argo CD issues these to operators.
+    # The name the platform records Argus's own actions under - the account the
+    # credential above belongs to, which Argo CD writes on each history entry as
+    # `initiatedBy.username`. The counterpart of `unleash_actor`, for the same
+    # reason: a rollback Argus made lands in the deploy history a later round
+    # reads, and kept there it is offered as the change to undo. Empty switches
+    # the filtering off, the honest setting where the credential is shared.
+    argocd_actor: str = Field(default="Argus")
     argocd_auth_token: str = Field(default="")
     # Where a resource action is run, as the same template. A real Argo CD's is
     # `/api/v1/applications/{application}/resource/actions/v2` - v2 rather

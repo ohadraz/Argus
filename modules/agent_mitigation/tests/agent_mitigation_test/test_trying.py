@@ -2839,8 +2839,9 @@ def _some_mitigation_settings() -> MitigationSettings:
     the gate's question, and nothing taken here ever asks it twice.
     """
     return MitigationSettings(
-        flag_change_lookback_minutes=60,
+        mitigation_change_lookback_minutes=60,
         unleash_actor="argus",
+        argocd_actor="argus",
         mitigation_verification_timeout_seconds=A_SHORT_WAIT_IN_SECONDS,
         mitigation_attempts_per_subject=1
     )
