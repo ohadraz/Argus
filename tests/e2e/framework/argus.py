@@ -292,11 +292,11 @@ def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx2.R
     return assertion
 
 
-def change_channel_returned_a_change() -> Assertion[httpx2.Response]:
+def investigation_finds_a_deployment_change() -> Assertion[httpx2.Response]:
     """That the change channel answered, and answered with something.
 
-    The one assertion that makes the Argo CD path load-bearing in a case that
-    does not pin the diagnosis. A `ChangesRetrieved` carrying an empty list is
+    The one assertion that makes the Argo CD path load-bearing, since a cause
+    can be named right without it. A `ChangesRetrieved` carrying an empty list is
     a channel that was asked and found nothing, which is a different fact
     about the world and cannot stand in for the deploy being visible - so what
     is checked is that at least one change reached the incident, never how

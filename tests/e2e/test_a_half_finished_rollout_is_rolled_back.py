@@ -34,21 +34,26 @@ one that guessed. Stated rather than worked around, because the fix is a reading
 for a channel with no window - which would put a windowed retrieval in the record
 for a question that has none.
 
-Its sibling `test_a_half_finished_rollout_is_gradeable.py` asks no model anything
-and checks the fixture's arithmetic against the real detector. That case is what
-makes this one meaningful: without it, a fixture that recovered from a restart
-would let this file pass on a walk in which restarting cured a split fleet.
+The second case asks no model anything: it restarts the shop itself and checks
+that Argus's own recovery rule refuses to read that as a recovery. It is what
+makes the first meaningful - without it, a fixture that recovered from a restart
+would let a walk pass in which restarting cured a split fleet - and it is the one
+part of that no walk here can show, since none of them restarts.
 """
 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
+from http import HTTPStatus as HttpStatus
 from statistics import median
 from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import FailureMode, IncidentStatus
+from argus_core import get_settings
+from argus_core.anomaly import find_onset, has_recovered_since
+from argus_core.models import FailureMode, IncidentStatus, MetricBucket
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -62,11 +67,16 @@ from tests.e2e.framework.argus import (
     argus_took_a_rollback_of,
     argus_wrote_a_postmortem,
     cause_identified_as,
-    change_channel_returned_a_change,
+    investigation_finds_a_deployment_change,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import a_scenario_was_seeded, the_shops_window
+from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
+    argo_auto_sync_is_disabled,
+    the_shops_window,
+)
+from tests.framework.investigating import the_configured_thresholds
 
 # What the shop's own monitoring pages on here. The same alert the flag scenarios
 # raise, and that is the point: the two are told apart by the change channels and
@@ -79,8 +89,8 @@ THE_SCENARIO = "half-finished-rollout"
 # side, times half the writes made by the newer, times the nine lookups in ten a
 # working cache answers. Asserted as a floor well under it rather than as the
 # figure, because what is being pinned is that the incident happened at all - a
-# bound tight enough to pin the arithmetic belongs in the sibling case, which
-# reads the generator rather than a walk.
+# bound tight enough to pin the arithmetic belongs in the demo app's own suite,
+# which reads the generator rather than a walk.
 THE_INCIDENT_FAILED_AT_LEAST = 0.10
 
 # Where the shop sits when nothing is wrong: its ordinary one percent and half a
@@ -100,6 +110,20 @@ A_QUANTILE_MAY_DRIFT_BY = 0.10
 # How the platform reports what is actually running. The manifest arrives as
 # text, which is Argo CD's own shape for this response.
 A_MANIFEST = "manifest"
+
+# How much of the window has to be settled before a restart is worth judging. The
+# scenario backdates its onset, so departed minutes are in the window the instant
+# it is seeded - but the newest of them is the minute in progress, and a partial
+# minute reports a rate taken over however many requests have arrived. Two whole
+# minutes is the persistence the detector dates an onset from.
+ENOUGH_MINUTES_SECONDS = 180
+
+# How long to go on refusing a restart before calling the refusal held. The same
+# bound Mitigation itself waits, because what is under test is whether the rule
+# Argus actually applies refuses it, not a generous reading of that rule.
+AS_LONG_AS_MITIGATION_WOULD_WAIT_SECONDS = int(
+    get_settings().mitigation_verification_timeout_seconds
+)
 
 
 @pytest.mark.e2e
@@ -121,18 +145,41 @@ def test_a_rollout_stopped_half_way_is_ended_by_converging_the_fleet() -> None:
             eventually(
                 all_of(
                     cause_identified_as(FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK),
-                    change_channel_returned_a_change(),
+                    investigation_finds_a_deployment_change(),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
                     _the_shop_failed_and_then_stopped_failing(),
                     _no_quantile_ever_moved(),
                     _every_replica_is_on_one_revision(),
                     _the_rolling_update_is_no_longer_paused(),
-                    _the_application_no_longer_syncs_itself(),
+                    argo_auto_sync_is_disabled(),
                     argus_wrote_a_postmortem()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
             )
+        )
+
+
+@pytest.mark.e2e
+def test_a_restart_of_a_split_fleet_is_not_read_as_a_recovery() -> None:
+    """The near-miss, refused by the rule Argus judges every mitigation by.
+
+    A restart brings the process back with the fleet still split, so nothing about
+    the mixture is the process's doing. If Argus's rule ever read that as a
+    recovery, this mode's near-miss would be accidentally right and every recording
+    made afterwards would agree. No walk here takes it, which is why it is staged
+    by hand.
+    """
+    Scenario() \
+        .given(
+            calling(a_scenario_was_seeded(THE_SCENARIO)),
+            calling(_enough_whole_minutes_have_passed)
+        ) \
+        .when(
+            _the_shop_was_restarted
+        ) \
+        .then(
+            _recovery_is_refused_since_the_restart()
         )
 
 
@@ -275,38 +322,6 @@ def _the_rolling_update_is_no_longer_paused() -> Assertion[httpx2.Response]:
     return assertion
 
 
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
-    """What makes this mitigated rather than over.
-
-    The rollback moved what is deployed and touched nothing in the repository, so
-    git still declares the revision that was rolling out. The one thing standing
-    between the shop and the same incident is that the application has stopped
-    reconciling itself - and a run that tidily put the sync policy back would have
-    handed the incident straight back, while looking in every other respect like a
-    success.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        response = httpx2.get(
-            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        spec: dict[str, Any] = response.json()["spec"]
-        automated = spec["syncPolicy"].get("automated")
-
-        if automated is not None:
-            raise AssertionError(
-                f"Expected automated sync to still be suspended after the "
-                f"rollback, and the application reports [{automated}] - so the "
-                f"next reconciliation puts the shop back on a rollout nobody "
-                f"finished."
-            )
-
-        return True
-
-    return assertion
-
-
 def _the_running_deployment() -> dict[str, Any]:
     """What the platform says is actually running, parsed out of its wrapper.
 
@@ -322,3 +337,110 @@ def _the_running_deployment() -> dict[str, Any]:
     manifest: dict[str, Any] = json.loads(response.json()[A_MANIFEST])
 
     return manifest
+
+
+def _recovery_is_refused_since_the_restart() -> Assertion[datetime]:
+    """A restart changes nothing, and goes on changing nothing.
+
+    Waited out for as long as Mitigation would wait rather than checked once.
+    What makes a wrong answer refutable is that it is still wrong when the
+    verification window closes, and a single early read would pass against a
+    fixture that recovered a minute later.
+    """
+    def assertion(restarted_at: datetime) -> bool:
+        deadline = datetime.now(UTC) + timedelta(
+            seconds=AS_LONG_AS_MITIGATION_WOULD_WAIT_SECONDS
+        )
+
+        while datetime.now(UTC) < deadline:
+            if has_recovered_since(
+                _the_window(), _to_minute(restarted_at), the_configured_thresholds()
+            ):
+                raise AssertionError(
+                    f"A restart read as a recovery, so the near-miss for this "
+                    f"mode is accidentally right and nothing refutes it. Error "
+                    f"rates since the restart: "
+                    f"{[bucket.error_rate for bucket in _the_minutes_since(restarted_at)]}."
+                )
+
+        return True
+
+    return assertion
+
+
+def _enough_whole_minutes_have_passed() -> bool:
+    """Waits until the window holds whole minutes to read rather than a partial one.
+
+    The shop backdates this scenario's onset, so departed minutes are already in
+    the window the instant it is seeded - but the newest is the minute in
+    progress, whose rate is taken over however many requests have arrived so far.
+    So this waits for buckets rather than assuming them.
+    """
+    deadline = datetime.now(UTC) + timedelta(seconds=ENOUGH_MINUTES_SECONDS)
+    wanted = the_configured_thresholds().persistence_minutes + 1
+
+    while datetime.now(UTC) < deadline:
+        try:
+            if len(_the_departed_minutes()) >= wanted:
+                return True
+        except AssertionError:
+            # A window with nothing in it yet is this loop's ordinary early state
+            # rather than a failure - `the_shops_window` refuses rather than
+            # returning empty, which is right for an assertion and wrong for a
+            # wait. The deadline below is what turns "not yet" into "not at all".
+            pass
+
+    raise AssertionError(
+        f"The Target Service did not report {wanted} departed minutes within "
+        f"{ENOUGH_MINUTES_SECONDS}s of the scenario being seeded, so there is "
+        f"not enough of the incident in the window to assert anything about it. "
+        f"Error rates reported: {[bucket.error_rate for bucket in _the_window()]}."
+    )
+
+
+def _the_shop_was_restarted() -> datetime:
+    """Brings the process back, the way the restart mitigation does."""
+    response = httpx2.post(
+        f"{TARGET_SERVICE_BASE_URL}/scenario/restart",
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
+
+    if response.status_code != HttpStatus.OK:
+        raise AssertionError(
+            f"The shop refused to restart: {response.status_code} {response.text}."
+        )
+
+    return datetime.now(UTC)
+
+
+def _the_window() -> list[MetricBucket]:
+    return [MetricBucket.model_validate(minute) for minute in the_shops_window()]
+
+
+def _the_departed_minutes() -> list[MetricBucket]:
+    """The minutes at or past the onset the detector dated.
+
+    Split by the detector's own answer rather than by a threshold this file
+    chose, so that "departed" means here what it means to everything downstream.
+    """
+    window = _the_window()
+    onset = find_onset(window, the_configured_thresholds())
+
+    if onset is None:
+        raise AssertionError(
+            f"The detector dated no onset, so the window cannot be split into "
+            f"quiet and departed minutes. Error rates reported: "
+            f"{[bucket.error_rate for bucket in window]}."
+        )
+
+    return [bucket for bucket in window if bucket.bucket_id >= onset]
+
+
+def _the_minutes_since(moment: datetime) -> list[MetricBucket]:
+    since = _to_minute(moment)
+
+    return [bucket for bucket in _the_window() if bucket.bucket_id >= since]
+
+
+def _to_minute(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:00Z")

@@ -76,8 +76,8 @@ from tests.e2e.framework.argus import (
     argus_is_triggered_with_alert,
     argus_wrote_a_postmortem,
     cause_identified_as,
-    change_channel_returned_a_change,
     incident_id_from,
+    investigation_finds_a_deployment_change,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
@@ -86,7 +86,11 @@ from tests.e2e.framework.flags import (
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
-from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_events
+from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
+    argo_auto_sync_is_enabled,
+    the_incidents_events,
+)
 
 # What the shop's own monitoring pages on here. The flag is what is breaking the
 # account page, so this is an error-rate incident and not a latency one - and the
@@ -116,10 +120,10 @@ def test_a_platform_that_will_not_act_leaves_argus_the_one_action_it_still_has()
             eventually(
                 all_of(
                     cause_identified_as(FailureMode.BAD_DEPLOYMENT),
-                    change_channel_returned_a_change(),
+                    investigation_finds_a_deployment_change(),
                     _the_platform_went_on_saying_what_it_had_deployed(),
                     _the_rollback_was_reached_for_and_nothing_answered(),
-                    _the_application_still_syncs_itself(),
+                    argo_auto_sync_is_enabled(),
                     _what_the_platform_took_with_it_was_recorded_once(),
                     _only_the_one_action_was_ever_attempted_through_it(),
                     _the_action_that_ended_it_was_a_revert_of(THE_DEMO_FLAG),
@@ -142,7 +146,7 @@ def _the_platform_went_on_saying_what_it_had_deployed() -> Assertion[httpx2.Resp
     case would pass against a shop staging a different mode entirely.
 
     Read from the platform directly rather than from what Argus fetched, which
-    `change_channel_returned_a_change` already asserts from the other side. The two
+    `investigation_finds_a_deployment_change` already asserts from the other side. The two
     together are the claim: the reporting routes answered, and Argus's change
     channel got something back from them.
     """
@@ -167,41 +171,6 @@ def _the_platform_went_on_saying_what_it_had_deployed() -> Assertion[httpx2.Resp
                 "The deployment platform answered with no history at all, so "
                 "there was no deployment in the window for the walk to reach "
                 "for and nothing for its rollback to fail on."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_application_still_syncs_itself() -> Assertion[httpx2.Response]:
-    """Nothing the rollback started got as far as changing the estate.
-
-    Suspending reconciliation is the first write a rollback makes, and it goes
-    through the same acting routes the rest of it does - so a platform refusing
-    to act refuses that too, and the rollback fails having touched nothing.
-    Which is what makes passing over the three remaining candidates honest: the
-    walk is narrowing away from actions it cannot take, rather than stepping
-    around a half-finished one it can no longer see the end of.
-
-    Order-independent because `/scenario/reset` puts automated sync back and
-    this suite's teardown calls it after every case - so an earlier rollback or
-    pin cannot leave a suspension here for this case to read as its own.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        response = httpx2.get(
-            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        automated = response.json()["spec"]["syncPolicy"].get("automated")
-
-        if automated is None:
-            raise AssertionError(
-                "Expected automated sync to be untouched, and the application "
-                "reports it suspended - so the rollback reached the platform "
-                "far enough to change it, and there is something left behind "
-                "that no verdict in this incident accounts for."
             )
 
         return True

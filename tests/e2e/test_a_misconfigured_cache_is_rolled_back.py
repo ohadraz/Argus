@@ -65,7 +65,11 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import the_middle_of, the_shops_window
+from tests.e2e.framework.world import (
+    argo_auto_sync_is_disabled,
+    the_middle_of,
+    the_shops_window,
+)
 
 # What the shop's own monitoring pages on here. A latency alert, as a bad
 # deployment raises - the two are told apart by the evidence and not by the page,
@@ -111,7 +115,7 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
                     _only_the_median_ever_moved(),
                     _the_shop_is_reaching_its_cache_again(),
-                    _the_application_no_longer_syncs_itself(),
+                    argo_auto_sync_is_disabled(),
                     argus_wrote_a_postmortem()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
@@ -219,37 +223,6 @@ def _the_shop_is_reaching_its_cache_again() -> Assertion[httpx2.Response]:
                 f"Expected the shop to be served from cache again once the "
                 f"configuration was rolled back, and its last minute reports a "
                 f"hit ratio of [{ratios[-1]}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
-    """What makes this mitigated rather than over.
-
-    The rollback moved the running configuration and touched nothing in the
-    repository, so the values file still names the port that broke this. The one
-    thing standing between the shop and the same incident is that the
-    application has stopped reconciling itself - and a run that tidily put the
-    sync policy back would have handed the incident straight back, while looking
-    in every other respect like a success.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        response = httpx2.get(
-            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        automated = response.json()["spec"]["syncPolicy"].get("automated")
-
-        if automated is not None:
-            raise AssertionError(
-                f"Expected automated sync to still be suspended after the "
-                f"rollback, and the application reports [{automated}] - so the "
-                f"next reconciliation puts the shop back on the port nothing "
-                f"is listening on."
             )
 
         return True

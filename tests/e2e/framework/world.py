@@ -25,11 +25,13 @@ from typing import Any
 import httpx2
 import psycopg
 from argus_incidents.repository import events
+from argus_testkit import Assertion
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
     REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
+    THE_SERVICE_NAME,
 )
 
 
@@ -91,3 +93,64 @@ def the_middle_of(figures: Iterable[float]) -> float:
         raise AssertionError("Asked for the middle of no readings at all.")
 
     return float(ordered[len(ordered) // 2])
+
+
+def argo_auto_sync_is_disabled() -> Assertion[httpx2.Response]:
+    """The platform has stopped reconciling the application, as Argus left it.
+
+    What makes a mitigation at the deployment mitigated rather than over. The
+    action changed what is running and nothing in the repository, so the next
+    reconciliation puts back whatever the repository declares - the fault with
+    it. A run that tidily restored the sync policy would hand the incident
+    straight back while looking in every other respect like a success.
+    """
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        automated = _argos_automated_sync()
+
+        if automated is not None:
+            raise AssertionError(
+                f"Expected automated sync to still be suspended, and the "
+                f"application reports [{automated}] - so the next reconciliation "
+                f"puts back what the repository declares, fault and all."
+            )
+
+        return True
+
+    return assertion
+
+
+def argo_auto_sync_is_enabled() -> Assertion[httpx2.Response]:
+    """The platform still reconciles the application, as Argus found it.
+
+    Suspending automated sync is the first write a rollback makes, so a policy
+    still in force says no rollback got as far as changing the estate - the
+    deployment's counterpart of a flag still where it was.
+    """
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        if _argos_automated_sync() is None:
+            raise AssertionError(
+                "Expected automated sync to be untouched, and the application "
+                "reports it suspended - the first step of a rollback this "
+                "incident was not meant to have taken."
+            )
+
+        return True
+
+    return assertion
+
+
+def _argos_automated_sync() -> Any:
+    """The application's automated sync policy, or `None` where it is suspended.
+
+    Argo CD spells "this application syncs itself" as the presence of an
+    `automated` object rather than as a boolean, so suspending it is the removal
+    of a key.
+    """
+    response = httpx2.get(
+        f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    spec: dict[str, Any] = response.json()["spec"]
+
+    return spec["syncPolicy"].get("automated")

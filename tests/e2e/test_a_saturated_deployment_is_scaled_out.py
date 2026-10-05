@@ -83,7 +83,11 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import the_incidents_events, the_shops_window
+from tests.e2e.framework.world import (
+    argo_auto_sync_is_disabled,
+    the_incidents_events,
+    the_shops_window,
+)
 
 # What the shop's own monitoring pages on here. Latency is the only judged series
 # this incident moves: the error rate stays at its baseline throughout, because
@@ -129,7 +133,7 @@ def test_a_shop_that_outgrew_its_capacity_is_scaled_out_and_left_mitigated() -> 
                     _the_scale_out_was_confirmed(),
                     _the_shop_is_running_more_replicas_than_it_was_declared_with(),
                     _the_window_holds_the_saturation_and_the_capacity_that_ended_it(),
-                    _the_application_no_longer_syncs_itself(),
+                    argo_auto_sync_is_disabled(),
                     argus_wrote_a_postmortem()
                     # No assertion about the code tier, deliberately. A reader
                     # expecting "and no patch was proposed" should see the
@@ -302,39 +306,6 @@ def _the_window_holds_the_saturation_and_the_capacity_that_ended_it(
                 f"and the window opens on [{ceilings[0]}] cores and ends on "
                 f"[{ceilings[-1]}] - so the one series a reader would see the "
                 f"mitigation in never moved."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
-    """What makes this mitigated rather than over, and what a timer would undo.
-
-    Argo CD puts a live replica count back to what the repository holds at its
-    next sync, so a scale-out taken under automated sync is a mitigation with a
-    timer on it: the shop would return to saturation at a moment nothing in the
-    record explains. Suspending reconciliation is therefore part of performing
-    the scale, and a run that tidily put the policy back would have handed the
-    incident straight back to itself while looking in every other respect like a
-    success.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        response = httpx2.get(
-            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        automated = response.json()["spec"]["syncPolicy"].get("automated")
-
-        if automated is not None:
-            raise AssertionError(
-                f"Expected automated sync to still be suspended after the "
-                f"scale-out, and the application reports [{automated}] - so the "
-                f"next reconciliation takes the shop back to the "
-                f"[{THE_SIZE_THE_SHOP_IS_DECLARED_WITH}] replicas that were too "
-                f"few."
             )
 
         return True

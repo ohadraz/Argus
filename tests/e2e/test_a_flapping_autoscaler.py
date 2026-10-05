@@ -74,7 +74,11 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import the_incidents_events, the_shops_window
+from tests.e2e.framework.world import (
+    argo_auto_sync_is_disabled,
+    the_incidents_events,
+    the_shops_window,
+)
 
 # What the shop's own monitoring pages on here, as the surge next door does.
 # Latency is the only judged series this incident moves.
@@ -114,17 +118,14 @@ def test_a_flapping_autoscaler_is_pinned_and_left_mitigated() -> None:
         .then(
             eventually(
                 all_of(
-                    _optionally(
-                        when=_the_walk_tried_capacity,
-                        then=_that_attempt_was_not_confirmed()
-                    ),
+                    _any_scale_out_tried_was_not_confirmed(),
                     cause_identified_as(FailureMode.AUTOSCALING_PATHOLOGY),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     _the_action_that_ended_it_was_a_pin_of(THE_SERVICE_NAME),
                     _the_pin_was_confirmed(),
                     _the_autoscalers_floor_now_meets_its_ceiling(),
                     _the_window_holds_the_flapping_and_the_count_that_stopped(),
-                    _the_application_no_longer_syncs_itself(),
+                    argo_auto_sync_is_disabled(),
                     argus_wrote_a_postmortem()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
@@ -174,22 +175,12 @@ def _the_action_that_ended_it_was_a_pin_of(application: str) -> Assertion[httpx2
     return assertion
 
 
-def _the_walk_tried_capacity(response: httpx2.Response) -> bool:
-    """Whether the near-miss was made at all, which is the model's choice.
+def _any_scale_out_tried_was_not_confirmed() -> Assertion[httpx2.Response]:
+    """Whatever capacity the walk tried, none of it was confirmed.
 
-    The recording takes this path, so a replayed walk reaches for capacity before
-    pinning; a walk that reasons its way straight to the pin has done nothing
-    wrong. So this is a premise and not an assertion: it says whether there is an
-    attempt here to judge, and never that there should have been one.
-    """
-    return any(
-        action == SCALE_OUT
-        for action, _ in _the_actions_and_their_outcomes(response)
-    )
-
-
-def _that_attempt_was_not_confirmed() -> Assertion[httpx2.Response]:
-    """What must hold wherever capacity was tried.
+    Trying capacity at all is the model's choice: the recording reaches for it
+    before pinning, and a walk that reasons straight to the pin has done nothing
+    wrong. So a walk with no scale-out passes, and one with any is judged.
 
     The obvious answer here is wrong and nothing in Argus says so: a reader who
     sees pinned utilisation scales out, the controller re-derives the count within
@@ -349,36 +340,6 @@ def _the_window_holds_the_flapping_and_the_count_that_stopped(
     return assertion
 
 
-def _the_application_no_longer_syncs_itself() -> Assertion[httpx2.Response]:
-    """What makes this mitigated rather than over, and what a timer would undo.
-
-    Argo CD re-applies an autoscaler's whole manifest at its next sync, floor
-    included, so a pin taken under automated sync is a mitigation with a timer on
-    it: the shop returns to flapping at a moment nothing in the record explains.
-    Suspending reconciliation is part of performing the pin, and a run that tidily
-    put the policy back would have handed the incident to itself while looking in
-    every other respect like a success.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        response = httpx2.get(
-            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        automated = response.json()["spec"]["syncPolicy"].get("automated")
-
-        if automated is not None:
-            raise AssertionError(
-                f"Expected automated sync to still be suspended after the pin, and "
-                f"the application reports [{automated}] - so the next "
-                f"reconciliation puts the flapping floor back."
-            )
-
-        return True
-
-    return assertion
-
-
 def _the_bounds_the_platform_reports() -> tuple[int, int]:
     """The floor and ceiling in force, as the platform holds the manifest."""
     response = httpx2.get(
@@ -405,27 +366,3 @@ def _the_shops_autoscaler_was_left_flapping() -> Callable[[], bool]:
         return response.status_code == HttpStatus.OK
 
     return seed_scenario
-
-
-def _optionally[T](when: Callable[[T], bool],
-                  then: Assertion[T]) -> Assertion[T]:
-    """Asserts something where its premise holds, and passes where it does not.
-
-    For a claim about a step the system was free not to take - an attempt a model
-    may or may not make, a branch a policy may or may not reach. "Whatever it
-    tried, that was not confirmed" is a real claim, and both other spellings lose
-    it: demanding the attempt fails against the better answer, and dropping the
-    assertion stops judging the attempt at all.
-
-    The premise is a predicate rather than an assertion, because it is not
-    something that can fail. It reads off the same result and answers only
-    whether there is anything here to judge.
-    """
-
-    def conditional_assertion(result: T) -> bool:
-        if not when(result):
-            return True
-
-        return then(result)
-
-    return conditional_assertion

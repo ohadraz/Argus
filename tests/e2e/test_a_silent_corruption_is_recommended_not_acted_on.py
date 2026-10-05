@@ -27,7 +27,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
-from typing import Any
 
 import httpx2
 import pytest
@@ -38,20 +37,23 @@ from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from tests.e2e.framework.argus import (
     RECORDED_DEPLOY_CAUSED_CORRUPTION,
     RECORDED_SILENT_DATA_CORRUPTION,
-    REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
     argus_wrote_a_postmortem,
     cause_identified_as,
-    change_channel_returned_a_change,
     incident_id_from,
+    investigation_finds_a_deployment_change,
     the_model_answers_from,
     the_shop_raises_its_own_alert,
 )
 from tests.e2e.framework.flags import THE_DEMO_FLAG, the_flag_provider_reports
-from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_events
+from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
+    argo_auto_sync_is_enabled,
+    the_incidents_events,
+)
 
 
 @pytest.mark.e2e
@@ -123,10 +125,10 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
             eventually(
                 all_of(
                     cause_identified_as(FailureMode.SILENT_DATA_CORRUPTION),
-                    change_channel_returned_a_change(),
+                    investigation_finds_a_deployment_change(),
                     argus_ended_with_status(IncidentStatus.RECOMMENDED),
                     _argus_recommended_a_rollback_of(THE_SERVICE_NAME),
-                    _the_application_still_syncs_itself(),
+                    argo_auto_sync_is_enabled(),
                     argus_wrote_a_postmortem()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
@@ -166,35 +168,6 @@ def _argus_recommended_a_rollback_of(application: str) -> Assertion[httpx2.Respo
                 f"Expected a rollback of [{application}] to be recommended, and "
                 f"what was recommended was "
                 f"{[(event.action_type, event.subject) for event in recommended]}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_application_still_syncs_itself() -> Assertion[httpx2.Response]:
-    """The teeth of the deploy case: the platform as Argus found it.
-
-    A rollback is refused while the application reconciles itself, so the write
-    tier suspends automated sync before it asks for one. An application still
-    syncing is therefore one no rollback was begun against - the deploy case's
-    counterpart of the flag still being on.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        response = httpx2.get(
-            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        spec: dict[str, Any] = response.json()["spec"]
-        automated = spec["syncPolicy"].get("automated")
-
-        if automated is None:
-            raise AssertionError(
-                "Expected the application to still sync itself, and its automated "
-                "sync has been suspended - the first step of a rollback Argus was "
-                "only meant to recommend."
             )
 
         return True

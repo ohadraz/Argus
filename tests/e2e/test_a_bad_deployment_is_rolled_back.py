@@ -36,8 +36,6 @@ what it is looking at.
 
 from __future__ import annotations
 
-from typing import Any
-
 import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
@@ -45,8 +43,6 @@ from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_BAD_DEPLOYMENT,
-    REQUEST_TIMEOUT_SECONDS,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
@@ -54,11 +50,15 @@ from tests.e2e.framework.argus import (
     argus_took_a_rollback_of,
     argus_wrote_a_postmortem,
     cause_identified_as,
-    change_channel_returned_a_change,
+    investigation_finds_a_deployment_change,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import a_scenario_was_seeded, the_shops_window
+from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
+    argo_auto_sync_is_disabled,
+    the_shops_window,
+)
 
 # What the shop's own monitoring pages on here. The same alert the misconfigured
 # cache raises, and that is the point: the two are told apart by the evidence and
@@ -93,11 +93,11 @@ def test_a_revision_that_slowed_every_page_is_ended_by_rolling_the_deployment_ba
             eventually(
                 all_of(
                     cause_identified_as(FailureMode.BAD_DEPLOYMENT),
-                    change_channel_returned_a_change(),
+                    investigation_finds_a_deployment_change(),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
                     _latency_back_to_baseline(),
-                    _argo_auto_sync_is_disabled(),
+                    argo_auto_sync_is_disabled(),
                     argus_wrote_a_postmortem()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
@@ -121,37 +121,6 @@ def _latency_back_to_baseline() -> Assertion[httpx2.Response]:
                 f"back on the earlier revision, and its last minute reports a "
                 f"median of [{window[-1]['p50_ms']}]ms against a quickest of "
                 f"[{quickest}]ms."
-            )
-
-        return True
-
-    return assertion
-
-
-def _argo_auto_sync_is_disabled() -> Assertion[httpx2.Response]:
-    """What makes this mitigated rather than over.
-
-    The rollback moved what is deployed and touched nothing in the repository, so
-    the branch still holds the revision that derives the average the expensive way.
-    The one thing standing between the shop and the same incident is that the
-    application has stopped reconciling itself - and a run that tidily put the sync
-    policy back would have handed the incident straight back, while looking in
-    every other respect like a success.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        response = httpx2.get(
-            f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        spec: dict[str, Any] = response.json()["spec"]
-        automated = spec["syncPolicy"].get("automated")
-
-        if automated is not None:
-            raise AssertionError(
-                f"Expected automated sync to still be suspended after the "
-                f"rollback, and the application reports [{automated}] - so the "
-                f"next reconciliation puts the shop back on the slower revision."
             )
 
         return True
