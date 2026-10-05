@@ -55,7 +55,11 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, flags_evaluating_true, switch_flag
-from tests.e2e.framework.world import a_scenario_was_seeded
+from tests.e2e.framework.world import (
+    THE_QUIET_MINUTES_ARE_WITHIN,
+    a_scenario_was_seeded,
+    the_shops_window,
+)
 
 _A_POLL = 0.5
 
@@ -163,7 +167,7 @@ def test_a_withdrawn_rollback_puts_the_deployment_back_and_resumes_reconciliatio
             eventually(
                 all_of(
                     argus_ended_with_status(IncidentStatus.WITHDRAWN),
-                    _the_deployment_was_put_back(),
+                    _the_shop_is_slow_again(),
                     _the_shop_reconciles_itself_again(),
                     _nothing_was_written_up()
                 ),
@@ -251,17 +255,10 @@ def test_a_withdrawn_pin_puts_the_floor_back_and_resumes_reconciliation() -> Non
 
 @pytest.mark.e2e
 def test_a_withdrawn_rollback_splits_the_fleet_again() -> None:
-    # The fifth kind, and the first rollback whose undo a reader can see. The two
-    # rollback cases above assert the incident's record, because a revision is
-    # nowhere in the platform's answers; how far a rollout got is on the
-    # Deployment, so this one asserts the world.
-    #
-    # Which also makes it the case that shows what the other two cannot promise.
-    # `withdraw_the_rollback` puts this scenario's rollout back and leaves the
-    # misconfigured cache and the slower revision where the rollback left them -
-    # so two of the three modes answered by a rollback are mitigated and never
-    # un-mitigated. That asymmetry is older than this scenario and is recorded in
-    # the failure-modes backlog rather than fixed here.
+    # The fifth kind, and the rollback whose undo is on the platform itself. A
+    # revision is nowhere in the platform's answers, so the bad deployment's
+    # withdrawal is read off what the shop's requests cost; how far a rollout got
+    # is on the Deployment, so this one asserts that directly.
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
@@ -547,36 +544,25 @@ def _the_shop_reconciles_itself() -> bool:
     return response.json()["spec"]["syncPolicy"].get("automated") is not None
 
 
-def _the_deployment_was_put_back() -> Assertion[httpx2.Response]:
-    """The unwind returned the application to the revision Argus found it on.
+def _the_shop_is_slow_again() -> Assertion[httpx2.Response]:
+    """The slower revision is the one running again, read from the shop.
 
-    Asserted on the record rather than on the platform, and it has to be: the
-    stand-in's history is append-only and names no current entry, so there is
-    nothing to read back that would distinguish a deployment put back from one
-    left where the rollback left it. What the person who withdrew the incident
-    will have is the incident's own account, which is the thing under test here
-    anyway - a restore Argus did not manage is one it has to say it did not
-    manage.
+    A revision is nowhere in the platform's answers, so the deployment being put
+    back is read where it shows: in what every request costs. Slow again is the
+    honest end of a withdrawal - Argus took its mitigation back, and the incident
+    is with whoever took it.
     """
-    def assertion(response: httpx2.Response) -> bool:
-        incident_id = incident_id_from(response)
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        window = the_shops_window()
+        quickest = min(minute["p50_ms"] for minute in window)
 
-        with psycopg.connect(DATABASE_URL) as conn:
-            recorded = events.get_by_incident(conn, incident_id)
-
-        unwound = [event for event in recorded if isinstance(event, ChangeUndone)]
-        restored = [
-            event for event in unwound
-            if event.subject == THE_SERVICE_NAME
-            and event.outcome is Undone.RESTORED
-        ]
-
-        if not restored:
+        if window[-1]["p50_ms"] <= quickest * THE_QUIET_MINUTES_ARE_WITHIN:
             raise AssertionError(
-                f"Incident [{incident_id}] was withdrawn after rolling "
-                f"[{THE_SERVICE_NAME}] back, and its unwind recorded "
-                f"{[(event.subject, event.outcome) for event in unwound]} rather "
-                f"than putting the deployment back."
+                f"Expected the shop to be slow again once the incident was "
+                f"withdrawn, and its last minute reports a median of "
+                f"[{window[-1]['p50_ms']}]ms against a quickest of [{quickest}]ms "
+                f"- so a rollback Argus took under an incident that has ended is "
+                f"still in force, and nobody is watching it."
             )
 
         return True
@@ -678,11 +664,8 @@ def _the_autoscaler_may_fall_as_far_as_it_could_before(
 def _the_fleet_is_split_again() -> Assertion[httpx2.Response]:
     """The rollout is back where the incident found it, read from the platform.
 
-    The third restore in this file that can be checked against the world, and the
-    first of the three rollback modes that can be. A revision is nowhere in the
-    platform's answers - which is why the bad deployment and the misconfigured
-    cache assert their withdrawals against the incident's record - but how far a
-    rollout got is on the Deployment, so this one asserts the thing itself.
+    Checked against the world rather than the record: how far a rollout got is on
+    the Deployment, so this one asserts the thing itself.
 
     And what it asserts is that the shop is **broken again**: two versions serving,
     the update paused where somebody left it. That is the honest end of a

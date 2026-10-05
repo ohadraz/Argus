@@ -586,10 +586,6 @@ drifting write path - where the rollback left them. Neither is a fresh stretch
 away from done: opening one fresh would bring back minutes nothing collected, or
 forget totals already written short, and which of those matters is unexamined.
 
-And the e2e withdrawal case for `bad-deployment` still asserts the incident's
-record rather than the world. The world now has an answer to read back - the
-shop slow again once the rollback is withdrawn - and the case does not read it.
-
 **A flap with no rhythm is still reported mitigated.**
 `_clear_minutes_a_recovery_has_to_show` asks a recovery for one more clear minute
 than the longest gap between departures *that recurs*, which catches a service
