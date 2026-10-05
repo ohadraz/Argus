@@ -663,6 +663,33 @@ def test_added_capacity_has_not_arrived_until_the_replicas_are_running() -> None
 
 
 @pytest.mark.unit
+def test_added_capacity_the_platform_holds_short_will_not_arrive() -> None:
+    # The pause read for the second action, which shares the reading with a
+    # rollback and has never been asked it. No e2e case can ask it either: the
+    # held rollout pins serving at six, and a scale-out of the shop's three asks
+    # for exactly six - so the capacity is there on the first poll by arithmetic
+    # nobody designed, and this answer is reached nowhere else.
+    #
+    # Short of what it asked for and held there, a scale-out satisfies no count
+    # ever, and a caller told only "not yet" would wait out its lease.
+    Scenario() \
+        .given(
+            the_platform_has_stopped_short := _a_rollout_reporting(
+                wanted=SOME_FLEET_SIZE, serving=HALF_THE_FLEET,
+                updated=HALF_THE_FLEET, paused=True
+            )
+        ) \
+        .when(
+            lambda: added_capacity_arriving_over(
+                the_platform_has_stopped_short, SOME_APPLICATION
+            )()
+        ) \
+        .then(
+            _the_arrival_is(Arrival.WILL_NOT_ARRIVE)
+        )
+
+
+@pytest.mark.unit
 def test_added_capacity_has_arrived_once_the_replicas_are_up() -> None:
     # And the same window a rollback would call unfinished: the fleet is at the
     # size it was told to be, and the replicas are not all on the newest revision.
