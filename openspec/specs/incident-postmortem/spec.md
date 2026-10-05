@@ -6,9 +6,7 @@ Covers what the Postmortem agent produces on a terminal transition: which
 figures are measured, which are estimated and disclosed as such, that the
 model supplies prose and never a number, and that the agent terminates even
 when the document is incomplete.
-
 ## Requirements
-
 ### Requirement: A postmortem is written once, when the incident ends
 The system SHALL write exactly one postmortem for an incident, on the
 transition that ends it, for every ending the walk derives - resolved,
@@ -232,3 +230,25 @@ as one whose source was unavailable.
 - **WHEN** a postmortem is written for a disproven incident
 - **THEN** its loss estimate is the figure computed from a window with no
   departure, and is not omitted
+
+### Requirement: An incident closed without its sight restored says so
+
+The document SHALL say, where the metrics carry no minute at or after the
+incident's onset when the postmortem is written, that the incident closed with
+the service still unobserved, from which minute, and that the error rates cover
+none of the minutes after it. The money is measured by the party that took it
+and is unaffected. It SHALL NOT present the collected window
+as the incident's duration.
+
+#### Scenario: A still-blind incident is written up as still blind
+- **GIVEN** an incident whose metrics stop at the onset and have not resumed when
+  it ends
+- **WHEN** the postmortem is written
+- **THEN** it states that the service was still unobserved at close and names the
+  minute the sight was lost
+
+#### Scenario: A restored incident carries no such statement
+- **GIVEN** an incident whose metrics resumed before it ended
+- **WHEN** the postmortem is written
+- **THEN** no statement of an unrestored sight appears
+
