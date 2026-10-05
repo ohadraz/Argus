@@ -663,29 +663,28 @@ def test_added_capacity_has_not_arrived_until_the_replicas_are_running() -> None
 
 
 @pytest.mark.unit
-def test_added_capacity_the_platform_holds_short_will_not_arrive() -> None:
-    # The pause read for the second action, which shares the reading with a
-    # rollback and has never been asked it. No e2e case can ask it either: the
-    # held rollout pins serving at six, and a scale-out of the shop's three asks
-    # for exactly six - so the capacity is there on the first poll by arithmetic
-    # nobody designed, and this answer is reached nowhere else.
+def test_added_capacity_is_still_arriving_while_the_rollout_is_paused() -> None:
+    # A pause stops a new template rolling out, and nothing else. The deployment
+    # controller still scales a paused Deployment - `syncDeployment` hands it to
+    # `sync`, whose first act is `scale` - so the replicas a scale-out asked for
+    # are on their way whether or not the rollout is held.
     #
-    # Short of what it asked for and held there, a scale-out satisfies no count
-    # ever, and a caller told only "not yet" would wait out its lease.
+    # Read as a rollback reads it, this window answers `WILL_NOT_ARRIVE`, and the
+    # walk escalates a scale-out the platform is in the middle of applying.
     Scenario() \
         .given(
-            the_platform_has_stopped_short := _a_rollout_reporting(
+            short_of_what_it_asked_for_and_paused := _a_rollout_reporting(
                 wanted=SOME_FLEET_SIZE, serving=HALF_THE_FLEET,
                 updated=HALF_THE_FLEET, paused=True
             )
         ) \
         .when(
             lambda: added_capacity_arriving_over(
-                the_platform_has_stopped_short, SOME_APPLICATION
+                short_of_what_it_asked_for_and_paused, SOME_APPLICATION
             )()
         ) \
         .then(
-            _the_arrival_is(Arrival.WILL_NOT_ARRIVE)
+            _the_arrival_is(Arrival.STILL_ARRIVING)
         )
 
 

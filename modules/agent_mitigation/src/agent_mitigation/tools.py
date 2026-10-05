@@ -27,7 +27,6 @@ from argus_core.models import (
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
-    RolloutProgress,
     ScaleOut,
     UndoDescriptor,
 )
@@ -63,12 +62,14 @@ class Arrival(StrEnum):
     platform has stopped - a rolling update it is holding - so nothing is going to
     change by waiting longer.
 
-    That third answer is what gives the wait an end without a figure. A rollout
-    stopped part way satisfies neither count and never will, so a loop holding
-    only "arrived or not" would poll until its lease expired and leave the change
-    applied for another worker to find. It is the counts that are asked first: a
-    rollout stopped *after* it finished has arrived, and the pause says nothing
-    about a change already in force on every replica. Paused is a state the platform reports,
+    That third answer is what gives the wait an end without a figure, and only a
+    rollback can be given it. A rollout stopped part way never converges, so a
+    loop holding only "arrived or not" would poll until its lease expired and
+    leave the change applied for another worker to find. A scale-out has no such
+    answer, because the platform goes on scaling a paused Deployment. It is the
+    counts that are asked first: a rollout stopped *after* it finished has
+    arrived, and the pause says nothing about a change already in force on every
+    replica. Paused is a state the platform reports,
     not a length of time somebody judged, which is why it can be read here at all
     - spec §16 keeps the "has this taken too long" judgement away from the channel
     precisely because a replica count and a timestamp cannot support it.
@@ -459,23 +460,7 @@ def added_capacity_arriving_over(client: McpClient, service: str) -> HasArrived:
 
 
 def _how_the_revision_is_arriving(*, client: McpClient, service: str) -> Arrival:
-    progress = get_rollout_progress(service, client=client)
-
-    return _the_arrival_of(progress, progress.has_converged)
-
-
-def _how_the_capacity_is_arriving(*, client: McpClient, service: str) -> Arrival:
-    progress = get_rollout_progress(service, client=client)
-
-    return _the_arrival_of(progress, progress.has_every_replica_it_asked_for)
-
-
-def _the_arrival_of(progress: RolloutProgress, it_has_landed: bool) -> Arrival:
-    """One rollout's counts read as a state of arrival.
-
-    Stated once because both questions above are read the same way once their own
-    count has been chosen, and two spellings of this would let the two actions come
-    to disagree about what a paused platform means.
+    """The revision's counts read as a state of arrival.
 
     Landed is asked first, and the order is the whole of it. A rolling update can
     be stopped after it has finished - every replica already on the new revision,
@@ -492,10 +477,29 @@ def _the_arrival_of(progress: RolloutProgress, it_has_landed: bool) -> Arrival:
     duration, which is what makes it readable here at all rather than a judgement
     §16 keeps out of this side.
     """
-    if it_has_landed:
+    progress = get_rollout_progress(service, client=client)
+
+    if progress.has_converged:
         return Arrival.ARRIVED
 
     return Arrival.WILL_NOT_ARRIVE if progress.is_paused else Arrival.STILL_ARRIVING
+
+
+def _how_the_capacity_is_arriving(*, client: McpClient, service: str) -> Arrival:
+    """The replica count read as a state of arrival, with no regard to a pause.
+
+    A pause stops a new template rolling out, and nothing else: the deployment
+    controller still scales a paused Deployment, across both sides of the split.
+    So a held rollout says nothing about whether the replicas asked for are
+    coming, and reading it here would escalate a scale-out the platform is in the
+    middle of applying.
+    """
+    progress = get_rollout_progress(service, client=client)
+
+    if progress.has_every_replica_it_asked_for:
+        return Arrival.ARRIVED
+
+    return Arrival.STILL_ARRIVING
 
 
 def flag_setter_over(client: McpClient) -> FlagSetter:

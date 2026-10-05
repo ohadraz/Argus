@@ -557,27 +557,21 @@ has been proposed for it.
 Written down here rather than left in a commit message, because each is a gap
 somebody will otherwise rediscover from the outside.
 
-**A branch is unreachable by arithmetic nobody designed.** Mitigation waits for
-its change to arrive before judging anything, and gives up where the platform
-reports the rolling update paused - the change never landed, so nothing about it
-was measured and the attempt is `ESCALATED` rather than refuted. No scenario
-reaches that branch, and the reason is a coincidence rather than a design:
-`deploy/values-production.yaml` sizes the deployment at 3, a scale-out doubles
-`spec.replicas` to 6, and a paused rollout pins `status.replicas` at
-`REPLICAS_DURING_A_ROLLOUT`, which is also 6. So the count asked for exactly
-equals the count the pause holds serving at, arrival is observed on the first
-poll, and the give-up path is never taken. A values file saying 4 would double to
-8 against that pinned 6, make the branch live, and find it with no test behind it.
+**A scale-out that cannot land is bounded only by the lease.** Mitigation waits
+for its change to arrive before judging anything. A rollback has a way out of
+that wait that is not a figure - a paused rolling update never converges, so the
+attempt is `ESCALATED` rather than refuted - but a scale-out does not, because
+the deployment controller goes on scaling a paused Deployment and a pause says
+nothing about whether the replicas are coming. What does stop them is the
+namespace's quota, or a cluster with no room to schedule the pods, and neither
+is a state the rollout channel reports. Until it does, a scale-out the platform
+cannot satisfy polls until the lease expires.
 
-Two consequences worth stating. The verdict on that branch was chosen by
-reasoning and never by measurement - `ESCALATED` because nothing was measured, so
-refuting would strike a candidate off on no evidence and undo a change that never
-had its chance; `NOT_ATTEMPTED` is the one-word reversal if the walk should try
-its next explanation instead. And the deployment's own declared deadline,
-`spec.progressDeadlineSeconds`, is the remaining derived bound for a rollout that
-is slow rather than stopped. The manifest does not carry it, adding it is additive
-and disturbs no scenario, and until it is there a rollout that neither converges
-nor pauses is bounded only by the lease.
+The deployment's own declared deadline, `spec.progressDeadlineSeconds`, is the
+derived bound for a rollout that is slow rather than stopped - Kubernetes
+reports `ProgressDeadlineExceeded` once it passes. The manifest does not carry
+it, adding it is additive and disturbs no scenario, and until it is there a
+rollout that neither converges nor pauses is bounded only by the lease.
 
 **A flap with no rhythm is still reported mitigated.**
 `_clear_minutes_a_recovery_has_to_show` asks a recovery for one more clear minute
