@@ -187,7 +187,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         onset_at: datetime | None = ONSET,
                         engaged: EngagementAnswer | None = NOBODY_RESPONDED,
                         cost: ResponderCost | None = None,
-                        bands: Mapping[str, PayBand] | None = NO_BANDS_NEEDED) -> Measurements:
+                        bands: Mapping[str, PayBand] | None = NO_BANDS_NEEDED,
+                        unobserved_from: datetime | None = None) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -216,7 +217,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         onset_at=onset_at,
         engaged=engaged,
         cost=cost,
-        bands=bands
+        bands=bands,
+        unobserved_from=unobserved_from
     )
 
 
@@ -471,6 +473,24 @@ def metrics_that_recovered(
               for minute in range(0, 10)),
             *(a_bucket(at=ONSET + timedelta(minutes=minute), error_rate=baseline)
               for minute in range(10, 31))
+        ]
+
+    return metrics_between
+
+
+def metrics_that_stop_at_the_onset() -> Metrics:
+    """A window whose rows run up to the onset and then stop.
+
+    A blind spot's window: the minutes before it calm and present, and nothing
+    at or after it - not zeros, nothing. Unlike `metrics_that_answer_with_nothing`,
+    which is a source that could not be read, this one answered.
+    """
+    def metrics_between(dont_care_start: datetime,
+                        dont_care_end: datetime) -> list[MetricBucket]:
+        return [
+            a_bucket(at=ONSET + timedelta(minutes=minute),
+                     error_rate=DONT_CARE_BASELINE_ERROR_RATE)
+            for minute in range(-10, 0)
         ]
 
     return metrics_between

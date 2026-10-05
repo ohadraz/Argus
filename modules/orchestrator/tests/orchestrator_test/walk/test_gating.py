@@ -215,6 +215,22 @@ def test_an_incident_carrying_a_recommendation_stops_trying_candidates() -> None
 
 
 @pytest.mark.unit
+def test_an_incident_whose_mode_nothing_answers_stops_trying_candidates() -> None:
+    # The second refusal that ends the mitigation phase, and for the reason the
+    # recommendation does: the next candidate is no better placed. Here it is
+    # worse placed - a less likely explanation than the one that said nothing
+    # applies - and on to Code-Fix, because what is owed is a change nobody here
+    # may make, and a proposal is the only thing anybody gets.
+    Scenario() \
+        .given(
+            an_incident_nothing_answers := _a_mitigating_incident()
+            .model_copy(update={"nothing_answers_the_mode": True})
+        ) \
+        .when(lambda: route_after_gate(an_incident_nothing_answers)) \
+        .then(the_route_is(FIXING_ROUTE))
+
+
+@pytest.mark.unit
 def test_a_mitigation_already_tried_on_this_subject_as_often_as_allowed_is_refused(
     record_outcome: MagicMock
 ) -> None:
@@ -346,352 +362,6 @@ def test_a_candidate_refused_for_having_been_tried_enough_says_so_in_its_row(
                                                      record_outcome))
 
 
-def _a_mitigating_incident(proposing: Action | None = None,
-                           about: Hypothesis | None = None,
-                           already_tried: list[Attempt] | None = None,
-                           listing: list[ServiceDependency] | None = None,
-                           dated_by_the_alert: datetime | None = None,
-                           whose_minutes_were_read: bool = True
-                           ) -> IncidentState:
-    some_alert = Alert(
-        service="kuki-service",
-        alert_name="HighErrorRate",
-        stated_onset=dated_by_the_alert
-    )
-    state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
-
-    return state.model_copy(
-        update={
-            "hypothesis": about or a_determined_hypothesis(state.incident_id),
-            "proposed_action": proposing,
-            "attempts": already_tried or [],
-            "dependencies": listing or [],
-            "readings_cover_the_incident": whose_minutes_were_read
-        }
-    )
-
-
-def _a_proposed_action() -> Action:
-    """A well-formed action, of whatever kind the gate is told this one is.
-
-    One builder rather than the two this file used to carry. What the gate
-    admits or refuses is no longer readable off the action - both tests hand it
-    the same action and differ only in what the strategy says about its kind.
-    """
-    return RevertFeatureFlag(
-        flag=DONT_CARE_FLAG,
-        enabled=False,
-        undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
-    )
-
-
-def _a_proposed_discard(service: str = DONT_CARE_SERVICE) -> Action:
-    """The one kind of action whose own answer says whether it worked.
-
-    Every other action here is judged by watching the service afterwards. This
-    one is judged by what the store said when it was asked - which is why it is
-    the only kind the confirmability refusal must not reach, and why the gate
-    has to read the kind rather than the evidence alone.
-    """
-    return DiscardCacheEntries(
-        service=service, keys=("io-shop:summary:shopper-3",)
-    )
-
-
-def _a_proposed_restart(service: str = DONT_CARE_SERVICE) -> Action:
-    """The repeatable mitigation, which is what the cap is really about.
-
-    A restart can be taken again and again, each one buying a few minutes, and
-    nothing about the action itself says it has been taken before.
-    """
-    return RestartService(service=service)
-
-
-def _an_attempt_to(action_type: ActionType, subject: str) -> Attempt:
-    """A mitigation this incident already took, and which did not help.
-
-    Only failures reach this list: one that worked ended the incident, and
-    there would be no later round to be capped.
-    """
-    dont_care_moment = "2026-08-20T11:05:00Z"
-
-    return Attempt(
-        identity=ActionIdentity(action_type=action_type, subject=subject),
-        occurred_at=dont_care_moment
-    )
-
-
-def _a_kind_argus_may_take() -> ports.Admitted:
-    def admitted(dont_care_action: Action) -> bool:
-        return True
-
-    return admitted
-
-
-def _a_kind_argus_may_not_take() -> ports.Admitted:
-    """An action of a kind nobody has pre-authorised.
-
-    The one shape §13's gate exists for. It cannot be expressed as an action
-    any more - every action type Argus has is in the declared set - so it is
-    expressed where the truth about it actually lives, which is the set the
-    gate is asked about.
-    """
-    def admitted(dont_care_action: Action) -> bool:
-        return False
-
-    return admitted
-
-
-def _the_gate_changed_nothing() -> Assertion[StateDelta]:
-    """An admitted action leaves the state exactly as it arrived. Anything at
-    all here would be the gate deciding something, and the gate decides only
-    whether to refuse."""
-    def assertion(updates: StateDelta) -> bool:
-        if updates.model_fields_set:
-            raise AssertionError(
-                f"Expected the gate to change nothing, it set "
-                f"{sorted(updates.model_fields_set)}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _no_outcome_was_recorded(record_outcome: MagicMock) -> Assertion[StateDelta]:
-    """The candidate is about to be put to the question, so nothing is known
-    about it yet - a row marked with an outcome here would be marked before the
-    experiment that produces one."""
-    def assertion(dont_care_result: StateDelta) -> bool:
-        if record_outcome.call_count != 0:
-            raise AssertionError(
-                f"Expected no outcome to be recorded, got "
-                f"{record_outcome.call_args_list}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_action_was_cleared() -> Assertion[StateDelta]:
-    def assertion(updates: StateDelta) -> bool:
-        if updates.proposed_action is not None:
-            raise AssertionError(
-                f"Expected the refused action to be cleared, the gate returned "
-                f"{updates.proposed_action!r}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_was_kept_as_the_recommendation(action: Action) -> Assertion[StateDelta]:
-    """That the action nobody took survives as the thing somebody should do.
-
-    The other half of clearing it. `proposed_action` is cleared because nothing
-    is going to perform it, and an incident that stopped there would report a
-    cause and no next step - which is worse than escalating, since escalation at
-    least announces that a person is needed.
-    """
-    def assertion(updates: StateDelta) -> bool:
-        if updates.recommended_action != action:
-            raise AssertionError(
-                f"Expected the refused action {action!r} to be kept as the "
-                f"recommendation, the gate returned "
-                f"{updates.recommended_action!r}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _nothing_was_recommended() -> Assertion[StateDelta]:
-    def assertion(updates: StateDelta) -> bool:
-        if updates.recommended_action is not None:
-            raise AssertionError(
-                f"Expected no recommendation from a refusal that is a judgement "
-                f"on the action itself, the gate returned "
-                f"{updates.recommended_action!r}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_incident_was_moved_nowhere() -> Assertion[StateDelta]:
-    """A rejection ends this attempt, not the incident: `mitigating` before and
-    after, so the gate names no status at all."""
-    def assertion(updates: StateDelta) -> bool:
-        if "status" in updates.model_fields_set:
-            raise AssertionError(
-                f"Expected the gate to name no status, it named "
-                f"[{updates.status}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_recommendation_was_published(flag: str,
-                                      published: list[IncidentEvent]
-                                      ) -> Assertion[StateDelta]:
-    """The gate's account of what it worked out and did not do.
-
-    Published beside the refusal rather than folded into it, because the two
-    are different findings and only one of them has a reader who can act. Five
-    of the six refusals have nothing to recommend at all - they reject the
-    action itself - so an account that carried the action on every refusal
-    would be telling somebody to go and cross the boundary Argus just held.
-    """
-    def assertion(dont_care_updates: StateDelta) -> bool:
-        recommendations = [
-            event for event in published if isinstance(event, ActionRecommended)
-        ]
-
-        if not recommendations:
-            raise AssertionError(
-                f"Expected the recommendation to be published, got "
-                f"{[event.kind for event in published]}."
-            )
-
-        if recommendations[0].subject != flag:
-            raise AssertionError(
-                f"Expected the recommendation to name [{flag}], got "
-                f"[{recommendations[0].subject}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _nothing_was_published_recommending_anything(
-    published: list[IncidentEvent]
-) -> Assertion[StateDelta]:
-    def assertion(dont_care_updates: StateDelta) -> bool:
-        recommendations = [
-            event for event in published if isinstance(event, ActionRecommended)
-        ]
-
-        if recommendations:
-            raise AssertionError(
-                f"Expected nothing recommended after a refusal about the action "
-                f"itself, got {[event.subject for event in recommendations]}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_refusal_was_published(expected: Refusal,
-                               published: list[IncidentEvent]) -> Assertion[StateDelta]:
-    """The gate's own account of what it would not allow.
-
-    Published by this node rather than returned for somebody else to write
-    down, the way the proposal publishes the history it rested on: the gate is
-    the only place that knows a refusal happened, and a refusal that travelled
-    as free text would reach the page as a sentence nobody can count.
-    """
-    def assertion(dont_care_updates: StateDelta) -> bool:
-        refusals = [event for event in published if isinstance(event, ActionRefused)]
-
-        if not refusals:
-            raise AssertionError(
-                f"Expected the refusal to be published, got "
-                f"{[event.kind for event in published]}."
-            )
-
-        if refusals[0].refusal is not expected:
-            raise AssertionError(
-                f"Expected [{expected}] published, got [{refusals[0].refusal}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _nothing_was_narrated() -> Assertion[StateDelta]:
-    """The gate says nothing through the walk's narration.
-
-    Narration is how a node that *moved* the incident accounts for the move,
-    and five of the six refusals move it nowhere. Returning a sentence for one
-    of those is what used to route the refusal into a second, untyped account
-    of the same event. The sixth does move it, and has an assertion of its own.
-    """
-    def assertion(updates: StateDelta) -> bool:
-        if updates.narration is not None:
-            raise AssertionError(
-                f"Expected the gate to narrate nothing, it said "
-                f"[{updates.narration.action}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
-    """The gate accounts for the one refusal that ends the incident.
-
-    The other five end an attempt and leave the status where it was. This one
-    leaves a recommendation, the status derives from that, and the walk refuses
-    a move with no account of itself - so silence here is not a quieter gate,
-    it is a walk that stops with a `ValueError` at the node.
-    """
-    def assertion(updates: StateDelta) -> bool:
-        if updates.narration is None:
-            raise AssertionError(
-                "Expected the gate to account for the recommendation, it "
-                "narrated nothing."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,
-                                           reason: str,
-                                           record_outcome: MagicMock
-                                           ) -> Assertion[StateDelta]:
-    def assertion(dont_care_result: StateDelta) -> bool:
-        if record_outcome.call_count != 1:
-            raise AssertionError(
-                f"Expected exactly one outcome to be recorded, got "
-                f"{record_outcome.call_count}."
-            )
-
-        recorded_about = record_outcome.call_args.args[0]
-        if recorded_about != candidate.id:
-            raise AssertionError(
-                f"Expected the outcome to be about [{candidate.id}], it was "
-                f"about [{recorded_about}]."
-            )
-
-        recorded = record_outcome.call_args.kwargs
-        if recorded["tested"] is not False:
-            raise AssertionError(
-                "Expected the candidate to be recorded as never having been tried."
-            )
-
-        if reason not in recorded["result"]:
-            raise AssertionError(
-                f"Expected the reason to say [{reason}], it said "
-                f"[{recorded['result']}]."
-            )
-
-        return True
-
-    return assertion
-
-
 @pytest.mark.unit
 def test_a_mode_nothing_answers_is_refused_in_its_own_words(
     record_outcome: MagicMock
@@ -717,6 +387,34 @@ def test_a_mode_nothing_answers_is_refused_in_its_own_words(
                      _the_incident_was_moved_nowhere(),
                      _the_refusal_was_published(Refusal.NOTHING_ANSWERS_THIS_MODE,
                                                 published)))
+
+
+@pytest.mark.unit
+def test_a_mode_nothing_answers_ends_the_mitigation_phase(
+    record_outcome: MagicMock
+) -> None:
+    # The refusal above, and what follows from it. A candidate is the likeliest
+    # explanation still standing, and this one says no mitigation applies - so a
+    # lower one that does admit a mitigation is a less likely reading of the same
+    # evidence, and acting on it would be acting against the diagnosis. Where the
+    # leading explanation is a deliberate change the monitoring did not follow,
+    # the next one down is reliably the rollback that undoes it.
+    #
+    # Recorded on the incident rather than read back off the refusal, because the
+    # status is derived from the incident and never from what was published; and
+    # narrated, because it moves the incident.
+    Scenario() \
+        .given(
+            a_gated_incident := _a_mitigating_incident(
+                about=_a_cause_with_no_mitigation()
+            )
+        ) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(all_of(_it_was_recorded_that_nothing_answers_the_mode(),
+                     _the_end_of_mitigation_was_narrated()))
 
 
 @pytest.mark.unit
@@ -761,21 +459,6 @@ def test_the_candidate_row_says_nothing_answers_this_kind_of_failure(
             some_candidate,
             "no mitigation Argus can take answers this kind of failure",
             record_outcome))
-
-
-def _a_cause_with_no_mitigation() -> Hypothesis:
-    """A hypothesis naming the one mode nothing in the closed set answers.
-
-    Built from the determined one rather than from scratch, because everything
-    else about it is beside the point: what the gate reads is the mode, and a
-    second full builder would be a second place for a candidate's shape to
-    drift.
-    """
-    state_id = a_random_id()
-
-    return a_determined_hypothesis(state_id).model_copy(
-        update={"failure_mode": FailureMode.UPSTREAM_DEPENDENCY_FAILURE}
-    )
 
 
 @pytest.mark.unit
@@ -1111,6 +794,400 @@ def test_a_refusal_about_the_action_itself_recommends_nothing_to_anybody(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(_nothing_was_published_recommending_anything(published))
+
+
+def _a_mitigating_incident(proposing: Action | None = None,
+                           about: Hypothesis | None = None,
+                           already_tried: list[Attempt] | None = None,
+                           listing: list[ServiceDependency] | None = None,
+                           dated_by_the_alert: datetime | None = None,
+                           whose_minutes_were_read: bool = True
+                           ) -> IncidentState:
+    some_alert = Alert(
+        service="kuki-service",
+        alert_name="HighErrorRate",
+        stated_onset=dated_by_the_alert
+    )
+    state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
+
+    return state.model_copy(
+        update={
+            "hypothesis": about or a_determined_hypothesis(state.incident_id),
+            "proposed_action": proposing,
+            "attempts": already_tried or [],
+            "dependencies": listing or [],
+            "readings_cover_the_incident": whose_minutes_were_read
+        }
+    )
+
+
+def _a_proposed_action() -> Action:
+    """A well-formed action, of whatever kind the gate is told this one is.
+
+    One builder rather than the two this file used to carry. What the gate
+    admits or refuses is no longer readable off the action - both tests hand it
+    the same action and differ only in what the strategy says about its kind.
+    """
+    return RevertFeatureFlag(
+        flag=DONT_CARE_FLAG,
+        enabled=False,
+        undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
+    )
+
+
+def _a_proposed_discard(service: str = DONT_CARE_SERVICE) -> Action:
+    """The one kind of action whose own answer says whether it worked.
+
+    Every other action here is judged by watching the service afterwards. This
+    one is judged by what the store said when it was asked - which is why it is
+    the only kind the confirmability refusal must not reach, and why the gate
+    has to read the kind rather than the evidence alone.
+    """
+    return DiscardCacheEntries(
+        service=service, keys=("io-shop:summary:shopper-3",)
+    )
+
+
+def _a_proposed_restart(service: str = DONT_CARE_SERVICE) -> Action:
+    """The repeatable mitigation, which is what the cap is really about.
+
+    A restart can be taken again and again, each one buying a few minutes, and
+    nothing about the action itself says it has been taken before.
+    """
+    return RestartService(service=service)
+
+
+def _an_attempt_to(action_type: ActionType, subject: str) -> Attempt:
+    """A mitigation this incident already took, and which did not help.
+
+    Only failures reach this list: one that worked ended the incident, and
+    there would be no later round to be capped.
+    """
+    dont_care_moment = "2026-08-20T11:05:00Z"
+
+    return Attempt(
+        identity=ActionIdentity(action_type=action_type, subject=subject),
+        occurred_at=dont_care_moment
+    )
+
+
+def _a_kind_argus_may_take() -> ports.Admitted:
+    def admitted(dont_care_action: Action) -> bool:
+        return True
+
+    return admitted
+
+
+def _a_kind_argus_may_not_take() -> ports.Admitted:
+    """An action of a kind nobody has pre-authorised.
+
+    The one shape §13's gate exists for. It cannot be expressed as an action
+    any more - every action type Argus has is in the declared set - so it is
+    expressed where the truth about it actually lives, which is the set the
+    gate is asked about.
+    """
+    def admitted(dont_care_action: Action) -> bool:
+        return False
+
+    return admitted
+
+
+def _the_gate_changed_nothing() -> Assertion[StateDelta]:
+    """An admitted action leaves the state exactly as it arrived. Anything at
+    all here would be the gate deciding something, and the gate decides only
+    whether to refuse."""
+    def assertion(updates: StateDelta) -> bool:
+        if updates.model_fields_set:
+            raise AssertionError(
+                f"Expected the gate to change nothing, it set "
+                f"{sorted(updates.model_fields_set)}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_outcome_was_recorded(record_outcome: MagicMock) -> Assertion[StateDelta]:
+    """The candidate is about to be put to the question, so nothing is known
+    about it yet - a row marked with an outcome here would be marked before the
+    experiment that produces one."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if record_outcome.call_count != 0:
+            raise AssertionError(
+                f"Expected no outcome to be recorded, got "
+                f"{record_outcome.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_was_cleared() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.proposed_action is not None:
+            raise AssertionError(
+                f"Expected the refused action to be cleared, the gate returned "
+                f"{updates.proposed_action!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_kept_as_the_recommendation(action: Action) -> Assertion[StateDelta]:
+    """That the action nobody took survives as the thing somebody should do.
+
+    The other half of clearing it. `proposed_action` is cleared because nothing
+    is going to perform it, and an incident that stopped there would report a
+    cause and no next step - which is worse than escalating, since escalation at
+    least announces that a person is needed.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.recommended_action != action:
+            raise AssertionError(
+                f"Expected the refused action {action!r} to be kept as the "
+                f"recommendation, the gate returned "
+                f"{updates.recommended_action!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_recommended() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.recommended_action is not None:
+            raise AssertionError(
+                f"Expected no recommendation from a refusal that is a judgement "
+                f"on the action itself, the gate returned "
+                f"{updates.recommended_action!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_was_moved_nowhere() -> Assertion[StateDelta]:
+    """A rejection ends this attempt, not the incident: `mitigating` before and
+    after, so the gate names no status at all."""
+    def assertion(updates: StateDelta) -> bool:
+        if "status" in updates.model_fields_set:
+            raise AssertionError(
+                f"Expected the gate to name no status, it named "
+                f"[{updates.status}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_recommendation_was_published(flag: str,
+                                      published: list[IncidentEvent]
+                                      ) -> Assertion[StateDelta]:
+    """The gate's account of what it worked out and did not do.
+
+    Published beside the refusal rather than folded into it, because the two
+    are different findings and only one of them has a reader who can act. Five
+    of the six refusals have nothing to recommend at all - they reject the
+    action itself - so an account that carried the action on every refusal
+    would be telling somebody to go and cross the boundary Argus just held.
+    """
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        recommendations = [
+            event for event in published if isinstance(event, ActionRecommended)
+        ]
+
+        if not recommendations:
+            raise AssertionError(
+                f"Expected the recommendation to be published, got "
+                f"{[event.kind for event in published]}."
+            )
+
+        if recommendations[0].subject != flag:
+            raise AssertionError(
+                f"Expected the recommendation to name [{flag}], got "
+                f"[{recommendations[0].subject}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_published_recommending_anything(
+    published: list[IncidentEvent]
+) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        recommendations = [
+            event for event in published if isinstance(event, ActionRecommended)
+        ]
+
+        if recommendations:
+            raise AssertionError(
+                f"Expected nothing recommended after a refusal about the action "
+                f"itself, got {[event.subject for event in recommendations]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_refusal_was_published(expected: Refusal,
+                               published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The gate's own account of what it would not allow.
+
+    Published by this node rather than returned for somebody else to write
+    down, the way the proposal publishes the history it rested on: the gate is
+    the only place that knows a refusal happened, and a refusal that travelled
+    as free text would reach the page as a sentence nobody can count.
+    """
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        refusals = [event for event in published if isinstance(event, ActionRefused)]
+
+        if not refusals:
+            raise AssertionError(
+                f"Expected the refusal to be published, got "
+                f"{[event.kind for event in published]}."
+            )
+
+        if refusals[0].refusal is not expected:
+            raise AssertionError(
+                f"Expected [{expected}] published, got [{refusals[0].refusal}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_narrated() -> Assertion[StateDelta]:
+    """The gate says nothing through the walk's narration.
+
+    Narration is how a node that *moved* the incident accounts for the move,
+    and five of the six refusals move it nowhere. Returning a sentence for one
+    of those is what used to route the refusal into a second, untyped account
+    of the same event. The sixth does move it, and has an assertion of its own.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.narration is not None:
+            raise AssertionError(
+                f"Expected the gate to narrate nothing, it said "
+                f"[{updates.narration.action}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
+    """The gate accounts for the one refusal that ends the incident.
+
+    The other five end an attempt and leave the status where it was. This one
+    leaves a recommendation, the status derives from that, and the walk refuses
+    a move with no account of itself - so silence here is not a quieter gate,
+    it is a walk that stops with a `ValueError` at the node.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.narration is None:
+            raise AssertionError(
+                "Expected the gate to account for the recommendation, it "
+                "narrated nothing."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_recorded_that_nothing_answers_the_mode() -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.nothing_answers_the_mode is not True:
+            raise AssertionError(
+                f"Expected the gate to record that nothing answers the mode, it "
+                f"returned [{updates.nothing_answers_the_mode}] - so the walk "
+                f"would go on to the next candidate and act on a reading the "
+                f"diagnosis ranked below this one."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_end_of_mitigation_was_narrated() -> Assertion[StateDelta]:
+    """The gate accounts for ending the mitigation phase.
+
+    The same reason the recommendation is narrated: the incident's status moves
+    from this node, and the walk refuses a move with no account of itself.
+    """
+    def assertion(updates: StateDelta) -> bool:
+        if updates.narration is None:
+            raise AssertionError(
+                "Expected the gate to account for ending the mitigation phase, "
+                "it narrated nothing."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,
+                                           reason: str,
+                                           record_outcome: MagicMock
+                                           ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if record_outcome.call_count != 1:
+            raise AssertionError(
+                f"Expected exactly one outcome to be recorded, got "
+                f"{record_outcome.call_count}."
+            )
+
+        recorded_about = record_outcome.call_args.args[0]
+        if recorded_about != candidate.id:
+            raise AssertionError(
+                f"Expected the outcome to be about [{candidate.id}], it was "
+                f"about [{recorded_about}]."
+            )
+
+        recorded = record_outcome.call_args.kwargs
+        if recorded["tested"] is not False:
+            raise AssertionError(
+                "Expected the candidate to be recorded as never having been tried."
+            )
+
+        if reason not in recorded["result"]:
+            raise AssertionError(
+                f"Expected the reason to say [{reason}], it said "
+                f"[{recorded['result']}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_cause_with_no_mitigation() -> Hypothesis:
+    """A hypothesis naming the one mode nothing in the closed set answers.
+
+    Built from the determined one rather than from scratch, because everything
+    else about it is beside the point: what the gate reads is the mode, and a
+    second full builder would be a second place for a candidate's shape to
+    drift.
+    """
+    state_id = a_random_id()
+
+    return a_determined_hypothesis(state_id).model_copy(
+        update={"failure_mode": FailureMode.UPSTREAM_DEPENDENCY_FAILURE}
+    )
 
 
 def _what_the_row_would_say_about(refusal: Refusal) -> str:

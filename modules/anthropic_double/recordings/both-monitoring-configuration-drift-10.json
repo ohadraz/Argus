@@ -1,0 +1,55 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAIS2wQKngMIEhgCKkDDSnciSKVMBt5NqRR+LUuHak5oqmRTPvHclgoeUKV6Vwkqb8HkTidO3fxlDtqtAzowZ4NYYvdPkNi7g3Iz8FrsMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKaAQ8KDWNsYXVkZS1vcHVzLTWoAeL0jdYGwgGXAQgjEAAaaQGlGwJSIgNPNwU+WwQmrQoYFAoLYwNPNwunRgtyBgQmrQpWpQoqIQNPNwsuXQtrTwQmrQqO+QoyOANPNwvpzwtHuQQmrQo67wNPNwuVSAQmrQpwJgNPNwuNNwQmrQrpdgNPNwtHIAQmrSACMgQScc8lOgRXXrGuQgSY0Rg1SgQSa1ZIUAZaBNkF4VZgDmgBcAHaAWAKFnByZWZpeF9iZWZvcmVfYmxvY2tfdjESIIrz74lus8Sc99P1hr+0kBZ1bFeMjfzueHisblQhy77kIgAyIMLAE8hqnJLiL5ZvPYYXdo+LekTJAq3MCXv6HgmK+04fSAMSDEHP0PuOj3c77WrYLxoMl2zoGlklHMzBQrIoIjCsmecDpIKLH3eMxBvdIpKTq78RMPpOlzTqwoqyFwNr4MH6YXNYYy/f2aOFqmlmKX4qaiF4Jgmd9Tx739J/IXcmowOw33XCgVcQVws0DGylZ1GXH3hLFsM+YEL5yBfI4BvE8JFTz5Z//s/1yXUDbVAEV7CoW3Swtp8wLrHzgCOoGXhvxIzLJMlY3AyyU28GQOtD8gX8UaWjDLrFNGkYAQ==",
+      "thinking": "My files parameter got malformed, I need to fix the JSON and resubmit it correctly.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01QeRKx1a5vs4RmfRnPkZ3hY",
+      "input": {
+        "explanation": "Fault: the scrape target is selected by port *name*, and the two halves of that contract live in two files nothing reconciles. The 10:15:00Z deploy renamed the port in deploy/values-production.yaml (portName: metrics -> http-metrics) for the estate-wide `<protocol>[-<purpose>]` convention, but deploy/scrape.yaml still selects `port: metrics`. A ServiceMonitor endpoint naming a port no Service exposes is not an error to the operator - it is an empty target list - so the shop kept serving /metrics and rendering account pages normally while the series stopped at exactly the deploy minute. That is the signature in the incident: onset at the deploy, no failing requests, no samples.\n\nFix: scrape.yaml now selects `port: http-metrics`, so the renamed port is scraped again and the convention-conforming deploy is safe to take. A new test, tests/io_shop/test_scrape_config.py, reads both deploy files and asserts the name the ServiceMonitor selects is the name metrics.portName gives the port. Against the code as it stands (`metrics` vs `http-metrics`) that assertion fails; with this change it passes, and it fails again the next time either side is renamed alone - the only durable guard, since nothing in the cluster reports this mismatch. It also pins the scrape interval at no slower than the one-minute no-sample alert expects.\n\nThe test scans the two documents line by line rather than importing PyYAML, so it adds no dependency. Nothing in src/ reads either file, so no service code needed changing.",
+        "files": [
+          {
+            "content": "# How the platform's Prometheus collects the shop's metrics.\n#\n# A stand-in for io-shop's manifest, not a real one: no cluster applies this\n# file, and nothing in this repository reads it. It is written as the\n# ServiceMonitor such a cluster would carry, so that how the shop is collected\n# is in the repository beside how it is deployed. Its labels are illustrative.\n#\n# It selects the shop's Service by label, then the endpoint to scrape on that\n# Service by the port's *name* - never its number - so a port can move without\n# anything here being touched.\n#\n# The name here has to be the one `metrics.portName` in values-production.yaml\n# gives the port. A name that matches no port is not an error to the operator,\n# it is a target list with nothing in it, and the shop goes on serving metrics\n# nobody collects - so tests/io_shop/test_scrape_config.py reads both files and\n# fails if the two names drift apart.\napiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: io-shop\n  labels:\n    release: prometheus\nspec:\n  selector:\n    matchLabels:\n      app: io-shop\n  endpoints:\n    - port: http-metrics\n      path: /metrics\n      interval: 15s\n",
+            "path": "deploy/scrape.yaml"
+          },
+          {
+            "content": "from __future__ import annotations\n\nimport re\nfrom pathlib import Path\n\n\"\"\"The contract between the two deploy files.\n\nThe scrape config selects its target by the port's *name*, and the name it has\nto use is the one `metrics.portName` in values-production.yaml gives the port.\nNothing in the cluster reports a mismatch: a ServiceMonitor endpoint naming a\nport no Service exposes yields an empty target list, so the shop keeps serving\nand answering normally while its series silently stops.\n\nThese read both documents with a small line scan rather than a YAML parser, so\nthe check costs the repository no dependency it does not already have.\n\"\"\"\n\nDEPLOY = Path(__file__).resolve().parents[2] / \"deploy\"\n\n\ndef _lines(name: str) -> list[str]:\n    text = (DEPLOY / name).read_text(encoding=\"utf-8\")\n    return [line.split(\"#\", 1)[0].rstrip() for line in text.splitlines()]\n\n\ndef the_port_name_the_deployment_gives() -> str:\n    \"\"\"`metrics.portName` from values-production.yaml.\"\"\"\n    in_metrics_block = False\n    for line in _lines(\"values-production.yaml\"):\n        if not line.strip():\n            continue\n        if re.match(r\"^metrics:\\s*$\", line):\n            in_metrics_block = True\n            continue\n        if in_metrics_block:\n            if not line.startswith((\" \", \"\\t\")):\n                break\n            found = re.match(r\"^\\s+portName:\\s*(\\S+)\\s*$\", line)\n            if found:\n                return found.group(1).strip(\"'\\\"\")\n    raise AssertionError(\"values-production.yaml names no metrics.portName\")\n\n\ndef the_port_names_the_scraper_selects() -> list[str]:\n    \"\"\"Every `port:` named by an endpoint in scrape.yaml.\"\"\"\n    selected = [\n        found.group(1).strip(\"'\\\"\")\n        for found in (\n            re.match(r\"^\\s*-?\\s*port:\\s*(\\S+)\\s*$\", line)\n            for line in _lines(\"scrape.yaml\")\n        )\n        if found\n    ]\n    assert selected, \"scrape.yaml selects no port by name\"\n    return selected\n\n\ndef the_scrape_intervals() -> list[int]:\n    return [\n        int(found.group(1))\n        for found in (\n            re.match(r\"^\\s*interval:\\s*(\\d+)s\\s*$\", line)\n            for line in _lines(\"scrape.yaml\")\n        )\n        if found\n    ]\n\n\ndef test_the_scraper_selects_the_port_the_deployment_names() -> None:\n    deployed = the_port_name_the_deployment_gives()\n\n    for selected in the_port_names_the_scraper_selects():\n        assert selected == deployed, (\n            f\"scrape.yaml scrapes port {selected!r} but the deployment names \"\n            f\"the metrics port {deployed!r}: the target list would be empty \"\n            \"and no sample would be collected\"\n        )\n\n\ndef test_the_metrics_port_name_follows_the_platform_convention() -> None:\n    # `<protocol>[-<purpose>]`, applied estate-wide - the rename that broke the\n    # scrape. Pinned so conforming to it cannot be mistaken for the fault again.\n    name = the_port_name_the_deployment_gives()\n    assert re.fullmatch(r\"[a-z0-9]+(-[a-z0-9]+)*\", name)\n\n\ndef test_the_scrape_is_at_least_as_often_as_a_sample_is_expected() -> None:\n    # The alert fires on a minute with no sample, so scraping may not be slower.\n    for interval in the_scrape_intervals():\n        assert interval <= 60\n",
+            "path": "tests/io_shop/test_scrape_config.py"
+          }
+        ],
+        "summary": "Point the ServiceMonitor at the renamed `http-metrics` port and test that scrape config and values agree"
+      },
+      "name": "submit_fix",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CfivaYceSMTGp5jMmDghK",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2683
+    },
+    "cache_creation_input_tokens": 2683,
+    "cache_read_input_tokens": 6968,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 2594,
+    "output_tokens_details": {
+      "thinking_tokens": 33
+    },
+    "service_tier": "standard"
+  }
+}

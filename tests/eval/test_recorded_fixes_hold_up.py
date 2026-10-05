@@ -162,7 +162,14 @@ def _the_patch_in(corpus: list[Path]) -> dict[str, str]:
     Not a loss of independence. What must not grade this agent is the model, and
     the model is nowhere in here; the writer is deterministic production code
     with a suite of its own.
+
+    The last submission rather than the first. A walk submits more than once
+    when the handler bounces an answer that carried no files and the model
+    tries again, and the one that reached the branch is the one the walk ended
+    on.
     """
+    submitted: dict[str, str] = {}
+
     for recording in corpus:
         body = json.loads(recording.read_text(encoding="utf-8"))
 
@@ -171,11 +178,11 @@ def _the_patch_in(corpus: list[Path]) -> dict[str, str]:
                 continue
 
             try:
-                return SubmittedFix.model_validate(block.get("input", {})).patch()
+                submitted = SubmittedFix.model_validate(block.get("input", {})).patch()
             except ValidationError:
-                return {}
+                submitted = {}
 
-    return {}
+    return submitted
 
 
 def the_scenarios_that_proposed_a_fix() -> list[str]:

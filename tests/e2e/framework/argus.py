@@ -25,10 +25,15 @@ from anthropic_double.recordings import RECORDINGS_DIR, load
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import get_settings, parse_iso, to_iso
 from argus_core.events import ActionTaken, ChangesRetrieved, StatusChanged
-from argus_core.models import ROLL_BACK_DEPLOYMENT, IncidentStatus
+from argus_core.models import ROLL_BACK_DEPLOYMENT, FailureMode, IncidentStatus
 from argus_core.replay import CallType
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
 from argus_testkit import Assertion, all_of
+
+from tests.framework.assertions import (
+    some_confidence_was_given,
+    the_cause_was_identified_as,
+)
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"
@@ -89,6 +94,7 @@ RECORDED_HALF_FINISHED_ROLLOUT = "half-finished-rollout"
 RECORDED_SILENT_DATA_CORRUPTION = "silent-data-corruption"
 RECORDED_CONTROL_PLANE_UNREACHABLE = "control-plane-unreachable"
 RECORDED_MONITORING_BLIND_SPOT = "monitoring-blind-spot"
+RECORDED_MONITORING_CONFIGURATION_DRIFT = "monitoring-configuration-drift"
 RECORDED_STATE_DIVERGENCE = "cache-failed-over"
 RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
 
@@ -106,6 +112,7 @@ RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
 THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
     RECORDED_FLAG_TOGGLE,
     RECORDED_RESOURCE_LEAK,
+    RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_LARGE_CODE_FIX
 })
 
@@ -228,6 +235,19 @@ def about_the_hypothesis(
         return all_of(*hypothesis_assertions)(hypothesis)
 
     return assertion
+
+
+def cause_identified_as(expected: FailureMode) -> Assertion[httpx2.Response]:
+    """The cause Argus settled on, and that it said how sure it was.
+
+    One assertion for what a case asks of the hypothesis. A confidence is how the
+    domain says a cause was determined at all - `no_cause_was_determined` holds the
+    two absent together - so it is asserted with the mode rather than beside it.
+    """
+    return about_the_hypothesis(
+        the_cause_was_identified_as(expected),
+        some_confidence_was_given()
+    )
 
 
 def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx2.Response]:

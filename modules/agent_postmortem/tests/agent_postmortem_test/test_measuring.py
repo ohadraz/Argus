@@ -48,6 +48,7 @@ from agent_postmortem_test.framework.builders import (
     metrics_showing_error_rates,
     metrics_that_answer_with_nothing,
     metrics_that_recovered,
+    metrics_that_stop_at_the_onset,
     rates_published,
     rates_that_cannot_be_read,
     revenue_that_was,
@@ -412,6 +413,40 @@ def test_an_incident_still_broken_when_the_metrics_run_out_reports_no_recovery()
 
 
 @pytest.mark.unit
+def test_an_incident_whose_metrics_stop_at_the_onset_was_unobserved_from_it() -> None:
+    # A lower bound is not the whole of it. "Still broken when the metrics ran
+    # out" and "nothing was collected from the onset on" both leave no recovery,
+    # and they are different facts: the first measured a service in trouble to
+    # the end of the window, the second measured nothing at all after the onset.
+    # A document that said only the first would be reporting a short window as
+    # an incident.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=metrics_that_stop_at_the_onset()))
+        ) \
+        .then(all_of(
+            _it_never_recovered(),
+            _it_was_unobserved_from(ONSET)
+        ))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_went_on_was_observed_throughout() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(_it_was_observed_throughout())
+
+
+@pytest.mark.unit
 def test_the_minute_mitigation_recorded_is_preferred_to_one_derived_here() -> None:
     # C. One rule asked twice about two different windows is a rule that can
     # disagree with itself: Mitigation judged recovery on the window it was
@@ -731,6 +766,30 @@ def _it_never_recovered() -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected the window to end still broken, and recovery was "
                 f"measured at [{measured.recovered_at}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_unobserved_from(expected: datetime) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.unobserved_from != expected:
+            raise AssertionError(
+                f"Expected the service to be unobserved from [{expected}], got "
+                f"[{measured.unobserved_from}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_observed_throughout() -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.unobserved_from is not None:
+            raise AssertionError(
+                f"Expected the metrics to cover the incident, and the service "
+                f"was measured as unobserved from [{measured.unobserved_from}].")
 
         return True
 

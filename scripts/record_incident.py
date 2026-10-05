@@ -77,6 +77,7 @@ from tests.e2e.framework.argus import (
     RECORDED_HALF_FINISHED_ROLLOUT,
     RECORDED_LARGE_CODE_FIX,
     RECORDED_MONITORING_BLIND_SPOT,
+    RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_PRICING_SERVICE_DEGRADED,
     RECORDED_RESOURCE_LEAK,
     RECORDED_SILENT_DATA_CORRUPTION,
@@ -551,6 +552,18 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         None,
         IncidentStatus.MITIGATED,
         (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The blind spot's sibling: the same silence, from a rename that was meant.
+    # Held to a refusal and a proposal rather than to an action, because the
+    # whole claim is that the walk declines the rollback it could take - a walk
+    # that reached `escalated` having rolled back first would carry a different
+    # account, and the terminal status alone could not tell the two apart.
+    _Recording(
+        RECORDED_MONITORING_CONFIGURATION_DRIFT,
+        "monitoring-configuration-drift",
+        None,
+        IncidentStatus.ESCALATED,
+        (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_REFUSED, _A_FIX_WAS_PROPOSED)
     ),
     # The third incident the shop pages about itself, and the only one whose
     # alert carries addresses. Replication to the summary cache's standby broke

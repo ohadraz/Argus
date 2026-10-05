@@ -174,6 +174,21 @@ class FailureMode(StrEnum):
     # replica that is behind - so a discard holds the position a restart holds
     # against a leak. It clears what diverged and the divergence starts again.
     STATE_DIVERGENCE = "state-divergence"
+    # The blind spot again, with one fact reversed: the change that stopped the
+    # collecting was meant. A convention applied across the estate renamed what
+    # the monitoring selects by, and the monitoring's own configuration was not
+    # changed with it. Everything a responder can see is the blind spot's - the
+    # same absence, the same window stopping at the same onset, the same logs, a
+    # revision at that minute - and only the diff, a rule applied rather than one
+    # value changed, says which this is.
+    #
+    # A mode rather than a refusal on the blind spot, because what is broken is
+    # somewhere else. There the revision is the fault and returning it is the
+    # answer; here the revision is correct and the fault is the watching, so
+    # returning it would restore the sight by undoing somebody's work. No
+    # mitigation answers it: what is owed is the monitoring's configuration rolled
+    # forward, which is a change to a file and nothing Argus may make.
+    MONITORING_CONFIGURATION_DRIFT = "monitoring-configuration-drift"
 
     def meaning(self) -> str:
         """What this mode is, in the words the model weighing it reads.
@@ -361,7 +376,10 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "silent-data-corruption, the other mode no "
         "series speaks for, on whether the minutes exist at all - there they are "
         "all present and at baseline with a reconciliation finding to date them, "
-        "and here they are simply not there"
+        "and here they are simply not there. Choose it over "
+        "monitoring-configuration-drift when the change altered one value on its "
+        "own: where the diff applies a convention - every name changed to one "
+        "rule - the change was meant, and returning it would undo that"
     ),
     FailureMode.STATE_DIVERGENCE: (
         "two stores that hold the same thing disagree about it, and the one that "
@@ -388,5 +406,21 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "fix is how the copy is kept rather than any code - so discarding is a "
         "mitigation and not a resolution, and the divergence returns as a leak's "
         "does"
+    ),
+    FailureMode.MONITORING_CONFIGURATION_DRIFT: (
+        "the service was deliberately changed and is well, and the monitoring's "
+        "own configuration was not changed with it - a name, a port, a label the "
+        "scrape selects by was renamed on purpose and the scrape still asks for "
+        "the old one. Everything else is monitoring-blind-spot's evidence "
+        "exactly: an absence alert, rows that stop at the onset, logs answering "
+        "normally across the missing minutes, a revision at that minute. Choose "
+        "this over monitoring-blind-spot on what the revision's diff did: where "
+        "it applies a convention - every name of its kind changed to one rule in "
+        "one commit - the change was meant, and returning it would restore the "
+        "sight by undoing that work. Choose it over config-induced-failure "
+        "because the service's configuration is the intended one: what is behind "
+        "is the configuration doing the watching. What is owed is the "
+        "monitoring's configuration rolled forward to the change, and the change "
+        "kept; no mitigation answers it"
     )
 }

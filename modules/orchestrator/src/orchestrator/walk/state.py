@@ -117,6 +117,12 @@ class IncidentState(BaseModel):
     # for saying, and the reason that status is not escalation: a reader learns
     # to go and do this, rather than to work out what to do.
     recommended_action: Action | None = None
+    # Whether the candidate the gate last held names a mode no mitigation
+    # answers. Ends the mitigation phase rather than passing to the next
+    # candidate: the candidate in hand is the likeliest explanation still
+    # standing, and where it says no mitigation applies, acting on a less likely
+    # one is acting against the diagnosis.
+    nothing_answers_the_mode: bool = False
     # Whether the round that just ran found any candidate worth acting on. The
     # Investigator's own answer, recorded because it is the one thing that
     # distinguishes an investigation with nothing to offer from a walk that has
@@ -226,6 +232,12 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # not what state it is in.
     if state.fix_found is not None:
         return IncidentStatus.ESCALATED
+
+    # The gate ended the mitigation phase with its candidate still in hand, so
+    # the index below would read as a candidate under test. Nothing is: no
+    # mitigation answers the mode, and the walk is on its way to Code-Fix.
+    if state.nothing_answers_the_mode:
+        return IncidentStatus.FIXING
 
     # Not a third opinion on the hypothesis: nothing was changed and nothing was
     # measured, so a further experiment would run against a world Argus cannot

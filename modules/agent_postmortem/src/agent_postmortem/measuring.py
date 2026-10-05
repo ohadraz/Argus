@@ -112,6 +112,12 @@ class Measurements(BaseModel):
     engaged: EngagementAnswer | None
     cost: ResponderCost | None
     bands: Mapping[str, PayBand] | None
+    # The instant from which the metrics carry no minute at all, where the read
+    # answered and its rows stop before the incident began. A different fact from
+    # `recovered_at` being `None`: that one measured a service still in trouble at
+    # the end of the window, and this one measured nothing after the onset - so
+    # the duration above is the time nobody could see, not a stretch of trouble.
+    unobserved_from: datetime | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -176,8 +182,26 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         onset_at=evidence.onset_at,
         engaged=engaged,
         cost=_what_the_response_cost(engaged, bands, sources.working_hours_a_year),
-        bands=bands
+        bands=bands,
+        unobserved_from=_when_the_sight_was_lost(metrics, began)
     )
+
+
+def _when_the_sight_was_lost(metrics: list[MetricBucket],
+                             began: datetime) -> datetime | None:
+    """`began`, where the read answered and holds no minute at or after it.
+
+    An empty read is not this. It is a source that could not answer, and it
+    says nothing about whether the service was being collected from - where a
+    window whose rows simply stop says exactly that.
+    """
+    if not metrics:
+        return None
+
+    if any(parse_iso(bucket.bucket_id) >= began for bucket in metrics):
+        return None
+
+    return began
 
 
 def _as_one_figure(taken: Mapping[str, Decimal] | None,

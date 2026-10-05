@@ -118,6 +118,9 @@ class StateDelta(BaseModel):
     # action sitting there unperformed is what every reader of this walk, and
     # the router after the gate, takes as an action in flight.
     recommended_action: Action | None = None
+    # Set by the gate alone, when the candidate in hand names a mode no
+    # mitigation answers - which ends the mitigation phase.
+    nothing_answers_the_mode: bool | None = None
     nothing_worth_trying: bool | None = None
     # The window that contradicted what the alarm claimed, where it did. Set by
     # the investigating node alone, and the one thing that ends a walk without

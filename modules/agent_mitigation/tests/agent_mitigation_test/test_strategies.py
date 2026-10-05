@@ -219,6 +219,25 @@ def test_nothing_answers_an_upstream_dependency_failure() -> None:
 
 
 @pytest.mark.unit
+def test_nothing_answers_monitoring_configuration_drift_though_a_revision_is_there() -> None:
+    # The absence is the decision, as it is for the upstream failure above, and
+    # here it has something to resist. A revision is recorded at the onset and a
+    # rollback would bring the sight back - which is exactly why it must not be
+    # proposed: the revision is the work somebody meant, and what is behind is the
+    # monitoring's configuration, which no mitigation reaches.
+    Scenario() \
+        .given(
+            drift := a_hypothesis_blaming(FailureMode.MONITORING_CONFIGURATION_DRIFT)
+        ) \
+        .when(lambda: propose_action(
+            drift, NO_FLAGS_CHANGED, DONT_CARE_SERVICE, deployments=[a_deployment()]
+        )) \
+        .then(
+            nothing_was_proposed()
+        )
+
+
+@pytest.mark.unit
 def test_a_mode_nothing_answers_says_so_when_asked() -> None:
     # Asked of the policy that holds the mapping, because the gate has to tell
     # two silences apart - a mode with no mitigation at all, and a mode whose

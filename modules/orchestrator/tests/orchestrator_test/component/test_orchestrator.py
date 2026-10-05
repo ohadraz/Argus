@@ -312,6 +312,44 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
             _a_rollback_of_the_alerting_service_was_recommended()))
 
 
+@pytest.mark.component
+def test_a_mode_nothing_answers_goes_to_code_fix_past_a_rollback_it_could_have_taken(
+    collaborators: Collaborators
+) -> None:
+    # The leading explanation is a deliberate change the monitoring did not
+    # follow, and nothing answers it. The second is a bad deployment, which a
+    # rollback answers, and a deployment is recorded for it to roll back - so
+    # the walk has a move it could make and must not. It goes straight to
+    # Code-Fix: no second candidate, no second round, and nothing taken.
+    Scenario() \
+        .given(
+            a_rollback_within_reach := replace(
+                collaborators,
+                investigate=_an_investigation_offering(
+                    a_candidate_blaming(
+                        "dont-care",
+                        failure_mode=FailureMode.MONITORING_CONFIGURATION_DRIFT
+                    ),
+                    a_candidate_blaming(
+                        "dont-care", failure_mode=FailureMode.BAD_DEPLOYMENT
+                    )
+                ),
+                fetch_flag_changes=_a_provider_reporting(),
+                fetch_deployments=lambda **dont_care_question: [a_deployment()]
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(),
+                                   a_rollback_within_reach)) \
+        .then(all_of(
+            _the_walk_went(INVESTIGATOR_NODE,
+                           MITIGATION_PROPOSAL_NODE,
+                           TIER_GATE_NODE,
+                           CODEFIX_NODE,
+                           REMEMBERING_NODE,
+                           POSTMORTEM_NODE),
+            _the_incident_ended(IncidentStatus.ESCALATED)))
+
+
 def _the_walk_of(incident: IncidentState, collaborators: Collaborators) -> Walked:
     """One incident through the compiled graph, and the nodes it passed.
 

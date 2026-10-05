@@ -1525,7 +1525,7 @@ _GITHUB_AT_THE_DOUBLE = {
     "GITHUB_READ_TOKEN": "the-double-never-reads-this-either",
     # The same scoping a deployment sets, so the suite exercises the filter
     # rather than a repository that happens to hold only service files.
-    "GITHUB_SOURCE_PATHS": "src/io_shop,tests/io_shop",
+    "GITHUB_SOURCE_PATHS": "src/io_shop,tests/io_shop,deploy",
     # What a push must be signed with to be believed. A fixture secret, and the
     # suite signs with this one - which is the whole of what the case proves:
     # the endpoint is open to the internet, and a delivery nobody signed moves

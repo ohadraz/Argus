@@ -246,6 +246,52 @@ def test_the_two_things_a_revision_at_the_onset_could_have_broken_say_what_separ
 
 
 @pytest.mark.unit
+def test_the_two_things_a_renamed_metrics_port_could_be_say_what_separates_them() -> None:
+    # The eleventh pair, and the one whose evidence agrees in everything but the
+    # diff. Both are a revision at the onset renaming the port the metrics are
+    # scraped by, both leave the shop well and the rows stopping, and both are
+    # ended by the same rollback - which is what makes the wrong reading cheap to
+    # take and costly to have taken. Read as a blind spot, a convention applied on
+    # purpose across the estate is undone in one service; read the other way, a
+    # mistake is left deployed while somebody edits a scraper to match it.
+    #
+    # Both directions, as with every pair above: neither is the obvious reading.
+    Scenario() \
+        .given(the_pair := (
+            FailureMode.MONITORING_BLIND_SPOT,
+            FailureMode.MONITORING_CONFIGURATION_DRIFT
+        )) \
+        .when(lambda: the_pair) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_the_convention()
+        ))
+
+
+@pytest.mark.unit
+def test_drift_says_when_to_prefer_it_to_a_broken_configuration() -> None:
+    # One direction, as with the first pair in this file: a configuration change
+    # at the onset reads as config-induced-failure first, and only this meaning
+    # has to argue the model out of it. There the service's own configuration is
+    # broken; here it is the intended one, and the configuration that is behind is
+    # the one doing the watching.
+    Scenario() \
+        .given(drift := FailureMode.MONITORING_CONFIGURATION_DRIFT) \
+        .when(lambda: drift.meaning()) \
+        .then(_the_meaning_of(drift).says_when_to_prefer_it_to(
+            FailureMode.CONFIG_INDUCED_FAILURE
+        ))
+
+
+@pytest.mark.unit
+def test_drift_says_what_is_owed_is_the_watching_rolled_forward() -> None:
+    Scenario() \
+        .given(drift := FailureMode.MONITORING_CONFIGURATION_DRIFT) \
+        .when(lambda: drift.meaning()) \
+        .then(_it_says_the_watching_is_rolled_forward())
+
+
+@pytest.mark.unit
 def test_the_mode_whose_cause_lands_after_its_own_onset_says_so() -> None:
     # The one mode whose change cannot be at the onset, and so the one where a
     # model reading the change channels correctly reaches the wrong conclusion.
@@ -680,6 +726,60 @@ def _the_pair_is_told_apart_by_whether_the_minutes_are_there() -> Assertion[
                 f"without saying whether the window's minutes are present and "
                 f"flat or missing altogether - so the model is left to judge "
                 f"between the two silences where it could have looked."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_the_convention() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to say whether the change applied a convention.
+
+    Naming the other mode is not enough, and here everything else agrees: the
+    same absence alert, the same window stopping at the same onset, the same
+    logs answering across it, one revision at that minute renaming a port. What
+    separates them is the diff - one name changed alone, or every name changed
+    to one rule - and a meaning that does not send the model there leaves it
+    choosing between undoing a mistake and undoing somebody's intent on
+    evidence that describes the two identically.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "convention" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without saying whether the change applied a convention - so "
+                f"the model is told there is a distinction and not that one of "
+                f"the pair is answered by keeping the change."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_watching_is_rolled_forward() -> Assertion[str]:
+    """The meaning has to say what is owed: the observer changed, the service kept.
+
+    The mode exists because the answer every other deploy-shaped mode gives -
+    return the revision - is the wrong one here, and a meaning that names the
+    cause without naming the remedy leaves the model to reach for the remedy it
+    knows.
+    """
+    def assertion(meaning: str) -> bool:
+        if "rolled forward" not in meaning:
+            raise AssertionError(
+                "The meaning of [monitoring-configuration-drift] never says the "
+                "monitoring's configuration is rolled forward to the change, so "
+                "a model that has named it still reaches for the rollback every "
+                "other deploy-shaped mode is answered by."
             )
 
         return True

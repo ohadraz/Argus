@@ -196,6 +196,16 @@ def tier_gate_node(
             publisher
         )
 
+    if refusal is Refusal.NOTHING_ANSWERS_THIS_MODE:
+        # The second refusal that ends the mitigation phase, and it moves the
+        # incident, so it is narrated as the recommendation is.
+        return StateDelta(
+            proposed_action=None,
+            nothing_answers_the_mode=True,
+            narration=Narration(action="no mitigation answers this",
+                                detail=what_the_row_says(refusal))
+        )
+
     return StateDelta(
         proposed_action=None,
         recommended_action=recommended,
@@ -364,7 +374,7 @@ def route_after_gate(state: IncidentState) -> str:
     the fault it would have held off is still in the code and still worth a
     patch. Here it is the only thing anybody gets.
     """
-    if state.recommended_action is not None:
+    if state.recommended_action is not None or state.nothing_answers_the_mode:
         return FIXING_ROUTE
 
     return MITIGATING_ROUTE if state.proposed_action is not None else NEXT_CANDIDATE_ROUTE

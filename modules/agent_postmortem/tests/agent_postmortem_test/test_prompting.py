@@ -184,6 +184,36 @@ def test_an_incident_that_never_recovered_is_given_as_a_lower_bound() -> None:
 
 
 @pytest.mark.unit
+def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserved() -> None:
+    # The lower bound above is true and not enough. Where the rows stop at the
+    # onset, the stretch it bounds is not one the service spent in trouble - it is
+    # one nobody could see at all - and a write-up that said only "had not
+    # recovered" would describe a broken shop that was never broken, and report
+    # the short window before the onset as though it were the incident.
+    Scenario() \
+        .given(
+            an_incident_nobody_could_see := a_measured_incident(
+                recovered_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
+        ) \
+        .then(_says("still unobserved", ONSET.isoformat()))
+
+
+@pytest.mark.unit
+def test_an_incident_its_metrics_covered_says_nothing_of_being_unobserved() -> None:
+    Scenario() \
+        .given(
+            an_incident_still_broken := a_measured_incident(recovered_at=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
+        ) \
+        .then(_does_not_say("unobserved"))
+
+
+@pytest.mark.unit
 def test_the_broken_stretch_is_printed_between_both_of_its_endpoints() -> None:
     # A duration printed beside one of its ends invites the subtraction and
     # loses it. The alert is not the onset - they differ by however long the
@@ -466,6 +496,19 @@ def _says(*expected: str) -> Assertion[Transcript]:
         if missing:
             raise AssertionError(
                 f"Expected the model to be told {missing}, and it was not: {said}")
+
+        return True
+
+    return assertion
+
+
+def _does_not_say(unwanted: str) -> Assertion[Transcript]:
+    def assertion(transcript: Transcript) -> bool:
+        said = _what_was_said(transcript)
+
+        if unwanted in said:
+            raise AssertionError(
+                f"Expected the model not to be told [{unwanted}], and it was: {said}")
 
         return True
 

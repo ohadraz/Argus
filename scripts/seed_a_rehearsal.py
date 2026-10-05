@@ -901,6 +901,171 @@ def _a_deployment_ranked_above_a_flag(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+# The tool Code-Fix ends with when it finds nothing to change - what the borrowed
+# blind-spot walk answered, and what the drift rehearsal turns into a fix.
+THE_TOOL_THAT_FINDS_NOTHING: Final = "report_nothing_to_change"
+
+# The scrape configuration a roll-forward writes, and where the shop's checkout
+# holds it. Read from the checkout rather than from the repository double, which
+# carries the shop's source and not its deployment files.
+THE_SCRAPE_CONFIGURATION: Final = "deploy/scrape.yaml"
+THE_SHOPS_CHECKOUT: Final = Path(__file__).resolve().parent.parent.parent / "Argus-Demo-Target-App"
+THE_STALE_SELECTOR: Final = "- port: metrics\n"
+THE_SELECTOR_ROLLED_FORWARD: Final = "- port: http-metrics\n"
+
+# The test a roll-forward brings: the scrape selects the port the values name.
+# Fails against `main`, where the two disagree, and passes once they agree.
+THE_TEST_OF_THE_SCRAPE: Final = "tests/io_shop/test_scrape_configuration.py"
+THE_TEST_OF_THE_SCRAPE_READS: Final = '''from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+DEPLOY = Path(__file__).resolve().parents[2] / "deploy"
+
+
+def test_the_scrape_selects_the_port_the_metrics_are_served_on() -> None:
+    values = yaml.safe_load(
+        (DEPLOY / "values-production.yaml").read_text(encoding="utf-8"))
+    scrape = yaml.safe_load((DEPLOY / "scrape.yaml").read_text(encoding="utf-8"))
+
+    selected = {endpoint["port"] for endpoint in scrape["spec"]["endpoints"]}
+
+    assert values["metrics"]["portName"] in selected
+'''
+
+
+def _a_rename_the_monitoring_did_not_follow(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by drift ranked above a bad deployment.
+
+    Borrowed from the blind spot's walk, which is the same world in every channel:
+    the absence alert, the rows that stop, the logs, one revision at the onset.
+    The second candidate is the point. A rollback answers it and a deployment is
+    recorded for it, so a walk that passed to it would roll back - and what the
+    rehearsal exercises is that it does not.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.8,
+                            "failure_mode": "monitoring-configuration-drift",
+                            "faulting_service": None,
+                            "subject": "metrics.portName",
+                            "summary": (
+                                "The revision at the onset renamed every port in "
+                                "io-shop's values to one convention - web to "
+                                "http, admin to http-admin, metrics to "
+                                "http-metrics - and states the convention in a "
+                                "comment. The rename was meant. The scrape still "
+                                "selects the old name, so collection stopped "
+                                "while the logs show the shop serving normally. "
+                                "What is behind is the scrape configuration."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": None,
+                                    "claim": (
+                                        "-    portName: metrics\n"
+                                        "+    portName: http-metrics"
+                                    )
+                                }
+                            ]
+                        },
+                        {
+                            "confidence": 0.3,
+                            "failure_mode": "bad-deployment",
+                            "faulting_service": None,
+                            "subject": "io-shop revision",
+                            "summary": (
+                                "The same revision read as a mistake to return."
+                            ),
+                            "supporting_evidence": []
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
+def _the_scrape_rolled_forward() -> str:
+    """The shop's scrape configuration, selecting the port's new name."""
+    held = (THE_SHOPS_CHECKOUT / THE_SCRAPE_CONFIGURATION).read_text(encoding="utf-8")
+
+    if THE_STALE_SELECTOR not in held:
+        raise SystemExit(
+            f"[{THE_SCRAPE_CONFIGURATION}] in the shop's checkout no longer "
+            f"selects [{THE_STALE_SELECTOR.strip()}] - the fixture has moved, and "
+            f"a fabricated fix against a file that has changed rehearses nothing"
+        )
+
+    return held.replace(THE_STALE_SELECTOR, THE_SELECTOR_ROLLED_FORWARD, 1)
+
+
+def _a_fix_of_the_scrape_configuration(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed "nothing to change", replaced by the scrape rolled forward.
+
+    The envelope kept as recorded, for the reason every rewrite here keeps it; the
+    block's name and input are the fabrication.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_FINDS_NOTHING:
+            block = {
+                **block,
+                "name": THE_TOOL_THAT_SUBMITS_A_FIX,
+                "input": {
+                    "summary": "Select the metrics port by the name the convention gave it",
+                    "explanation": (
+                        "The revision named every port for its protocol, and the "
+                        "scrape configuration still selects the metrics port as "
+                        "'metrics'. It now selects 'http-metrics', the name the "
+                        "values file gives it; the rename is kept."
+                    ),
+                    "files": [
+                        {
+                            "path": THE_SCRAPE_CONFIGURATION,
+                            "content": _the_scrape_rolled_forward()
+                        },
+                        {
+                            "path": THE_TEST_OF_THE_SCRAPE,
+                            "content": THE_TEST_OF_THE_SCRAPE_READS
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_FINDS_NOTHING}] answer to "
+            f"rewrite, so its Code-Fix did not end by finding nothing"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answer has to be rewritten, by the set being fabricated, and which tool
 # call marks it. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -916,37 +1081,45 @@ def _a_deployment_ranked_above_a_flag(was: dict[str, Any]) -> dict[str, Any]:
 # differs; the dependency set borrows a walk that reached a different conclusion
 # entirely, so it is the investigation's own answer that has to change and the
 # fix after it is left as the borrowed walk wrote it.
-_THE_ANSWER_THAT_HAS_TO_DIFFER: Final[
-    dict[str, tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]]
+_THE_ANSWERS_THAT_HAVE_TO_DIFFER: Final[
+    dict[str, tuple[tuple[str, Callable[[dict[str, Any]], dict[str, Any]]], ...]]
 ] = {
-    STORED_AS: (THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_large_module),
-    "grep-pricing-service-degraded": (THE_TOOL_THAT_ANSWERS,
-                                      _a_failing_internal_dependency),
-    "both-pricing-service-degraded": (THE_TOOL_THAT_ANSWERS,
-                                      _a_failing_internal_dependency),
-    "grep-cpu-saturation": (THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),
-    "both-cpu-saturation": (THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),
+    STORED_AS: ((THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_large_module),),
+    "grep-pricing-service-degraded": ((THE_TOOL_THAT_ANSWERS,
+                                       _a_failing_internal_dependency),),
+    "both-pricing-service-degraded": ((THE_TOOL_THAT_ANSWERS,
+                                       _a_failing_internal_dependency),),
+    "grep-cpu-saturation": ((THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),),
+    "both-cpu-saturation": ((THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),),
     # `both` alone, as the large-fix set is and for its reason: the case that
     # replays this is collected in that mode only (`noxfile._the_cases_for`), so a
     # `grep-` set of it would answer a question no session asks.
-    "both-autoscaler-flapping": (THE_TOOL_THAT_ANSWERS,
-                                 _a_controller_that_will_not_settle),
+    "both-autoscaler-flapping": ((THE_TOOL_THAT_ANSWERS,
+                                  _a_controller_that_will_not_settle),),
     # `both` alone, for the reason above it: the two cases that replay this are
     # collected in that mode only.
-    "both-half-finished-rollout": (THE_TOOL_THAT_ANSWERS,
-                                   _a_rollout_that_stopped_half_way),
+    "both-half-finished-rollout": ((THE_TOOL_THAT_ANSWERS,
+                                    _a_rollout_that_stopped_half_way),),
     # `both` alone, for the reason above it: the case that replays this is
     # collected in that mode only.
-    "both-control-plane-unreachable": (THE_TOOL_THAT_ANSWERS,
-                                       _a_deployment_ranked_above_a_flag),
+    "both-control-plane-unreachable": ((THE_TOOL_THAT_ANSWERS,
+                                        _a_deployment_ranked_above_a_flag),),
     # `both` alone, and here the reason is the opposite of the four above it.
     # Those are collected in that mode only because nothing about their claim
     # varies by which tool found a file. This one is *excluded* from `meaning`
     # only, and will be recorded under `grep` as well - so the day that happens
     # a `grep-` set becomes worth fabricating too. Until then `both` is the mode
     # anybody runs, so it is the mode worth rehearsing.
-    "both-cache-failed-over": (THE_TOOL_THAT_ANSWERS,
-                               _a_cache_serving_figures_the_ledger_moved_past)
+    "both-cache-failed-over": ((THE_TOOL_THAT_ANSWERS,
+                                _a_cache_serving_figures_the_ledger_moved_past),),
+    # `both` alone, as the blind spot it borrows from is recorded. Two answers
+    # differ, which no set above needed: the investigation reaches a different
+    # conclusion, and Code-Fix, which found nothing to change in the blind spot,
+    # rolls the scrape configuration forward here.
+    "both-monitoring-configuration-drift": (
+        (THE_TOOL_THAT_ANSWERS, _a_rename_the_monitoring_did_not_follow),
+        (THE_TOOL_THAT_FINDS_NOTHING, _a_fix_of_the_scrape_configuration)
+    )
 }
 
 
@@ -995,18 +1168,15 @@ def _write(borrowed: list[Path], stored_as: str) -> list[Path]:
     Numbered exactly as the source was, because the double serves a queue in
     order and a gap in the numbering is a walk that stops one answer early.
     """
-    differs = _THE_ANSWER_THAT_HAS_TO_DIFFER.get(stored_as)
+    differs = _THE_ANSWERS_THAT_HAVE_TO_DIFFER.get(stored_as, ())
     written = []
 
     for index, path in enumerate(borrowed, start=1):
-        was = json.loads(path.read_text(encoding="utf-8"))
-        now = (
-            differs[1](was)
-            if differs is not None and any(
-                block.get("name") == differs[0] for block in was["content"]
-            )
-            else was
-        )
+        now = json.loads(path.read_text(encoding="utf-8"))
+
+        for tool, rewrite in differs:
+            if any(block.get("name") == tool for block in now["content"]):
+                now = rewrite(now)
         destination = RECORDINGS_DIR / (
             f"{stored_as}.json" if index == 1 else f"{stored_as}-{index}.json"
         )

@@ -256,6 +256,19 @@ def _how_long_it_was_broken(evidence: IncidentEvidence,
         else "the alert, since no onset could be measured"
     )
 
+    if measured.unobserved_from is not None:
+        # Not a stretch of trouble but a stretch nobody could see. Said as that,
+        # because "had not recovered" would describe a broken service, and the
+        # window before the onset would read as though it were the incident.
+        return [
+            f"No metrics were collected from "
+            f"{measured.unobserved_from.isoformat()} ({dated_from}) onwards: the "
+            f"service was still unobserved when the incident closed. That is "
+            f"{measured.duration_in_hours:.2f} hours nobody could see, not a "
+            f"stretch the service is known to have spent in trouble, and the "
+            f"error rates below cover none of it."
+        ]
+
     if measured.recovered_at is None:
         return [
             f"Broken from {began.isoformat()} ({dated_from}). The service had "

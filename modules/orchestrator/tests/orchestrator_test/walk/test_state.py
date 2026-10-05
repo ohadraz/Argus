@@ -317,6 +317,30 @@ def test_an_action_nobody_could_confirm_is_recommended_rather_than_escalated() -
 
 
 @pytest.mark.unit
+def test_a_mode_nothing_answers_is_looking_for_a_fix_with_its_candidate_still_in_hand() -> None:
+    # The gate ended the mitigation phase with the candidate it held, so the
+    # index still points at it - and an index that points at a candidate reads
+    # as one under test. Nothing is: no mitigation answers this mode, and the
+    # walk is on its way to Code-Fix, which is what `fixing` means. Once Code-Fix
+    # has answered, the rule above it decides, and the incident escalates with or
+    # without a proposal.
+    Scenario() \
+        .given(
+            an_incident_nothing_answers := _an_incident(
+                candidates=[_a_candidate()],
+                candidate_index=0,
+                nothing_answers_the_mode=True
+            )
+        ) \
+        .when(
+            lambda: status_after(an_incident_nothing_answers, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.FIXING)
+        )
+
+
+@pytest.mark.unit
 def test_a_mitigated_incident_stays_mitigated_once_a_fix_is_proposed() -> None:
     # The new path: a mitigation worked, and Code-Fix then ran and proposed
     # something. Both facts are set on the state at once, so the order the
