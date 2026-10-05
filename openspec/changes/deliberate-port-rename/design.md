@@ -53,8 +53,8 @@ story from a deliberate rename.
 ### `NOTHING_ANSWERS_THIS_MODE` ends the mitigation phase
 
 The refusal routes to Code-Fix, as `NOTHING_COULD_CONFIRM_IT` already does, and
-the walk records the fact so `status_after` derives `escalated` without reading
-narration. A recommendation is not recorded - there is no action to recommend.
+the walk records the fact so `status_after` derives `fixing` until Code-Fix has
+answered and `escalated` after, without reading narration. A recommendation is not recorded - there is no action to recommend.
 
 This is general, not shaped to the fixture: any mode nothing answers says that
 no mitigation applies, and the only other such mode,
@@ -100,13 +100,13 @@ rule that every reported figure is computed.
   record walk is the measurement. Under the new routing, a wrong reading ends in
   a rollback and `mitigated`, which the e2e case fails on, so it is visible.
 - **The upstream recordings go stale.** A shorter walk asks the model fewer
-  questions. → Confirm free first: run `e2e_replay` for that case after the
-  routing change; re-record `grep-` and `both-` only if it fails. About $10.
+  questions. → Confirmed free: the case replays green in both modes, its later
+  answers simply unused.
 - **New corpus costs about $5.** → Prove the walk under the double with
   hand-authored answers first.
 - **Widening the scope changes tool results in every recording's walk.** The
   double replays answers in order and does not match requests, so answers stay
   valid; a model answer citing a file list may read oddly but asserts nothing.
   → Full `e2e_replay` before any recording.
-- **`github_double`'s `main` lacks `deploy/`.** It is off-limits. → Propose the
-  edit in chat.
+- **`github_double`'s `main` lacks `deploy/`.** → Decides nothing: a paid run
+  reads the real repository, and a replay replays Code-Fix's answers.

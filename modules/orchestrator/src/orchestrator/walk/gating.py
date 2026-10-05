@@ -94,24 +94,27 @@ def tier_gate_node(
     however it is labelled. An incident with no action at all has nothing for
     this stage to admit.
 
-    Five of the six rejections are recorded and the walk moves on, rather than
+    Four of the six rejections are recorded and the walk moves on, rather than
     ending the incident. The gate is judging *this* action, and the explanations
     after it on the list may be answered by a mitigation that is admitted -
     stopping there would let one unauthorised proposal spend the whole of
     Argus's autonomy. Where nothing follows, the node that decides that says so.
 
-    The sixth stops instead, because it is not a judgement on the action: it
-    rejects the possibility of confirming *any* action on this incident, so the
-    next candidate would be refused for the same reason and would overwrite the
-    recommendation with its own on the way past.
+    Two stop instead, because neither is a judgement on the action. One rejects
+    the possibility of confirming *any* action on this incident, so the next
+    candidate would be refused for the same reason and would overwrite the
+    recommendation with its own on the way past. The other is the diagnosis
+    saying no mitigation applies: the candidate in hand is the likeliest
+    explanation still standing, and acting on a less likely one would be acting
+    against it.
 
-    Five of the six refusals move the incident nowhere - a rejection is the end
-    of this attempt, not of the incident, so the status is `mitigating` before
-    and after. The sixth does move it, because an action nobody can confirm is
-    not an attempt that failed but an ending: it leaves a recommendation, and
-    the status derives from that. So this node narrates in exactly that case
-    and in no other, a narration for a move that did not happen being a line in
-    the account describing nothing.
+    Those four refusals move the incident nowhere - a rejection is the end of
+    this attempt, not of the incident, so the status is `mitigating` before and
+    after. The two that stop do move it, because neither is an attempt that
+    failed but an ending: one leaves a recommendation and the other a mode
+    nothing answers, and the status derives from each. So this node narrates in
+    exactly those cases and in no other, a narration for a move that did not
+    happen being a line in the account describing nothing.
 
     The refusal is published from here rather than returned as a sentence for
     somebody else to write down: this is the only place that knows a refusal
@@ -171,10 +174,10 @@ def tier_gate_node(
         publisher
     )
 
-    # Kept only for the refusal that is not a judgement on the action. The other
-    # five reject something Argus should not do, and passing one of those on
-    # would be telling a person to go and do the thing Argus was stopped from
-    # doing.
+    # Kept only for the refusal that nothing could confirm. The others either
+    # reject something Argus should not do - and passing one of those on would be
+    # telling a person to go and do the thing Argus was stopped from doing - or
+    # had no action to pass on.
     recommended = (
         state.proposed_action
         if refusal is Refusal.NOTHING_COULD_CONFIRM_IT else None
@@ -209,10 +212,11 @@ def tier_gate_node(
     return StateDelta(
         proposed_action=None,
         recommended_action=recommended,
-        # Only where there is a recommendation, because only then does this node
-        # move the incident. The other five refusals end an attempt and leave the
-        # status where it was, and the walk refuses a move nothing accounts for -
-        # which is how this was found, one case after the ending was written.
+        # Only where there is a recommendation, because only then does this
+        # return move the incident. The other four refusals that reach it end an
+        # attempt and leave the status where it was, and the walk refuses a move
+        # nothing accounts for - which is how this was found, one case after the
+        # ending was written.
         #
         # The refusal's own sentence rather than a second one: a reader meeting
         # this on the timeline and again on the candidate's row is meeting one
@@ -362,17 +366,20 @@ def route_after_gate(state: IncidentState) -> str:
     two - the status is `mitigating` either way, because a rejection at the gate
     is not the end of the incident, only the end of this attempt.
 
-    Unless the refusal was that nothing could confirm it, which ends the
-    mitigation phase instead of moving on to the next explanation. The other
-    refusals reject a particular action and leave the rest of the list worth
-    trying; this one rejects the possibility of confirming any action on this
-    incident, so the next candidate would be refused for the same reason and
-    would overwrite the recommendation with its own on the way past.
+    Unless the refusal was one of the two that end the mitigation phase instead
+    of moving on to the next explanation. The other refusals reject a particular
+    action and leave the rest of the list worth trying. Nothing could confirm it
+    rejects the possibility of confirming any action on this incident, so the
+    next candidate would be refused for the same reason and would overwrite the
+    recommendation with its own on the way past. Nothing answers this mode is
+    the diagnosis saying no mitigation applies, and the next candidate is a less
+    likely reading of the same evidence - in a deliberate change the monitoring
+    did not follow, reliably the rollback that would undo it.
 
     Third, and on to Code-Fix rather than out of the graph, for the reason a
-    mitigation that *worked* goes there: nobody is going to take the action, so
-    the fault it would have held off is still in the code and still worth a
-    patch. Here it is the only thing anybody gets.
+    mitigation that *worked* goes there: nobody is going to take an action, so
+    the fault is still where it was and still worth a patch. Here it is the
+    only thing anybody gets.
     """
     if state.recommended_action is not None or state.nothing_answers_the_mode:
         return FIXING_ROUTE

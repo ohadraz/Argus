@@ -1066,8 +1066,8 @@ def _a_fix_of_the_scrape_configuration(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
-# Which answer has to be rewritten, by the set being fabricated, and which tool
-# call marks it. A rehearsal borrows a walk through a world shaped like the new
+# Which answers have to be rewritten, by the set being fabricated, and which tool
+# call marks each. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
 # same shape, and the postmortem is written from the incident rather than from
 # what was done about it. A set absent from here is one where *nothing* has to
@@ -1075,12 +1075,13 @@ def _a_fix_of_the_scrape_configuration(was: dict[str, Any]) -> dict[str, Any]:
 # ordinary case rather than a shortcut, and is what makes a scenario whose walk
 # differs only in its prose free to rehearse.
 #
-# The tool is named beside the rewrite rather than assumed, because the two
-# rehearsals differ in which answer they touch. The large-fix set borrows a walk
+# The tool is named beside each rewrite rather than assumed, because the
+# rehearsals differ in which answers they touch. The large-fix set borrows a walk
 # that reached the right conclusion about the wrong file, so only the fix
 # differs; the dependency set borrows a walk that reached a different conclusion
 # entirely, so it is the investigation's own answer that has to change and the
-# fix after it is left as the borrowed walk wrote it.
+# fix after it is left as the borrowed walk wrote it. The drift set needs both:
+# a different conclusion, and a fix where the borrowed walk found none.
 _THE_ANSWERS_THAT_HAVE_TO_DIFFER: Final[
     dict[str, tuple[tuple[str, Callable[[dict[str, Any]], dict[str, Any]]], ...]]
 ] = {

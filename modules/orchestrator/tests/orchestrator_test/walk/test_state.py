@@ -341,6 +341,30 @@ def test_a_mode_nothing_answers_is_looking_for_a_fix_with_its_candidate_still_in
 
 
 @pytest.mark.unit
+def test_a_mode_nothing_answers_escalates_once_code_fix_has_answered() -> None:
+    # The other half of the case above, and an ordering it depends on. The fact
+    # that sends the walk to Code-Fix is still set when Code-Fix has answered, so
+    # a rule asking it before `fix_found` would leave the incident `fixing` for
+    # ever. Whether a fix was found decides what the incident carries, not what
+    # state it ends in.
+    Scenario() \
+        .given(
+            an_incident_code_fix_answered := _an_incident(
+                candidates=[_a_candidate()],
+                candidate_index=0,
+                nothing_answers_the_mode=True,
+                fix_found=False
+            )
+        ) \
+        .when(
+            lambda: status_after(an_incident_code_fix_answered, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.ESCALATED)
+        )
+
+
+@pytest.mark.unit
 def test_a_mitigated_incident_stays_mitigated_once_a_fix_is_proposed() -> None:
     # The new path: a mitigation worked, and Code-Fix then ran and proposed
     # something. Both facts are set on the state at once, so the order the

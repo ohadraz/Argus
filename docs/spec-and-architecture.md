@@ -814,14 +814,15 @@ So the refusal binds where the service's window is the only witness there is,
 which is every kind but one. It is read off the evidence, not off a list of
 modes, and an action that answers for itself simply never reaches it.
 
-This refusal alone ends the mitigation phase rather than reaching for the next
-candidate. The other five reject a particular action and leave the rest of the
-list worth trying; this one rejects the possibility of confirming *any* action
-on this incident, so the next candidate would be refused for the same reason and
-would overwrite the recommendation with its own on the way past. The action is
-kept and published as what somebody else should do, which is what the other five
-must never do: passing one of those on would be telling a person to go and do
-the thing Argus was stopped from doing. The walk still continues to Code-Fix -
+This refusal ends the mitigation phase rather than reaching for the next
+candidate, and so does the refusal of a mode nothing answers (§10). The other
+four reject a particular action and leave the rest of the list worth trying;
+this one rejects the possibility of confirming *any* action on this incident, so
+the next candidate would be refused for the same reason and would overwrite the
+recommendation with its own on the way past. The action is kept and published as
+what somebody else should do, which is what no other refusal does: passing on an
+action Argus was stopped from taking would be telling a person to go and do the
+thing Argus was stopped from doing. The walk still continues to Code-Fix -
 nobody is taking the mitigation, so the fault it would have held off is the only
 thing anybody gets.
 

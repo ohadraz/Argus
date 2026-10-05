@@ -447,6 +447,22 @@ def test_an_incident_whose_metrics_went_on_was_observed_throughout() -> None:
 
 
 @pytest.mark.unit
+def test_metrics_that_could_not_be_read_say_nothing_of_being_unobserved() -> None:
+    # An empty read is a source that did not answer, not a shop nobody collected
+    # from. Saying it went unobserved would be a claim about the service drawn
+    # from a failure of the read.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=metrics_that_answer_with_nothing()))
+        ) \
+        .then(_it_was_observed_throughout())
+
+
+@pytest.mark.unit
 def test_the_minute_mitigation_recorded_is_preferred_to_one_derived_here() -> None:
     # C. One rule asked twice about two different windows is a rule that can
     # disagree with itself: Mitigation judged recovery on the window it was

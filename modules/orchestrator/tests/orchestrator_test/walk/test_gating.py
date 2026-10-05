@@ -194,8 +194,8 @@ def test_a_rejected_action_is_handed_to_the_walk() -> None:
 
 @pytest.mark.unit
 def test_an_incident_carrying_a_recommendation_stops_trying_candidates() -> None:
-    # The one refusal that ends the mitigation phase rather than reaching for
-    # the next explanation. The other five reject a particular action, so
+    # One of the two refusals that end the mitigation phase rather than reaching
+    # for the next explanation. Four of the others reject a particular action, so
     # another candidate is worth trying; this rejects the possibility of
     # confirming any action on this incident, and a second candidate is no
     # better placed than the first - it would be refused for the same reason,
@@ -660,7 +660,7 @@ def test_an_action_on_an_incident_nobody_could_read_is_let_through(
 def test_an_action_nothing_could_confirm_is_kept_as_the_recommendation(
     record_outcome: MagicMock
 ) -> None:
-    # What separates this refusal from the five that are judgements on the
+    # What separates this refusal from the others, which are judgements on the
     # action. Those reject something Argus should not do; this declines
     # something somebody else still should, so the incident has to carry it.
     some_action = _a_proposed_action()
@@ -731,13 +731,13 @@ def test_a_candidate_refused_for_where_it_was_aimed_says_so_in_its_row(
 def test_every_refusal_has_a_sentence_for_the_candidates_row() -> None:
     # The same subscript the narration carried, in a worse place. A refusal
     # with no sentence here does not degrade to a blank row - it raises inside
-    # the gate, which is on the walk itself rather than on the page, so a sixth
+    # the gate, which is on the walk itself rather than on the page, so a new
     # refusal would end the incident instead of spoiling its account.
     #
     # Over the whole enum rather than per member, for the reason the narration's
     # is: what must hold is that no refusal reaches a candidate's row as a value
-    # nobody wrote a sentence for, and a test naming the five that exist today
-    # would say nothing about the sixth.
+    # nobody wrote a sentence for, and a test naming the ones that exist today
+    # would say nothing about the next.
     Scenario() \
         .given(every_reason_to_refuse := list(Refusal)) \
         .when(lambda: {
@@ -777,7 +777,7 @@ def test_the_recommendation_is_published_beside_the_refusal(
 def test_a_refusal_about_the_action_itself_recommends_nothing_to_anybody(
     record_outcome: MagicMock
 ) -> None:
-    # The other five reject the action, so there is nothing to hand on. An
+    # The others reject the action or had none, so there is nothing to hand on. An
     # account recommending a kind nobody pre-authorised would be telling a
     # person to go and cross the boundary Argus just held.
     published: list[IncidentEvent] = []
@@ -1071,9 +1071,9 @@ def _nothing_was_narrated() -> Assertion[StateDelta]:
     """The gate says nothing through the walk's narration.
 
     Narration is how a node that *moved* the incident accounts for the move,
-    and five of the six refusals move it nowhere. Returning a sentence for one
+    and four of the six refusals move it nowhere. Returning a sentence for one
     of those is what used to route the refusal into a second, untyped account
-    of the same event. The sixth does move it, and has an assertion of its own.
+    of the same event. The other two do move it, and each has an assertion of its own.
     """
     def assertion(updates: StateDelta) -> bool:
         if updates.narration is not None:
@@ -1088,9 +1088,9 @@ def _nothing_was_narrated() -> Assertion[StateDelta]:
 
 
 def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
-    """The gate accounts for the one refusal that ends the incident.
+    """The gate accounts for a refusal that ends the mitigation phase.
 
-    The other five end an attempt and leave the status where it was. This one
+    Four of the others end an attempt and leave the status where it was. This one
     leaves a recommendation, the status derives from that, and the walk refuses
     a move with no account of itself - so silence here is not a quieter gate,
     it is a walk that stops with a `ValueError` at the node.

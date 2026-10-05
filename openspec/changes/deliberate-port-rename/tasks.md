@@ -32,7 +32,8 @@ fixture and is covered after the fact, not before.
 
 - [x] 3.1 `NOTHING_ANSWERS_THIS_MODE` routes to Code-Fix and records the fact on
       the state
-- [x] 3.2 `status_after` derives `escalated` from that fact, with and without a fix
+- [x] 3.2 `status_after` derives `fixing` from that fact until Code-Fix answers, and
+      `escalated` after it, with and without a fix
 - [x] 3.3 Walk test: leading candidate unanswerable, second answerable by a
       rollback - no action proposed, Investigator not asked again, Code-Fix runs
 - [x] 3.4 Run `e2e_replay` for the upstream case in both modes, free, and record

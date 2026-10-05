@@ -1,8 +1,9 @@
 """Which of a repository's files are the service, and which are around it.
 
 A deployment points Argus at a repository and says which directories of it hold
-the service. Everything else is scenery - a scenario harness, a deployment
-chart, somebody's notebook - and reading it is worse than not reading it: the
+the service - its source, its tests, and the configuration it is deployed and
+observed with. Everything else is scenery - a scenario harness, somebody's
+notebook - and reading it is worse than not reading it: the
 demo repository ships the shop beside the rig that stages incidents against it,
 and an agent that reads the rig is reading how its own incidents are made.
 

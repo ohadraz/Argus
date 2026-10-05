@@ -23,9 +23,9 @@ whose correct ending is a proposal with the sight still lost.
   the rollback (a paid blind-spot walk ranked `config-induced-failure` second, on
   the same subject). A refused leading explanation is the diagnosis saying no
   mitigation applies; acting on a less likely one contradicts it. The walk goes
-  to Code-Fix instead, without spending its remaining rounds. **BREAKING** for
-  `upstream-dependency-failure`'s walk, which takes this route too, so its
-  recordings are re-recorded.
+  to Code-Fix instead, without spending its remaining rounds.
+  `upstream-dependency-failure`'s walk takes this route too and is shorter for
+  it; its recordings still replay.
 - **The scrape configuration becomes a real file** in the Target Service's
   repository, beside the values file, selecting the metrics port by a name the
   values file no longer carries on `main`. The fix rolls it forward, and brings a
@@ -73,8 +73,8 @@ whose correct ending is a proposal with the sight still lost.
 - `noxfile.py`, `.env.example`: `GITHUB_SOURCE_PATHS` gains `deploy`.
 - `Argus-Demo-Target-App`: the scrape configuration on `main`, the revision pair
   on an unmerged branch, the scenario id, its seed and reset.
-- `github_double`: `main` carries `deploy/`. Off-limits - proposed in chat.
-- Recordings: a new corpus for the scenario; `upstream-dependency-failure`'s
-  re-recorded for the shorter walk. Both paid.
+- Recordings: a new `both` corpus for the scenario, paid.
+- `tests/eval`: the fix grader reads a walk's last submission, which is the one
+  that reached the branch.
 - `tests/e2e`: a case asserting the mode, no rollback, a proposed fix, the sight
   still lost, and `escalated`. Proposed in chat.
