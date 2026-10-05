@@ -34,6 +34,12 @@ from tests.e2e.framework.argus import (
     THE_SERVICE_NAME,
 )
 
+# How close to the window's own quickest minute the last one has to be to count as
+# the baseline again. Read off the window rather than copied out of the Target
+# Service, because the baseline is its to choose. Loose, because the minute the
+# mitigation lands in is partly served each way.
+THE_QUIET_MINUTES_ARE_WITHIN = 2.0
+
 
 def a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
     """Puts the shop into the state a scenario describes, and says whether it took.
@@ -132,6 +138,28 @@ def argo_auto_sync_is_enabled() -> Assertion[httpx2.Response]:
                 "Expected automated sync to be untouched, and the application "
                 "reports it suspended - the first step of a rollback this "
                 "incident was not meant to have taken."
+            )
+
+        return True
+
+    return assertion
+
+
+def latency_back_to_baseline() -> Assertion[httpx2.Response]:
+    """The incident genuinely ended: the shop's last minute is as quick as its best.
+
+    That the slow minutes are still in the window beside it is the fixture's claim,
+    not Argus's, and the demo app's own suite asserts it.
+    """
+    def assertion(dont_care_response: httpx2.Response) -> bool:
+        window = the_shops_window()
+        quickest = min(minute["p50_ms"] for minute in window)
+
+        if window[-1]["p50_ms"] > quickest * THE_QUIET_MINUTES_ARE_WITHIN:
+            raise AssertionError(
+                f"Expected the shop to be quick again once Argus acted, and its "
+                f"last minute reports a median of [{window[-1]['p50_ms']}]ms "
+                f"against a quickest of [{quickest}]ms."
             )
 
         return True

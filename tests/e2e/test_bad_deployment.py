@@ -36,10 +36,9 @@ what it is looking at.
 
 from __future__ import annotations
 
-import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
-from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_BAD_DEPLOYMENT,
@@ -57,7 +56,7 @@ from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import (
     a_scenario_was_seeded,
     argo_auto_sync_is_disabled,
-    the_shops_window,
+    latency_back_to_baseline,
 )
 
 # What the shop's own monitoring pages on here. The same alert the misconfigured
@@ -66,12 +65,6 @@ from tests.e2e.framework.world import (
 A_LATENCY_ALERT = "HighLatency"
 
 THE_SCENARIO = "bad-deployment"
-
-# How close to the window's own quickest minute the last one has to be to count as
-# the baseline again. Read off the window rather than copied out of the Target
-# Service, because the baseline is its to choose. Loose, because the minute the
-# rollback lands in is partly served each way.
-THE_QUIET_MINUTES_ARE_WITHIN = 2.0
 
 
 @pytest.mark.e2e
@@ -96,33 +89,10 @@ def test_a_revision_that_slowed_every_page_is_ended_by_rolling_the_deployment_ba
                     investigation_finds_a_deployment_change(),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
-                    _latency_back_to_baseline(),
+                    latency_back_to_baseline(),
                     argo_auto_sync_is_disabled(),
                     argus_wrote_a_postmortem()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
             )
         )
-
-
-def _latency_back_to_baseline() -> Assertion[httpx2.Response]:
-    """The incident genuinely ended: the shop's last minute is as quick as its best.
-
-    That the slow minutes are still in the window beside it is the fixture's claim,
-    not Argus's, and the demo app's own suite asserts it.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        window = the_shops_window()
-        quickest = min(minute["p50_ms"] for minute in window)
-
-        if window[-1]["p50_ms"] > quickest * THE_QUIET_MINUTES_ARE_WITHIN:
-            raise AssertionError(
-                f"Expected the shop to be quick again once the deployment was put "
-                f"back on the earlier revision, and its last minute reports a "
-                f"median of [{window[-1]['p50_ms']}]ms against a quickest of "
-                f"[{quickest}]ms."
-            )
-
-        return True
-
-    return assertion

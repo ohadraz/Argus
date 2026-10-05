@@ -61,7 +61,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import the_incidents_events
+from tests.e2e.framework.world import latency_back_to_baseline, the_incidents_events
 
 A_LATENCY_ALERT = "HighLatency"
 
@@ -98,7 +98,7 @@ def test_a_failing_dependency_is_restarted_rather_than_the_service_that_alerted(
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     _the_action_taken_was_a_restart_of(THE_FAILING_DEPENDENCY),
                     _the_service_that_alerted_was_not_restarted(),
-                    _the_latency_climbed_and_then_came_back_down(),
+                    latency_back_to_baseline(),
                     _the_error_rate_never_moved(),
                     _the_fix_proposed_bounds_the_pricing_call()
                 ),
@@ -177,30 +177,6 @@ def _the_service_that_alerted_was_not_restarted() -> Assertion[httpx2.Response]:
                 f"which this scenario is built so that nothing comes of - the "
                 f"walk reached the right answer having first done something to "
                 f"production for no reason."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_latency_climbed_and_then_came_back_down() -> Assertion[httpx2.Response]:
-    """The evidence the restart was of the thing that was actually slow.
-
-    Asserted on the shop's own window, because the shop is what the users
-    experience and what the alert was about. A restart of the dependency that
-    left the shop still waiting would be a mitigation that reached the wrong
-    service and reported success.
-    """
-    def assertion(dont_care_response: httpx2.Response) -> bool:
-        window = _the_shops_window()
-        slowest = max(minute["p95_ms"] for minute in window)
-        now = window[-1]["p95_ms"]
-
-        if now * 2 > slowest:
-            raise AssertionError(
-                f"Expected the wait to be over, and the window's slowest minute "
-                f"was [{slowest}]ms against [{now}]ms now."
             )
 
         return True
