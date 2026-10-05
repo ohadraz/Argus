@@ -579,24 +579,16 @@ is slow rather than stopped. The manifest does not carry it, adding it is additi
 and disturbs no scenario, and until it is there a rollout that neither converges
 nor pauses is bounded only by the lease.
 
-**A withdrawal only puts back the paused rollout.** `cache-misconfigured` and
-`bad-deployment` both say in their own descriptions that withdrawing the rollback
-brings the incident back, and neither does: `ScenarioState.withdraw_the_rollback`
-reopens the rollout and leaves `cache_outage` and `deploy_slowdown` where the
-rollback left them. So two of the three rollback modes are mitigated and never
-un-mitigated, and both e2e withdrawal cases assert the incident's record instead
-of the world - there is nothing in the world to read back.
+**A withdrawal does not put back every rollback.** `withdraw_the_rollback` puts
+back the misconfigured cache, the slower revision and the paused rollout, and
+leaves the two other conditions a rollback ends - the scrape outage and the
+drifting write path - where the rollback left them. Neither is a fresh stretch
+away from done: opening one fresh would bring back minutes nothing collected, or
+forget totals already written short, and which of those matters is unexamined.
 
-The asymmetry is older than the mode that exposed it. The platform stand-in's
-rollback endpoint had no direction at all before `half-finished-rollout`, so a
-withdrawal re-ran the rollback and put nothing back for any of the three; what
-that scenario did was give one mode a real answer, which is what made the gap
-visible.
-
-The fix has a shape: two more branches in `withdraw_the_rollback`, opening a
-fresh `CacheOutage` and a fresh `SlowDeployment` and returning the cache endpoint
-to the one the deployment configured, after which both e2e withdrawal cases can
-read the world rather than the record.
+And the e2e withdrawal case for `bad-deployment` still asserts the incident's
+record rather than the world. The world now has an answer to read back - the
+shop slow again once the rollback is withdrawn - and the case does not read it.
 
 **A flap with no rhythm is still reported mitigated.**
 `_clear_minutes_a_recovery_has_to_show` asks a recovery for one more clear minute
