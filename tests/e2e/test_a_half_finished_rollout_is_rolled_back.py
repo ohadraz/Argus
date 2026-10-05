@@ -25,16 +25,7 @@ split fleet back. What somebody is left with is not a patch but a migration
 nobody staged: a version able to read both shapes had to ship before one that
 wrote only the new one.
 
-Two things are deliberately not asserted.
-
-**Which mode the model named.** Three modes now reach the deployment rollback, and
-the label is measured by `nox -s eval` over samples against thresholds. A case here
-that pinned it would fail whenever a re-recording changed the model's mind, and
-would be reporting on judgement with the one instrument in this repository that
-cannot measure it. That is the same reason `test_a_bad_deployment_is_rolled_back`
-gives, and it costs more here than there: the label is the *only* thing that
-distinguishes this mode's answer from that one's, so this file cannot show the
-distinction working. The eval is where that claim lives.
+One thing is deliberately not asserted.
 
 **That the rollout channel was read.** It records no reading, as the register and
 the deployment-diff channels do not, so it leaves no receipt in the incident's
@@ -57,7 +48,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import IncidentStatus
+from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -66,17 +57,16 @@ from tests.e2e.framework.argus import (
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
-    argus_read_a_change_event,
     argus_took_a_rollback_of,
     argus_wrote_a_postmortem,
+    cause_identified_as,
+    change_channel_returned_a_change,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import a_scenario_was_seeded, the_shops_window
-from tests.framework.assertions import some_confidence_was_given
 
 # What the shop's own monitoring pages on here. The same alert the flag scenarios
 # raise, and that is the point: the two are told apart by the change channels and
@@ -130,8 +120,8 @@ def test_a_rollout_stopped_half_way_is_ended_by_converging_the_fleet() -> None:
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(some_confidence_was_given()),
-                    argus_read_a_change_event(),
+                    cause_identified_as(FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK),
+                    change_channel_returned_a_change(),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
                     _the_shop_failed_and_then_stopped_failing(),

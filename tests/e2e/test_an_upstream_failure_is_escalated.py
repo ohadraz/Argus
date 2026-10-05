@@ -29,18 +29,14 @@ from tests.e2e.framework.argus import (
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
     argus_wrote_a_postmortem,
+    cause_identified_as,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, the_flag_provider_reports
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
 
 # How many of the last minute's requests still have to be failing for this to
 # count as "nothing helped". Far below what the scenario actually produces -
@@ -72,12 +68,7 @@ def test_an_incident_arriving_from_outside_is_named_and_handed_to_a_person() -> 
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(
-                            FailureMode.UPSTREAM_DEPENDENCY_FAILURE
-                        ),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.UPSTREAM_DEPENDENCY_FAILURE),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                     argus_wrote_a_postmortem(),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),

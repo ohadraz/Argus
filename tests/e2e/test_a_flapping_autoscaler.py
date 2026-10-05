@@ -66,19 +66,15 @@ from tests.e2e.framework.argus import (
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
     argus_wrote_a_postmortem,
+    cause_identified_as,
     incident_id_from,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import the_incidents_events, the_shops_window
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
 
 # What the shop's own monitoring pages on here, as the surge next door does.
 # Latency is the only judged series this incident moves.
@@ -122,12 +118,7 @@ def test_a_flapping_autoscaler_is_pinned_and_left_mitigated() -> None:
                         when=_the_walk_tried_capacity,
                         then=_that_attempt_was_not_confirmed()
                     ),
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(
-                            FailureMode.AUTOSCALING_PATHOLOGY
-                        ),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.AUTOSCALING_PATHOLOGY),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     _the_action_that_ended_it_was_a_pin_of(THE_SERVICE_NAME),
                     _the_pin_was_confirmed(),

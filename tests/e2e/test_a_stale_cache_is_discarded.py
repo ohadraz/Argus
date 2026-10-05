@@ -74,18 +74,14 @@ from tests.e2e.framework.argus import (
     RECORDED_STATE_DIVERGENCE,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_wrote_a_postmortem,
+    cause_identified_as,
     incident_id_from,
     the_model_answers_from,
     the_shop_raises_its_own_alert,
 )
 from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_events
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
 
 # How many figures the store said it removed, read out of the sentence the
 # attempt was recorded as.
@@ -126,10 +122,7 @@ def test_a_cache_serving_figures_the_ledger_moved_past_is_discarded() -> None:
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(FailureMode.STATE_DIVERGENCE),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.STATE_DIVERGENCE),
                     _the_onset_argus_holds_is_the_one_the_alert_stated(),
                     _the_action_that_ended_it_was_a_discard_of(THE_SERVICE_NAME),
                     _as_many_figures_went_as_the_evidence_named(),

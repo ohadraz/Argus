@@ -75,19 +75,15 @@ from tests.e2e.framework.argus import (
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
     argus_wrote_a_postmortem,
+    cause_identified_as,
     incident_id_from,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import the_incidents_events, the_shops_window
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
 
 # What the shop's own monitoring pages on here. Latency is the only judged series
 # this incident moves: the error rate stays at its baseline throughout, because
@@ -127,10 +123,7 @@ def test_a_shop_that_outgrew_its_capacity_is_scaled_out_and_left_mitigated() -> 
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(FailureMode.DEMAND_SATURATION),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.DEMAND_SATURATION),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     _the_action_taken_was_a_scale_out_of(THE_SERVICE_NAME),
                     _the_scale_out_was_confirmed(),

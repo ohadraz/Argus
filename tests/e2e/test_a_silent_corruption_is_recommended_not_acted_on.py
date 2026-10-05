@@ -42,20 +42,16 @@ from tests.e2e.framework.argus import (
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
-    argus_read_a_change_event,
     argus_wrote_a_postmortem,
+    cause_identified_as,
+    change_channel_returned_a_change,
     incident_id_from,
     the_model_answers_from,
     the_shop_raises_its_own_alert,
 )
 from tests.e2e.framework.flags import THE_DEMO_FLAG, the_flag_provider_reports
 from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_events
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
 
 
 @pytest.mark.e2e
@@ -88,12 +84,7 @@ def test_an_incident_nothing_could_confirm_is_recommended_rather_than_acted_on()
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(
-                            FailureMode.SILENT_DATA_CORRUPTION
-                        ),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.SILENT_DATA_CORRUPTION),
                     argus_ended_with_status(IncidentStatus.RECOMMENDED),
                     argus_wrote_a_postmortem(),
                     # The teeth. Argus proposed putting this flag back, the
@@ -131,13 +122,8 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(
-                            FailureMode.SILENT_DATA_CORRUPTION
-                        ),
-                        some_confidence_was_given()
-                    ),
-                    argus_read_a_change_event(),
+                    cause_identified_as(FailureMode.SILENT_DATA_CORRUPTION),
+                    change_channel_returned_a_change(),
                     argus_ended_with_status(IncidentStatus.RECOMMENDED),
                     _argus_recommended_a_rollback_of(THE_SERVICE_NAME),
                     _the_application_still_syncs_itself(),

@@ -57,19 +57,15 @@ from tests.e2e.framework.argus import (
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
     argus_took_a_rollback_of,
     argus_wrote_a_postmortem,
+    cause_identified_as,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import the_middle_of, the_shops_window
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
 
 # What the shop's own monitoring pages on here. A latency alert, as a bad
 # deployment raises - the two are told apart by the evidence and not by the page,
@@ -110,12 +106,7 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(
-                            FailureMode.CONFIG_INDUCED_FAILURE
-                        ),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.CONFIG_INDUCED_FAILURE),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
                     _only_the_median_ever_moved(),

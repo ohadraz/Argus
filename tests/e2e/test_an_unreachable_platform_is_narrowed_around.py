@@ -45,13 +45,6 @@ had simply preferred that action. `PlatformUnavailable` is what stops it being
 read that way, and it is asserted here as one event naming four kinds, not as
 one event per candidate skipped.
 
-What is deliberately not asserted is which failure mode the model named. Two
-changes moved in the window on purpose, so the first candidate is supposed to
-be the deployment and the second the flag; which words it reaches for about
-either is measured by `nox -s eval`, and a case pinning them here would fail
-whenever a re-recording changed the model's mind about a label this case does
-not rest on.
-
 Recorded under `both` alone. Nothing in "a platform that will not act" varies by
 which tool the model found a file with.
 """
@@ -65,6 +58,7 @@ from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    FailureMode,
     IncidentStatus,
     Verdict,
     the_actions_through,
@@ -78,11 +72,11 @@ from tests.e2e.framework.argus import (
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
-    argus_read_a_change_event,
     argus_wrote_a_postmortem,
+    cause_identified_as,
+    change_channel_returned_a_change,
     incident_id_from,
     the_model_answers_from,
 )
@@ -93,7 +87,6 @@ from tests.e2e.framework.flags import (
     the_service_returned_to_baseline,
 )
 from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_events
-from tests.framework.assertions import some_confidence_was_given
 
 # What the shop's own monitoring pages on here. The flag is what is breaking the
 # account page, so this is an error-rate incident and not a latency one - and the
@@ -122,8 +115,8 @@ def test_a_platform_that_will_not_act_leaves_argus_the_one_action_it_still_has()
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(some_confidence_was_given()),
-                    argus_read_a_change_event(),
+                    cause_identified_as(FailureMode.BAD_DEPLOYMENT),
+                    change_channel_returned_a_change(),
                     _the_platform_went_on_saying_what_it_had_deployed(),
                     _the_rollback_was_reached_for_and_nothing_answered(),
                     _the_application_still_syncs_itself(),
@@ -149,7 +142,7 @@ def _the_platform_went_on_saying_what_it_had_deployed() -> Assertion[httpx2.Resp
     case would pass against a shop staging a different mode entirely.
 
     Read from the platform directly rather than from what Argus fetched, which
-    `argus_read_a_change_event` already asserts from the other side. The two
+    `change_channel_returned_a_change` already asserts from the other side. The two
     together are the claim: the reporting routes answered, and Argus's change
     channel got something back from them.
     """

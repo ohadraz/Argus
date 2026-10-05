@@ -215,13 +215,15 @@ def argus_returns_status(expected_status: int | HttpStatus) -> Assertion[httpx2.
     return assertion
 
 
-def about_the_hypothesis(
-    *hypothesis_assertions: Assertion[Any]
-) -> Assertion[httpx2.Response]:
-    """Adapts assertions about a `Hypothesis` to the webhook response a
-    scenario ends with, so the domain assertions in `tests/framework` stay
-    shared with the eval and integration tiers rather than being restated
-    against a database row here.
+def cause_identified_as(expected: FailureMode) -> Assertion[httpx2.Response]:
+    """The cause Argus settled on, and that it said how sure it was.
+
+    One assertion for what a case asks of the hypothesis. A confidence is how the
+    domain says a cause was determined at all - `no_cause_was_determined` holds the
+    two absent together - so it is asserted with the mode rather than beside it.
+    Both halves are the domain assertions in `tests/framework`, applied to the
+    incident's hypothesis, so they stay shared with the eval and integration tiers
+    rather than being restated against a database row here.
     """
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
@@ -232,22 +234,12 @@ def about_the_hypothesis(
         if hypothesis is None:
             raise AssertionError(f"No hypothesis found for incident [{incident_id}].")
 
-        return all_of(*hypothesis_assertions)(hypothesis)
+        return all_of(
+            the_cause_was_identified_as(expected),
+            some_confidence_was_given()
+        )(hypothesis)
 
     return assertion
-
-
-def cause_identified_as(expected: FailureMode) -> Assertion[httpx2.Response]:
-    """The cause Argus settled on, and that it said how sure it was.
-
-    One assertion for what a case asks of the hypothesis. A confidence is how the
-    domain says a cause was determined at all - `no_cause_was_determined` holds the
-    two absent together - so it is asserted with the mode rather than beside it.
-    """
-    return about_the_hypothesis(
-        the_cause_was_identified_as(expected),
-        some_confidence_was_given()
-    )
 
 
 def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx2.Response]:
@@ -300,7 +292,7 @@ def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx2.R
     return assertion
 
 
-def argus_read_a_change_event() -> Assertion[httpx2.Response]:
+def change_channel_returned_a_change() -> Assertion[httpx2.Response]:
     """That the change channel answered, and answered with something.
 
     The one assertion that makes the Argo CD path load-bearing in a case that

@@ -29,15 +29,14 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    cause_identified_as,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG, the_flag_provider_reports
 from tests.e2e.framework.world import a_scenario_was_seeded
-from tests.framework.assertions import the_cause_was_identified_as
 
 
 @pytest.mark.e2e
@@ -113,9 +112,7 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE)
-                    ),
+                    cause_identified_as(FailureMode.FEATURE_FLAG_TOGGLE),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=True)
                 ),

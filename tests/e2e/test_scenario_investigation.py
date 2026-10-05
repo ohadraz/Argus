@@ -44,9 +44,9 @@ from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    cause_identified_as,
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
@@ -58,7 +58,6 @@ from tests.e2e.framework.flags import (
     the_service_returned_to_baseline,
 )
 from tests.e2e.framework.world import a_scenario_was_seeded
-from tests.framework.assertions import some_confidence_was_given, the_cause_was_identified_as
 
 SOME_UNRELATED_FLAG = "an-unrelated-feature"
 
@@ -89,10 +88,7 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(FailureMode.FEATURE_FLAG_TOGGLE),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.FEATURE_FLAG_TOGGLE),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
                     the_service_returned_to_baseline()

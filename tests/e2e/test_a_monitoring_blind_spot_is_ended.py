@@ -64,17 +64,13 @@ from tests.e2e.framework.argus import (
     RECORDED_MONITORING_BLIND_SPOT,
     REQUEST_TIMEOUT_SECONDS,
     THE_SERVICE_NAME,
-    about_the_hypothesis,
     argus_ended_with_status,
     argus_took_a_rollback_of,
+    cause_identified_as,
     the_model_answers_from,
     the_shop_raises_its_own_alert,
 )
 from tests.e2e.framework.world import a_scenario_was_seeded, the_shops_window
-from tests.framework.assertions import (
-    some_confidence_was_given,
-    the_cause_was_identified_as,
-)
 
 # The scenario, named as the Target Service registers it.
 A_SHOP_THAT_STOPPED_REPORTING = "monitoring-blind-spot"
@@ -142,12 +138,7 @@ def test_a_shop_that_stopped_reporting_is_made_visible_again() -> None:
         .then(
             eventually(
                 all_of(
-                    about_the_hypothesis(
-                        the_cause_was_identified_as(
-                            FailureMode.MONITORING_BLIND_SPOT
-                        ),
-                        some_confidence_was_given()
-                    ),
+                    cause_identified_as(FailureMode.MONITORING_BLIND_SPOT),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
                     _the_rows_stopped_and_came_back(),
