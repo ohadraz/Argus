@@ -409,7 +409,7 @@ def minutes_a_recovery_must_hold(buckets: Sequence[MetricBucket],
     from and why it is a recurrence rather than a maximum.
     """
     return _clear_minutes_a_recovery_has_to_show(
-        _departures(buckets, thresholds, _THE_QUIETEST_MINUTES), thresholds
+        _departures_from_the_incident(buckets, thresholds), thresholds
     )
 
 
@@ -614,7 +614,9 @@ def _stays_clear_of_the_incident(buckets: Sequence[MetricBucket],
     return (
         _stays_clear_for_long_enough_to_be_a_recovery(
             stretch,
-            _clear_minutes_a_recovery_has_to_show(departures, thresholds)
+            _clear_minutes_a_recovery_has_to_show(
+                _departures_from_the_incident(buckets, thresholds), thresholds
+            )
         )
         and not _departs_for_long_enough_to_be_the_incident(stretch, thresholds)
     )
@@ -652,8 +654,10 @@ def _clear_minutes_a_recovery_has_to_show(departures: Sequence[bool],
     `_the_incidents_own_level` read a level off the whole window - and the first
     that is structurally immune rather than bounded against it.
 
-    It is also what makes the gaps safe to read off the whole window rather than
-    only the minutes before the action. The obvious hazard there is self-defeat:
+    It is also what makes the gaps safe to read off the whole incident rather than
+    only the minutes before the action - from where it first persisted, not from
+    the calm before it; see `_departures_from_the_incident` for why that cut is
+    needed as well. The obvious hazard there is self-defeat:
     the clear stretch a recovery is accruing becomes the window's longest gap and
     inflates the number it is being judged against, so a service doing everything
     right is never believed. Measured on a service that shed its rise and held,
@@ -669,6 +673,33 @@ def _clear_minutes_a_recovery_has_to_show(departures: Sequence[bool],
     service either way, and the level is what the gap is then judged against.
     """
     return 1 + _the_longest_gap_the_service_keeps_taking(departures)
+
+
+def _departures_from_the_incident(buckets: Sequence[MetricBucket],
+                                  thresholds: AnomalyThresholds) -> list[bool]:
+    """Which minutes departed, from where the incident first persisted onwards -
+    or across the whole window, where nothing in it persisted.
+
+    What `_clear_minutes_a_recovery_has_to_show` reads its rhythm off, and cut
+    for the reason recurrence alone does not cover. A well service draws the
+    occasional minute clear of its own quietest half's bar, and recurrence makes
+    one such minute harmless - but strays that happen to fall at equal spacing
+    bound a gap that recurs, and the calm then reads as a rhythm the incident
+    after it is asked to hold for. Sampled frozen windows of the Target
+    Service's flag scenario do exactly that, asking a step incident for seven
+    clear minutes and more than thirty, so the mitigation that ended it was
+    refuted. The calm before an incident is not a rhythm the incident has.
+
+    From the first persisted run rather than from `find_onset`'s minute, because
+    that is the incident this module measures a recovery against - see
+    `_where_the_incident_persisted_from`. And the whole window where nothing
+    persisted, because that is the window a flapping service produces: there is
+    no calm before it to cut, and every departure in it is the rhythm.
+    """
+    departures = _departures(buckets, thresholds, _THE_QUIETEST_MINUTES)
+    persisted_from = _where_the_incident_persisted_from(buckets, thresholds)
+
+    return departures if persisted_from is None else departures[persisted_from:]
 
 
 def _the_longest_gap_the_service_keeps_taking(departures: Sequence[bool]) -> int:

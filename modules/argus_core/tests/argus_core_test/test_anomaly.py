@@ -1236,6 +1236,39 @@ def test_two_unlucky_minutes_do_not_hold_a_well_service_open() -> None:
 
 
 @pytest.mark.unit
+def test_stray_minutes_before_an_incident_do_not_set_how_long_its_recovery_must_hold() -> None:
+    # The guard above, for strays that happen to recur. A well service still draws
+    # the occasional minute clear of a bar derived from its own quietest half, and
+    # where those minutes fall at equal spacing the gap between them recurs - so
+    # the calm reads as a rhythm, and a step incident later in the same window is
+    # asked to hold for as long as that gap. Sampled frozen windows of the Target
+    # Service's flag scenario carry exactly this, and asked for more clear minutes
+    # than a frozen window holds: the mitigation that ended the incident was then
+    # refuted and put back.
+    #
+    # The calm before an incident is not a rhythm the incident has. A step -
+    # departed, acted on, back - has one clear minute to show, as this window does
+    # with the strays taken out.
+    some_calm_minutes = [0.010, 0.005, 0.015, 0.010, 0.005, 0.010]
+    a_stray_minute = [0.035]
+    some_degradation_rate = 0.35
+    some_recovered_minutes = [0.010, 0.015, 0.005]
+    some_window = a_window_of(
+        (some_calm_minutes + a_stray_minute) * 4 + some_calm_minutes
+        + [some_degradation_rate] * 5
+        + some_recovered_minutes
+    )
+    the_first_minute_after_the_action = some_window[-len(some_recovered_minutes)].bucket_id
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: has_recovered_since(
+            some_window, the_first_minute_after_the_action, SOME_THRESHOLDS
+        )) \
+        .then(_the_answer_is(True))
+
+
+@pytest.mark.unit
 def test_how_long_a_recovery_must_hold_is_read_off_the_services_own_rhythm() -> None:
     # The number the two tests above turn on, asked for in its own right - because
     # a deadline has to derive from it. How long Argus watches after acting was a
