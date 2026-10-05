@@ -579,13 +579,6 @@ is slow rather than stopped. The manifest does not carry it, adding it is additi
 and disturbs no scenario, and until it is there a rollout that neither converges
 nor pauses is bounded only by the lease.
 
-**A withdrawal does not put back every rollback.** `withdraw_the_rollback` puts
-back the misconfigured cache, the slower revision and the paused rollout, and
-leaves the two other conditions a rollback ends - the scrape outage and the
-drifting write path - where the rollback left them. Neither is a fresh stretch
-away from done: opening one fresh would bring back minutes nothing collected, or
-forget totals already written short, and which of those matters is unexamined.
-
 **A flap with no rhythm is still reported mitigated.**
 `_clear_minutes_a_recovery_has_to_show` asks a recovery for one more clear minute
 than the longest gap between departures *that recurs*, which catches a service
