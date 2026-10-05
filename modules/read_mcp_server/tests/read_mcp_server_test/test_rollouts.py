@@ -30,6 +30,12 @@ from argus_core.models import RolloutProgress
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from read_mcp_server.rollouts import (
+    CONDITION_FALSE,
+    CONDITION_STATUS,
+    CONDITION_TRUE,
+    CONDITION_TYPE,
+    PROGRESSING_CONDITION,
+    REPLICA_FAILURE_CONDITION,
     RolloutUnreadable,
     how_far_the_rollout_has_got,
     how_the_rollout_is_going,
@@ -53,6 +59,14 @@ HALF_OF_IT = 3
 # verdict - and a verdict here would be one reached from a replica count and a
 # timestamp.
 VERDICTS_IT_MAY_NOT_REACH = ("fault", "stuck", "wrong", "unhealthy", "dangerous")
+
+# Kubernetes' words for the conditions these cases stage, which the tier reads
+# by type and status and never by reason - so they are this file's to say, not
+# vocabulary the module shares.
+CONDITION_UNKNOWN = "Unknown"
+FAILED_CREATE_REASON = "FailedCreate"
+PROGRESS_DEADLINE_EXCEEDED_REASON = "ProgressDeadlineExceeded"
+DEPLOYMENT_PAUSED_REASON = "DeploymentPaused"
 
 
 @pytest.mark.unit
@@ -280,6 +294,72 @@ def test_a_platform_that_cannot_be_reached_is_not_counted_as_converged() -> None
         .then(an_error_was_raised(RolloutUnreadable))
 
 
+@pytest.mark.unit
+def test_a_deployment_that_cannot_create_its_replicas_is_counted_as_failed() -> None:
+    # What a scale-out that ran into the namespace's quota looks like, and the
+    # platform says it at once rather than at a deadline: the ReplicaSet could not
+    # create the pods, and the Deployment carries that as a condition of its own.
+    # A state the platform reports, so reading it is not the judgement §16 keeps
+    # off this side - and it is the only thing that ends a scale-out's wait, since
+    # the controller goes on scaling a paused Deployment.
+    Scenario() \
+        .when(
+            lambda: how_far_the_rollout_has_got(
+                SOME_SERVICE,
+                fetch_deployment=a_fleet_half_updated(
+                    _a_condition(
+                        REPLICA_FAILURE_CONDITION, CONDITION_TRUE,
+                        FAILED_CREATE_REASON
+                    )
+                )
+            )
+        ) \
+        .then(_it_has_failed(True))
+
+
+@pytest.mark.unit
+def test_a_deployment_past_its_progress_deadline_is_counted_as_failed() -> None:
+    # The other way a Deployment fails: no progress within the deadline it
+    # declares, which Kubernetes defaults to ten minutes. The platform measured
+    # that against a figure the Deployment itself carries and said so - nobody on
+    # this side chose how long is too long.
+    Scenario() \
+        .when(
+            lambda: how_far_the_rollout_has_got(
+                SOME_SERVICE,
+                fetch_deployment=a_fleet_half_updated(
+                    _a_condition(
+                        PROGRESSING_CONDITION, CONDITION_FALSE,
+                        PROGRESS_DEADLINE_EXCEEDED_REASON
+                    )
+                )
+            )
+        ) \
+        .then(_it_has_failed(True))
+
+
+@pytest.mark.unit
+def test_a_paused_deployment_has_not_failed() -> None:
+    # A paused rollout reports `Progressing` too, at `Unknown` - Kubernetes does
+    # not measure the deadline while a Deployment is paused. A rule that read
+    # anything short of `True` as failure would fail every held rollout, which is
+    # a state of its own and already said by `is_paused`.
+    Scenario() \
+        .when(
+            lambda: how_far_the_rollout_has_got(
+                SOME_SERVICE,
+                fetch_deployment=a_fleet_half_updated(
+                    _a_condition(
+                        PROGRESSING_CONDITION, CONDITION_UNKNOWN,
+                        DEPLOYMENT_PAUSED_REASON
+                    ),
+                    paused=True
+                )
+            )
+        ) \
+        .then(_it_has_failed(False))
+
+
 def _it_counted(serving: int, updated: int) -> Assertion[RolloutProgress]:
     """That the counts came back off the live Deployment unchanged."""
     def it_counted(progress: RolloutProgress) -> bool:
@@ -315,10 +395,26 @@ def _it_has_converged(expected: bool) -> Assertion[RolloutProgress]:
     return it_has_converged
 
 
-def a_fleet_half_updated(paused: bool = False) -> Any:
-    """Six replicas, three on the revision being rolled out."""
+def _it_has_failed(expected: bool) -> Assertion[RolloutProgress]:
+    """That the platform's own word on whether it can finish came through."""
+    def it_has_failed(progress: RolloutProgress) -> bool:
+        if progress.has_failed is not expected:
+            raise AssertionError(
+                f"Expected failed [{expected}], and it answered "
+                f"[{progress.has_failed}]."
+            )
+
+        return True
+
+    return it_has_failed
+
+
+def a_fleet_half_updated(*conditions: dict[str, str], paused: bool = False) -> Any:
+    """Six replicas, three on the revision being rolled out, carrying whatever
+    conditions the platform is reporting."""
     return _a_live_deployment(
-        replicas=SOME_FLEET_SIZE, updated=HALF_OF_IT, paused=paused
+        replicas=SOME_FLEET_SIZE, updated=HALF_OF_IT, paused=paused,
+        conditions=list(conditions)
     )
 
 
@@ -342,7 +438,15 @@ def a_platform_that_cannot_be_reached() -> Any:
     return fetch
 
 
-def _a_live_deployment(replicas: int, updated: int | None, paused: bool) -> Any:
+def _a_condition(kind: str, status: str, reason: str) -> dict[str, str]:
+    """One entry of a Deployment's `status.conditions`, as Kubernetes writes it."""
+    return {CONDITION_TYPE: kind, CONDITION_STATUS: status, "reason": reason}
+
+
+def _a_live_deployment(replicas: int,
+                       updated: int | None,
+                       paused: bool,
+                       conditions: list[dict[str, str]] | None = None) -> Any:
     """Argo CD's managed-resource answer, whose manifest is carried as text.
 
     A string rather than an object, because that is the vendor's own shape for
@@ -362,6 +466,9 @@ def _a_live_deployment(replicas: int, updated: int | None, paused: bool) -> Any:
 
     if updated is not None:
         manifest["status"] = {"replicas": replicas, "updatedReplicas": updated}
+
+        if conditions:
+            manifest["status"]["conditions"] = conditions
 
     fetch = create_autospec(_a_live_deployment_signature)
     fetch.return_value = {"manifest": json.dumps(manifest)}

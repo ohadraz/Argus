@@ -607,6 +607,29 @@ def test_a_rolling_update_the_platform_holds_will_not_arrive() -> None:
 
 
 @pytest.mark.unit
+def test_a_rolling_update_the_platform_reports_failed_will_not_arrive() -> None:
+    # The other way a rollback is held, and one a pause does not cover: a
+    # Deployment past the deadline it declares, or one whose pods cannot be
+    # created, is not converging either - and Kubernetes does not measure the
+    # deadline while paused, so a failed rollout is never also a paused one.
+    Scenario() \
+        .given(
+            the_platform_has_given_up := _a_rollout_reporting(
+                wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE,
+                updated=HALF_THE_FLEET, failed=True
+            )
+        ) \
+        .when(
+            lambda: a_rollback_arriving_over(
+                the_platform_has_given_up, SOME_APPLICATION
+            )()
+        ) \
+        .then(
+            _the_arrival_is(Arrival.WILL_NOT_ARRIVE)
+        )
+
+
+@pytest.mark.unit
 def test_a_change_already_in_force_when_the_update_was_paused_has_arrived() -> None:
     # The order the two questions are asked in, which shows only on a window where
     # both answers are available. A rolling update can be stopped after it has
@@ -685,6 +708,30 @@ def test_added_capacity_is_still_arriving_while_the_rollout_is_paused() -> None:
         ) \
         .then(
             _the_arrival_is(Arrival.STILL_ARRIVING)
+        )
+
+
+@pytest.mark.unit
+def test_added_capacity_the_platform_reports_it_cannot_create_will_not_arrive() -> None:
+    # What does end a scale-out's wait, now that a pause does not. A namespace out
+    # of quota, or a Deployment past the deadline it declares, is what Kubernetes
+    # calls a failed Deployment, and the platform says so in a condition of its
+    # own - a state, not a figure anybody here chose. Without it, a scale-out the
+    # platform cannot satisfy polls until the lease expires.
+    Scenario() \
+        .given(
+            the_platform_cannot_create_them := _a_rollout_reporting(
+                wanted=SOME_FLEET_SIZE, serving=HALF_THE_FLEET,
+                updated=HALF_THE_FLEET, failed=True
+            )
+        ) \
+        .when(
+            lambda: added_capacity_arriving_over(
+                the_platform_cannot_create_them, SOME_APPLICATION
+            )()
+        ) \
+        .then(
+            _the_arrival_is(Arrival.WILL_NOT_ARRIVE)
         )
 
 
@@ -797,7 +844,8 @@ def _a_session_that_remembers_what_it_was_asked() -> Mock:
 def _a_rollout_reporting(wanted: int,
                          serving: int,
                          updated: int,
-                         paused: bool = False) -> Mock:
+                         paused: bool = False,
+                         failed: bool = False) -> Mock:
     """A read tier answering with one rollout's counts.
 
     Specced against `McpClient` because that is what the seam is handed, and the
@@ -809,7 +857,8 @@ def _a_rollout_reporting(wanted: int,
         replicas_wanted=wanted,
         replicas_serving=serving,
         replicas_updated=updated,
-        is_paused=paused
+        is_paused=paused,
+        has_failed=failed
     )
 
     return client

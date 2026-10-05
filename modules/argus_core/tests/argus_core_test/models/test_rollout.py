@@ -210,6 +210,57 @@ def test_a_rollout_nobody_stopped_is_not_reported_as_paused() -> None:
 
 
 @pytest.mark.unit
+def test_a_deployment_the_platform_cannot_finish_says_so() -> None:
+    # The other state that ends a wait without a figure, and the only one a
+    # scale-out can be given. A pause says nothing about the replicas a scale-out
+    # asked for - the deployment controller goes on scaling a paused Deployment -
+    # but a platform that cannot create them, or has run past the deadline the
+    # Deployment declares, says so in its own words. Kubernetes calls that a
+    # failed Deployment.
+    #
+    # Separate from paused rather than folded into it, because the two end
+    # different waits: a rollback is held by either, a scale-out only by this.
+    Scenario() \
+        .given(
+            the_platform_cannot_finish_it := True
+        ) \
+        .when(
+            lambda: RolloutProgress(
+                replicas_wanted=SOME_FLEET_SIZE,
+                replicas_serving=HALF_OF_IT,
+                replicas_updated=HALF_OF_IT,
+                has_failed=the_platform_cannot_finish_it
+            )
+        ) \
+        .then(all_of(
+            _it_has_failed(True),
+            _it_is_paused(False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_deployment_nobody_reported_failing_has_not_failed() -> None:
+    # Defaulted for the reason paused is: the read tier answers this off the
+    # Deployment's conditions, and a Deployment nothing has gone wrong with
+    # carries none that say so. "Nothing reported" and "nothing failed" have to be
+    # one answer, or every deployment in the estate would read as failed.
+    Scenario() \
+        .given(
+            nobody_has_touched_it := SOME_FLEET_SIZE
+        ) \
+        .when(
+            lambda: RolloutProgress(
+                replicas_wanted=nobody_has_touched_it,
+                replicas_serving=nobody_has_touched_it,
+                replicas_updated=nobody_has_touched_it
+            )
+        ) \
+        .then(
+            _it_has_failed(False)
+        )
+
+
+@pytest.mark.unit
 def test_a_count_the_platform_gave_as_negative_is_refused() -> None:
     # Nothing a platform reports should be negative, and the answer that must
     # never be reached by arithmetic on nonsense is that the change arrived.
@@ -245,6 +296,20 @@ def _it_is_paused(expected: bool) -> Assertion[RolloutProgress]:
         return True
 
     return it_is_paused
+
+
+def _it_has_failed(expected: bool) -> Assertion[RolloutProgress]:
+    """That the model reports whether the platform says it cannot finish."""
+    def it_has_failed(progress: RolloutProgress) -> bool:
+        if progress.has_failed is not expected:
+            raise AssertionError(
+                f"Expected failed [{expected}], and it answered "
+                f"[{progress.has_failed}]."
+            )
+
+        return True
+
+    return it_has_failed
 
 
 def _it_reports_converged(expected: bool) -> Assertion[RolloutProgress]:

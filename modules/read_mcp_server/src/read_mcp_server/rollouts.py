@@ -55,6 +55,22 @@ REPLICAS: Final = "replicas"
 UPDATED_REPLICAS: Final = "updatedReplicas"
 PAUSED: Final = "paused"
 
+# A Deployment's `status.conditions`, which is where the platform says it cannot
+# finish - what Kubernetes calls a failed Deployment. Read by type and status
+# only: the reason is the platform's explanation for a person, and the two states
+# below are failure whatever it says.
+CONDITIONS: Final = "conditions"
+CONDITION_TYPE: Final = "type"
+CONDITION_STATUS: Final = "status"
+CONDITION_TRUE: Final = "True"
+CONDITION_FALSE: Final = "False"
+# Pods the ReplicaSet could not create - a quota, most often - reported at once.
+REPLICA_FAILURE_CONDITION: Final = "ReplicaFailure"
+# At `False` once the Deployment has made no progress within the deadline it
+# declares. Never `False` while paused: the platform does not measure it then,
+# and reports `Unknown`.
+PROGRESSING_CONDITION: Final = "Progressing"
+
 # Argo CD's own wrapper for a managed resource: the manifest arrives as *text*
 # and the caller parses it, which is the vendor's shape for this response.
 MANIFEST: Final = "manifest"
@@ -197,6 +213,12 @@ def how_far_the_rollout_has_got(service: str,
     lease expired. Reported and not judged, as everything here is: this says the
     platform has stopped, and how long a rollout that is merely slow may take is
     still nobody's business on this side of §16.
+
+    Whether the platform says it cannot finish travels too, for the same reason
+    and for the action a pause says nothing about: the controller goes on scaling
+    a paused Deployment, so only a failure ends a scale-out's wait. The deadline
+    behind one of the two failures is the Deployment's own, measured by the
+    platform - still not a judgement made here.
     """
     manifest = _the_manifest_of(service, fetch_deployment)
     wanted, serving, updated = _how_many_replicas(service, manifest)
@@ -205,7 +227,27 @@ def how_far_the_rollout_has_got(service: str,
         replicas_wanted=wanted,
         replicas_serving=serving,
         replicas_updated=updated,
-        is_paused=bool(manifest.get(SPEC, {}).get(PAUSED))
+        is_paused=bool(manifest.get(SPEC, {}).get(PAUSED)),
+        has_failed=_the_platform_reports_it_failed(manifest)
+    )
+
+
+def _the_platform_reports_it_failed(manifest: dict[str, Any]) -> bool:
+    """Whether the Deployment's own conditions say it cannot finish.
+
+    Either of Kubernetes' two failures: pods it could not create, or no progress
+    within the deadline. A condition absent reads as nothing having failed, for
+    the reason a status absent reads as converged - the platform says when it has
+    a problem.
+    """
+    stated = {
+        condition.get(CONDITION_TYPE): condition.get(CONDITION_STATUS)
+        for condition in manifest.get(STATUS, {}).get(CONDITIONS, [])
+    }
+
+    return (
+        stated.get(REPLICA_FAILURE_CONDITION) == CONDITION_TRUE
+        or stated.get(PROGRESSING_CONDITION) == CONDITION_FALSE
     )
 
 

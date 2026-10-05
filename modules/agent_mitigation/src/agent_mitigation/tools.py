@@ -59,20 +59,20 @@ class Arrival(StrEnum):
     the minutes from here describe it. `STILL_ARRIVING` says the platform is
     working on it, so the minutes so far describe the code being replaced and
     judging them would judge the wrong deployment. `WILL_NOT_ARRIVE` says the
-    platform has stopped - a rolling update it is holding - so nothing is going to
-    change by waiting longer.
+    platform has stopped - a rolling update it is holding, or a Deployment it
+    reports failed - so nothing is going to change by waiting longer.
 
-    That third answer is what gives the wait an end without a figure, and only a
-    rollback can be given it. A rollout stopped part way never converges, so a
-    loop holding only "arrived or not" would poll until its lease expired and
-    leave the change applied for another worker to find. A scale-out has no such
-    answer, because the platform goes on scaling a paused Deployment. It is the
-    counts that are asked first: a rollout stopped *after* it finished has
-    arrived, and the pause says nothing about a change already in force on every
-    replica. Paused is a state the platform reports,
-    not a length of time somebody judged, which is why it can be read here at all
-    - spec §16 keeps the "has this taken too long" judgement away from the channel
-    precisely because a replica count and a timestamp cannot support it.
+    That third answer is what gives the wait an end without a figure. A rollout
+    stopped part way never converges, so a loop holding only "arrived or not"
+    would poll until its lease expired and leave the change applied for another
+    worker to find. A failed Deployment ends either wait; a pause ends only a
+    rollback's, because the platform goes on scaling a paused Deployment. It is
+    the counts that are asked first: a rollout stopped *after* it finished has
+    arrived, and neither state says anything about a change already in force on
+    every replica. Both are states the platform reports, not lengths of time
+    somebody judged, which is why they can be read here at all - spec §16 keeps
+    the "has this taken too long" judgement away from the channel precisely
+    because a replica count and a timestamp cannot support it.
 
     Not every action has anything to wait for. A flag the provider has
     acknowledged is in force on the next request, a restart answers with the new
@@ -476,13 +476,20 @@ def _how_the_revision_is_arriving(*, client: McpClient, service: str) -> Arrival
     applied for another worker to find. Reported as a state rather than judged as a
     duration, which is what makes it readable here at all rather than a judgement
     §16 keeps out of this side.
+
+    A platform reporting the Deployment failed - past the deadline it declares,
+    or unable to create its pods - is not converging it either, and ends the
+    wait the same way.
     """
     progress = get_rollout_progress(service, client=client)
 
     if progress.has_converged:
         return Arrival.ARRIVED
 
-    return Arrival.WILL_NOT_ARRIVE if progress.is_paused else Arrival.STILL_ARRIVING
+    if progress.is_paused or progress.has_failed:
+        return Arrival.WILL_NOT_ARRIVE
+
+    return Arrival.STILL_ARRIVING
 
 
 def _how_the_capacity_is_arriving(*, client: McpClient, service: str) -> Arrival:
@@ -493,13 +500,18 @@ def _how_the_capacity_is_arriving(*, client: McpClient, service: str) -> Arrival
     So a held rollout says nothing about whether the replicas asked for are
     coming, and reading it here would escalate a scale-out the platform is in the
     middle of applying.
+
+    A failure is what ends this wait instead: the platform saying it cannot
+    create the pods, or has made no progress within the Deployment's deadline.
+    Counts first here too, so replicas that all arrived before something else
+    went wrong are an arrival.
     """
     progress = get_rollout_progress(service, client=client)
 
     if progress.has_every_replica_it_asked_for:
         return Arrival.ARRIVED
 
-    return Arrival.STILL_ARRIVING
+    return Arrival.WILL_NOT_ARRIVE if progress.has_failed else Arrival.STILL_ARRIVING
 
 
 def flag_setter_over(client: McpClient) -> FlagSetter:

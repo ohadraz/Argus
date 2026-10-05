@@ -557,22 +557,6 @@ has been proposed for it.
 Written down here rather than left in a commit message, because each is a gap
 somebody will otherwise rediscover from the outside.
 
-**A scale-out that cannot land is bounded only by the lease.** Mitigation waits
-for its change to arrive before judging anything. A rollback has a way out of
-that wait that is not a figure - a paused rolling update never converges, so the
-attempt is `ESCALATED` rather than refuted - but a scale-out does not, because
-the deployment controller goes on scaling a paused Deployment and a pause says
-nothing about whether the replicas are coming. What does stop them is the
-namespace's quota, or a cluster with no room to schedule the pods, and neither
-is a state the rollout channel reports. Until it does, a scale-out the platform
-cannot satisfy polls until the lease expires.
-
-The deployment's own declared deadline, `spec.progressDeadlineSeconds`, is the
-derived bound for a rollout that is slow rather than stopped - Kubernetes
-reports `ProgressDeadlineExceeded` once it passes. The manifest does not carry
-it, adding it is additive and disturbs no scenario, and until it is there a
-rollout that neither converges nor pauses is bounded only by the lease.
-
 **A flap with no rhythm is still reported mitigated.**
 `_clear_minutes_a_recovery_has_to_show` asks a recovery for one more clear minute
 than the longest gap between departures *that recurs*, which catches a service

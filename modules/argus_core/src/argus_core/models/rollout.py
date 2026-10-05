@@ -64,6 +64,17 @@ class RolloutProgress(BaseModel):
     # have to be one answer, or every untouched deployment in the estate would read
     # as stopped.
     is_paused: bool = False
+    # Whether the platform reports it cannot finish this change - what
+    # Kubernetes calls a failed Deployment: replicas it could not create, or a
+    # rollout past the deadline the Deployment declares. The other state that ends
+    # a wait without a figure, and the only one a scale-out can be given, because
+    # the controller goes on scaling a paused Deployment and so a pause says
+    # nothing about whether the replicas asked for are coming.
+    #
+    # Defaulted for the reason `is_paused` is: a Deployment nothing has gone wrong
+    # with carries no condition saying so, and "nothing reported" has to read as
+    # "nothing failed".
+    has_failed: bool = False
 
     @property
     def has_converged(self) -> bool:
