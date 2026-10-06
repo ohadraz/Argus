@@ -1,0 +1,55 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAIS3QcK5wIIEhgCKkCtEw+l6J6IUpfE/2VSgaE374Tqf9WP+CpyhFzwt0u5H0HemMc0mv3Y8RSr5UcM+CbFViMsNyG5pqgRrCLHSqbpMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKaAQ8KDWNsYXVkZS1vcHVzLTWoAfXPldYGwgFhCBEQABozAaUbAlIiA083BRdTBCatCq14CnCpA083CyzUCz6FBCatCnOACn5IA083C4cbC2rkBCatIAIyBBJxzyU6BFdesa5CBJjRGDVKBBJrVkhQBloE2QXhVmAGaAFwAdoBYAoWcHJlZml4X2JlZm9yZV9ibG9ja192MRIgMaIiuWpL3diuA0wR9DJNZFeTwQgXN9ijTZgjdClCBtMiADIgwsATyGqckuIvlm89hhd2j4t6RMkCrcwJe/oeCYr7Th9IAxIMHuMq3zZmhO4IDel/GgxKdLiH6975TEFZlBIiMECXBBusIxxBfq+zvYsnSc7P+YAVdfZ5cwh7xlkHT3VwFwObcIXRFevaO5RvfQGSmiqiBOAgAIEPLoCZzakmcqI6Bs6WrJ2+JsAywi+TYr5AfAsO3QE6g56yEJNb0sWT+L5OgQS/3877fG33TZEVOzg13UYQGWOdZg0qT2L2nCu7pozR/hjjCGwfgwqWGIPIhnWGQRWnOAf1SP6W8z1f3C7YzTKA/xXgWnPHq55EUly4NSxZZon0ucgBfEFSV38ud70KuFZIW+3Ygy/eyS5BxQogo90EteohU4anlVJcmGXtVlcyoOm92IV+opeZbRBTOfSMG4FG0DdoLorHl4GMtMzyKFyE6/DEaZ3nsRyjucXnVXSt692iHmxmG2GLBoPMswtZH0mrqwLzF3h/inBdLUdsWBUY4jCPjetiuwWF0fZR0cFW4bPGxvBRnliLcGLn9bmjDV4TViJizsU9Z6wXcdhS3u+iWiJw2ZohEwngjhVMtiUEa3LnPmtr9GX/pek/vhNJOcdHUCF2DyrAk5LGAFpCjU3vVphGkYUFnrLq9TVOqxzBhf5EOzKJSKHr+Ky1hnv7lcqx3kBADraXMTFcX3HLKrCPPlQTDynj3jJasOEdFCk0BKNE9mV2nyzd4VDjppJlIleAS7VGzjpsF4sw3O4P9zgONVE199eoZ7owKilvbLj7pz+rUvUKHoGiyHEfftE5hVFHTItb2xMVM8tWvk6yTsl31VhlBWozrdlTUBYuZPE1Q5d09VLM/PbJ2eRo/7NLfFn6tiBwz8PW1pLveclY2SwQCRgB",
+      "thinking": "The cache seems to go stale starting at a specific purchase, suggesting record_purchase writes the purchase but never invalidates the cached summary. There's also a rollout path, record_purchase_deriving_the_month, so maybe the original path updates the cache correctly while the new one skips it\u2014I want to compare them.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Fwm9uGbkgMtbNiQxvcqarQ",
+      "input": {
+        "query": "invalidate"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_016X6jDtJpAYtEiY1tqu4v51",
+      "input": {
+        "description": "writing or updating the cached spend summary entry after a purchase is recorded"
+      },
+      "name": "search_repository_by_meaning",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CfmhASFyxY344QRMYr9vb",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 5022
+    },
+    "cache_creation_input_tokens": 5022,
+    "cache_read_input_tokens": 8788,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 316,
+    "output_tokens_details": {
+      "thinking_tokens": 191
+    },
+    "service_tier": "standard"
+  }
+}

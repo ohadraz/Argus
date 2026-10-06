@@ -513,6 +513,14 @@ would be recreating the incident - which is a different fact from an undo that
 was attempted and failed, and the one a reader of a withdrawn incident would
 otherwise have to infer from an absence.
 
+**FM-31's undated sibling is built.** `cache-failed-over-undated` stages the same
+failover with nobody recording when it happened, so the shop's check can say what
+is wrong and not since when: its alert carries the finding and no onset. Nothing in
+the window contradicts a claim no series carries, so the alarm is not disproven,
+and nothing departed, so there is no onset to measure either. The walk is anchored
+on the minute the alarm fired - where to look from, not when the incident began -
+and ends where the dated walk does, with the stale entries discarded.
+
 **FM-27's deliberate sibling is built.** `monitoring-configuration-drift` stages
 the blind spot's silence from a change that was meant: a revision names every
 port in the deployment for the protocol it carries and says so in a comment,
@@ -529,28 +537,6 @@ configuration rolled forward with a test that reads both files, the incident
 escalates holding that proposal, and the postmortem says the service was still
 unobserved when it closed rather than reporting the window before the onset as
 the incident.
-
-## A branch waiting for a mode
-
-**An alert carrying a finding it cannot date is investigated without one, and
-nothing produces such an alert yet.** Argus closes an alarm the window
-contradicts, which is why the branch exists: a window with no departure in it
-disproves a rule that was watching one of those series, and a rule reporting
-something no series carries is not disproved by anything. The second kind can
-also arrive with no date - a check comparing stored values against the records
-behind them can find a disagreement whose evidence is the very thing that went
-missing - and that walk anchors its retrievals on the minute the alarm fired,
-told plainly that the minute dates nothing.
-
-**It is not FM-21, and this section is deliberately not under that row.** The
-family above is out of scope for a reason that has nothing to do with dating an
-incident. What would use this branch is a data-loss mode: records deleted rather
-than written wrongly, found by the shop's own check because no series moves,
-answered by a restore nobody may run unasked - so Argus would name what is
-missing and hand it over, which is FM-01's ending reached from
-`silent-data-corruption`'s detection. Both halves of that are built, which is
-what makes it a modest scenario rather than a capability, and it is why nothing
-has been proposed for it.
 
 ## Why they are called modes
 

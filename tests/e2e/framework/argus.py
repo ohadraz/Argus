@@ -96,6 +96,7 @@ RECORDED_CONTROL_PLANE_UNREACHABLE = "control-plane-unreachable"
 RECORDED_MONITORING_BLIND_SPOT = "monitoring-blind-spot"
 RECORDED_MONITORING_CONFIGURATION_DRIFT = "monitoring-configuration-drift"
 RECORDED_STATE_DIVERGENCE = "cache-failed-over"
+RECORDED_UNDATED_STATE_DIVERGENCE = "cache-failed-over-undated"
 RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
 RECORDED_FLAG_REVERT_LEAVES_A_FLAP = "flag-revert-leaves-a-flap"
 

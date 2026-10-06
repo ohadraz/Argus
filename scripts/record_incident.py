@@ -84,6 +84,7 @@ from tests.e2e.framework.argus import (
     RECORDED_SILENT_DATA_CORRUPTION,
     RECORDED_SLOW_CANARY_ROLLOUT,
     RECORDED_STATE_DIVERGENCE,
+    RECORDED_UNDATED_STATE_DIVERGENCE,
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
     THE_RECORDINGS_THAT_MUST_CARRY_A_FIX,
     THE_SERVICE_NAME,
@@ -618,6 +619,17 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
     _Recording(
         RECORDED_STATE_DIVERGENCE,
         "cache-failed-over",
+        None,
+        IncidentStatus.MITIGATED,
+        (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The same failover with nobody recording when it happened, so the shop's
+    # alert carries its finding and no onset. Held to the same three as the dated
+    # walk: what differs is what the investigation is anchored on, not what it
+    # has to reach.
+    _Recording(
+        RECORDED_UNDATED_STATE_DIVERGENCE,
+        "cache-failed-over-undated",
         None,
         IncidentStatus.MITIGATED,
         (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
