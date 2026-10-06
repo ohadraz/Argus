@@ -7,7 +7,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
@@ -81,7 +81,7 @@ class FakeUnleashHandler(BaseHTTPRequestHandler):
 
 
 @contextmanager
-def a_running_write_mcp() -> Iterator[type[FakeUnleashHandler]]:
+def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     """Runs a fake flag provider (stdlib http.server, background thread,
     answering evaluation, the event log and admin toggles) plus a real
     `write_mcp_server` subprocess pointed at it - so a test can prove

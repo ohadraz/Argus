@@ -154,6 +154,33 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
         return cursor.fetchone()
 
 
+def get_open_by_rule_and_service(conn: psycopg.Connection,
+                                 rule: str,
+                                 service: str) -> Incident | None:
+    """The newest unfinished incident `rule` opened for `service`, if any.
+
+    What a rule firing again while Argus is still on its incident joins: the
+    incident going on rather than a second one beside it. Finished incidents are
+    not looked at - once one is over, the rule firing again is a new incident.
+    Nor are other services': a rule watching several pages for each, and the
+    service paged for is what an incident investigates.
+    """
+    still_going = [status for status in IncidentStatus if not status.is_terminal()]
+
+    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+        cursor.execute(
+            "SELECT id, alert_payload, status, created_at, ended_at "
+            "  FROM incident "
+            " WHERE alert_payload->>'rule' = %s "
+            "   AND alert_payload->>'service' = %s "
+            "   AND status = ANY(%s) "
+            "ORDER BY created_at DESC "
+            " LIMIT 1",
+            (rule, service, still_going)
+        )
+        return cursor.fetchone()
+
+
 def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(

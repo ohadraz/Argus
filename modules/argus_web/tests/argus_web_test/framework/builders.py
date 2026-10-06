@@ -11,8 +11,11 @@ def a_grafana_payload(service: str = "kukibuki",
                       alert_name: str = "HighErrorRate",
                       onset: str | None = None,
                       claim: str | None = None,
-                      stale_entry_keys: tuple[str, ...] | None = None) -> dict[str, Any]:
-    """One firing alert, nested the way Grafana nests it.
+                      stale_entry_keys: tuple[str, ...] | None = None,
+                      rule_uid: str | None = None,
+                      generator_url: str | None = None,
+                      status: str = "firing") -> dict[str, Any]:
+    """One alert, firing unless `status` says otherwise, nested the way Grafana nests it.
 
     The whole envelope rather than the fields Argus wants, because the nesting
     is what the parser exists to undo - a fixture already flattened would test
@@ -31,6 +34,15 @@ def a_grafana_payload(service: str = "kukibuki",
     plain string rather than as `AlarmClaim`, because a value no member spells
     is a case the parser has to answer for and a builder that could only produce
     members could not stage it.
+
+    `rule_uid` is the rule that fired, said the one place Grafana says it: in
+    the link to the rule, `generatorURL`, in the shape its releases build.
+    `generator_url` stages that link verbatim instead, for a shape of its own.
+    Both are absent unless asked for, so a sender that names no rule is the
+    default.
+
+    `status` is `firing` or `resolved`, and Grafana says it twice - on the
+    envelope and on the alert - so both say it here.
     """
     annotations = {"summary": f"Error rate above threshold on {service}"}
 
@@ -44,20 +56,26 @@ def a_grafana_payload(service: str = "kukibuki",
         annotations["stale_entry_keys"] = ",".join(stale_entry_keys)
         annotations["stale_entries_found"] = str(len(stale_entry_keys))
 
+    alert: dict[str, Any] = {
+        "status": status,
+        "labels": {
+            "alertname": alert_name,
+            "service": service,
+            "severity": "critical"
+        },
+        "annotations": annotations,
+        "startsAt": "2026-08-14T10:15:00Z",
+        "endsAt": "0001-01-01T00:00:00Z"
+    }
+
+    if rule_uid is not None:
+        alert["generatorURL"] = f"http://grafana.test/alerting/grafana/{rule_uid}/view?orgId=1"
+
+    if generator_url is not None:
+        alert["generatorURL"] = generator_url
+
     return {
         "receiver": "argus-webhook",
-        "status": "firing",
-        "alerts": [
-            {
-                "status": "firing",
-                "labels": {
-                    "alertname": alert_name,
-                    "service": service,
-                    "severity": "critical"
-                },
-                "annotations": annotations,
-                "startsAt": "2026-08-14T10:15:00Z",
-                "endsAt": "0001-01-01T00:00:00Z"
-            }
-        ]
+        "status": status,
+        "alerts": [alert]
     }

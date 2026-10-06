@@ -11,6 +11,7 @@ from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Action,
+    AlertRuleStanding,
     AutoscalerUndo,
     AutoscalingRestored,
     CacheEntriesDiscarded,
@@ -31,6 +32,7 @@ from argus_core.models import (
     UndoDescriptor,
 )
 from read_mcp_client import (
+    get_alert_rule,
     get_change_events,
     get_metrics_summary,
     get_rollout_progress,
@@ -155,6 +157,16 @@ class DeploymentsBetween(Protocol):
 
 class MetricsFetcher(Protocol):
     def __call__(self) -> list[MetricBucket]: ...
+
+
+class RuleReader(Protocol):
+    """Where an alert rule stands, by the reference the alert carried.
+
+    What an action on an incident paged by a series alert is judged by: the
+    rule defines what is acceptable for the service.
+    """
+
+    def __call__(self, rule: str, /) -> AlertRuleStanding: ...
 
 
 class FlagSetter(Protocol):
@@ -379,6 +391,11 @@ def deployments_over(client: McpClient) -> DeploymentsBetween:
 def recent_metrics_over(client: McpClient) -> MetricsFetcher:
     """The service's metrics, asked over one connection to the read tier."""
     return partial(fetch_recent_metrics, client=client)
+
+
+def rules_read_over(client: McpClient) -> RuleReader:
+    """Alert rules, read over one connection to the read tier."""
+    return partial(get_alert_rule, client=client)
 
 
 # Which arrival a given action has to wait for. A seam of its own because the

@@ -24,6 +24,7 @@ from argus_core import (
     open_pool,
 )
 from argus_core.models import (
+    AlertRuleStanding,
     ChangeEvent,
     MetricBucket,
     RolloutProgress,
@@ -35,6 +36,7 @@ from metrics_source import MetricsSettings, MetricsSource
 from metrics_source.prometheus_adapter import buckets_between
 
 from read_mcp_server import (
+    alert_rules,
     deployments,
     flags,
     meaning,
@@ -42,6 +44,7 @@ from read_mcp_server import (
     retrieval,
     rollouts,
 )
+from read_mcp_server.alert_rules import AlertRuleReadSettings
 from read_mcp_server.argocd import (
     ArgocdSettings,
     fetch_argocd_application,
@@ -71,6 +74,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
+                 alert_rule_settings: AlertRuleReadSettings,
                  connections: Connections) -> FastMCP:
     """Registers every read tool against one deployment's configuration.
 
@@ -129,6 +133,9 @@ def build_server(endpoint: ReadMcpEndpoint,
     # place to correct when it moves.
     def the_live_deployment(application: str) -> dict[str, Any]:
         return fetch_live_deployment(application, rollout_settings)
+
+    def from_grafana(path: str) -> dict[str, Any]:
+        return alert_rules.fetch_from_grafana(path, alert_rule_settings)
 
     def registered(service: str) -> dict[str, object]:
         return fetch_registered_service(service, registry_settings)
@@ -355,6 +362,21 @@ def build_server(endpoint: ReadMcpEndpoint,
         )
 
     @mcp.tool()
+    def get_alert_rule(rule: str) -> AlertRuleStanding:
+        """Returns whether an alert rule has stopped firing, as of its last
+        evaluation, and how the rule reads its service - how far back it looks,
+        how often it is evaluated, and how long it keeps firing once its
+        condition stops holding.
+
+        Read by Mitigation, which judges an action on a series alert by the rule
+        that paged: the rule defines what is acceptable for the service. Not
+        offered to a model. A rule that cannot be read raises rather than
+        answering normal, which is the answer that would confirm whatever was
+        just done. The behavior lives in `alert_rules.how_the_rule_stands`; this
+        is registration only."""
+        return alert_rules.how_the_rule_stands(rule, fetch=from_grafana)
+
+    @mcp.tool()
     def get_rollout_state(service: str) -> list[str]:
         """Returns whether the deployment a service is running has finished
         arriving - how many replicas are on the revision being rolled out, how
@@ -512,6 +534,7 @@ def main() -> None:
             ServiceRegistrySettings.of(settings),
             RepositoryReadSettings.of(settings),
             IndexReadSettings.of(settings),
+            AlertRuleReadSettings.of(settings),
             pool.connection
         ).run(transport="streamable-http")
 

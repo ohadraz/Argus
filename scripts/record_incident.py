@@ -58,7 +58,7 @@ from argus_core.events import (
     SimilarIncidentsRecalled,
     VerdictReached,
 )
-from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus
+from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
@@ -71,6 +71,7 @@ from tests.e2e.framework.argus import (
     RECORDED_CPU_SATURATION,
     RECORDED_DEPLOY_CAUSED_CORRUPTION,
     RECORDED_FALLBACK_DISABLED,
+    RECORDED_FLAG_REVERT_LEAVES_A_FLAP,
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
@@ -180,6 +181,12 @@ _A_ROLLBACK_WAS_RECOMMENDED: Final = _Published(
     ActionRecommended, {"action_type": ROLL_BACK_DEPLOYMENT}
 )
 _A_VERDICT_WAS_REACHED: Final = _Published(VerdictReached)
+# The verdict, held to its outcome. A revert the rule never agreed with is the
+# whole of the flap's recording, and a walk confirmed on it is the defect this
+# recording exists to show closed - a recording of that is a recording of the bug.
+_A_VERDICT_REFUTED_AN_ACTION: Final = _Published(
+    VerdictReached, {"outcome": Verdict.REFUTED}
+)
 # The walk found out, mid-incident, that a platform it acts through is not
 # answering. Held to for the one recording captured against a refusing platform,
 # because every other expectation that recording could be held to is satisfied by
@@ -240,6 +247,11 @@ class _Recording(NamedTuple):
     unlike the one it was captured in runs longer than the queue and the double
     runs dry mid-incident. Anything a case stages, this stages too.
 
+    `may_take_seconds` is how long the walk is waited for. One figure serves
+    every walk whose waits are minutes - judged by the levels, or by a rule
+    looking back a minute or two; a walk judged by a rule with a long range
+    waits that range out for every candidate it tries, and is given its own.
+
     `alert_name` is `None` for an incident the shop pages about itself. Every
     other alert here is a rule firing on a series, and a payload assembled
     locally carries nothing the run does not already know - but an alert that
@@ -255,7 +267,31 @@ class _Recording(NamedTuple):
     ends_as: IncidentStatus
     must_have: tuple[_Published, ...]
     and_then: Callable[[], None] | None = None
+    may_take_seconds: float = A_WHOLE_INVESTIGATION_SECONDS
 
+
+# How long one candidate is watched under the burn-rate rule the flap pages on:
+# its ten-minute range, one evaluation and the source's lag, which is the
+# deadline Mitigation reads off the rule itself. Spelled here because a script
+# waiting for the walk has no rule in hand until the walk has read it.
+_THE_SUSTAINED_RULES_WAIT_SECONDS: Final = (
+    10 + 1 + get_settings().metrics_reporting_lag_minutes
+) * 60
+# The longest walk the settings allow under that rule: every round tries every
+# candidate, each watched for that whole deadline - on the real clock, since a
+# recording run has no other. Plus the ordinary figure, for everything that is
+# not watching: the postmortem, and whatever else the walk is waited for. A
+# bound rather than an expectation, so a walk that ends sooner is collected as
+# soon as it does; what it buys is that the longer walk is not cut off halfway,
+# with its answers paid for and unusable.
+_A_WALK_JUDGED_BY_THE_SUSTAINED_RULE_SECONDS: Final = (
+    get_settings().investigation_max_rounds
+    * (
+        get_settings().investigation_max_seconds
+        + get_settings().investigation_max_candidates * _THE_SUSTAINED_RULES_WAIT_SECONDS
+    )
+    + A_WHOLE_INVESTIGATION_SECONDS
+)
 
 # Every recording the offline suites rest on, in the order a full run captures
 # them. The names are imported from the e2e framework rather than spelled here:
@@ -585,21 +621,48 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         None,
         IncidentStatus.MITIGATED,
         (_A_HYPOTHESIS_WAS_FORMED, _AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The flag incident again, with a revert that does not hold: one clean minute,
+    # then single failing minutes at gaps that never repeat. The rule that paged
+    # is the burn-rate one, which goes on firing while any minute in ten fails, so
+    # it is what judges the revert - and the payload names it, as the case's does.
+    #
+    # Held to the revert's refutation, which is the whole claim. `ESCALATED` is a
+    # guess at the ending rather than the case's demand: what the walk does once
+    # the revert is refuted is the model's to choose, and the case asserts only
+    # that it did not end mitigated. A capture ending some other way short of
+    # that is still kept on disk, as every refused capture is, and replays.
+    _Recording(
+        RECORDED_FLAG_REVERT_LEAVES_A_FLAP,
+        "flag-revert-leaves-a-flap",
+        "ErrorRateSustained",
+        IncidentStatus.ESCALATED,
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_REFUTED_AN_ACTION),
+        may_take_seconds=_A_WALK_JUDGED_BY_THE_SUSTAINED_RULE_SECONDS
     )
 )
 
 EVERY_RECORDING_KEYWORD = "all"
 
 
-def _an_alert_for(service: str, alert_name: str) -> dict[str, Any]:
+def _an_alert_for(service: str, alert_name: str, rule_uid: str | None) -> dict[str, Any]:
     """A Grafana webhook payload, as Grafana would send it.
 
     `startsAt` is now, and that matters: retrieval is anchored on the alert
     time and the Target Service stages a scenario relative to the moment it was
     staged, so a fixed timestamp would point the window at minutes the fixture
     never wrote.
+
+    `generatorURL` links to the rule the staged scenario trips, which is the
+    one place Grafana's webhook names the rule that fired, and the e2e suite's
+    alerts link to it the same way. It is what decides how a mitigation is
+    judged - by the rule where one is named, by the levels where none is - so a
+    payload without it records a walk judged one way and replays it judged the
+    other. Where nothing is staged the link is the one the suite's builder
+    sends.
     """
     summary = f"Error rate above threshold on {service}"
+    linked = service if rule_uid is None else rule_uid
 
     return {
         "receiver": "argus-webhook",
@@ -615,8 +678,8 @@ def _an_alert_for(service: str, alert_name: str) -> dict[str, Any]:
                 "annotations": {"summary": summary},
                 "startsAt": to_iso(datetime.now(UTC)),
                 "endsAt": "0001-01-01T00:00:00Z",
-                "generatorURL": f"http://grafana.local/alerting/grafana/{service}/view",
-                "fingerprint": "abc123def456",
+                "generatorURL": f"http://grafana.local/alerting/grafana/{linked}/view",
+                "fingerprint": "abc123def456"
             }
         ],
         "groupLabels": {"alertname": alert_name},
@@ -739,8 +802,20 @@ def _long_term_memory_was_forgotten() -> None:
         store.close()
 
 
-def _stage(scenario_id: str) -> str | None:
-    """Puts the shop into the state this recording is of, and says when.
+class _Staged(NamedTuple):
+    """What the shop said when a scenario was staged: when, and which rule it trips.
+
+    Both are the shop's to say. The instant is the one its window hangs off, and
+    the rule is the series rule a page about the scenario names - the shop's
+    default error-rate rule for a scenario whose own page is a finding.
+    """
+    seeded_at: str | None
+    rule_uid: str | None
+
+
+def _stage(scenario_id: str) -> _Staged:
+    """Puts the shop into the state this recording is of, and says when and
+    which rule it trips.
 
     The instant comes back from the service rather than being read off a clock
     here: the shop decides what its window hangs off, and a moment taken on
@@ -752,9 +827,9 @@ def _stage(scenario_id: str) -> str | None:
         timeout=30.0,
     )
     staged.raise_for_status()
-    seeded_at: str | None = staged.json().get("seeded_at")
+    said = staged.json()
 
-    return seeded_at
+    return _Staged(seeded_at=said.get("seeded_at"), rule_uid=said.get("rule_uid"))
 
 
 def _write_the_anchor(stored: str, seeded_at: str | None) -> None:
@@ -784,7 +859,9 @@ def _write_the_anchor(stored: str, seeded_at: str | None) -> None:
     anchor.write_text(f"{seeded_at}\n", encoding="utf-8", newline="\n")
 
 
-def _an_incident_was_opened_by(service: str, alert_name: str | None) -> str:
+def _an_incident_was_opened_by(service: str,
+                               alert_name: str | None,
+                               rule_uid: str | None) -> str:
     """Fires the alert and returns the incident the webhook wrote down.
 
     Two ways in, and which one is used is the recording's to say. A named alert
@@ -818,7 +895,7 @@ def _an_incident_was_opened_by(service: str, alert_name: str | None) -> str:
 
     response = httpx2.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
-        json=_an_alert_for(service, alert_name),
+        json=_an_alert_for(service, alert_name, rule_uid),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -826,7 +903,7 @@ def _an_incident_was_opened_by(service: str, alert_name: str | None) -> str:
     return str(response.json().get("incident_id", "unknown"))
 
 
-def _the_walk_came_to_a_stop(incident_id: str) -> None:
+def _the_walk_came_to_a_stop(incident_id: str, may_take_seconds: float) -> None:
     """Waits until the incident has stopped moving *and* been written up.
 
     Both, because a terminal status is not the last model call: the postmortem
@@ -839,7 +916,7 @@ def _the_walk_came_to_a_stop(incident_id: str) -> None:
     run: a partial answer set replays as a walk stopping halfway, and nothing
     downstream reads that as a recording problem.
     """
-    deadline = time.monotonic() + A_WHOLE_INVESTIGATION_SECONDS
+    deadline = time.monotonic() + may_take_seconds
 
     while True:
         status = _the_status_of(incident_id)
@@ -851,7 +928,7 @@ def _the_walk_came_to_a_stop(incident_id: str) -> None:
             raise TimeoutError(
                 f"incident [{incident_id}] was [{status}] with "
                 f"[{'a' if _was_written_up(incident_id) else 'no'}] postmortem after "
-                f"[{A_WHOLE_INVESTIGATION_SECONDS:.0f}s] - nothing was recorded from it"
+                f"[{may_take_seconds:.0f}s] - nothing was recorded from it"
             )
 
         time.sleep(A_POLL_SECONDS)
@@ -1001,15 +1078,20 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     started_at = time.time()
 
     _a_world_this_recording_can_be_captured_in()
-    seeded_at = _stage(recording.scenario) if recording.scenario else None
+    staged = (
+        _stage(recording.scenario) if recording.scenario
+        else _Staged(seeded_at=None, rule_uid=None)
+    )
 
     if not replaying:
-        _write_the_anchor(stored, seeded_at)
+        _write_the_anchor(stored, staged.seeded_at)
 
     if recording.and_then:
         recording.and_then()
 
-    incident_id = _an_incident_was_opened_by(service, recording.alert_name)
+    incident_id = _an_incident_was_opened_by(
+        service, recording.alert_name, staged.rule_uid
+    )
 
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")
 
@@ -1019,7 +1101,7 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     # printing it only on the way out meant the one failure nobody could
     # diagnose was the only one anybody needed to.
     try:
-        _the_walk_came_to_a_stop(incident_id)
+        _the_walk_came_to_a_stop(incident_id, recording.may_take_seconds)
     finally:
         if not replaying:
             discarded = _discard_what_was_not_answered_again(stored, started_at)

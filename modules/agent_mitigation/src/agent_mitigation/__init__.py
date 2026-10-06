@@ -66,6 +66,7 @@ from agent_mitigation.tools import (
     how_a_change_arrives,
     performing_writes_over,
     recent_metrics_over,
+    rules_read_over,
 )
 from agent_mitigation.trying import UndoChange, take_action
 from agent_mitigation.undoing import undo_change
@@ -109,6 +110,7 @@ __all__ = [
     "mitigate",
     "performing_writes_over",
     "recent_metrics_over",
+    "rules_read_over",
     "propose_action",
     "take_action",
     "undo_change"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Final
+from urllib.parse import urlsplit
 
 from argus_core.models import AlarmClaim, Alert
 
@@ -19,12 +20,27 @@ _KEYS_ARE_SEPARATED_BY: Final = ","
 # declared once where the field they fill is declared.
 CLAIM_ANNOTATION: Final = "claim"
 
+# What Grafana calls an alert whose rule has stopped firing.
+_RESOLVED: Final = "resolved"
+
+# Where in a link to a rule Grafana puts its uid: after this, past the source
+# segment below where there is one.
+_THE_ALERTING_PATH: Final = "/alerting/"
+# The source segment Grafana's releases put before a managed rule's uid.
+_GRAFANA_MANAGED: Final = "grafana"
+
 
 def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
     """Deterministic parser for Grafana's unified-alerting webhook format -
     plain field mapping, no LLM call (design.md Non-Goals; spec §7.9/§25
     tracks generic/LLM-based ingestion as separate future work)."""
-    alert = raw_payload["alerts"][0]
+    alerts = raw_payload["alerts"]
+    # The first alert still firing. A notification carries every alert of its
+    # group, a resolved one can come first, and a resolution never starts an
+    # incident.
+    alert = next(
+        (each for each in alerts if each.get("status") != _RESOLVED), alerts[0]
+    )
     labels = alert["labels"]
     annotations = alert.get("annotations", {})
     return Alert(
@@ -63,7 +79,42 @@ def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
         # with one rule.
         stale_entry_keys=_the_keys_listed_in(annotations.get("stale_entry_keys")),
         stale_entries_found=annotations.get("stale_entries_found"),
+        # The link to the rule, which is the only place the webhook names it:
+        # Grafana's payload has no field for the rule that fired.
+        rule=_the_rule_linked_from(alert.get("generatorURL")),
     )
+
+
+def reports_only_resolutions(raw_payload: dict[str, Any]) -> bool:
+    """Whether a webhook says only that rules stopped firing.
+
+    Grafana sends one when a rule resolves. It is never the start of an
+    incident, and whether a rule has stopped firing is read from the rule.
+    """
+    return all(
+        alert.get("status") == _RESOLVED for alert in raw_payload.get("alerts", [])
+    )
+
+
+def _the_rule_linked_from(generator_url: str | None) -> str | None:
+    """The rule uid in a link to a Grafana-managed rule, or `None`.
+
+    The uid is the segment after `/alerting/`, past the `grafana/` that names
+    the rule's source where the link carries one: Grafana's releases build
+    `.../alerting/grafana/<uid>/view`, and its documentation shows
+    `.../alerting/<uid>/edit`. Whatever follows the uid is not read. A link with
+    no `/alerting/` in it names no rule this can read.
+    """
+    if not generator_url:
+        return None
+
+    _, found, rest = urlsplit(generator_url).path.partition(_THE_ALERTING_PATH)
+    segments = [segment for segment in rest.split("/") if segment]
+
+    if segments[:1] == [_GRAFANA_MANAGED]:
+        segments = segments[1:]
+
+    return segments[0] if found and segments else None
 
 
 def _the_claim_in(stated: str | None) -> AlarmClaim:

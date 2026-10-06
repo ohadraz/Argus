@@ -23,6 +23,7 @@ from argus_core import Connections, ReadMcpEndpoint
 from argus_core.models import CodeSearch
 from argus_testkit import Assertion, Scenario, all_of
 from metrics_source import MetricsSettings
+from read_mcp_server.alert_rules import AlertRuleReadSettings
 from read_mcp_server.argocd import ArgocdSettings
 from read_mcp_server.flags import FlagReadSettings
 from read_mcp_server.meaning import IndexReadSettings
@@ -42,6 +43,9 @@ THE_REGISTER = "get_service_dependencies"
 THE_ROLLOUT_COUNTS = "get_rollout_progress"
 THE_ROLLOUT_IN_WORDS = "get_rollout_state"
 RETRIEVAL_BY_MEANING = "search_repository_by_meaning"
+# Where the rule that paged stands, which is what a mitigation on a series alert
+# is judged by.
+THE_ALERT_RULE = "get_alert_rule"
 
 
 @pytest.mark.unit
@@ -88,6 +92,20 @@ def test_every_deployment_offers_the_rollout_counts_a_mitigation_waits_on() -> N
             _the_tools_include(THE_ROLLOUT_IN_WORDS)))
 
 
+@pytest.mark.unit
+def test_every_deployment_offers_the_alert_rule_a_mitigation_is_judged_by() -> None:
+    # Above the index guard for the rollout counts' reason: whether the rule
+    # that paged has stopped firing is not a search, and a tier offering it
+    # under one search mode only would leave Mitigation unable to judge its own
+    # action on half the deployments.
+    Scenario() \
+        .given(a_deployment_that_keeps_no_index := _a_read_tier_searching(
+            SEARCHING_BY_GREP_ALONE
+        )) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(_the_tools_include(THE_ALERT_RULE))
+
+
 def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
     """Every tool one deployment's read tier registers, by name.
 
@@ -124,6 +142,8 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           code_index_collection="dont-care-collection",
                           code_search=mode),
+        AlertRuleReadSettings(grafana_base_url="http://grafana.invalid",
+                              grafana_auth_token="dont-care-token"),
         create_autospec(Connections, instance=True)
     )
 

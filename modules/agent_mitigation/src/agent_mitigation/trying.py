@@ -7,8 +7,9 @@ the change back where the answer refutes the hypothesis it was taken on.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
+from functools import partial
 from typing import NamedTuple, Protocol, assert_never
 
 from argus_core import sleep_on_the_clock, to_iso_minute, utc_now
@@ -37,6 +38,7 @@ from argus_core.mcp_transport import (
 )
 from argus_core.models import (
     ActionType,
+    AlertRuleStanding,
     AutoscalerUndo,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
@@ -69,6 +71,7 @@ from agent_mitigation.tools import (
     MetricsFetcher,
     MitigationSettings,
     PerformingWrites,
+    RuleReader,
     Sleeper,
     StillWanted,
     nothing_to_wait_for,
@@ -149,9 +152,18 @@ def take_action(action: Action,
                 publisher: Publisher = nobody,
                 *,
                 onset: datetime | None = None,
+                rule: str | None = None,
+                read_rule: RuleReader | None = None,
                 writes: PerformingWrites,
                 undo: UndoChange) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
+
+    `rule` is the alert rule that paged, where the alert is about a series and
+    named one, and `read_rule` is how its standing is read. Given both, the
+    verdict is the rule's: it defines what is acceptable for the service, so the
+    action holds when the rule stops firing and fails when it is still firing
+    at the deadline the rule itself sets. The metrics are then read only to date
+    the recovery. Without them the levels decide.
 
     Four things happen in order, and the order is the point. The action is
     performed, which is the only moment production state changes. The change is
@@ -278,16 +290,22 @@ def take_action(action: Action,
 
     settled = _what_watching_the_service_settled(
         fetch_metrics, arrivals(action), now, sleep, still_wanted, settings,
-        thresholds, action.action_type, incident_id, publisher, onset
+        thresholds, action.action_type, incident_id, publisher, onset,
+        read_the_rule=(
+            partial(read_rule, rule)
+            if rule is not None and read_rule is not None
+            else None
+        )
     )
 
     if settled.verdict is Verdict.CONFIRMED:
         return Outcome(
             verdict=Verdict.CONFIRMED,
             # The reason the watching gave, rather than a sentence written here.
-            # One verdict is now reached three ways that mean different things -
-            # a level that came down, a reading that returned, and an action that
-            # reported what it changed - and a detail hardcoding the first would
+            # One verdict is reached four ways that mean different things - a
+            # rule that stopped firing, a level that came down, a reading that
+            # returned, and an action that reported what it changed - and a
+            # detail hardcoding any one of them would
             # say a service returned to a baseline it may never have left. That
             # is also the whole of the record of *which* rule settled it: the
             # sentence lands in `detail`, where every reader of the incident
@@ -565,7 +583,10 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
                                        action_type: ActionType,
                                        incident_id: str | None = None,
                                        publisher: Publisher = nobody,
-                                       onset: datetime | None = None) -> _Settled:
+                                       onset: datetime | None = None,
+                                       read_the_rule: (
+                                           Callable[[], AlertRuleStanding] | None
+                                       ) = None) -> _Settled:
     """What the service did once the change was in force, within the time the
     recovery it is waiting for needs.
 
@@ -574,7 +595,9 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     about were never published, the action was taken to restore the *sight* of the
     service, and what answers it is readings existing again - not readings sitting
     at a baseline, because a window nobody could read has no baseline to return to.
-    Everywhere else the levels decide, exactly as they always have.
+    Everywhere else the levels decide - except where `read_the_rule` is given,
+    and then the rule that paged decides before either question is asked, and
+    the window only dates the recovery.
 
     The distinction is drawn over the span between the onset and the action, which
     is historical and settled by the time this runs. Asked of the minutes *after*
@@ -599,8 +622,9 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     the one way this parameter can fail quietly.
 
     How long it is given is read off the service's own window rather than
-    configured - `_when_a_recovery_would_have_shown`. A picked figure is wrong in
-    both directions at once, and it was the last one left in the recovery path.
+    configured - `_when_a_recovery_would_have_shown` - or, where the rule that
+    paged judges, off the rule - `_when_the_rule_would_have_resolved`. A picked
+    figure is wrong in both directions at once.
 
     `REFUTED` on expiry rather than an error, because that is a real answer
     about the world: the action was taken, the service was looked at, and it did
@@ -672,6 +696,9 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
     # of the two questions above is asked. `None` until a read answers, because it
     # is measured from a window rather than declared by a caller.
     the_sight_was_absent: bool | None = None
+    # Whether the rule that paged was ever read, which decides what running out
+    # of time means on that path, as `anything_was_read` does on this one.
+    the_rule_was_read = False
 
     while True:
         # A read that cannot be taken costs this pass and nothing more. The loop
@@ -680,9 +707,12 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
         # was the whole incident: nothing above this catches it, so the walk
         # stopped mid-action, no verdict was recorded, and the incident kept
         # whatever status it was walking under.
+        buckets: list[MetricBucket] | None
         try:
             buckets = fetch_metrics()
         except Exception as unanswered:
+            buckets = None
+
             if incident_id is not None:
                 say(RetrievalUnanswered(
                     incident_id=incident_id,
@@ -691,6 +721,12 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
                     minute=first_whole_minute
                 ))
 
+        if buckets is None and read_the_rule is not None:
+            # On the rule's path the window only dates the recovery, so a window
+            # that could not be read costs that date and nothing more: the rule
+            # is still asked, and its deadline still decides.
+            buckets = []
+        elif buckets is None:
             # The deadline still decides, and it is checked before sleeping for
             # the reason the recovered case checks it: a window that has run out
             # must not buy another interval by having failed rather than
@@ -722,7 +758,7 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
             sleep(_SECONDS_BETWEEN_METRIC_READS)
             continue
 
-        if not anything_was_read:
+        if not anything_was_read and read_the_rule is None:
             # The first window to come back is what says how long this wait
             # lasts, and it says it once. Re-derived on every pass it would be a
             # moving deadline: a service still flapping extends the rhythm it is
@@ -747,6 +783,104 @@ def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
                 ))
 
         anything_was_read = True
+        # An incident paged by a rule watching a series is judged by that rule.
+        # It defines what is acceptable for the service, and it sees what one
+        # window of minutes cannot: a flap with no rhythm hands the levels a
+        # clear minute, and a rule looking back far enough goes on firing.
+        #
+        # Asked before anything below, because everything below is the levels
+        # deciding - a window that never departed, a receipt, readings returning
+        # - and an action the rule judges gets no verdict from the levels. The
+        # window is read here only to date the recovery.
+        if read_the_rule is not None:
+            try:
+                standing = read_the_rule()
+            except Exception as unanswered:
+                if incident_id is not None:
+                    say(RetrievalUnanswered(
+                        incident_id=incident_id,
+                        what_was_asked="the alert rule that paged",
+                        because=str(unanswered),
+                        minute=first_whole_minute
+                    ))
+
+                # Not refuted where the rule was never read: nothing said it was
+                # still firing, and refuting puts the change back on a
+                # measurement nobody took.
+                if now() >= watch_until:
+                    return (
+                        _Settled(
+                            Verdict.REFUTED,
+                            "the rule that paged was still firing when the time "
+                            "it allows ran out"
+                        )
+                        if the_rule_was_read else
+                        _Settled(
+                            Verdict.ESCALATED,
+                            "the rule that paged could not be read once before "
+                            "the time allowed ran out - so nothing was measured "
+                            "either way"
+                        )
+                    )
+
+                sleep(_SECONDS_BETWEEN_METRIC_READS)
+                continue
+
+            if not the_rule_was_read:
+                # Read off the rule once, as the metrics' deadline is read off
+                # the first window: how far back it looks, plus one evaluation,
+                # plus how long it keeps firing, plus the source's lag.
+                watch_until = _when_the_rule_would_have_resolved(
+                    arrived_at, standing,
+                    reporting_lag_minutes=settings.metrics_reporting_lag_minutes
+                )
+
+                if incident_id is not None:
+                    say(AwaitingRecovery(
+                        incident_id=incident_id,
+                        from_minute=first_whole_minute,
+                        seconds_allowed=(watch_until - arrived_at).total_seconds()
+                    ))
+
+            the_rule_was_read = True
+            # Only an evaluation whose whole range followed the change says
+            # anything about it; one that began before may have caught a lull the
+            # action had no part in.
+            resolved = standing.is_normal and (
+                standing.evaluated_at - timedelta(seconds=standing.range_seconds)
+                >= arrived_at
+            )
+            came_back_at = find_recovery(buckets, thresholds) if resolved else None
+
+            if incident_id is not None:
+                say(RecoveryChecked(
+                    incident_id=incident_id,
+                    minute=first_whole_minute,
+                    recovered=resolved,
+                    recovered_minute=came_back_at
+                ))
+
+            if not still_wanted():
+                return _Settled(
+                    Verdict.WITHDRAWN,
+                    "the incident was withdrawn before the service could answer"
+                )
+
+            if resolved:
+                return _Settled(
+                    Verdict.CONFIRMED, "the rule that paged stopped firing"
+                )
+
+            if now() >= watch_until:
+                return _Settled(
+                    Verdict.REFUTED,
+                    "the rule that paged was still firing when the time it "
+                    "allows ran out"
+                )
+
+            sleep(_SECONDS_BETWEEN_METRIC_READS)
+            continue
+
         # Measured on the first pass that answered and not revisited: the span it
         # asks about ended when the action was taken, so a later pass would be
         # answering about a window the action itself has already changed.
@@ -970,6 +1104,31 @@ def _when_a_recovery_would_have_shown(first_minute_begins: datetime,
     """
     return first_minute_begins + timedelta(
         minutes=minutes_a_recovery_must_hold(buckets, thresholds) + reporting_lag_minutes
+    )
+
+
+def _when_the_rule_would_have_resolved(arrived_at: datetime,
+                                       standing: AlertRuleStanding,
+                                       reporting_lag_minutes: int) -> datetime:
+    """The moment past which a rule still firing is an answer.
+
+    A change that worked has left the rule's range once the range has passed
+    since it arrived; the next evaluation sees that, and a rule that keeps firing
+    for a while after its condition clears says so that much later. The source's
+    lag is added for the reason the metrics' deadline adds it: the minutes the
+    rule reads arrive `reporting_lag_minutes` late from a source that reports
+    them once they end.
+
+    Every term but the lag is the rule's own; the lag is the one setting, and
+    the levels' deadline adds the same one.
+    """
+    return arrived_at + timedelta(
+        seconds=(
+            standing.range_seconds
+            + standing.interval_seconds
+            + standing.keep_firing_for_seconds
+        ),
+        minutes=reporting_lag_minutes
     )
 
 

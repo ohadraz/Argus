@@ -599,6 +599,14 @@ class Settings(BaseSettings):
     argocd_resource_path: str = Field(
         default="/argocd/{application}/resource"
     )
+    # Where the alert rules are read from - whether the rule that paged has
+    # stopped firing, which is what a mitigation on a series alert is judged by.
+    # The demo Target Service stands in for Grafana under `/grafana`, so the
+    # default points at it; a real Grafana is its root URL and nothing else.
+    grafana_base_url: str = Field(default="http://localhost:8080/grafana")
+    # Empty means no credential is sent - the stand-in needs none, and a real
+    # Grafana issues a service-account token for this.
+    grafana_auth_token: str = Field(default="")
     # Which namespace the deployment being restarted lives in. The resource
     # itself is not configured: it is the service being restarted, because a
     # fixed name would carry the alerting service's deployment into a request

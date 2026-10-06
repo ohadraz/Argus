@@ -97,6 +97,7 @@ RECORDED_MONITORING_BLIND_SPOT = "monitoring-blind-spot"
 RECORDED_MONITORING_CONFIGURATION_DRIFT = "monitoring-configuration-drift"
 RECORDED_STATE_DIVERGENCE = "cache-failed-over"
 RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
+RECORDED_FLAG_REVERT_LEAVES_A_FLAP = "flag-revert-leaves-a-flap"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,
@@ -159,15 +160,45 @@ def argus_is_triggered_with_alert(
     this waits on the walk's budget rather than the investigation's; waiting on
     the shorter one fails the *client* while Argus is still working, which reads
     like a hung stack and is not one.
+
+    The payload goes out naming the rule the staged scenario trips, as Grafana's
+    webhook names the rule that fired. Asked of the shop when the alert is sent
+    rather than written into the case: which rule a scenario trips is the
+    fixture's to say, and a uid copied here would be a second copy of it.
     """
     def step() -> httpx2.Response:
         return httpx2.post(
             f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
-            json=payload,
+            json=_naming_the_staged_rule(payload),
             timeout=WALK_TIMEOUT_SECONDS,
         )
 
     return step
+
+
+def _naming_the_staged_rule(payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload with every alert in it linking to the staged scenario's rule,
+    or the payload as it is where nothing is staged.
+
+    In the link, because that is the one place Grafana's webhook names the rule
+    that fired - its payload has no field of its own for it.
+    """
+    response = httpx2.get(
+        f"{TARGET_SERVICE_BASE_URL}/scenario/status", timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    rule_uid = response.json()["rule_uid"]
+
+    if rule_uid is None:
+        return payload
+
+    return {
+        **payload,
+        "alerts": [
+            {**alert, "generatorURL": f"http://grafana.local/alerting/grafana/{rule_uid}/view"}
+            for alert in payload["alerts"]
+        ]
+    }
 
 
 def the_shop_raises_its_own_alert() -> Callable[[], httpx2.Response]:

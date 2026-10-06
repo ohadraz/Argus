@@ -17,9 +17,11 @@ import pytest
 from argus_core import to_iso
 from argus_core.models import AlarmClaim, Alert
 from argus_testkit import Assertion, Scenario
-from argus_web.grafana import parse_grafana_alert
+from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 
 from argus_web_test.framework.builders import a_grafana_payload
+
+SOME_RULE = "some-rule"
 
 
 @pytest.mark.unit
@@ -191,6 +193,184 @@ def test_parse_grafana_alert_takes_a_claim_it_does_not_recognise_the_same_way() 
         )
 
 
+@pytest.mark.unit
+def test_parse_grafana_alert_reads_the_rule_the_alert_names() -> None:
+    # Which rule fired, so that whether it has stopped firing can be asked of it.
+    # Carried as a reference that names no vendor: a mitigation judged by the
+    # rule reaches it through a port, and Grafana is one adapter behind it.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(rule_uid=SOME_RULE)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_rule(SOME_RULE)
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_finds_the_rule_in_the_link_the_documentation_shows() -> None:
+    # Grafana's webhook has no field naming the rule; the link to it does. The
+    # documentation shows that link as `/alerting/<uid>/edit` where the releases
+    # build `/alerting/grafana/<uid>/view`, so what follows the uid is not read.
+    some_rule = "1afz29v7z"
+
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(
+                generator_url=f"https://play.grafana.org/alerting/{some_rule}/edit"
+            )
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_rule(some_rule)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("generator_url", [
+    # Served under a path of its own, behind a proxy that hosts other things.
+    f"https://ops.example/grafana/alerting/grafana/{SOME_RULE}/view",
+    f"https://grafana.example/alerting/grafana/{SOME_RULE}/",
+    f"https://grafana.example/alerting/grafana/{SOME_RULE}"
+])
+def test_parse_grafana_alert_finds_the_rule_wherever_grafana_is_served_and_however_the_link_ends(
+    generator_url: str
+) -> None:
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(generator_url=generator_url)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_rule(SOME_RULE)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("generator_url", [
+    "https://grafana.example/d/some-dashboard",
+    "https://grafana.example/alerting/",
+    "https://grafana.example/alerting/grafana/"
+])
+def test_parse_grafana_alert_names_no_rule_from_a_link_that_names_none(
+    generator_url: str
+) -> None:
+    # A link elsewhere, or to the alerting pages with no rule in it. Read as a
+    # rule regardless, whatever segment was found would be asked after as one.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(generator_url=generator_url)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_rule(None)
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_reads_the_alert_that_is_firing() -> None:
+    # A notification carries every alert of its group, and one that resolved can
+    # come first. It never starts an incident, so the one read is the one firing.
+    the_rule = "some-rule-still-firing"
+    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
+    some_firing = a_grafana_payload(rule_uid=the_rule)
+
+    Scenario() \
+        .given(
+            payload := {**some_firing, "alerts": [*some_resolved["alerts"], *some_firing["alerts"]]}
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_rule(the_rule)
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_names_no_rule_when_the_alert_names_none() -> None:
+    # Unset rather than guessed from the alert's name, which is a title several
+    # rules can share.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload()
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_rule(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_notification_of_resolved_alerts_alone_reports_only_resolutions() -> None:
+    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
+    some_other_resolved = a_grafana_payload(rule_uid="some-other-rule", status="resolved")
+
+    Scenario() \
+        .given(
+            payload := {
+                **some_resolved,
+                "alerts": [*some_resolved["alerts"], *some_other_resolved["alerts"]]
+            }
+        ) \
+        .when(
+            lambda: reports_only_resolutions(payload)
+        ) \
+        .then(
+            _it_reports_only_resolutions(True)
+        )
+
+
+@pytest.mark.unit
+def test_a_notification_with_one_alert_still_firing_reports_more_than_resolutions() -> None:
+    # The envelope here reads `resolved`, and is not what decides: the one
+    # alert still firing is what opens an incident.
+    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
+    some_firing = a_grafana_payload(rule_uid="some-rule-still-firing")
+
+    Scenario() \
+        .given(
+            payload := {
+                **some_resolved,
+                "alerts": [*some_resolved["alerts"], *some_firing["alerts"]]
+            }
+        ) \
+        .when(
+            lambda: reports_only_resolutions(payload)
+        ) \
+        .then(
+            _it_reports_only_resolutions(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("payload", [
+    {**a_grafana_payload(), "alerts": []},
+    {key: value for key, value in a_grafana_payload().items() if key != "alerts"}
+], ids=["empty", "absent"])
+def test_a_notification_of_no_alerts_reports_only_resolutions(payload: dict[str, object]) -> None:
+    # Nothing in it is firing, so it opens nothing: answered as a notification
+    # of resolutions is, rather than refused.
+    Scenario() \
+        .when(
+            lambda: reports_only_resolutions(payload)
+        ) \
+        .then(
+            _it_reports_only_resolutions(True)
+        )
+
+
 def _it_read(service: str, alert_name: str, severity: str) -> Assertion[Alert]:
     """The three fields lifted out of Grafana's labels, checked together.
 
@@ -292,6 +472,32 @@ def _it_read_the_stale_keys(expected: tuple[str, ...] | None) -> Assertion[Alert
             raise AssertionError(
                 f"Expected the alert to carry the stale keys [{expected}], got "
                 f"[{alert.stale_entry_keys}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_names_the_rule(expected: str | None) -> Assertion[Alert]:
+    """Which rule the alert says fired, or that it named none."""
+    def assertion(alert: Alert) -> bool:
+        if alert.rule != expected:
+            raise AssertionError(
+                f"Expected the alert to name the rule [{expected}], got [{alert.rule}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_reports_only_resolutions(expected: bool) -> Assertion[bool]:
+    def assertion(only_resolutions: bool) -> bool:
+        if only_resolutions is not expected:
+            raise AssertionError(
+                f"Expected the notification to report only resolutions [{expected}], "
+                f"got [{only_resolutions}]."
             )
 
         return True

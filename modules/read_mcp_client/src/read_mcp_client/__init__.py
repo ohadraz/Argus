@@ -6,6 +6,7 @@ whoever builds the client; nothing below this door learns an address.
 """
 
 from read_mcp_client.client import (
+    get_alert_rule,
     get_change_events,
     get_enabled_flags,
     get_log_lines,
@@ -23,6 +24,7 @@ from read_mcp_client.client import (
 )
 
 __all__ = [
+    "get_alert_rule",
     "get_change_events",
     "get_enabled_flags",
     "get_log_lines",

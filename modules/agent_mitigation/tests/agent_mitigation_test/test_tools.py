@@ -30,6 +30,7 @@ from agent_mitigation.tools import (
     flag_setter_over,
     how_a_change_arrives,
     recent_metrics_over,
+    rules_read_over,
 )
 from argus_core import to_iso
 from argus_core.mcp_transport import McpClient
@@ -65,6 +66,7 @@ HALF_THE_FLEET = 3
 ROLLOUT_PROGRESS_TOOL = "get_rollout_progress"
 
 METRICS_TOOL = "get_metrics_summary"
+ALERT_RULE_TOOL = "get_alert_rule"
 FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 SET_FLAG_TOOL = "set_feature_flag"
 ROLL_BACK_TOOL = "roll_back_deployment"
@@ -453,6 +455,26 @@ def test_the_service_is_re_read_over_the_read_tier() -> None:
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(METRICS_TOOL),
+            _the_write_tier_was_asked_for()
+        ))
+
+
+@pytest.mark.integration
+def test_the_rule_that_paged_is_read_over_the_read_tier() -> None:
+    # Where a rule stands is read and never changed, so it is asked of the tier
+    # that holds no credential to change anything.
+    some_rule = "some-rule"
+
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: rules_read_over(read)(some_rule))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(ALERT_RULE_TOOL),
             _the_write_tier_was_asked_for()
         ))
 

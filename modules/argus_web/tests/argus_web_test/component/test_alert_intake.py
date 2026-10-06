@@ -61,6 +61,49 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
             ))
 
 
+@pytest.mark.component
+def test_a_resolved_alert_opens_no_incident() -> None:
+    # Grafana sends one when a rule stops firing. It is news about an incident
+    # that may already be open, never the start of one - and whether a rule has
+    # stopped firing is read from the rule, not from this.
+    some_service = "kuki-resolved-only"
+    a_resolution = a_grafana_payload(
+        service=some_service, rule_uid="some-rule-that-resolved", status="resolved"
+    )
+
+    with TestClient(app) as client:
+        Scenario() \
+            .when(
+                lambda: client.post("/webhooks/alerts", json=a_resolution)
+            ) \
+            .then(all_of(
+                _it_was_answered_without_an_incident(),
+                _no_incident_is_open_for(some_service),
+            ))
+
+
+@pytest.mark.component
+def test_a_rule_firing_again_joins_the_incident_it_opened() -> None:
+    # The rule resolved and fired again while Argus was still on it - which is
+    # the incident going on, not a second one beside it.
+    some_rule = "some-rule-firing-twice"
+    some_service = "kuki-fires-twice"
+    an_alert = a_grafana_payload(service=some_service, rule_uid=some_rule)
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                first := client.post("/webhooks/alerts", json=an_alert)
+            ) \
+            .when(
+                lambda: client.post("/webhooks/alerts", json=an_alert)
+            ) \
+            .then(all_of(
+                _it_was_answered_with(first.json()["incident_id"]),
+                _incidents_were_opened_for(some_service, count=1),
+            ))
+
+
 def _the_incident_is_acknowledged() -> Assertion[Any]:
     def assertion(response: Any) -> bool:
         with connect_from_env() as conn:
@@ -184,3 +227,54 @@ def _the_graph_has_not_walked_it() -> Assertion[Any]:
         return True
 
     return assertion
+
+
+def _it_was_answered_without_an_incident() -> Assertion[Any]:
+    def assertion(response: Any) -> bool:
+        if response.status_code != 202 or response.json() != {"incident_id": None}:
+            raise AssertionError(
+                f"Expected a resolved alert to be accepted with no incident, got "
+                f"[{response.status_code}] {response.json()}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_answered_with(incident_id: str) -> Assertion[Any]:
+    def assertion(response: Any) -> bool:
+        answered = response.json().get("incident_id")
+
+        if answered != incident_id:
+            raise AssertionError(
+                f"Expected the alert to be answered with the open incident "
+                f"[{incident_id}], got [{answered}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _incidents_were_opened_for(service: str, count: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        with connect_from_env() as conn:
+            opened = [
+                incident
+                for incident in incidents.get_recent(conn)
+                if incident.alert_payload.get("service") == service
+            ]
+
+        if len(opened) != count:
+            raise AssertionError(
+                f"Expected [{count}] incidents for [{service}], got [{len(opened)}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_incident_is_open_for(service: str) -> Assertion[Any]:
+    return _incidents_were_opened_for(service, count=0)

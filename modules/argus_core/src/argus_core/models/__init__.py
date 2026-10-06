@@ -51,6 +51,7 @@ from argus_core.models.action import (
 )
 from argus_core.models.actor import Actor
 from argus_core.models.alert import AlarmClaim, Alert
+from argus_core.models.alert_rule import AlertRuleStanding
 from argus_core.models.attempt import Attempt
 from argus_core.models.candidate import WhatWouldBeTried
 from argus_core.models.change_event import ChangeEvent, ChangeKind
@@ -174,6 +175,7 @@ __all__ = [
     "RestartService",
     "RollBackDeployment",
     "RolloutProgress",
+    "AlertRuleStanding",
     "ScaleOut",
     "RestartedService",
     "RevertFeatureFlag",

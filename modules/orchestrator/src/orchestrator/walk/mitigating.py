@@ -18,6 +18,7 @@ from argus_core.events import (
 from argus_core.models import (
     Action,
     Actor,
+    AlarmClaim,
     IncidentStatus,
     UnreadVerdict,
     leaves_something_to_put_back,
@@ -136,7 +137,15 @@ def mitigation_node(
         still_wanted=partial(still_wanted, state.incident_id),
         incident_id=state.incident_id,
         publisher=publisher,
-        onset=state.alert.stated_onset
+        onset=state.alert.stated_onset,
+        # The rule that paged, where the alert is about a series - the action is
+        # judged by whether it stops firing. A finding's check runs on its own
+        # schedule, so it keeps the confirmation it has.
+        rule=(
+            state.alert.rule
+            if state.alert.claim is AlarmClaim.A_SERIES_CONDITION
+            else None
+        )
     )
     outcome = result.verdict
 

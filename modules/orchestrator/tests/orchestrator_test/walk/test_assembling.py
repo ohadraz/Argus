@@ -43,6 +43,10 @@ WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"action"})
 # changes to undo and in what order belong to whoever holds the records.
 WHAT_AN_UNDO_IS_GIVEN = frozenset({"undo_descriptor"})
 
+# What reads where the rule that paged stands: the rule, and nothing else. The
+# connection to the read tier is the binding's.
+WHAT_A_RULE_READ_IS_GIVEN = frozenset({"rule"})
+
 # What the investigation node asks the deploy history: which service, and where
 # the window ends. The settings and the connection are the binding's.
 WHAT_THE_INVESTIGATION_NODE_ASKS = frozenset({"service", "onset"})
@@ -96,7 +100,8 @@ def test_taking_an_action_is_bound_with_every_tool_it_needs() -> None:
                               None)) \
         .then(all_of(
             _taking_an_action_needs_only(WHAT_THE_MITIGATION_NODE_SUPPLIES),
-            _putting_a_change_back_needs_only(WHAT_AN_UNDO_IS_GIVEN)
+            _putting_a_change_back_needs_only(WHAT_AN_UNDO_IS_GIVEN),
+            _reading_the_rule_needs_only(WHAT_A_RULE_READ_IS_GIVEN)
         ))
 
 
@@ -196,6 +201,31 @@ def _putting_a_change_back_needs_only(supplied: frozenset[str]) -> Assertion[Col
             )
 
         _nothing_beyond(supplied, _still_required_of(undo), "put a change back")
+
+        return True
+
+    return assertion
+
+
+def _reading_the_rule_needs_only(supplied: frozenset[str]) -> Assertion[Collaborators]:
+    """The rule reader, which `take_action` defaults to none.
+
+    So the check on the action cannot see it missing: the action is callable
+    without it, and an incident paged by a series alert is then judged by the
+    levels rather than by the rule that paged - a wrong verdict, not a
+    `TypeError`, and so the quieter of the two.
+    """
+    def assertion(collaborators: Collaborators) -> bool:
+        read_rule = getattr(collaborators.take, "keywords", {}).get("read_rule")
+
+        if read_rule is None:
+            raise AssertionError(
+                "Taking an action was bound without a way to read the alert "
+                "rule, so a mitigation on a series alert is judged by the "
+                "levels rather than by the rule that paged."
+            )
+
+        _nothing_beyond(supplied, _still_required_of(read_rule), "read the rule that paged")
 
         return True
 

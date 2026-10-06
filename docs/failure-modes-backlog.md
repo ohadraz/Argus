@@ -557,16 +557,23 @@ has been proposed for it.
 Written down here rather than left in a commit message, because each is a gap
 somebody will otherwise rediscover from the outside.
 
-**A flap with no rhythm is still reported mitigated.**
+**A flap is reported mitigated where the alert names no rule.**
+An alert from a rule watching a series is judged by that rule (spec §7.3): the
+action holds only once the rule stops firing over a range that followed it, so a
+service failing a single minute at a time keeps a long-ranged rule firing and the
+action is refuted. An alert that names no rule falls back to the levels, and there
 `_clear_minutes_a_recovery_has_to_show` asks a recovery for one more clear minute
-than the longest gap between departures *that recurs*, which catches a service
-departing on a cycle - one minute down in two, in three, in five - whatever the
-cycle's duty. A flap whose gaps are two minutes, then five, then three, then seven
-has no recurring gap, so it asks for one clear minute, and the flap's own first
-quiet minute supplies it. The incident closes as mitigated with the service still
-failing and no further candidate tried. It is caught once such a flap repeats
-itself, because the gaps then recur; what is missed is the one too irregular or
-too short to repeat inside the window being read.
+than the longest gap between departures *that recurs*. Before an action the
+service is failing every minute, so no gap has recurred, one clear minute is asked
+for, and the first quiet minute after the action supplies it. The incident closes
+as mitigated with the service still failing and no further candidate tried.
+Grafana links every alert to its rule, so what reaches this is an alert from a
+sender that does not, or whose link the adapter cannot read a rule out of.
+
+A rule whose range is shorter than the flap's gaps resolves in the first of them
+and confirms the same way. That one is the rule's own definition of acceptable
+rather than a gap in Argus, which is why the flap scenario pages on a rule
+looking back ten minutes.
 
 Recurrence is not a conservatism to be relaxed - it is what makes the rule safe.
 The longest gap outright is moved arbitrarily far by one sample: a well service
@@ -581,9 +588,9 @@ irregular flap at three or more; three is fitted to the battery that justified i
 and two - the principled reading of *it came back and went again* - refuses five
 healthy windows in five hundred.
 
-So the shape of a fix is not a better statistic over this window. It is a signal
-this one is blind to - the alert that fired is a sustained condition, and an alert
-that keeps re-firing is evidence of a flap no single metrics window can see.
+So the fix is not a better statistic over this window but a signal it is blind
+to, and the rule that paged is that signal. What is left is the sender with no
+rule to ask.
 
 ## Why they are called modes
 

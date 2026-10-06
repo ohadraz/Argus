@@ -15,7 +15,7 @@ import logging
 import socket
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import partial
@@ -75,7 +75,7 @@ _RENEWALS_PER_LEASE: Final = 3
 @contextmanager
 def _the_claim_kept_alive(run_id: str,
                           lease: timedelta,
-                          connections: Connections) -> Iterator[None]:
+                          connections: Connections) -> Generator[None]:
     """Renews this run's claim for as long as the body is running.
 
     A lease bounds how long a *stopped* worker's run waits before somebody takes

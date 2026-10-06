@@ -33,6 +33,7 @@ from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     FLAG_PROVIDER,
     Action,
+    AlarmClaim,
     Alert,
     FlagUndo,
     Hypothesis,
@@ -1312,6 +1313,94 @@ def _the_onset_handed_over_is(expected: datetime | None,
                 f"Expected the agent to be handed onset [{expected}], and it was "
                 f"handed [{handed_over}] - so the minute the incident was dated to "
                 f"never reaches the wait that has to judge it."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_the_rule_a_series_alert_names_is_handed_to_the_agent(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The rule that paged is what the action is judged by, where the alert is
+    # about a series: it defines what is acceptable for the service. The agent
+    # cannot find it - nothing else it is handed says which rule fired.
+    some_rule = "some-rule"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_paged_by_a_rule := _a_mitigating_incident_paged_by(
+                some_rule, AlarmClaim.A_SERIES_CONDITION
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_paged_by_a_rule,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_rule_handed_over_is(some_rule, take))
+
+
+@pytest.mark.unit
+def test_a_finding_hands_the_agent_no_rule_to_wait_on(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # A check that runs weekly resolves when it next runs, so waiting on its rule
+    # would hold the incident open for days. A finding keeps the confirmation it
+    # has: the store's receipt, or readings returning.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_a_check_found := _a_mitigating_incident_paged_by(
+                "io-shop-cached-spend-totals-are-stale", AlarmClaim.ITS_OWN_FINDING
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_a_check_found,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_rule_handed_over_is(None, take))
+
+
+def _a_mitigating_incident_paged_by(rule: str, claim: AlarmClaim) -> IncidentState:
+    """A mitigating incident whose alert names the rule that fired."""
+    state = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
+
+    return state.model_copy(
+        update={"alert": state.alert.model_copy(update={"rule": rule, "claim": claim})}
+    )
+
+
+def _the_rule_handed_over_is(expected: str | None,
+                             take: MagicMock) -> Assertion[object]:
+    """Which rule the agent was asked to judge the action by, or none."""
+    def assertion(_: object) -> bool:
+        handed_over = take.call_args.kwargs.get("rule")
+
+        if handed_over != expected:
+            raise AssertionError(
+                f"Expected the agent to be handed rule [{expected}], and it was "
+                f"handed [{handed_over}]."
             )
 
         return True

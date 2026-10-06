@@ -379,6 +379,123 @@ def test_an_incident_that_ended_leaves_no_column_of_its_row_empty() -> None:
             )
 
 
+@pytest.mark.integration
+def test_an_open_incident_is_found_by_the_rule_and_service_that_opened_it() -> None:
+    # What a rule firing again while Argus is still on its incident joins.
+    some_rule = "some-rule"
+    some_service = "kuki-service"
+    some_alert = Alert(service=some_service, alert_name="HighErrorRate", rule=some_rule)
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .when(
+                lambda: incidents.get_open_by_rule_and_service(conn, some_rule, some_service)
+            ) \
+            .then(
+                _it_found(incident_id)
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("ending", [status for status in IncidentStatus if status.is_terminal()])
+def test_an_incident_that_ended_is_not_found_open(ending: IncidentStatus) -> None:
+    # Once it is over, the rule firing again is a new incident - whichever way
+    # it ended.
+    some_rule = "some-rule"
+    some_service = "kuki-service"
+    some_alert = Alert(service=some_service, alert_name="HighErrorRate", rule=some_rule)
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, some_alert)
+
+        Scenario() \
+            .given(
+                calling(lambda: incidents.transition(conn, incident_id, ending))
+            ) \
+            .when(
+                lambda: incidents.get_open_by_rule_and_service(conn, some_rule, some_service)
+            ) \
+            .then(
+                _nothing_came_back()
+            )
+
+
+@pytest.mark.integration
+def test_of_two_open_incidents_from_one_rule_the_newer_is_found() -> None:
+    # Two open at once is two deliveries of one alert that raced each other in.
+    # One answer either way, and it is the newer.
+    some_rule = "some-rule"
+    some_service = "kuki-service"
+    some_alert = Alert(service=some_service, alert_name="HighErrorRate", rule=some_rule)
+
+    with connect_from_env() as conn:
+        older = an_incident_created_for(conn, some_alert)
+        # `now()` is transaction time, so two incidents created in one
+        # transaction share a timestamp and nothing is left to break the tie.
+        conn.commit()
+        newer = an_incident_created_for(conn, some_alert)
+
+        Scenario() \
+            .given(
+                older, newer
+            ) \
+            .when(
+                lambda: incidents.get_open_by_rule_and_service(conn, some_rule, some_service)
+            ) \
+            .then(
+                _it_found(newer)
+            )
+
+
+@pytest.mark.integration
+def test_another_rules_open_incident_is_not_found() -> None:
+    some_rule = "some-rule"
+    some_other_rule = "some-other-rule"
+    some_service = "kuki-service"
+    an_alert_from_another_rule = Alert(
+        service=some_service, alert_name="HighErrorRate", rule=some_other_rule
+    )
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                an_incident_created_for(conn, an_alert_from_another_rule)
+            ) \
+            .when(
+                lambda: incidents.get_open_by_rule_and_service(conn, some_rule, some_service)
+            ) \
+            .then(
+                _nothing_came_back()
+            )
+
+
+@pytest.mark.integration
+def test_the_same_rules_open_incident_for_another_service_is_not_found() -> None:
+    # A rule watching several services pages for each one, and each is an
+    # incident of its own: the service paged for is what Argus investigates.
+    some_rule = "some-rule"
+    some_service = "kuki-service"
+    some_other_service = "buki-service"
+    an_alert_for_another_service = Alert(
+        service=some_other_service, alert_name="HighErrorRate", rule=some_rule
+    )
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                an_incident_created_for(conn, an_alert_for_another_service)
+            ) \
+            .when(
+                lambda: incidents.get_open_by_rule_and_service(conn, some_rule, some_service)
+            ) \
+            .then(
+                _nothing_came_back()
+            )
+
+
 def _the_incident_is(conn: psycopg.Connection,
                      status: str,
                      incident_id: str | None = None) -> Assertion[Any]:
@@ -435,6 +552,22 @@ def _nothing_came_back() -> Assertion[Incident | None]:
     def assertion(found: Incident | None) -> bool:
         if found is not None:
             raise AssertionError(f"Expected nothing to come back, got [{found}].")
+
+        return True
+
+    return assertion
+
+
+def _it_found(expected: str) -> Assertion[Incident | None]:
+    """Which open incident a rule firing again would join."""
+    def assertion(found: Incident | None) -> bool:
+        if found is None:
+            raise AssertionError(f"Expected incident [{expected}] to be found open, got none.")
+
+        if found.id != expected:
+            raise AssertionError(
+                f"Expected incident [{expected}] to be found open, got [{found.id}]."
+            )
 
         return True
 

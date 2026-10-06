@@ -27,7 +27,7 @@ def test_an_alert_that_said_no_more_than_it_had_to_assumes_nothing() -> None:
         ) \
         .then(
             _nothing_was_assumed_about(
-                "severity", "summary", "stale_entry_keys", "stale_entries_found"
+                "severity", "summary", "stale_entry_keys", "stale_entries_found", "rule"
             )
         )
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -328,7 +328,7 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
 
 @contextmanager
-def a_running_platform() -> Iterator[type[FakeDeploymentPlatformHandler]]:
+def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
     """Runs a fake deployment platform and points the platform settings at it.
 
     Entered *around* `a_running_write_mcp` rather than inside it: that manager

@@ -42,6 +42,7 @@ from agent_mitigation import (
     is_a_generic_mitigation,
     performing_writes_over,
     recent_metrics_over,
+    rules_read_over,
     take_action,
 )
 from argus_core import Connections, SettingsSlice, get_settings
@@ -306,6 +307,9 @@ def against(connections: Connections,
             # parameter every time Argus learned a new thing to do.
             writes=performing_writes_over(write),
             fetch_metrics=recent_metrics_over(read),
+            # Where the alert rule that paged stands, which is what an action on
+            # a series alert is judged by. Over the read tier, since it is a read.
+            read_rule=rules_read_over(read),
             # The agent's own binding rather than one assembled here, because
             # the worker wants the same one for a withdrawal - and two copies
             # of it is how one came to be missing a collaborator the other had.

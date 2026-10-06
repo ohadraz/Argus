@@ -98,6 +98,16 @@ class Alert(BaseModel):
     # and is acted on as one. Two fields that say the same thing can be made to
     # disagree, which is the only way this is ever caught.
     stale_entries_found: int | None = None
+    # Which rule fired, as whatever raised the alert addresses it - so that whether
+    # it has stopped firing can be asked of that rule.
+    #
+    # A reference that names no vendor. The adapter that built this alert knows
+    # where its sender keeps the rule's identity; everything past the boundary
+    # only joins a re-firing to the incident the rule opened, or hands it back
+    # to the port that reads rules. `None` where the sender
+    # named none, and never guessed from `alert_name`, which is a title several
+    # rules can share.
+    rule: str | None = None
 
     @model_validator(mode="after")
     def _the_keys_account_for_the_count(self) -> Alert:

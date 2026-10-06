@@ -480,7 +480,8 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
              still_wanted: Any = None,
              incident_id: str | None = None,
              publisher: Publisher = nobody,
-             onset: datetime | None = None) -> Outcome:
+             onset: datetime | None = None,
+             rule: str | None = None) -> Outcome:
         # Only one kind of action leaves anything behind, and the stand-in
         # hands back exactly what the real one would.
         the_way_back = (

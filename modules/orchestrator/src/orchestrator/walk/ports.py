@@ -141,6 +141,12 @@ class TakeAction(Protocol):
     # than by whether a level does. The agent cannot derive it - nothing else it is
     # handed says when the incident began - and `None`, which is every incident
     # whose onset was measured, leaves the judgement exactly as it was.
+    #
+    # `rule` is the alert rule that paged, for an alert about a series: the
+    # action is judged by whether it stops firing. `None` leaves it to the
+    # judgement it has without a rule - the levels, the readings returning, or
+    # the action's own receipt - which is what a finding and an alert naming no
+    # rule get.
     def __call__(
         self,
         action: Action,
@@ -149,7 +155,8 @@ class TakeAction(Protocol):
         still_wanted: StillWanted = ...,
         incident_id: str | None = None,
         publisher: Publisher = nobody,
-        onset: datetime | None = None
+        onset: datetime | None = None,
+        rule: str | None = None
     ) -> Outcome: ...
 
 

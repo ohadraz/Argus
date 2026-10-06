@@ -5,6 +5,7 @@ from typing import Final
 from argus_core import ReadMcpEndpoint
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    AlertRuleStanding,
     ChangeEvent,
     MetricBucket,
     RolloutProgress,
@@ -25,6 +26,7 @@ _FILE_PATHS: Final = TypeAdapter(list[str])
 _WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
 _ROLLOUT_STATE: Final = TypeAdapter(list[str])
 _ROLLOUT_PROGRESS: Final = TypeAdapter(RolloutProgress)
+_ALERT_RULE: Final = TypeAdapter(AlertRuleStanding)
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
@@ -204,6 +206,18 @@ def get_rollout_progress(service: str, *, client: McpClient) -> RolloutProgress:
         _ROLLOUT_PROGRESS.validate_python,
         service=service
     )
+
+
+def get_alert_rule(rule: str, *, client: McpClient) -> AlertRuleStanding:
+    """Reads whether an alert rule has stopped firing, as of its last
+    evaluation, and how the rule reads its service.
+
+    What Mitigation judges an action on a series alert by: the rule that paged
+    defines what is acceptable for the service. `rule` is the reference the
+    alert carried, whichever vendor's rule it is. Raises rather than answering
+    normal when the rule cannot be read.
+    """
+    return client.call("get_alert_rule", _ALERT_RULE.validate_python, rule=rule)
 
 
 def get_enabled_flags(*, client: McpClient) -> list[str]:

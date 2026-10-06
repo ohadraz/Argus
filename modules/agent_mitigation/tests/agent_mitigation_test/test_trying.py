@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
@@ -16,6 +16,7 @@ from agent_mitigation.tools import (
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
+    RuleReader,
     ServiceRestarter,
 )
 from agent_mitigation.trying import UndoChange
@@ -34,6 +35,7 @@ from argus_core.mcp_transport import (
 )
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
+    AlertRuleStanding,
     AutoscalerUndo,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
@@ -155,6 +157,12 @@ THE_FLOOR_IT_WAS_HELD_AT = 6
 # otherwise sit through it - the clock and the sleeper are injected, so what
 # this bounds is the arithmetic rather than any real wait.
 A_SHORT_WAIT_IN_SECONDS = 180.0
+
+# The rule that paged, for an alert about a series. What an action on one is
+# judged by: the rule defines what "acceptable" is for the service, as it would
+# for a responder - so whether the rule stopped firing is the verdict, and the
+# metrics are read only to date the recovery.
+SOME_RULE = "some-rule"
 
 
 @pytest.mark.unit
@@ -3338,6 +3346,537 @@ def _the_verdict_is_not(forbidden: Verdict) -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected any verdict but [{forbidden}], and the attempt "
                 f"settled on it anyway: [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+
+@pytest.mark.unit
+def test_a_rule_that_stopped_firing_after_the_action_confirms_it() -> None:
+    # Confirmed on the rule even where the metrics window still reads the
+    # incident: whether the service is acceptable again is the rule's to say.
+    Scenario() \
+        .given(
+            the_rule_resolved := _a_rule_reading(_a_rule_standing(
+                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_resolved,
+                metrics=a_still_failing_window(),
+                clock=a_clock_frozen_at(ACTION_TIME)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_still_firing_when_the_time_runs_out_refutes_the_action() -> None:
+    # The defect this closes: a flap with no rhythm hands the metrics a clear
+    # minute and they confirm on it. A rule watching long enough to see the flap
+    # goes on firing, and that is what refutes.
+    Scenario() \
+        .given(
+            the_rule_still_fires := _a_rule_reading(_a_rule_standing(
+                is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_still_fires,
+                metrics=a_recovered_window(),
+                clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.REFUTED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_that_was_normal_before_the_action_does_not_confirm_it() -> None:
+    # An evaluation whose range began before the action says nothing about the
+    # action - the rule may have gone quiet in a lull the action had no part in.
+    Scenario() \
+        .given(
+            the_rule_was_quiet_already := _a_rule_reading(_a_rule_standing(
+                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_was_quiet_already,
+                metrics=a_recovered_window(),
+                clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.REFUTED)
+        )
+
+
+@pytest.mark.unit
+def test_the_wait_is_read_off_the_rule() -> None:
+    # The rule's range, plus one evaluation of its group, plus how long it keeps
+    # firing, plus the metrics source's lag: two minutes, one, thirty seconds and
+    # one minute, 270 seconds. Watched that long rather than for the configured
+    # wait - still firing at 200 seconds is looked at again, and refuted at 270.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_still_fires := _a_rule_reading(_a_rule_standing(
+                is_normal=False,
+                evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
+                range_seconds=120,
+                interval_seconds=60,
+                keep_firing_for_seconds=30
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_still_fires,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 200, 270),
+                publisher=published.append,
+                reporting_lag_minutes=1
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_allowed(published, 270),
+            _each_look_reported(published, False, False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_confirming_the_action_still_records_the_minute_the_metrics_date() -> None:
+    # The rule decides the verdict, not the minute. When the service came back is
+    # a fact the metrics hold, and the write-up reads it.
+    the_minute_it_came_back = "2026-08-20T11:08:00Z"
+
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_resolved := _a_rule_reading(_a_rule_standing(
+                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_resolved,
+                metrics=a_window_recovered_before_the_action(),
+                clock=a_clock_frozen_at(ACTION_TIME),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_recovery_was_recorded_at(published, the_minute_it_came_back)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_that_could_never_be_read_reaches_no_verdict() -> None:
+    # Not refuted: nothing said the rule was still firing. Refuting would put a
+    # change back on a measurement nobody took.
+    Scenario() \
+        .given(
+            nobody_can_read_the_rule := _a_rule_nobody_can_read()
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                nobody_can_read_the_rule,
+                metrics=a_recovered_window(),
+                clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.ESCALATED)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_that_never_departed_does_not_refute_an_action_the_rule_judges() -> None:
+    # The metrics get no verdict of their own on an action the rule judges. A
+    # window with nothing departed in it says nothing the rule has not, and
+    # refuting on it would put back a change the rule found had worked.
+    Scenario() \
+        .given(
+            the_rule_resolved := _a_rule_reading(_a_rule_standing(
+                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_resolved,
+                metrics=a_window_that_never_departed(),
+                clock=a_clock_frozen_at(ACTION_TIME)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_metrics_that_cannot_be_read_do_not_keep_the_rule_from_judging() -> None:
+    # On the rule's path the window is read only to date the recovery, so a
+    # window that cannot be read costs that date and nothing more: the rule
+    # still says whether the action held.
+    Scenario() \
+        .given(
+            the_rule_resolved := _a_rule_reading(_a_rule_standing(
+                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=_a_read_that_never_answers(),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                rule=SOME_RULE,
+                read_rule=the_rule_resolved
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_still_firing_is_read_again_until_it_stops() -> None:
+    # Polled, not read once: a rule firing inside its deadline is asked again,
+    # and the evaluation that reads it normal confirms.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_stops_firing := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                ),
+                _a_rule_standing(
+                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC)
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_stops_firing,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 60, 120),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _each_look_reported(published, False, True)
+        ))
+
+
+@pytest.mark.unit
+def test_an_evaluation_whose_range_begins_as_the_change_arrived_confirms_it() -> None:
+    # The boundary: a range that starts at the very instant the change was in
+    # force covers no minute before it.
+    some_range_seconds = 60
+
+    Scenario() \
+        .given(
+            the_rule_resolved := _a_rule_reading(_a_rule_standing(
+                is_normal=True,
+                evaluated_at=ACTION_TIME + timedelta(seconds=some_range_seconds),
+                range_seconds=some_range_seconds
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_resolved,
+                metrics=a_still_failing_window(),
+                clock=a_clock_frozen_at(ACTION_TIME)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_unreadable_at_first_is_judged_once_it_can_be_read() -> None:
+    Scenario() \
+        .given(
+            the_rule_answers_late := _a_rule_reading_in_turn(
+                McpToolError("the rule could not be read"),
+                _a_rule_standing(
+                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_answers_late,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 10, 20)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_read_firing_and_unreadable_at_its_deadline_refutes() -> None:
+    # Unlike a rule never read: the last thing it said was that it was firing,
+    # and the deadline it set has passed.
+    Scenario() \
+        .given(
+            the_rule_goes_quiet_firing := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                ),
+                McpToolError("the rule could not be read")
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_goes_quiet_firing,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 10, 3600)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.REFUTED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_that_cannot_be_read_is_said_to_have_gone_unanswered() -> None:
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            nobody_can_read_the_rule := _a_rule_nobody_can_read()
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                nobody_can_read_the_rule,
+                metrics=a_recovered_window(),
+                clock=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                publisher=published.append
+            )
+        ) \
+        .then(
+            _the_rule_read_was_said_unanswered(published)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_withdrawn_while_its_rule_is_watched_is_withdrawn() -> None:
+    Scenario() \
+        .given(
+            the_rule_still_fires := _a_rule_reading(_a_rule_standing(
+                is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                still_wanted=nobody_wants_it_any_more(),
+                undo=an_undo_nobody_calls(),
+                rule=SOME_RULE,
+                read_rule=the_rule_still_fires
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.WITHDRAWN)
+        )
+
+
+@pytest.mark.unit
+def test_an_action_on_an_alert_naming_no_rule_reads_no_rule() -> None:
+    # The walk binds a way to read rules for every incident; an alert that named
+    # none is judged without one.
+    Scenario() \
+        .given(
+            dont_care_rules := create_autospec(RuleReader)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                rule=None,
+                read_rule=dont_care_rules
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_rule_was_never_read(dont_care_rules)
+        ))
+
+
+@pytest.mark.unit
+def test_the_rules_deadline_is_read_off_its_first_reading() -> None:
+    # Read once, as the levels' deadline is: a rule whose range a later read
+    # reported wider does not move the time the action was given.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_widens := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=False,
+                    evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
+                    range_seconds=60
+                ),
+                _a_rule_standing(
+                    is_normal=False,
+                    evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
+                    range_seconds=3600
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_widens,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 10, 130, 7200),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _each_look_reported(published, False, False)
+        ))
+
+
+def _an_action_judged_by_the_rule(read_rule: RuleReader,
+                                  metrics: list[MetricBucket],
+                                  clock: Callable[[], datetime],
+                                  publisher: Any = None,
+                                  reporting_lag_minutes: int = 0) -> Outcome:
+    """One flag revert on an incident paged by `SOME_RULE`."""
+    keywords = {"publisher": publisher} if publisher is not None else {}
+
+    return take_action(
+        an_action_setting(DONT_CARE_FLAG, enabled=False),
+        settings=_some_mitigation_settings(reporting_lag_minutes),
+        thresholds=_some_thresholds(),
+        incident_id=_SOME_INCIDENT_ID,
+        writes=the_writes(
+            set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+        ),
+        fetch_metrics=metrics_reading(metrics),
+        now=clock,
+        sleep=dont_care_sleep,
+        undo=an_undo_that_put_it_back(DONT_CARE_FLAG),
+        rule=SOME_RULE,
+        read_rule=read_rule,
+        **keywords
+    )
+
+
+def _a_rule_standing(is_normal: bool,
+                     evaluated_at: datetime,
+                     range_seconds: int = 60,
+                     interval_seconds: int = 60,
+                     keep_firing_for_seconds: int = 0) -> AlertRuleStanding:
+    return AlertRuleStanding(
+        rule=SOME_RULE,
+        is_normal=is_normal,
+        evaluated_at=evaluated_at,
+        range_seconds=range_seconds,
+        interval_seconds=interval_seconds,
+        keep_firing_for_seconds=keep_firing_for_seconds
+    )
+
+
+def _a_rule_reading(standing: AlertRuleStanding) -> RuleReader:
+    read = create_autospec(RuleReader)
+    read.return_value = standing
+
+    return cast(RuleReader, read)
+
+
+def _a_rule_nobody_can_read() -> RuleReader:
+    read = create_autospec(RuleReader)
+    read.side_effect = McpToolError("the rule could not be read")
+
+    return cast(RuleReader, read)
+
+
+def _a_rule_reading_in_turn(*answers: AlertRuleStanding | Exception) -> RuleReader:
+    """A rule read once per answer, in order, sticking at the last - as the
+    clocks here stick - so a loop that asks once more than expected is answered
+    rather than handed a `StopIteration`."""
+    remaining = list(answers)
+
+    def read(rule: str, /) -> AlertRuleStanding:
+        answer = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+        if isinstance(answer, Exception):
+            raise answer
+
+        return answer
+
+    return cast(RuleReader, create_autospec(RuleReader, side_effect=read))
+
+
+def _the_rule_read_was_said_unanswered(
+    published: list[IncidentEvent]
+) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        asked = [
+            event.what_was_asked for event in published
+            if isinstance(event, RetrievalUnanswered)
+        ]
+
+        if "the alert rule that paged" not in asked:
+            raise AssertionError(
+                f"Expected a read of the alert rule that paged to be said to have "
+                f"gone unanswered, and the unanswered reads were {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_rule_was_never_read(read_rule: RuleReader) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        asked = cast(MagicMock, read_rule).call_count
+
+        if asked:
+            raise AssertionError(
+                f"Expected no rule to be read for an alert that named none, and "
+                f"one was read {asked} times."
             )
 
         return True

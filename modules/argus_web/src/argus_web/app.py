@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from argus_web import reads
-from argus_web.grafana import parse_grafana_alert
+from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 from argus_web.pushes import (
     SIGNATURE_HEADER,
     PushSettings,
@@ -143,7 +143,7 @@ templates.env.filters["clock"] = _on_the_clock
 @app.post("/webhooks/alerts", status_code=202)
 def receive_alert(payload: dict[str, Any],
                   connections: UsingConnections,
-                  publisher: Publishing) -> dict[str, str]:
+                  publisher: Publishing) -> dict[str, str | None]:
     """`argus_web`'s only incident-domain entrypoint (spec §7.9): validates
     and normalizes the payload into an `Alert` domain object, then calls the
     Orchestrator's entrypoint in-process - never the raw payload.
@@ -151,7 +151,13 @@ def receive_alert(payload: dict[str, Any],
     Answers as soon as the incident exists, with its id. The walk belongs to a
     worker: an investigation run here would hold this connection open for its
     whole length, and a caller that gave up would leave it running with nobody
-    to answer."""
+    to answer.
+
+    A webhook saying only that rules stopped firing opens nothing, and is
+    answered with no incident."""
+    if reports_only_resolutions(payload):
+        return {"incident_id": None}
+
     alert = parse_grafana_alert(payload)
     incident_id = start_incident(alert, connections, events_into_connection)
     return {"incident_id": incident_id}
