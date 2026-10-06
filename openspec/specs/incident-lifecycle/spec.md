@@ -17,6 +17,11 @@ invoke the graph at all: an incident is walked by a worker, so an investigation
 outlives the request that asked for it and the connection that delivered the
 alert cannot be what a run depends on.
 
+A webhook carrying only `resolved` alerts SHALL NOT open an incident, and one carrying
+both SHALL open it from the first alert still firing. A firing alert whose rule identity and
+service match the alert of an incident still open SHALL NOT open a new one, and the endpoint
+SHALL answer with that incident's id.
+
 #### Scenario: Webhook call starts a new incident
 - **GIVEN** `argus_web`'s alert webhook endpoint is running
 - **WHEN** a webhook call is received with a valid alert payload
@@ -29,6 +34,29 @@ alert cannot be what a run depends on.
 - **WHEN** the webhook call is received
 - **THEN** it is answered with the incident's id while the graph has not
   finished, and the answer does not depend on the graph finishing
+
+#### Scenario: A resolved alert opens nothing
+- **WHEN** a webhook call carries only `resolved` alerts
+- **THEN** no incident is created and no run is enqueued
+
+#### Scenario: A resolved alert ahead of a firing one is passed over
+- **WHEN** a webhook call carries a `resolved` alert followed by a firing one
+- **THEN** the incident is opened from the firing alert
+
+#### Scenario: A re-firing joins the open incident
+- **GIVEN** an open incident opened by a rule
+- **WHEN** the same rule fires again
+- **THEN** no new incident is created, and the answer is the open one's id
+
+#### Scenario: A firing after the incident closed is a new incident
+- **GIVEN** an incident opened by a rule and since closed
+- **WHEN** the same rule fires again
+- **THEN** a new incident is created
+
+#### Scenario: The same rule firing for another service is a new incident
+- **GIVEN** an open incident opened by a rule for one service
+- **WHEN** the same rule fires for another service
+- **THEN** a new incident is created for that service
 
 ### Requirement: An incident is walked by a worker, not by the request
 The system SHALL run each incident's graph in a process separate from the one
@@ -364,3 +392,4 @@ as the mistake it was.
 #### Scenario: The record carries the span and the signals
 - **WHEN** an incident ends `disproven`
 - **THEN** its timeline records the signals judged and the window judged over
+

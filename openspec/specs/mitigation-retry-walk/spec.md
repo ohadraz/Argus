@@ -207,7 +207,10 @@ postmortem report that the evidence ruled a cause out when nothing ruled it out.
 The system SHALL extend the deadline by which an action's recovery must have
 shown by `metrics_reporting_lag_minutes` (default 1), so that a metrics source
 which reports a minute only once it has ended is not read as showing no
-recovery before the minutes that would carry it can have been reported.
+recovery before the minutes that would carry it can have been reported. For an
+incident whose alert names the rule that paged, the deadline extended is the one
+read off that rule; for every other incident, it is the one measured off the
+incident.
 
 #### Scenario: A lagging source does not refute a recovery
 - **GIVEN** a reporting lag of 1 and a source that reports each minute only
