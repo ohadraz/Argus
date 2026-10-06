@@ -34,6 +34,7 @@ from argus_core import (
     WriteMcpEndpoint,
     connect_from_env,
     get_settings,
+    in_real_time,
     open_pool,
 )
 from argus_core.events import StatusChanged, publish
@@ -99,7 +100,10 @@ def _the_claim_kept_alive(run_id: str,
     be the more expensive of the two.
     """
     stop = threading.Event()
-    every = lease.total_seconds() / _RENEWALS_PER_LEASE
+    # Postgres measures the lease on the stack's clock, and this thread waits
+    # on the real one - so the interval is converted, or a stack running faster
+    # than real time would see its lease lapse under a walk still in progress.
+    every = in_real_time(lease.total_seconds() / _RENEWALS_PER_LEASE)
 
     def keep_renewing() -> None:
         while not stop.wait(every):

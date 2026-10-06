@@ -44,14 +44,14 @@ part of that no walk here can show, since none of them restarts.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from http import HTTPStatus as HttpStatus
 from statistics import median
 from typing import Any
 
 import httpx2
 import pytest
-from argus_core import get_settings
+from argus_core import get_settings, utc_now
 from argus_core.anomaly import find_onset, has_recovered_since
 from argus_core.models import FailureMode, IncidentStatus, MetricBucket
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
@@ -348,11 +348,11 @@ def _recovery_is_refused_since_the_restart() -> Assertion[datetime]:
     fixture that recovered a minute later.
     """
     def assertion(restarted_at: datetime) -> bool:
-        deadline = datetime.now(UTC) + timedelta(
+        deadline = utc_now() + timedelta(
             seconds=AS_LONG_AS_MITIGATION_WOULD_WAIT_SECONDS
         )
 
-        while datetime.now(UTC) < deadline:
+        while utc_now() < deadline:
             if has_recovered_since(
                 _the_window(), _to_minute(restarted_at), the_configured_thresholds()
             ):
@@ -376,10 +376,10 @@ def _enough_whole_minutes_have_passed() -> bool:
     progress, whose rate is taken over however many requests have arrived so far.
     So this waits for buckets rather than assuming them.
     """
-    deadline = datetime.now(UTC) + timedelta(seconds=ENOUGH_MINUTES_SECONDS)
+    deadline = utc_now() + timedelta(seconds=ENOUGH_MINUTES_SECONDS)
     wanted = the_configured_thresholds().persistence_minutes + 1
 
-    while datetime.now(UTC) < deadline:
+    while utc_now() < deadline:
         try:
             if len(_the_departed_minutes()) >= wanted:
                 return True
@@ -410,7 +410,7 @@ def _the_shop_was_restarted() -> datetime:
             f"The shop refused to restart: {response.status_code} {response.text}."
         )
 
-    return datetime.now(UTC)
+    return utc_now()
 
 
 def _the_window() -> list[MetricBucket]:

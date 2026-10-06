@@ -21,6 +21,7 @@ and the other "record no call". Flattening would force one of those to be
 renamed to suit the packaging rather than the reading.
 """
 
+from argus_core.clock import Clock, the_clock_named_by
 from argus_core.config import (
     DatabaseSettings,
     LLMSettings,
@@ -33,13 +34,16 @@ from argus_core.config import (
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
 from argus_core.timestamps import (
+    in_real_time,
     parse_iso,
+    sleep_on_the_clock,
     to_iso,
     to_iso_minute,
     utc_now,
 )
 
 __all__ = [
+    "Clock",
     "Connections",
     "DatabaseSettings",
     "LLMSettings",
@@ -51,9 +55,12 @@ __all__ = [
     "connect",
     "connect_from_env",
     "get_settings",
+    "in_real_time",
     "new_id",
     "open_pool",
     "parse_iso",
+    "sleep_on_the_clock",
+    "the_clock_named_by",
     "to_iso",
     "to_iso_minute",
     "utc_now"

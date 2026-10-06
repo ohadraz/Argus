@@ -23,13 +23,14 @@ has to carry an id it has no other use for.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
 from argus_core.ids import UuidStr, new_id
+from argus_core.timestamps import utc_now
 
 _logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class ReplayEntry(BaseModel):
     request: dict[str, Any]
     response: dict[str, Any]
     latency_ms: int
-    at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    at: datetime = Field(default_factory=utc_now)
 
 
 class Recorder(Protocol):

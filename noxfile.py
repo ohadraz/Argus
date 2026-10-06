@@ -1408,6 +1408,17 @@ def _a_qdrant_for(module: str) -> dict[str, str]:
 # only ever paid in full where recovery never comes, which is why halving it
 # takes about six minutes off a run and nothing off what a green run means.
 _THE_REPORTING_LAG: Final = os.environ.get("METRICS_REPORTING_LAG_MINUTES", "0")
+
+# How much faster than real time a replayed stack runs. Most of a replayed case
+# is waiting for minutes to pass - the next whole one, the clear ones a recovery
+# has to show - and on this clock each costs a tenth of itself.
+#
+# Ten rather than more, because real work costs this many times its length in
+# simulated time: a window build of a second and a bit is thirteen simulated
+# seconds here, against a ten-second re-read, and at sixty it would be a minute.
+# And `e2e_replay` alone: a real model's answer takes tens of real seconds, which
+# at this speed ages a staged change out of the window Argus looks back over.
+_THE_SIMULATED_SPEED: Final = "10"
 _E2E_SETTINGS = {
     "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "180",
     # Where the service's metrics are read from: the Target Service's own
@@ -1695,9 +1706,14 @@ def _run_against_the_stack(
     command: list[str] | None = None,
     slack_stands_in: bool = True,
     github_stands_in: bool = True,
-    model_stands_in: bool = False
+    model_stands_in: bool = False,
+    on_a_simulated_clock: bool = False
 ) -> None:
     """Brings the whole stack up, runs `test_paths` against it, tears it down.
+
+    `on_a_simulated_clock` runs every process of the stack - Argus's, the
+    containers', and the pytest process - on one clock `_THE_SIMULATED_SPEED`
+    times faster than the real one, counted from now. See `argus_core.clock`.
 
     Shared by `e2e` and `e2e_replay` so the two cannot drift on anything except
     the one difference that distinguishes them - which service, if any, is
@@ -1746,6 +1762,14 @@ def _run_against_the_stack(
         os.environ.update(_SLACK_AT_THE_DOUBLE)
     if github_stands_in:
         os.environ.update(_GITHUB_AT_THE_DOUBLE)
+    # Before docker, because the clock writer reads both as it starts, and on the
+    # session's environment for the reason the settings above are: a process that
+    # was not handed them runs on the real clock, minutes adrift of the rest.
+    if on_a_simulated_clock:
+        os.environ.update({
+            "SIM_CLOCK_EPOCH": str(time.time()),
+            "SIM_CLOCK_SPEED": _THE_SIMULATED_SPEED
+        })
     try:
         # `--build` because the Target Service image is built from a sibling
         # working copy, not pulled: without it Compose reuses whatever was
@@ -2021,6 +2045,11 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     by `nox -s eval`, against thresholds derived from fifty samples per case -
     never from one replayed answer here.
 
+    The stack runs on a simulated clock, `_THE_SIMULATED_SPEED` times real time,
+    because a replayed case is mostly waiting for minutes to pass and a recorded
+    answer takes no time to give. `e2e` stays on the real clock: a real model's
+    answer takes real seconds, and at this speed those are minutes.
+
     Selecting the double is one setting (`anthropic_base_url`), passed to the
     **worker** alone - the process that walks the graph, and so the only one
     that talks to a model at all. `argus_web` receives alerts and makes no
@@ -2059,7 +2088,8 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
         session,
         [] if named_cases else _the_cases_for(mode),
         service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
-        model_stands_in=True
+        model_stands_in=True,
+        on_a_simulated_clock=True
     )
 
 

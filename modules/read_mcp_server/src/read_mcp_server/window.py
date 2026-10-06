@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from argus_core import SettingsSlice, parse_iso
+from argus_core import SettingsSlice, parse_iso, utc_now
 
 
 class RetrievalSettings(SettingsSlice):
@@ -84,7 +84,7 @@ def _resolve_window(alert_time: str | None,
 
     return ResolvedWindow(
         start=anchor - timedelta(minutes=lookback_minutes),
-        end=min(datetime.now(UTC), anchor + timedelta(minutes=lookahead_minutes)),
+        end=min(utc_now(), anchor + timedelta(minutes=lookahead_minutes)),
         clamped=False,
     )
 

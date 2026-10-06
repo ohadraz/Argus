@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
-from argus_core import to_iso
+from argus_core import to_iso, utc_now
 
 
 def a_grafana_style_alert_with(service: str = "some-service",
@@ -20,7 +20,7 @@ def a_grafana_style_alert_with(service: str = "some-service",
     test turning red for a reason that has nothing to do with Argus.
     """
     summary = f"Error rate above threshold on {service}"
-    alert_time = started_at if started_at is not None else datetime.now(UTC)
+    alert_time = started_at if started_at is not None else utc_now()
 
     return {
         "receiver": "argus-webhook",

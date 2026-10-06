@@ -40,13 +40,14 @@ decides for itself whether the change it is looking at was a mistake.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx2
 import psycopg
 import pytest
+from argus_core import utc_now
 from argus_core.events import ActionTaken, FixAttempted
 from argus_core.models import FailureMode, FixOutcome, IncidentStatus
 from argus_incidents.repository import events
@@ -242,7 +243,7 @@ def _metrics_still_not_collected() -> Assertion[httpx2.Response]:
             for minute in the_shops_window()
         )
 
-        if published and datetime.now(UTC) - published[-1] < A_HOLE_WORTH_PAGING_FOR:
+        if published and utc_now() - published[-1] < A_HOLE_WORTH_PAGING_FOR:
             raise AssertionError(
                 f"Expected the shop to be uncollected still, and its newest "
                 f"minute [{published[-1]}] is under [{A_HOLE_WORTH_PAGING_FOR}] "

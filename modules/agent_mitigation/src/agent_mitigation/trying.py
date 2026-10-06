@@ -7,12 +7,11 @@ the change back where the answer refutes the hypothesis it was taken on.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import NamedTuple, Protocol, assert_never
 
-from argus_core import to_iso_minute, utc_now
+from argus_core import sleep_on_the_clock, to_iso_minute, utc_now
 from argus_core.anomaly import (
     AnomalyThresholds,
     find_recovery,
@@ -143,7 +142,7 @@ def take_action(action: Action,
                 thresholds: AnomalyThresholds,
                 fetch_metrics: MetricsFetcher,
                 now: Clock = utc_now,
-                sleep: Sleeper = time.sleep,
+                sleep: Sleeper = sleep_on_the_clock,
                 still_wanted: StillWanted = _nobody_stopped_this_walk,
                 arrivals: ArrivalFor = nothing_to_wait_for,
                 incident_id: str | None = None,

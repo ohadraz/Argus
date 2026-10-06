@@ -14,13 +14,13 @@ the walk makes them.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from agent_mitigation import flag_changes_over
 from agent_mitigation.tools import MitigationSettings, argus_changed_flag_since, set_flag
-from argus_core import WriteMcpEndpoint, get_settings
+from argus_core import WriteMcpEndpoint, get_settings, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_testkit import Assertion, Scenario, all_of, calling
 from write_mcp_client import write_mcp
@@ -43,7 +43,7 @@ def write_tier() -> Iterator[McpClient]:
 def test_argus_recognises_the_change_it_made_and_no_other(
     write_tier: McpClient
 ) -> None:
-    since = datetime.now(UTC) - A_MOMENT_AGO
+    since = utc_now() - A_MOMENT_AGO
 
     Scenario() \
         .given(

@@ -24,11 +24,28 @@ include:
 # because every path that matters says what it wants.
 services:
   postgres:
-    image: postgres:16
+    # On the stack's clock, as every party of the stack is: Postgres stamps an
+    # incident's start, its end and every action taken in it, and a database
+    # reading the wall while Argus reads a clock ten times faster would date a
+    # walk in two different times. The clock is written by `sim-clock`, from the
+    # Target Environment's compose file; unset, it is the real one.
+    build:
+      context: images/postgres-faketime
+    # As `postgres` from the start: the image's entrypoint starts as root and
+    # switches with `gosu`, and under libfaketime that switch hangs with no
+    # output.
+    user: postgres
+    depends_on:
+      sim-clock:
+        condition: service_healthy
     environment:
       POSTGRES_USER: argus
       POSTGRES_PASSWORD: argus
       POSTGRES_DB: argus
+      LD_PRELOAD: /usr/local/lib/libfaketime.so.1
+      FAKETIME_TIMESTAMP_FILE: /clock/spec
+      FAKETIME_NO_CACHE: "1"
+      FAKETIME_DONT_FAKE_MONOTONIC: "1"
     ports:
       # The host port is a variable so a second database can exist beside the
       # first. `integration` brings its own up under its own compose project,
@@ -51,6 +68,7 @@ services:
       # `down -v` still takes this with it, which is what an e2e run and the
       # sweep's own cleanup both use.
       - postgres-data:/var/lib/postgresql/data
+      - sim-clock:/clock:ro
     healthcheck:
       # Over TCP, not the default Unix socket. On a fresh volume the image runs
       # a temporary server for `initdb` that listens on the socket alone, so a

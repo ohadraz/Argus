@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Protocol
 
@@ -41,6 +41,7 @@ from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
+from argus_core.timestamps import utc_now
 
 _logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class _Event(BaseModel):
 
     id: UuidStr = Field(default_factory=new_id)
     incident_id: UuidStr
-    at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    at: datetime = Field(default_factory=utc_now)
 
 
 class AlertAcknowledged(_Event):
