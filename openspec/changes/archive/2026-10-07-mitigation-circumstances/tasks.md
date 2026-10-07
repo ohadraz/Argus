@@ -18,4 +18,4 @@
 
 - [x] 3.1 Comments, docstrings, jargon, docs aligned; no missing, redundant or weak tests
 - [x] 3.2 lint, typecheck, guard_layering, test all, integration, full `e2e_replay(mode='both')`
-- [ ] 3.3 Commit (one line, approved); archive the change
+- [x] 3.3 Commit (one line, approved); archive the change
