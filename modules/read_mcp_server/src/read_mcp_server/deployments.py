@@ -34,13 +34,14 @@ from __future__ import annotations
 from typing import Final, Protocol
 
 from argus_core.models import ChangeEvent
+from deployment_platform import DeploymentPlatformReads
 from repository_source import (
     RepositorySourceSettings,
     SourceDifference,
     the_difference_between,
 )
 
-from read_mcp_server.argocd import FetchApplication, the_revisions_deployed
+from read_mcp_server.deploy_history import the_revisions_deployed
 from read_mcp_server.repository import RepositoryReadSettings, the_source_settings
 
 # How many changed files one answer names. A name is one short line and is what
@@ -81,7 +82,7 @@ def what_a_deployment_changed(service: str,
                               revision: str,
                               settings: RepositoryReadSettings,
                               *,
-                              fetch: FetchApplication,
+                              platform: DeploymentPlatformReads,
                               compare: SourceComparer = the_difference_between
                               ) -> list[str]:
     """What the deployment of `revision` changed, as lines a model reads.
@@ -99,7 +100,7 @@ def what_a_deployment_changed(service: str,
     last of those is a conclusion something acts on - it rules the deployment out -
     which is exactly why a repository that could not be compared raises instead.
     """
-    deployed = the_revisions_deployed(service, fetch=fetch)
+    deployed = the_revisions_deployed(service, platform=platform)
     landed = _where_in_the_history(revision, deployed)
 
     if landed is None:

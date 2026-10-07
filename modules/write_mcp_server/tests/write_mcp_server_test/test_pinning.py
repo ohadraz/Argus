@@ -6,11 +6,10 @@ the controller is left running, with nowhere left to scale down to. Nothing is
 removed, nothing is deleted, and the ceiling a human declared is never moved.
 
 Where the autoscaler is is discovered rather than configured, which is what
-separates this from the restart and the scale-out beside it. Argo CD's resource
-tree names every resource an application has, with its kind, its own name and its
-namespace, so a pin asks the platform where to write instead of being told - and
-an autoscaler named something other than its application is then addressed
-correctly rather than plausibly.
+separates this from the restart and the scale-out beside it. The platform names
+every resource an application has, so a pin asks it where to write instead of
+being told - and an autoscaler named something other than its application is
+then addressed correctly rather than plausibly.
 
 The bounds are live state only the platform holds, as the scale-out's count is.
 The repository says what the autoscaler is asked to converge on, which is a
@@ -23,16 +22,16 @@ autoscaler's whole manifest re-applied at its next sync, floor included. The
 restore's order is the same rule read backwards - reconciliation last, because
 turning it on first would have the platform put the floor back on its own,
 unverifiably, at a moment nothing here chose.
+
+How Argo CD is asked any of this - the tree, the selectors, a merge patch carried
+as text - is the adapter's, and pinned in its own suite.
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock, create_autospec
+from unittest.mock import create_autospec
 
-import httpx2
 import pytest
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
@@ -42,222 +41,57 @@ from argus_core.mcp_transport import (
 )
 from argus_core.models import AutoscalerUndo, AutoscalingRestored
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from write_mcp_server.argocd import (
-    APPLICATION_MERGE_PATCH,
-    AUTOMATED,
-    ENABLED,
-    PATCH_REQUEST_PATCH,
-    PATCH_REQUEST_TYPE,
-    SPEC,
-    SYNC_POLICY,
+from deployment_platform import (
+    Autoscaler,
+    AutoscalerBounds,
+    DeploymentPlatformWrites,
+    PlatformRefused,
+    PlatformUnreachable,
 )
 from write_mcp_server.pinning import (
-    AUTOSCALER_GROUP,
-    AUTOSCALER_KIND,
-    AUTOSCALER_VERSION,
-    MERGE_PATCH_TYPE,
     AlreadyHeldStill,
     PinRefused,
-    PinSettings,
     pin_autoscaler,
     restore_autoscaler_floor,
 )
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 
 SOME_APPLICATION = "io-shop"
-DONT_CARE_URL = "http://argocd.invalid"
-SOME_APPLICATION_PATH = "/api/v1/applications/{application}"
-SOME_RESOURCE_TREE_PATH = "/api/v1/applications/{application}/resource-tree"
-SOME_RESOURCE_PATH = "/api/v1/applications/{application}/resource"
-# Where the application itself is, which is where a patch to it goes.
-THE_APPLICATIONS_ROUTE = f"{DONT_CARE_URL}/api/v1/applications/{SOME_APPLICATION}"
 
-# What the autoscaler is called and where it lives, as the platform's own tree
-# reports them. Deliberately not the application's name: an autoscaler named after
-# its application is the common case and not the contract, and a module that sent
-# the application's name would pass every test that used one name for both.
-SOME_AUTOSCALER_NAME = "io-shop-cpu"
-SOME_NAMESPACE = "shopping"
+# What the autoscaler is called and where it lives, as the platform reports them.
+# Deliberately not the application's name: an autoscaler named after its
+# application is the common case and not the contract, and a module that sent the
+# application's name would pass every test that used one name for both.
+SOME_AUTOSCALER = Autoscaler(name="io-shop-cpu", namespace="shopping")
 
 # The bounds the fixture's own values file declares: a controller free to move
 # between three replicas and six, which is what makes a flap possible at all.
 THE_FLOOR = 3
 THE_CEILING = 6
 
-# What the two writes are called when the order they happened in is the thing
-# being asserted. Neither mock knows about the other, so the platform records it.
-THE_PATCH = "the patch"
-THE_SYNC_POLICY = "the sync policy"
-
-
-@dataclass
-class _Platform:
-    """The four routes a pin touches, each answering as Argo CD does.
-
-    One `get` for three different reads, dispatched on the url: the tree says
-    where the autoscaler is, the managed resource carries its bounds, and the
-    application carries the sync policy. A double that answered one body to all
-    three would let a module read a floor out of the wrong document.
-
-    `wrote` is which of the two writes happened, in the order they happened. Both
-    halves of a pin and both halves of its undo have to land in one order and not
-    the other, and the reason is the platform's own behaviour rather than
-    tidiness - so the order is asserted rather than assumed.
-    """
-
-    get: MagicMock = field(default_factory=lambda: create_autospec(httpx2.get))
-    post: MagicMock = field(default_factory=lambda: create_autospec(httpx2.post))
-    patch: MagicMock = field(default_factory=lambda: create_autospec(httpx2.patch))
-    wrote: list[str] = field(default_factory=list)
-
-
-def _settings() -> PinSettings:
-    """The four paths a pin and its undo reach between them.
-
-    No namespace among them, which is the whole of what the tree buys: where the
-    autoscaler lives is a fact the platform holds, and a second copy of it in
-    configuration is a copy that comes to disagree with the cluster.
-
-    No resource-action path either, which is what separates this from the
-    scale-out: a floor is a field on a manifest and is written by patching the
-    resource, where a count is changed by running the platform's own registered
-    action. So the resource path is read *and* written here, which is Argo CD's
-    own arrangement - `GET` is `GetResource` and `POST` is `PatchResource` on the
-    one route.
-    """
-    return PinSettings(
-        argocd_base_url=DONT_CARE_URL,
-        argocd_application_path=SOME_APPLICATION_PATH,
-        argocd_resource_tree_path=SOME_RESOURCE_TREE_PATH,
-        argocd_resource_path=SOME_RESOURCE_PATH,
-        argocd_auth_token=""
-    )
-
-
-def _an_application(reconciling_itself: bool) -> dict[str, Any]:
-    """Automated sync as an operator declares it, `selfHeal` and all, or none."""
-    policy: dict[str, Any] = (
-        {AUTOMATED: {"selfHeal": True}} if reconciling_itself else {}
-    )
-
-    return {SPEC: {SYNC_POLICY: policy}}
-
-
-def _a_resource_tree(holding_an_autoscaler: bool) -> dict[str, Any]:
-    """Every resource the application has, as Argo CD's tree reports them.
-
-    More than one node, and the autoscaler is not the first: a module that took
-    whatever the tree listed first would be a module that patched a Pod on a
-    cluster that had listed one.
-    """
-    nodes: list[dict[str, Any]] = [
-        {
-            "group": "apps",
-            "version": "v1",
-            "kind": "Deployment",
-            "name": SOME_APPLICATION,
-            "namespace": SOME_NAMESPACE
-        },
-        {
-            "version": "v1",
-            "kind": "Pod",
-            "name": f"{SOME_APPLICATION}-7d4f",
-            "namespace": SOME_NAMESPACE
-        }
-    ]
-
-    if holding_an_autoscaler:
-        nodes.append(
-            {
-                "group": AUTOSCALER_GROUP,
-                "version": AUTOSCALER_VERSION,
-                "kind": AUTOSCALER_KIND,
-                "name": SOME_AUTOSCALER_NAME,
-                "namespace": SOME_NAMESPACE
-            }
-        )
-
-    return {"nodes": nodes}
-
-
-def _a_managed_autoscaler(floor: int, ceiling: int) -> dict[str, Any]:
-    """The live autoscaler as Argo CD reports it: a manifest carried as text.
-
-    A string and not an object, because that is the vendor's shape - the caller
-    parses it - and a double that answered a parsed object would be an easier
-    endpoint to write against than the one the adapter will meet.
-
-    The whole resource rather than the two fields a pin reads. What makes this
-    controller misbehave is the stabilisation window of zero, and a double that
-    carried only the bounds would let a module be written against a manifest no
-    platform sends.
-    """
-    return {
-        "manifest": json.dumps(
-            {
-                "apiVersion": f"{AUTOSCALER_GROUP}/{AUTOSCALER_VERSION}",
-                "kind": AUTOSCALER_KIND,
-                "metadata": {"name": SOME_AUTOSCALER_NAME,
-                             "namespace": SOME_NAMESPACE},
-                "spec": {
-                    "minReplicas": floor,
-                    "maxReplicas": ceiling,
-                    "behavior": {"scaleDown": {"stabilizationWindowSeconds": 0}}
-                }
-            }
-        )
-    }
-
-
-def _an_ok(body: dict[str, Any] | None = None) -> httpx2.Response:
-    return httpx2.Response(
-        status_code=200,
-        json=body if body is not None else {},
-        request=httpx2.Request("GET", DONT_CARE_URL)
-    )
-
 
 def a_platform(floor: int = THE_FLOOR,
                ceiling: int = THE_CEILING,
                reconciling_itself: bool = True,
-               holding_an_autoscaler: bool = True) -> _Platform:
-    platform = _Platform()
-
-    def answering(url: str, **dont_care_rest: Any) -> httpx2.Response:
-        if url.endswith("/resource-tree"):
-            return _an_ok(_a_resource_tree(holding_an_autoscaler))
-
-        if url.endswith("/resource"):
-            return _an_ok(_a_managed_autoscaler(floor, ceiling))
-
-        return _an_ok(_an_application(reconciling_itself))
-
-    def patching(dont_care_url: str, **dont_care_rest: Any) -> httpx2.Response:
-        platform.wrote.append(THE_PATCH)
-
-        return _an_ok()
-
-    def writing_the_policy(dont_care_url: str,
-                           **dont_care_rest: Any) -> httpx2.Response:
-        platform.wrote.append(THE_SYNC_POLICY)
-
-        return _an_ok()
-
-    platform.get.side_effect = answering
-    platform.post.side_effect = patching
-    platform.patch.side_effect = writing_the_policy
+               holding_an_autoscaler: bool = True) -> Any:
+    platform = create_autospec(DeploymentPlatformWrites, instance=True)
+    platform.autoscaler_of.return_value = (
+        SOME_AUTOSCALER if holding_an_autoscaler else None
+    )
+    platform.autoscaler_bounds.return_value = AutoscalerBounds(
+        floor=floor, ceiling=ceiling
+    )
+    platform.is_syncing_itself.return_value = reconciling_itself
 
     return platform
 
 
-def _pinning(platform: _Platform) -> AutoscalerUndo:
-    return pin_autoscaler(
-        SOME_APPLICATION,
-        _settings(),
-        get=platform.get,
-        post=platform.post,
-        patch=platform.patch
-    )
+def _pinning(platform: Any) -> AutoscalerUndo:
+    return pin_autoscaler(SOME_APPLICATION, platform)
+
+
+def _restoring(descriptor: AutoscalerUndo, platform: Any) -> AutoscalingRestored:
+    return restore_autoscaler_floor(descriptor, platform)
 
 
 @pytest.mark.unit
@@ -274,34 +108,20 @@ def test_a_pin_raises_the_floor_to_the_ceiling() -> None:
 
 
 @pytest.mark.unit
-def test_the_autoscaler_is_found_in_the_platforms_own_tree() -> None:
+def test_the_bounds_read_are_the_autoscaler_the_platform_named() -> None:
     # Discovered rather than configured, and not assumed to be named after its
-    # application: the tree says what the resource is called and which namespace
-    # it is in, and both travel into the read that follows.
+    # application: the platform says what the resource is called and where it
+    # lives, and both travel into the read that follows.
     platform = a_platform()
 
     Scenario() \
         .given(platform) \
         .when(lambda: _pinning(platform)) \
-        .then(_the_resource_it_read_was_the_autoscaler(platform))
+        .then(_the_bounds_were_read_of(platform, SOME_AUTOSCALER))
 
 
 @pytest.mark.unit
-def test_the_patch_goes_where_the_tree_said_the_autoscaler_is() -> None:
-    # The write is addressed by what the platform reported rather than by
-    # configuration, which is the point of asking: a namespace held in a setting
-    # is a second copy of a fact the cluster already holds, and the patch is the
-    # request where being wrong about it changes something.
-    platform = a_platform()
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(_the_patch_was_addressed_to_the_autoscaler(platform))
-
-
-@pytest.mark.unit
-def test_an_application_with_no_autoscaler_in_its_tree_is_refused() -> None:
+def test_an_application_with_no_autoscaler_is_refused() -> None:
     # Nothing to pin, and the one thing a caller reading this cannot check for
     # itself: a pin performed against a controller that does not exist would be
     # confirmed against a world that does not exist either.
@@ -313,23 +133,6 @@ def test_an_application_with_no_autoscaler_in_its_tree_is_refused() -> None:
         .then(all_of(
             an_error_was_raised(PinRefused),
             _nothing_was_changed(platform)
-        ))
-
-
-@pytest.mark.unit
-def test_the_patch_is_carried_as_the_vendor_carries_it() -> None:
-    # A JSON-encoded *string* rather than an object, which is the vendor's own
-    # shape for this body and the mirror of the manifest arriving as text. And the
-    # patch type is the merge patch's, because a patch sent as any other kind is
-    # applied differently or not at all.
-    platform = a_platform()
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(all_of(
-            _the_patch_was_sent_as_text(platform),
-            _it_was_sent_as_a_merge_patch(platform)
         ))
 
 
@@ -358,10 +161,7 @@ def test_reconciliation_is_suspended_before_the_floor_is_raised() -> None:
     Scenario() \
         .given(platform) \
         .when(lambda: _pinning(platform)) \
-        .then(all_of(
-            _reconciliation_was_turned(platform, off=True),
-            _it_wrote(platform, THE_SYNC_POLICY, THE_PATCH)
-        ))
+        .then(_it_was_asked_in_order(platform, "suspend_sync", "set_autoscaler_floor"))
 
 
 @pytest.mark.unit
@@ -479,7 +279,7 @@ def test_a_floor_already_past_what_argus_may_ask_for_is_refused() -> None:
 @pytest.mark.unit
 def test_a_platform_that_will_not_answer_is_not_reported_as_pinned() -> None:
     platform = a_platform()
-    platform.get.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.autoscaler_of.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
         .given(platform) \
@@ -491,40 +291,14 @@ def test_a_platform_that_will_not_answer_is_not_reported_as_pinned() -> None:
 
 
 @pytest.mark.unit
-def test_a_resource_the_platform_will_not_report_is_not_reported_as_pinned() -> None:
-    # The tree named it and the read of it answered a refusal, which is a
-    # different failure from an application that has no autoscaler at all - and
-    # both have to leave the deployment untouched.
+def test_bounds_the_platform_would_not_report_are_not_reported_as_pinned() -> None:
+    # The platform named the autoscaler and then would not say its bounds - a
+    # refusal, or a manifest without them. A different failure from an
+    # application with no autoscaler at all, and both have to leave the
+    # deployment untouched: a guessed ceiling would hold a shop at a size nobody
+    # declared.
     platform = a_platform()
-    platform.get.side_effect = lambda url, **dont_care_rest: (
-        _an_ok(_a_resource_tree(holding_an_autoscaler=True))
-        if url.endswith("/resource-tree")
-        else httpx2.Response(
-            status_code=404,
-            json={"detail": "not found"},
-            request=httpx2.Request("GET", DONT_CARE_URL)
-        )
-    )
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
-        .then(all_of(
-            an_error_was_raised(PinRefused),
-            _nothing_was_changed(platform)
-        ))
-
-
-@pytest.mark.unit
-def test_a_manifest_that_says_nothing_about_its_bounds_is_refused() -> None:
-    # An autoscaler with no bounds in its manifest is one this cannot pin, and a
-    # guessed ceiling would hold a shop at a size nobody declared.
-    platform = a_platform()
-    platform.get.side_effect = lambda url, **dont_care_rest: (
-        _an_ok(_a_resource_tree(holding_an_autoscaler=True))
-        if url.endswith("/resource-tree")
-        else _an_ok({"manifest": json.dumps({"spec": {}})})
-    )
+    platform.autoscaler_bounds.side_effect = PlatformRefused("not found")
 
     Scenario() \
         .given(platform) \
@@ -559,7 +333,10 @@ def test_a_restore_asks_again_where_the_autoscaler_is() -> None:
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: _restoring(a_descriptor, platform)) \
-        .then(_the_patch_was_addressed_to_the_autoscaler(platform))
+        .then(all_of(
+            _the_autoscaler_was_asked_for(platform),
+            _it_asked_for_a_floor_of(platform, THE_FLOOR)
+        ))
 
 
 @pytest.mark.unit
@@ -585,17 +362,7 @@ def test_the_floor_is_put_back_before_reconciliation_is() -> None:
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: _restoring(a_descriptor, platform)) \
-        .then(_it_wrote(platform, THE_PATCH, THE_SYNC_POLICY))
-
-
-@pytest.mark.unit
-def test_restoring_turns_reconciliation_back_on_where_it_was_on() -> None:
-    platform = a_platform()
-
-    Scenario() \
-        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
-        .then(_reconciliation_was_turned(platform, off=False))
+        .then(_it_was_asked_in_order(platform, "set_autoscaler_floor", "resume_sync"))
 
 
 @pytest.mark.unit
@@ -617,7 +384,7 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
     # floor looks right from every angle a reader has, while the application
     # receives nothing anybody ships to it.
     platform = a_platform()
-    platform.patch.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.resume_sync.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -628,8 +395,8 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform()
-    platform.post.side_effect = httpx2.ConnectError("no route to the platform")
-    platform.patch.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.set_autoscaler_floor.side_effect = PlatformUnreachable("no route")
+    platform.resume_sync.side_effect = PlatformUnreachable("no route")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -657,12 +424,12 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
     # a platform that is down this is where it finds out. Nothing has been
     # touched, which is what makes the report honest.
     platform = a_platform()
-    platform.get.side_effect = httpx2.ConnectError("no route to host")
+    platform.autoscaler_of.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _pinning(platform))) \
-        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -670,13 +437,12 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     # The suspension is the first thing a pin changes, so a platform that will
     # not take it has left the estate as it found it.
     platform = a_platform()
-    platform.patch.side_effect = None
-    platform.patch.return_value = _answering(503)
+    platform.suspend_sync.side_effect = PlatformUnreachable("503")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _pinning(platform))) \
-        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -685,12 +451,12 @@ def test_a_platform_that_died_before_a_pin_that_changed_nothing_is_unreachable()
     # the first write - and a platform that stopped answering before it took
     # nothing with it.
     platform = a_platform(reconciling_itself=False)
-    platform.post.side_effect = httpx2.ConnectError("no route to host")
+    platform.set_autoscaler_floor.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _pinning(platform))) \
-        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -705,7 +471,7 @@ def test_a_pin_that_left_sync_suspended_says_so_and_still_reports_the_platform()
     # so the two coincide; a case that raised the ceiling past that cap would
     # have to name the cap instead.
     platform = a_platform(reconciling_itself=True)
-    platform.post.side_effect = httpx2.ConnectError("no route to host")
+    platform.set_autoscaler_floor.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -727,22 +493,12 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
     # scale-out are still worth reaching for, and what a person has to look at
     # is the refusal rather than the platform.
     platform = a_platform(reconciling_itself=False)
-    platform.post.side_effect = None
-    platform.post.return_value = _answering(400)
+    platform.set_autoscaler_floor.side_effect = PlatformRefused("400")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _pinning(platform))) \
-        .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
-
-
-def _answering(status: int) -> httpx2.Response:
-    """One of the platform's own answers, as `raise_for_status` will read it."""
-    return httpx2.Response(
-        status_code=status,
-        json={},
-        request=httpx2.Request("PATCH", DONT_CARE_URL)
-    )
+        .then(_it_is_not_reported_as_an_unreachable_platform())
 
 
 def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
@@ -804,17 +560,6 @@ def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
     return assertion
 
 
-def _restoring(descriptor: AutoscalerUndo,
-               platform: _Platform) -> AutoscalingRestored:
-    return restore_autoscaler_floor(
-        descriptor,
-        _settings(),
-        get=platform.get,
-        post=platform.post,
-        patch=platform.patch
-    )
-
-
 def _a_descriptor(was_syncing_itself: bool) -> AutoscalerUndo:
     return AutoscalerUndo(
         application=SOME_APPLICATION,
@@ -824,45 +569,15 @@ def _a_descriptor(was_syncing_itself: bool) -> AutoscalerUndo:
     )
 
 
-def _the_patch_sent(platform: _Platform) -> str | None:
-    """The patch body as it went onto the wire, which is a string or nothing."""
-    if not platform.post.called:
-        return None
-
-    body = platform.post.call_args.kwargs.get("json")
-
-    return body if isinstance(body, str) else None
-
-
-def _the_selectors_of(call: Any) -> dict[str, Any]:
-    return dict(call.kwargs.get("params") or {})
-
-
-def _addresses_the_autoscaler(selectors: dict[str, Any]) -> bool:
-    return (
-        selectors.get("kind") == AUTOSCALER_KIND
-        and selectors.get("group") == AUTOSCALER_GROUP
-        and selectors.get("version") == AUTOSCALER_VERSION
-        and selectors.get("resourceName") == SOME_AUTOSCALER_NAME
-        and selectors.get("namespace") == SOME_NAMESPACE
-    )
-
-
-def _it_asked_for_a_floor_of(platform: _Platform, floor: int) -> Assertion[object]:
+def _it_asked_for_a_floor_of(platform: Any, floor: int) -> Assertion[object]:
+    """One floor written, to the autoscaler the platform named."""
     def assertion(dont_care_result: object) -> bool:
-        if not platform.post.called:
-            raise AssertionError(
-                f"Expected the platform to be asked for a floor of [{floor}] "
-                f"replicas, and no patch was sent at all."
-            )
+        asked = [call.args for call in platform.set_autoscaler_floor.call_args_list]
 
-        patch = _the_patch_sent(platform)
-        asked = json.loads(patch).get("spec", {}).get("minReplicas") if patch else None
-
-        if asked != floor:
+        if asked != [(SOME_APPLICATION, SOME_AUTOSCALER, floor)]:
             raise AssertionError(
-                f"Expected the platform to be asked for a floor of [{floor}] "
-                f"replicas, and it was asked for [{asked}]."
+                f"Expected one floor of [{floor}] written to {SOME_AUTOSCALER} of "
+                f"[{SOME_APPLICATION}], and the platform was asked {asked}."
             )
 
         return True
@@ -870,27 +585,14 @@ def _it_asked_for_a_floor_of(platform: _Platform, floor: int) -> Assertion[objec
     return assertion
 
 
-def _the_resource_it_read_was_the_autoscaler(
-    platform: _Platform
-) -> Assertion[object]:
+def _the_bounds_were_read_of(platform: Any, autoscaler: Autoscaler) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
-        read = [
-            _the_selectors_of(call) for call in platform.get.call_args_list
-            if str(call.args[0] if call.args else "").endswith("/resource")
-        ]
+        asked = [call.args for call in platform.autoscaler_bounds.call_args_list]
 
-        if not read:
+        if asked != [(SOME_APPLICATION, autoscaler)]:
             raise AssertionError(
-                "Expected the live autoscaler to be read, and no resource was "
-                "read at all."
-            )
-
-        if not any(_addresses_the_autoscaler(selectors) for selectors in read):
-            raise AssertionError(
-                f"Expected the resource read to be addressed at "
-                f"[{AUTOSCALER_GROUP}/{AUTOSCALER_VERSION} {AUTOSCALER_KIND}] "
-                f"named [{SOME_AUTOSCALER_NAME}] in [{SOME_NAMESPACE}], as the "
-                f"tree reported it, and it was addressed as {read}."
+                f"Expected the bounds of {autoscaler} to be read, as the platform "
+                f"named it, and the platform was asked {asked}."
             )
 
         return True
@@ -898,24 +600,14 @@ def _the_resource_it_read_was_the_autoscaler(
     return assertion
 
 
-def _the_patch_was_addressed_to_the_autoscaler(
-    platform: _Platform
-) -> Assertion[object]:
+def _the_autoscaler_was_asked_for(platform: Any) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
-        if not platform.post.called:
-            raise AssertionError(
-                "Expected the autoscaler to be patched, and no patch was sent at "
-                "all."
-            )
+        asked = [call.args for call in platform.autoscaler_of.call_args_list]
 
-        sent = _the_selectors_of(platform.post.call_args)
-
-        if not _addresses_the_autoscaler(sent):
+        if asked != [(SOME_APPLICATION,)]:
             raise AssertionError(
-                f"Expected the patch to be addressed at "
-                f"[{AUTOSCALER_KIND}] named [{SOME_AUTOSCALER_NAME}] in "
-                f"[{SOME_NAMESPACE}], as the tree reported it, and it was "
-                f"addressed as {sent}."
+                f"Expected the platform to be asked where [{SOME_APPLICATION}]'s "
+                f"autoscaler is, and it was asked {asked}."
             )
 
         return True
@@ -923,14 +615,16 @@ def _the_patch_was_addressed_to_the_autoscaler(
     return assertion
 
 
-def _the_patch_was_sent_as_text(platform: _Platform) -> Assertion[object]:
+def _it_was_asked_in_order(platform: Any, *expected: str) -> Assertion[object]:
+    """The named operations happened, and in this order relative to each other."""
     def assertion(dont_care_result: object) -> bool:
-        body = platform.post.call_args.kwargs.get("json")
+        asked = [name for name, _args, _kwargs in platform.method_calls]
+        relevant = [name for name in asked if name in expected]
 
-        if not isinstance(body, str):
+        if relevant != list(expected):
             raise AssertionError(
-                f"Expected the patch to be carried as a JSON-encoded string, as "
-                f"the platform carries it, and it was sent as [{type(body)}]."
+                f"Expected {list(expected)} in that order, and the platform was "
+                f"asked {asked}."
             )
 
         return True
@@ -938,14 +632,12 @@ def _the_patch_was_sent_as_text(platform: _Platform) -> Assertion[object]:
     return assertion
 
 
-def _it_was_sent_as_a_merge_patch(platform: _Platform) -> Assertion[object]:
+def _the_sync_policy_was_not_touched(platform: Any) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
-        sent = _the_selectors_of(platform.post.call_args).get("patchType")
-
-        if sent != MERGE_PATCH_TYPE:
+        if platform.suspend_sync.called or platform.resume_sync.called:
             raise AssertionError(
-                f"Expected the patch to be sent as [{MERGE_PATCH_TYPE}], and it "
-                f"was sent as [{sent}]."
+                f"Expected the sync policy to be left as it was found, and the "
+                f"platform was asked {platform.method_calls}."
             )
 
         return True
@@ -953,95 +645,14 @@ def _it_was_sent_as_a_merge_patch(platform: _Platform) -> Assertion[object]:
     return assertion
 
 
-def _it_wrote(platform: _Platform, *in_order: str) -> Assertion[object]:
-    def assertion(dont_care_result: object) -> bool:
-        if platform.wrote != list(in_order):
-            raise AssertionError(
-                f"Expected the platform to be written in the order "
-                f"{list(in_order)}, and it was written {platform.wrote}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _reconciliation_was_turned(platform: _Platform, off: bool) -> Assertion[object]:
-    """One merge patch to the application's own route, of the switch alone.
-
-    `enabled: false` to suspend and a removed `enabled` to restore - never an
-    `automated` object of Argus's own, which would replace the one the operator
-    declared, and never the spec route, which takes its body as the whole spec.
-    """
-    def assertion(dont_care_result: object) -> bool:
-        if not platform.patch.called:
-            raise AssertionError(
-                "Expected the sync policy to be written, and it was not written "
-                "at all."
-            )
-
-        expected = _the_switch_set_to(False if off else None)
-        url = platform.patch.call_args.args[0]
-        body = platform.patch.call_args.kwargs["json"]
-
-        if url != THE_APPLICATIONS_ROUTE:
-            raise AssertionError(
-                f"Expected the sync policy to be patched at "
-                f"[{THE_APPLICATIONS_ROUTE}], and it was patched at [{url}]."
-            )
-
-        if body[PATCH_REQUEST_TYPE] != APPLICATION_MERGE_PATCH:
-            raise AssertionError(
-                f"Expected a [{APPLICATION_MERGE_PATCH}] patch, and it was sent "
-                f"as [{body[PATCH_REQUEST_TYPE]}]."
-            )
-
-        if _the_sync_patches(platform) != [expected]:
-            raise AssertionError(
-                f"Expected automated sync to be turned {'off' if off else 'on'} "
-                f"by one patch of {expected}, and it was sent "
-                f"{_the_sync_patches(platform)}."
-            )
-
-        return True
-
-    return assertion
-
-def _the_sync_patches(platform: _Platform) -> list[dict[str, Any]]:
-    """Every merge patch the application route was sent, parsed, in order.
-
-    Parsed rather than compared as text, because the vendor carries the patch
-    as a JSON-encoded string and the order of its keys is nobody's contract.
-    """
-    return [
-        json.loads(call.kwargs["json"][PATCH_REQUEST_PATCH])
-        for call in platform.patch.call_args_list
-    ]
-
-
-def _the_switch_set_to(enabled: bool | None) -> dict[str, Any]:
-    return {SPEC: {SYNC_POLICY: {AUTOMATED: {ENABLED: enabled}}}}
-
-
-def _the_sync_policy_was_not_touched(platform: _Platform) -> Assertion[object]:
-    def assertion(dont_care_result: object) -> bool:
-        if platform.patch.called:
-            raise AssertionError(
-                f"Expected the sync policy to be left as it was found, and it "
-                f"was patched with [{platform.patch.call_args.kwargs['json']}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _nothing_was_changed(platform: _Platform) -> Assertion[Exception | None]:
+def _nothing_was_changed(platform: Any) -> Assertion[Exception | None]:
     def assertion(dont_care_error: Exception | None) -> bool:
         changed = [
-            name for name, route in ((THE_PATCH, platform.post),
-                                     (THE_SYNC_POLICY, platform.patch))
-            if route.called
+            name for name, operation in (
+                ("the floor", platform.set_autoscaler_floor),
+                ("the sync policy", platform.suspend_sync)
+            )
+            if operation.called
         ]
 
         if changed:

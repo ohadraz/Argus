@@ -11,7 +11,9 @@ separates a revision that is wrong from two revisions serving at once.
 Two reads meet here and neither leaves the tier. The live Deployment says how
 many replicas have reached the new revision and whether the rolling update is
 paused; the application's history names the revision being converged on and the
-one the lagging replicas are still running.
+one the lagging replicas are still running. How either is read off the platform -
+the manifest, its conditions, a status nobody filled in - is the adapter's, and
+pinned in its own suite.
 
 Nothing here judges. A deployment part way through a rollout is the ordinary
 condition of every deployment for a minute or two, and a channel that called one
@@ -21,21 +23,20 @@ whoever weighs causes.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
 from argus_core.models import RolloutProgress
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from deployment_platform import (
+    DeploymentPlatformError,
+    DeploymentPlatformReads,
+    DeploymentRecord,
+    PlatformRefused,
+    PlatformUnreachable,
+)
 from read_mcp_server.rollouts import (
-    CONDITION_FALSE,
-    CONDITION_STATUS,
-    CONDITION_TRUE,
-    CONDITION_TYPE,
-    PROGRESSING_CONDITION,
-    REPLICA_FAILURE_CONDITION,
     RolloutUnreadable,
     how_far_the_rollout_has_got,
     how_the_rollout_is_going,
@@ -60,14 +61,6 @@ HALF_OF_IT = 3
 # timestamp.
 VERDICTS_IT_MAY_NOT_REACH = ("fault", "stuck", "wrong", "unhealthy", "dangerous")
 
-# Kubernetes' words for the conditions these cases stage, which the tier reads
-# by type and status and never by reason - so they are this file's to say, not
-# vocabulary the module shares.
-CONDITION_UNKNOWN = "Unknown"
-FAILED_CREATE_REASON = "FailedCreate"
-PROGRESS_DEADLINE_EXCEEDED_REASON = "ProgressDeadlineExceeded"
-DEPLOYMENT_PAUSED_REASON = "DeploymentPaused"
-
 
 @pytest.mark.unit
 def test_a_rollout_that_has_not_finished_names_both_revisions_and_the_split() -> None:
@@ -75,13 +68,8 @@ def test_a_rollout_that_has_not_finished_names_both_revisions_and_the_split() ->
     # revision is the subject - both are serving - which no other channel can
     # tell them.
     Scenario() \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(),
-                fetch=an_application_deployed_twice()
-            )
-        ) \
+        .given(platform := _a_platform(a_fleet_half_updated(), deployed_twice())) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(all_of(
             _the_answer_mentions("not converged"),
             _the_answer_mentions(THE_REVISION_BEING_ROLLED_OUT),
@@ -97,13 +85,8 @@ def test_a_converged_deployment_says_so_and_names_the_revision_every_replica_run
     # evidence rather than a blank: a reader weighing a deploy at the onset has
     # been told the deploy is not half-applied, which rules the new mode out.
     Scenario() \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE,
-                fetch_deployment=a_converged_fleet(),
-                fetch=an_application_deployed_twice()
-            )
-        ) \
+        .given(platform := _a_platform(a_converged_fleet(), deployed_twice())) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(all_of(
             _the_answer_mentions("converged"),
             _the_answer_mentions(THE_REVISION_BEING_ROLLED_OUT)
@@ -116,13 +99,10 @@ def test_a_paused_rolling_update_is_reported_as_paused() -> None:
     # progressed - and the one that says a person stopped it rather than that
     # the platform is slow.
     Scenario() \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(paused=True),
-                fetch=an_application_deployed_twice()
-            )
-        ) \
+        .given(platform := _a_platform(
+            a_fleet_half_updated(paused=True), deployed_twice()
+        )) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(_the_answer_mentions("paused"))
 
 
@@ -133,13 +113,8 @@ def test_the_answer_says_when_the_deployment_landed() -> None:
     # state with no duration, which reads the same two minutes and two hours
     # into a rollout.
     Scenario() \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(),
-                fetch=an_application_deployed_twice()
-            )
-        ) \
+        .given(platform := _a_platform(a_fleet_half_updated(), deployed_twice())) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(_the_answer_mentions(WHEN_IT_LANDED))
 
 
@@ -148,52 +123,30 @@ def test_the_live_deployment_is_read_and_not_only_the_history() -> None:
     # The history cannot answer this question: it records syncs that completed.
     # A channel that derived convergence from it would answer about a past
     # event and call it the present one.
-    dont_care_history = an_application_deployed_twice()
-    live = a_fleet_half_updated()
-
     Scenario() \
-        .given(live) \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE, fetch_deployment=live, fetch=dont_care_history
-            )
-        ) \
-        .then(_the_live_deployment_was_read(live))
+        .given(platform := _a_platform(a_fleet_half_updated(), deployed_twice())) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
+        .then(lambda _: _the_live_deployment_was_read(platform))
 
 
 @pytest.mark.unit
-def test_a_platform_that_cannot_be_reached_is_not_reported_as_converged() -> None:
+@pytest.mark.parametrize(
+    "failure",
+    [PlatformUnreachable("platform is down"), PlatformRefused("not this answer")],
+    ids=["unreachable", "refused"]
+)
+def test_a_platform_that_did_not_answer_is_not_reported_as_converged(
+    failure: DeploymentPlatformError
+) -> None:
     # The one answer that must never be produced by a failure. "It converged"
     # rules the mode out, so an outage read as convergence sends a walk to
     # blame a revision that is not at fault.
     Scenario() \
-        .when(
-            attempting(
-                lambda: how_the_rollout_is_going(
-                    SOME_SERVICE,
-                    fetch_deployment=a_platform_that_cannot_be_reached(),
-                    fetch=an_application_deployed_twice()
-                )
-            )
-        ) \
+        .given(platform := _a_platform_failing_with(failure)) \
+        .when(attempting(
+            lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)
+        )) \
         .then(an_error_was_raised(RolloutUnreadable))
-
-
-@pytest.mark.unit
-def test_a_deployment_the_platform_reports_no_progress_for_reads_as_converged() -> None:
-    # A Deployment whose manifest carries no rollout status is one nothing says
-    # any replica is lagging on. Refusing to answer would leave every scenario
-    # but one with an unhelpful line, and guessing a split would invent an
-    # incident.
-    Scenario() \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_reporting_no_status(),
-                fetch=an_application_deployed_twice()
-            )
-        ) \
-        .then(_the_answer_mentions("converged"))
 
 
 @pytest.mark.unit
@@ -203,13 +156,8 @@ def test_a_split_fleet_with_nothing_deployed_before_it_says_the_older_revision_i
     # rather than left out: a reader told only about the new revision would read
     # the split as a count with no second subject.
     Scenario() \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(),
-                fetch=an_application_deployed_once()
-            )
-        ) \
+        .given(platform := _a_platform(a_fleet_half_updated(), deployed_once())) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(all_of(
             _the_answer_mentions("not converged"),
             _the_answer_mentions("no earlier deployment")
@@ -222,296 +170,138 @@ def test_a_rollout_in_progress_is_described_and_not_judged() -> None:
     # has been too long is the reader's judgement, made against an onset this
     # channel has never seen.
     Scenario() \
-        .when(
-            lambda: how_the_rollout_is_going(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(paused=True),
-                fetch=an_application_deployed_twice()
-            )
-        ) \
+        .given(platform := _a_platform(
+            a_fleet_half_updated(paused=True), deployed_twice()
+        )) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(_the_answer_reaches_no_verdict())
 
 
 @pytest.mark.unit
-def test_how_far_the_rollout_has_got_counts_the_replicas_for_a_caller() -> None:
-    # The same two reads as the lines above, answered as a value. The lines exist
-    # for a model and must keep existing: §16's channel describes rather than
-    # judges, and the Investigator hands those sentences to one. What a *caller*
-    # needs is the count, and Mitigation finding it by searching prose for a
-    # number would be the wire-vocabulary mistake this repo refuses, one layer in.
+def test_how_far_the_rollout_has_got_is_the_platforms_answer_for_a_caller() -> None:
+    # The same read as the lines above, answered as a value. The lines exist for
+    # a model and must keep existing: §16's channel describes rather than judges,
+    # and the Investigator hands those sentences to one. What a *caller* needs is
+    # the count, and Mitigation finding it by searching prose for a number would
+    # be the wire-vocabulary mistake this repo refuses, one layer in.
     #
     # Why Mitigation needs it at all: until every replica is on the revision it
     # rolled back to, a minute of metrics is a minute the old code was still
     # serving, and a recovery judged off those minutes is a recovery judged of the
     # wrong deployment. So the count is what says when the judging may begin.
-    #
-    # No history is read here, and that is the difference from the lines. Which
-    # revisions are involved is what a reader wants named; whether the change has
-    # arrived is answered by the counts alone, so asking the application's history
+    the_fleet = a_fleet_half_updated()
+
+    Scenario() \
+        .given(platform := _a_platform(the_fleet, deployed_twice())) \
+        .when(lambda: how_far_the_rollout_has_got(SOME_SERVICE, platform=platform)) \
+        .then(_it_is(the_fleet))
+
+
+@pytest.mark.unit
+def test_how_far_the_rollout_has_got_reads_no_history() -> None:
+    # Which revisions are involved is what a reader wants named; whether the
+    # change has arrived is answered by the counts alone, so asking the history
     # would be a second read bought for nothing.
     Scenario() \
-        .when(
-            lambda: how_far_the_rollout_has_got(
-                SOME_SERVICE, fetch_deployment=a_fleet_half_updated()
-            )
-        ) \
-        .then(all_of(
-            _it_counted(serving=SOME_FLEET_SIZE, updated=HALF_OF_IT),
-            _it_has_converged(False)
-        ))
+        .given(platform := _a_platform(a_converged_fleet(), deployed_twice())) \
+        .when(lambda: how_far_the_rollout_has_got(SOME_SERVICE, platform=platform)) \
+        .then(lambda _: _the_history_was_not_read(platform))
 
 
 @pytest.mark.unit
-def test_a_fleet_whose_replicas_all_arrived_is_reported_as_converged() -> None:
-    # The answer Mitigation waits for, and the moment its own clock may start.
-    Scenario() \
-        .when(
-            lambda: how_far_the_rollout_has_got(
-                SOME_SERVICE, fetch_deployment=a_converged_fleet()
-            )
-        ) \
-        .then(all_of(
-            _it_counted(serving=SOME_FLEET_SIZE, updated=SOME_FLEET_SIZE),
-            _it_has_converged(True)
-        ))
-
-
-@pytest.mark.unit
-def test_a_platform_that_cannot_be_reached_is_not_counted_as_converged() -> None:
+@pytest.mark.parametrize(
+    "failure",
+    [PlatformUnreachable("platform is down"), PlatformRefused("not this answer")],
+    ids=["unreachable", "refused"]
+)
+def test_a_platform_that_did_not_answer_is_not_counted_as_converged(
+    failure: DeploymentPlatformError
+) -> None:
     # The same refusal the lines make, and it matters more here. A caller told
     # "converged" starts judging a recovery immediately, so a platform outage read
     # as arrival would have Mitigation measure the minutes before its own change
     # landed and confirm or refute an action on them. Raising leaves the caller
     # with something to handle rather than a figure to act on.
     Scenario() \
-        .when(
-            attempting(
-                lambda: how_far_the_rollout_has_got(
-                    SOME_SERVICE, fetch_deployment=a_platform_that_cannot_be_reached()
-                )
-            )
-        ) \
+        .given(platform := _a_platform_failing_with(failure)) \
+        .when(attempting(
+            lambda: how_far_the_rollout_has_got(SOME_SERVICE, platform=platform)
+        )) \
         .then(an_error_was_raised(RolloutUnreadable))
 
 
-@pytest.mark.unit
-def test_a_deployment_that_cannot_create_its_replicas_is_counted_as_failed() -> None:
-    # What a scale-out that ran into the namespace's quota looks like, and the
-    # platform says it at once rather than at a deadline: the ReplicaSet could not
-    # create the pods, and the Deployment carries that as a condition of its own.
-    # A state the platform reports, so reading it is not the judgement §16 keeps
-    # off this side - and it is the only thing that ends a scale-out's wait, since
-    # the controller goes on scaling a paused Deployment.
-    Scenario() \
-        .when(
-            lambda: how_far_the_rollout_has_got(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(
-                    _a_condition(
-                        REPLICA_FAILURE_CONDITION, CONDITION_TRUE,
-                        FAILED_CREATE_REASON
-                    )
-                )
-            )
-        ) \
-        .then(_it_has_failed(True))
-
-
-@pytest.mark.unit
-def test_a_deployment_past_its_progress_deadline_is_counted_as_failed() -> None:
-    # The other way a Deployment fails: no progress within the deadline it
-    # declares, which Kubernetes defaults to ten minutes. The platform measured
-    # that against a figure the Deployment itself carries and said so - nobody on
-    # this side chose how long is too long.
-    Scenario() \
-        .when(
-            lambda: how_far_the_rollout_has_got(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(
-                    _a_condition(
-                        PROGRESSING_CONDITION, CONDITION_FALSE,
-                        PROGRESS_DEADLINE_EXCEEDED_REASON
-                    )
-                )
-            )
-        ) \
-        .then(_it_has_failed(True))
-
-
-@pytest.mark.unit
-def test_a_paused_deployment_has_not_failed() -> None:
-    # A paused rollout reports `Progressing` too, at `Unknown` - Kubernetes does
-    # not measure the deadline while a Deployment is paused. A rule that read
-    # anything short of `True` as failure would fail every held rollout, which is
-    # a state of its own and already said by `is_paused`.
-    Scenario() \
-        .when(
-            lambda: how_far_the_rollout_has_got(
-                SOME_SERVICE,
-                fetch_deployment=a_fleet_half_updated(
-                    _a_condition(
-                        PROGRESSING_CONDITION, CONDITION_UNKNOWN,
-                        DEPLOYMENT_PAUSED_REASON
-                    ),
-                    paused=True
-                )
-            )
-        ) \
-        .then(_it_has_failed(False))
-
-
-def _it_counted(serving: int, updated: int) -> Assertion[RolloutProgress]:
-    """That the counts came back off the live Deployment unchanged."""
-    def it_counted(progress: RolloutProgress) -> bool:
-        if (progress.replicas_serving, progress.replicas_updated) != (serving, updated):
-            raise AssertionError(
-                f"Expected [{updated}] of [{serving}] replicas updated, and it "
-                f"counted [{progress.replicas_updated}] of "
-                f"[{progress.replicas_serving}]."
-            )
-
-        return True
-
-    return it_counted
-
-
-def _it_has_converged(expected: bool) -> Assertion[RolloutProgress]:
-    """That the value's own answer about arrival came back this way.
-
-    Asserted beside the counts rather than instead of them, because a function
-    returning the right boolean off wrong counts would pass a test about either
-    one alone - and the counts are what a reader is shown while a wait is still
-    going.
-    """
-    def it_has_converged(progress: RolloutProgress) -> bool:
-        if progress.has_converged is not expected:
-            raise AssertionError(
-                f"Expected converged [{expected}], and it answered "
-                f"[{progress.has_converged}]."
-            )
-
-        return True
-
-    return it_has_converged
-
-
-def _it_has_failed(expected: bool) -> Assertion[RolloutProgress]:
-    """That the platform's own word on whether it can finish came through."""
-    def it_has_failed(progress: RolloutProgress) -> bool:
-        if progress.has_failed is not expected:
-            raise AssertionError(
-                f"Expected failed [{expected}], and it answered "
-                f"[{progress.has_failed}]."
-            )
-
-        return True
-
-    return it_has_failed
-
-
-def a_fleet_half_updated(*conditions: dict[str, str], paused: bool = False) -> Any:
-    """Six replicas, three on the revision being rolled out, carrying whatever
-    conditions the platform is reporting."""
-    return _a_live_deployment(
-        replicas=SOME_FLEET_SIZE, updated=HALF_OF_IT, paused=paused,
-        conditions=list(conditions)
+def a_fleet_half_updated(paused: bool = False) -> RolloutProgress:
+    """Six replicas, three on the revision being rolled out."""
+    return RolloutProgress(
+        replicas_wanted=SOME_FLEET_SIZE,
+        replicas_serving=SOME_FLEET_SIZE,
+        replicas_updated=HALF_OF_IT,
+        is_paused=paused,
+        has_failed=False
     )
 
 
-def a_converged_fleet() -> Any:
+def a_converged_fleet() -> RolloutProgress:
     """Every replica on the revision that was deployed."""
-    return _a_live_deployment(
-        replicas=SOME_FLEET_SIZE, updated=SOME_FLEET_SIZE, paused=False
+    return RolloutProgress(
+        replicas_wanted=SOME_FLEET_SIZE,
+        replicas_serving=SOME_FLEET_SIZE,
+        replicas_updated=SOME_FLEET_SIZE,
+        is_paused=False,
+        has_failed=False
     )
 
 
-def a_fleet_reporting_no_status() -> Any:
-    """A manifest carrying a size and no rollout status at all."""
-    return _a_live_deployment(replicas=SOME_FLEET_SIZE, updated=None, paused=False)
-
-
-def a_platform_that_cannot_be_reached() -> Any:
-    """A live read that fails, as the tier's own fetcher fails."""
-    fetch = create_autospec(_a_live_deployment_signature)
-    fetch.side_effect = RolloutUnreadable("could not read what [io-shop] is running")
-
-    return fetch
-
-
-def _a_condition(kind: str, status: str, reason: str) -> dict[str, str]:
-    """One entry of a Deployment's `status.conditions`, as Kubernetes writes it."""
-    return {CONDITION_TYPE: kind, CONDITION_STATUS: status, "reason": reason}
-
-
-def _a_live_deployment(replicas: int,
-                       updated: int | None,
-                       paused: bool,
-                       conditions: list[dict[str, str]] | None = None) -> Any:
-    """Argo CD's managed-resource answer, whose manifest is carried as text.
-
-    A string rather than an object, because that is the vendor's own shape for
-    this response - the resource is passed through and the caller parses it - and
-    a double answering with a parsed object would be an easier thing to write
-    against than the one the adapter meets.
-    """
-    manifest: dict[str, Any] = {
-        "apiVersion": "apps/v1",
-        "kind": "Deployment",
-        "metadata": {"name": SOME_SERVICE, "namespace": "production"},
-        "spec": {"replicas": replicas}
-    }
-
-    if paused:
-        manifest["spec"]["paused"] = True
-
-    if updated is not None:
-        manifest["status"] = {"replicas": replicas, "updatedReplicas": updated}
-
-        if conditions:
-            manifest["status"]["conditions"] = conditions
-
-    fetch = create_autospec(_a_live_deployment_signature)
-    fetch.return_value = {"manifest": json.dumps(manifest)}
-
-    return fetch
-
-
-def _a_live_deployment_signature(application: str) -> dict[str, Any]:
-    """What asking the platform what one application is running looks like."""
-    raise NotImplementedError
-
-
-def an_application_deployed_once() -> Any:
+def deployed_once() -> list[DeploymentRecord]:
     """A history with one entry: nothing was deployed before it."""
-    return _a_history_of((THE_REVISION_BEING_ROLLED_OUT, WHEN_IT_LANDED))
+    return [_a_deployment_of(THE_REVISION_BEING_ROLLED_OUT, at=WHEN_IT_LANDED)]
 
 
-def an_application_deployed_twice() -> Any:
+def deployed_twice() -> list[DeploymentRecord]:
     """The ordinary case: the revision going out, and the one it is replacing."""
-    return _a_history_of(
-        (THE_REVISION_STILL_SERVING, WHEN_THE_ONE_BEFORE_IT_LANDED),
-        (THE_REVISION_BEING_ROLLED_OUT, WHEN_IT_LANDED)
+    return [
+        _a_deployment_of(THE_REVISION_STILL_SERVING, at=WHEN_THE_ONE_BEFORE_IT_LANDED),
+        _a_deployment_of(THE_REVISION_BEING_ROLLED_OUT, at=WHEN_IT_LANDED)
+    ]
+
+
+def _a_deployment_of(revision: str, at: str) -> DeploymentRecord:
+    return DeploymentRecord(
+        history_id=1,
+        revision=revision,
+        deployed_at=at,
+        repo_url=None,
+        path=None,
+        initiated_by=None
     )
 
 
-def _a_history_of(*deployed: tuple[str, str]) -> Any:
-    """Argo CD's answer for one application, carrying the entries named."""
-    argocd = create_autospec(_an_application_signature)
-    argocd.return_value = {
-        "status": {
-            "history": [
-                {"revision": revision, "deployedAt": moment}
-                for revision, moment in deployed
-            ]
-        }
-    }
-
-    return argocd
+def _a_platform(rollout: RolloutProgress, deployed: list[DeploymentRecord]) -> Any:
+    platform = create_autospec(DeploymentPlatformReads, instance=True)
+    platform.rollout_of.return_value = rollout
+    platform.deployments_of.return_value = deployed
+    return platform
 
 
-def _an_application_signature(application: str) -> dict[str, Any]:
-    """What asking the deployment history for one application looks like."""
-    raise NotImplementedError
+def _a_platform_failing_with(failure: DeploymentPlatformError) -> Any:
+    platform = create_autospec(DeploymentPlatformReads, instance=True)
+    platform.rollout_of.side_effect = failure
+    platform.deployments_of.return_value = deployed_twice()
+    return platform
+
+
+def _it_is(expected: RolloutProgress) -> Assertion[RolloutProgress]:
+    """The platform's counts, reaching the caller unchanged."""
+    def assertion(progress: RolloutProgress) -> bool:
+        if progress != expected:
+            raise AssertionError(
+                f"Expected the platform's own answer [{expected!r}], and the "
+                f"caller got [{progress!r}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_answer_mentions(wanted: str) -> Assertion[list[str]]:
@@ -528,14 +318,27 @@ def _the_answer_mentions(wanted: str) -> Assertion[list[str]]:
     return assertion
 
 
-def _the_live_deployment_was_read(fetch: Any) -> Assertion[list[str]]:
+def _the_live_deployment_was_read(platform: Any) -> bool:
     """The live resource was asked about, and asked about by name."""
-    def assertion(dont_care_answer: list[str]) -> bool:
-        fetch.assert_called_once_with(SOME_SERVICE)
+    asked = [call.args for call in platform.rollout_of.call_args_list]
 
-        return True
+    if asked != [(SOME_SERVICE,)]:
+        raise AssertionError(
+            f"Expected the live Deployment of [{SOME_SERVICE}] to be read once, "
+            f"and the platform was asked {asked}."
+        )
 
-    return assertion
+    return True
+
+
+def _the_history_was_not_read(platform: Any) -> bool:
+    if platform.deployments_of.called:
+        raise AssertionError(
+            f"Expected no history to be read for a count, and it was asked "
+            f"{platform.deployments_of.call_args_list}."
+        )
+
+    return True
 
 
 def _the_answer_reaches_no_verdict() -> Assertion[list[str]]:

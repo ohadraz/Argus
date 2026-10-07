@@ -35,7 +35,7 @@ from argus_core.events import ChangeUndone
 from argus_core.models import IncidentStatus
 from argus_incidents.repository import events, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
-from write_mcp_server.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
+from deployment_platform.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,

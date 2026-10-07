@@ -11,7 +11,7 @@ from threading import Thread
 from typing import Any
 
 from argus_core import get_settings
-from write_mcp_server.argocd import (
+from deployment_platform.argocd import (
     APPLICATION_MERGE_PATCH,
     AUTOMATED,
     ENABLED,
@@ -326,14 +326,19 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         return {
             SPEC: {SYNC_POLICY: self.sync_policy},
             "status": {
+                # `deployedAt` on both, because Argo CD's `RevisionHistory`
+                # always carries it - it is not `omitempty` - and the platform
+                # port refuses an entry that does not say when it landed.
                 "history": [
                     {
                         "id": THE_HISTORY_BEFORE_IT,
-                        "revision": THE_REVISION_BEFORE_IT
+                        "revision": THE_REVISION_BEFORE_IT,
+                        "deployedAt": "2026-08-20T10:05:00Z"
                     },
                     {
                         "id": THE_HISTORY_RUNNING_NOW,
-                        "revision": THE_REVISION_RUNNING_NOW
+                        "revision": THE_REVISION_RUNNING_NOW,
+                        "deployedAt": "2026-08-20T11:05:00Z"
                     }
                 ]
             }

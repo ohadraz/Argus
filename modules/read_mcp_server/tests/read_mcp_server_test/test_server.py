@@ -22,15 +22,14 @@ import pytest
 from argus_core import Connections, ReadMcpEndpoint
 from argus_core.models import CodeSearch
 from argus_testkit import Assertion, Scenario, all_of
+from deployment_platform import DeploymentPlatformReads
 from metrics_source import MetricsSettings
 from read_mcp_server.alert_rules import AlertRuleReadSettings
-from read_mcp_server.argocd import ArgocdSettings
 from read_mcp_server.flags import FlagReadSettings
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
-from read_mcp_server.rollouts import RolloutReadSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
 
@@ -125,12 +124,7 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
         MetricsSettings(prometheus_base_url="http://prometheus.invalid"),
         FlagReadSettings(unleash_base_url="http://flags.invalid",
                          unleash_frontend_token="dont-care-token"),
-        ArgocdSettings(argocd_base_url="http://argocd.invalid",
-                       argocd_application_path="/argocd/{application}",
-                       argocd_auth_token="dont-care-token"),
-        RolloutReadSettings(argocd_base_url="http://argocd.invalid",
-                            argocd_resource_path="/argocd/{application}/resource",
-                            argocd_auth_token="dont-care-token"),
+        create_autospec(DeploymentPlatformReads, instance=True),
         ServiceRegistrySettings(
             service_registry_base_url="http://registry.invalid",
             service_registry_service_path="/registry/services/{service}"

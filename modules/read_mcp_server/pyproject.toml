@@ -5,6 +5,7 @@ requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core",
     "argus-code_index[store]",
+    "argus-deployment_platform",
     "argus-metrics_source",
     "argus-repository_source",
     "httpx2",
@@ -19,6 +20,7 @@ dev = [
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
 argus-code_index = { workspace = true }
+argus-deployment_platform = { workspace = true }
 argus-metrics_source = { workspace = true }
 argus-repository_source = { workspace = true }
 argus-argus_testkit = { workspace = true }

@@ -35,6 +35,7 @@ from unittest.mock import create_autospec
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
+from deployment_platform import DeploymentPlatformReads, DeploymentRecord
 from read_mcp_server.deployments import (
     MOST_FILES_NAMED,
     MOST_PATCH_LINES_ALL_TOLD,
@@ -97,7 +98,7 @@ def test_what_a_deployment_changed_names_the_file_and_shows_the_change_in_it() -
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -121,7 +122,7 @@ def test_the_deployment_is_compared_against_the_revision_deployed_before_it() ->
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -146,7 +147,7 @@ def test_the_revision_before_is_the_one_immediately_before_and_not_the_earliest(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_three_times(),
+                platform=an_application_deployed_three_times(),
                 compare=compare
             )
         ) \
@@ -171,7 +172,7 @@ def test_a_deployment_with_nothing_before_it_says_there_is_nothing_to_compare()\
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED_BEFORE,
                 some_settings(),
-                fetch=an_application_deployed_once(),
+                platform=an_application_deployed_once(),
                 compare=compare
             )
         ) \
@@ -194,7 +195,7 @@ def test_a_revision_no_deployment_has_says_so_and_names_the_flag_channel() -> No
                 SOME_SERVICE,
                 A_FLAG_NAME,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -217,7 +218,7 @@ def test_a_deployment_that_changed_nothing_says_so() -> None:
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -242,7 +243,7 @@ def test_a_file_outside_the_service_s_own_source_is_reported_like_any_other() ->
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 only_the_services_own_source(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -266,7 +267,7 @@ def test_a_file_with_no_diff_is_named_with_the_reason_it_has_none() -> None:
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -292,7 +293,7 @@ def test_a_comparison_that_listed_only_part_of_the_change_says_so() -> None:
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -315,7 +316,7 @@ def test_more_files_than_can_be_named_are_counted_rather_than_listed() -> None:
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -344,7 +345,7 @@ def test_changes_past_the_line_budget_are_named_without_being_shown() -> None:
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -366,7 +367,7 @@ def test_a_repository_that_could_not_be_compared_raises() -> None:
                     SOME_SERVICE,
                     THE_REVISION_DEPLOYED,
                     some_settings(),
-                    fetch=an_application_deployed_twice(),
+                    platform=an_application_deployed_twice(),
                     compare=refused
                 )
             )
@@ -389,7 +390,7 @@ def test_the_answer_says_which_two_revisions_it_is_about() -> None:
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
                 some_settings(),
-                fetch=an_application_deployed_twice(),
+                platform=an_application_deployed_twice(),
                 compare=compare
             )
         ) \
@@ -483,23 +484,21 @@ def an_application_deployed_three_times() -> Any:
 
 
 def _a_history_of(*deployed: tuple[str, str]) -> Any:
-    """Argo CD's answer for one application, carrying the entries named."""
-    argocd = create_autospec(_an_application_signature)
-    argocd.return_value = {
-        "status": {
-            "history": [
-                {"revision": revision, "deployedAt": moment}
-                for revision, moment in deployed
-            ]
-        }
-    }
+    """The platform's history for one application, carrying the entries named."""
+    platform = create_autospec(DeploymentPlatformReads, instance=True)
+    platform.deployments_of.return_value = [
+        DeploymentRecord(
+            history_id=index,
+            revision=revision,
+            deployed_at=moment,
+            repo_url=None,
+            path=None,
+            initiated_by=None
+        )
+        for index, (revision, moment) in enumerate(deployed, start=1)
+    ]
 
-    return argocd
-
-
-def _an_application_signature(application: str) -> dict[str, Any]:
-    """What asking the deployment history for one application looks like."""
-    raise NotImplementedError
+    return platform
 
 
 def _the_answer_mentions(wanted: str) -> Assertion[list[str]]:

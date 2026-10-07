@@ -16,7 +16,7 @@ paused; the application's history names the revision being converged on and the
 one the replicas that have not updated are still running.
 
 The live resource rather than the history, and the distinction is the module's
-reason to exist. Argo CD's history is what it reports about syncs that
+reason to exist. The history is what the platform reports about syncs that
 *completed*; whether the pods have turned over is on the Deployment itself, and
 a convergence derived from the history would answer about a past event while
 appearing to answer about the present one.
@@ -35,70 +35,10 @@ the moment the deployment landed.
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable
-from typing import Any, Final, Protocol
-
-import httpx2
-from argus_core import SettingsSlice
 from argus_core.models import ChangeEvent, RolloutProgress
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformReads
 
-from read_mcp_server.argocd import FetchApplication, the_revisions_deployed
-
-# Kubernetes' own wire vocabulary for the parts of a Deployment this reads.
-# Named once rather than spelled at each lookup: they are another project's
-# field names, and a typo in one is a silent `None` rather than an error - which
-# here would be a split fleet reported as a converged one.
-SPEC: Final = "spec"
-STATUS: Final = "status"
-REPLICAS: Final = "replicas"
-UPDATED_REPLICAS: Final = "updatedReplicas"
-PAUSED: Final = "paused"
-
-# A Deployment's `status.conditions`, which is where the platform says it cannot
-# finish - what Kubernetes calls a failed Deployment. Read by type and status
-# only: the reason is the platform's explanation for a person, and the two states
-# below are failure whatever it says.
-CONDITIONS: Final = "conditions"
-CONDITION_TYPE: Final = "type"
-CONDITION_STATUS: Final = "status"
-CONDITION_TRUE: Final = "True"
-CONDITION_FALSE: Final = "False"
-# Pods the ReplicaSet could not create - a quota, most often - reported at once.
-REPLICA_FAILURE_CONDITION: Final = "ReplicaFailure"
-# At `False` once the Deployment has made no progress within the deadline it
-# declares. Never `False` while paused: the platform does not measure it then,
-# and reports `Unknown`.
-PROGRESSING_CONDITION: Final = "Progressing"
-
-# Argo CD's own wrapper for a managed resource: the manifest arrives as *text*
-# and the caller parses it, which is the vendor's shape for this response.
-MANIFEST: Final = "manifest"
-
-REQUEST_TIMEOUT_SECONDS: Final = 10.0
-
-
-class RolloutReadSettings(SettingsSlice):
-    """Where the live Deployment is read from, and under what credential.
-
-    Its own slice and its own path rather than the write tier's, because the two
-    tiers configure their own routes and neither reads the other's - that
-    separation is what the tier split is. The path is a template for the reason
-    every Argo CD path here is one: the demo's stand-in and a real server are one
-    setting with two values.
-
-    No namespace. Argo CD's managed-resource route accepts selectors and this
-    asks for none, exactly as the write tier's own read of the same endpoint asks
-    for none: there is one deployment behind this address, and a selector
-    configured in a second place is a second place to correct when it moves.
-    """
-
-    argocd_base_url: str
-    argocd_resource_path: str
-    argocd_auth_token: str
-
-
-HttpGet = Callable[..., httpx2.Response]
+from read_mcp_server.deploy_history import the_revisions_deployed
 
 
 class RolloutUnreadable(Exception):
@@ -112,52 +52,9 @@ class RolloutUnreadable(Exception):
     """
 
 
-class FetchLiveDeployment(Protocol):
-    """How this module asks the platform what an application is running.
-
-    A `Protocol` rather than a `Callable` alias for the reason `FetchApplication`
-    is one: a test stands it in with `create_autospec`, which needs something
-    introspectable. Naming an application is all this asks - where that server is
-    and under what credential was decided where the process started.
-    """
-
-    def __call__(self, application: str, /) -> dict[str, Any]: ...
-
-
-def fetch_live_deployment(application: str,
-                          settings: RolloutReadSettings,
-                          get: HttpGet = httpx2.get) -> dict[str, Any]:
-    """Asks the platform for one application's running Deployment.
-
-    Any failure to get an answer - unreachable host, error status, unreadable
-    body - becomes `RolloutUnreadable`. None of them may become "it converged".
-    """
-    url = (
-        f"{settings.argocd_base_url}"
-        f"{settings.argocd_resource_path.format(application=application)}"
-    )
-
-    try:
-        response = get(
-            url,
-            headers=_headers_for(settings.argocd_auth_token),
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        body: dict[str, Any] = response.json()
-    except Exception as error:
-        raise RolloutUnreadable(
-            f"could not read what [{application}] is running, from [{url}]: "
-            f"{error}"
-        ) from error
-
-    return body
-
-
 def how_the_rollout_is_going(service: str,
                              *,
-                             fetch_deployment: FetchLiveDeployment,
-                             fetch: FetchApplication) -> list[str]:
+                             platform: DeploymentPlatformReads) -> list[str]:
     """Whether the deployment of `service` finished arriving, as lines a model
     reads.
 
@@ -166,19 +63,18 @@ def how_the_rollout_is_going(service: str,
     the revision it believes is going out would be naming the thing this channel
     exists to check.
     """
-    manifest = _the_manifest_of(service, fetch_deployment)
-    _wanted, serving, updated = _how_many_replicas(service, manifest)
-    deployed = the_revisions_deployed(service, fetch=fetch)
+    progress = _the_rollout_of(service, platform)
+    deployed = the_revisions_deployed(service, platform=platform)
 
-    if updated >= serving:
-        return _converged(service, serving, deployed)
+    if progress.replicas_updated >= progress.replicas_serving:
+        return _converged(service, progress.replicas_serving, deployed)
 
-    return _still_converging(service, serving, updated, manifest, deployed)
+    return _still_converging(service, progress, deployed)
 
 
 def how_far_the_rollout_has_got(service: str,
                                 *,
-                                fetch_deployment: FetchLiveDeployment
+                                platform: DeploymentPlatformReads
                                 ) -> RolloutProgress:
     """How many of `service`'s replicas have reached the revision being rolled
     out, as a value a caller can act on.
@@ -205,106 +101,32 @@ def how_far_the_rollout_has_got(service: str,
     above. A caller told the rollout converged starts judging immediately, so a
     platform that could not be reached must not come back as arrival - it would
     have Mitigation measure the minutes before its own change landed and reach a
-    verdict on them. `_the_manifest_of` raises, and that is left to propagate.
+    verdict on them.
 
-    Whether the rolling update is paused travels with the counts, and it is what
-    gives a caller's wait an end. A rollout stopped part way satisfies neither
-    count and never will, so a caller holding only those would poll until its
-    lease expired. Reported and not judged, as everything here is: this says the
-    platform has stopped, and how long a rollout that is merely slow may take is
-    still nobody's business on this side of §16.
-
-    Whether the platform says it cannot finish travels too, for the same reason
-    and for the action a pause says nothing about: the controller goes on scaling
-    a paused Deployment, so only a failure ends a scale-out's wait. The deadline
-    behind one of the two failures is the Deployment's own, measured by the
-    platform - still not a judgement made here.
+    Whether the rolling update is paused, and whether the platform says it cannot
+    finish, travel with the counts: they are what give a caller's wait an end. A
+    rollout stopped part way satisfies neither count and never will, and the
+    controller goes on scaling a paused Deployment, so only a failure ends a
+    scale-out's wait. Both are the platform's own report - not a judgement made
+    here.
     """
-    manifest = _the_manifest_of(service, fetch_deployment)
-    wanted, serving, updated = _how_many_replicas(service, manifest)
-
-    return RolloutProgress(
-        replicas_wanted=wanted,
-        replicas_serving=serving,
-        replicas_updated=updated,
-        is_paused=bool(manifest.get(SPEC, {}).get(PAUSED)),
-        has_failed=_the_platform_reports_it_failed(manifest)
-    )
+    return _the_rollout_of(service, platform)
 
 
-def _the_platform_reports_it_failed(manifest: dict[str, Any]) -> bool:
-    """Whether the Deployment's own conditions say it cannot finish.
+def _the_rollout_of(service: str,
+                    platform: DeploymentPlatformReads) -> RolloutProgress:
+    """The platform's account of the running Deployment, or a refusal.
 
-    Either of Kubernetes' two failures: pods it could not create, or no progress
-    within the deadline. A condition absent reads as nothing having failed, for
-    the reason a status absent reads as converged - the platform says when it has
-    a problem.
-    """
-    stated = {
-        condition.get(CONDITION_TYPE): condition.get(CONDITION_STATUS)
-        for condition in manifest.get(STATUS, {}).get(CONDITIONS, [])
-    }
-
-    return (
-        stated.get(REPLICA_FAILURE_CONDITION) == CONDITION_TRUE
-        or stated.get(PROGRESSING_CONDITION) == CONDITION_FALSE
-    )
-
-
-def _the_manifest_of(service: str,
-                     fetch_deployment: FetchLiveDeployment) -> dict[str, Any]:
-    """The running Deployment, parsed out of the platform's wrapper.
-
-    Refused rather than assumed where the body is not what it should be. A
-    manifest this could not read is a deployment whose rollout is unknown, and
-    the one answer that must never be reached by guesswork is that it converged.
-    """
-    resource = fetch_deployment(service)
-
-    try:
-        manifest: dict[str, Any] = json.loads(resource[MANIFEST])
-    except Exception as error:
-        raise RolloutUnreadable(
-            f"[{service}]'s running Deployment could not be read from what the "
-            f"platform answered: {error}"
-        ) from error
-
-    return manifest
-
-
-def _how_many_replicas(service: str,
-                       manifest: dict[str, Any]) -> tuple[int, int, int]:
-    """How many replicas were asked for, how many are serving, and how many
-    are on the newest revision.
-
-    The count asked for is `spec.replicas`, and it is returned rather than
-    only compared against because a scale-out is the action that writes it: a
-    caller waiting for capacity to arrive needs the target as well as the
-    arrivals, and reading the manifest a second time for it would be a second
-    chance to disagree about what this one said.
-
-    A manifest carrying no rollout status at all reads as converged, and that is
-    a decision rather than a fallback. Nothing in it says any replica is lagging,
-    so nothing is - and the alternative answers would each be worse: refusing
-    would leave every deployment that is simply running with an unhelpful line,
-    and assuming a split would invent an incident out of a field the platform did
-    not fill in.
+    Refused whichever way the platform failed. A Deployment this could not read
+    is one whose rollout is unknown, and the one answer that must never be
+    reached by guesswork is that it converged.
     """
     try:
-        wanted = int(manifest[SPEC][REPLICAS])
-    except Exception as error:
+        return platform.rollout_of(service)
+    except DeploymentPlatformError as error:
         raise RolloutUnreadable(
-            f"[{service}]'s manifest does not say how many replicas it was told "
-            f"to run: {error}"
+            f"could not read what [{service}] is running: {error}"
         ) from error
-
-    status = manifest.get(STATUS, {})
-
-    return (
-        wanted,
-        int(status.get(REPLICAS, wanted)),
-        int(status.get(UPDATED_REPLICAS, wanted))
-    )
 
 
 def _converged(service: str,
@@ -333,9 +155,7 @@ def _converged(service: str,
 
 
 def _still_converging(service: str,
-                      serving: int,
-                      updated: int,
-                      manifest: dict[str, Any],
+                      progress: RolloutProgress,
                       deployed: list[ChangeEvent]) -> list[str]:
     """A deployment part way through, and the two revisions that are serving.
 
@@ -343,14 +163,16 @@ def _still_converging(service: str,
     what is being asked is whether two versions are running at once, and one
     revision and a number does not say what the other version is.
     """
-    lagging = serving - updated
+    serving = progress.replicas_serving
+    updated = progress.replicas_updated
     said = [
         f"Deployment of {service} has not converged: {updated} of {serving} "
         f"replicas are running {_the_revision_going_out(deployed)}, and "
-        f"{lagging} are still running {_the_revision_before_it(deployed)}."
+        f"{serving - updated} are still running "
+        f"{_the_revision_before_it(deployed)}."
     ]
 
-    if manifest.get(SPEC, {}).get(PAUSED):
+    if progress.is_paused:
         said.append(
             "Its rolling update is paused, so the platform is not converging it "
             "on its own."
@@ -387,8 +209,3 @@ def _the_revision_before_it(deployed: list[ChangeEvent]) -> str:
         )
 
     return f"revision [{deployed[-2].reference}]"
-
-
-def _headers_for(auth_token: str) -> dict[str, str]:
-    """No token means no header at all, as every Argo CD adapter here does."""
-    return {"Authorization": f"Bearer {auth_token}"} if auth_token else {}

@@ -16,6 +16,7 @@ from argus_core.models import (
 )
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, attempting, calling
+from deployment_platform.argocd import AUTOMATED, ENABLED
 from write_mcp_client import (
     get_recent_flag_changes,
     restart_service,
@@ -24,7 +25,6 @@ from write_mcp_client import (
     set_feature_flag,
     write_mcp,
 )
-from write_mcp_server.argocd import AUTOMATED, ENABLED
 
 from write_mcp_client_test.fake_deployment_platform import (
     THE_HISTORY_BEFORE_IT,

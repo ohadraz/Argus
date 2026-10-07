@@ -129,6 +129,7 @@ root_packages = [
     "argus_narration",
     "argus_web",
     "code_index",
+    "deployment_platform",
     "exchange_rate_source",
     "incident_memory",
     "metrics_source",
@@ -285,6 +286,21 @@ ignore_imports = [
     # somebody reaches for the other half, the contract says so instead of
     # this process quietly growing an embedding model to serve a page.
     "argus_web.** -> code_index.records",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "the servers know the deployment platform by its port, and only their wiring knows the vendor"
+type = "forbidden"
+source_modules = ["read_mcp_server", "write_mcp_server"]
+forbidden_modules = ["deployment_platform.argocd"]
+# Where the adapter is built and handed out, typed as its tier's port. Every
+# other module in either server reaches the platform through what it was handed,
+# so a route or a response field written there is a contract broken here rather
+# than a second copy of Argo CD's wire shape found in review.
+ignore_imports = [
+    "read_mcp_server.server -> deployment_platform.argocd",
+    "write_mcp_server.server -> deployment_platform.argocd",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

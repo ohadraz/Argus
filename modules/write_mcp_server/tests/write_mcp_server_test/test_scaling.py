@@ -16,16 +16,16 @@ half a withdrawal has to put back.
 The descriptor is the other half. Only this module ever knows what the count was
 or whether reconciliation was on, so an undo hours later can put back exactly as
 much as this records and no more.
+
+How the count is read and the action run on Argo CD - the manifest, the action
+body, the count carried as text - is the adapter's, and pinned in its own suite.
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock, create_autospec
+from unittest.mock import create_autospec
 
-import httpx2
 import pytest
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
@@ -33,34 +33,22 @@ from argus_core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
 )
-from argus_core.models import CapacityRestored, ReplicaUndo
+from argus_core.models import CapacityRestored, ReplicaUndo, RolloutProgress
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from write_mcp_server.argocd import (
-    APPLICATION_MERGE_PATCH,
-    AUTOMATED,
-    ENABLED,
-    PATCH_REQUEST_PATCH,
-    PATCH_REQUEST_TYPE,
-    SPEC,
-    SYNC_POLICY,
+from deployment_platform import (
+    DeploymentPlatformWrites,
+    PlatformRefused,
+    PlatformUnreachable,
 )
 from write_mcp_server.scaling import (
     THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR,
     AlreadyAtItsLargest,
     ScaleRefused,
-    ScaleSettings,
     restore_replica_count,
     scale_out,
 )
 
 SOME_APPLICATION = "io-shop"
-DONT_CARE_URL = "http://argocd.invalid"
-SOME_APPLICATION_PATH = "/api/v1/applications/{application}"
-SOME_RESOURCE_PATH = "/api/v1/applications/{application}/resource"
-SOME_ACTION_PATH = "/api/v1/applications/{application}/resource/actions/v2"
-SOME_NAMESPACE = "production"
-# Where the application itself is, which is where a patch to it goes.
-THE_APPLICATIONS_ROUTE = f"{DONT_CARE_URL}/api/v1/applications/{SOME_APPLICATION}"
 
 # What the deployment is running when anybody looks, and what one doubling of it
 # comes to. Three is the size the fixture's own values file asks for.
@@ -68,93 +56,32 @@ THE_COUNT_RUNNING = 3
 TWICE_THAT = 6
 
 
-@dataclass
-class _Platform:
-    """The four routes a scale-out touches, each answering as Argo CD does.
-
-    One `get` for two different reads, dispatched on the url: the application
-    carries the sync policy and the managed resource carries the replica count,
-    and a double that answered one body to both would let a module read the count
-    out of the wrong document.
-    """
-
-    get: MagicMock = field(default_factory=lambda: create_autospec(httpx2.get))
-    post: MagicMock = field(default_factory=lambda: create_autospec(httpx2.post))
-    patch: MagicMock = field(default_factory=lambda: create_autospec(httpx2.patch))
-
-
-def _settings() -> ScaleSettings:
-    return ScaleSettings(
-        argocd_base_url=DONT_CARE_URL,
-        argocd_application_path=SOME_APPLICATION_PATH,
-        argocd_resource_path=SOME_RESOURCE_PATH,
-        argocd_resource_action_path=SOME_ACTION_PATH,
-        argocd_auth_token="",
-        scale_namespace=SOME_NAMESPACE
-    )
-
-
-def _an_application(reconciling_itself: bool) -> dict[str, Any]:
-    """Automated sync as an operator declares it, `selfHeal` and all, or none."""
-    policy: dict[str, Any] = (
-        {AUTOMATED: {"selfHeal": True}} if reconciling_itself else {}
-    )
-
-    return {SPEC: {SYNC_POLICY: policy}}
-
-
-def _a_managed_deployment(replicas: int) -> dict[str, Any]:
-    """The live Deployment as Argo CD reports it: a manifest carried as text.
-
-    A string and not an object, because that is the vendor's shape - the caller
-    parses it - and a double that answered a parsed object would be an easier
-    endpoint to write against than the one the adapter will meet.
-    """
-    return {
-        "manifest": json.dumps(
-            {
-                "apiVersion": "apps/v1",
-                "kind": "Deployment",
-                "metadata": {"name": SOME_APPLICATION, "namespace": SOME_NAMESPACE},
-                "spec": {"replicas": replicas}
-            }
-        )
-    }
-
-
-def _an_ok(body: dict[str, Any] | None = None) -> httpx2.Response:
-    return httpx2.Response(
-        status_code=200,
-        json=body if body is not None else {},
-        request=httpx2.Request("GET", DONT_CARE_URL)
+def _running(replicas: int) -> RolloutProgress:
+    """A Deployment asked for `replicas`, with every one of them serving."""
+    return RolloutProgress(
+        replicas_wanted=replicas,
+        replicas_serving=replicas,
+        replicas_updated=replicas,
+        is_paused=False,
+        has_failed=False
     )
 
 
 def a_platform(replicas: int = THE_COUNT_RUNNING,
-               reconciling_itself: bool = True) -> _Platform:
-    platform = _Platform()
-
-    def answering(url: str, **dont_care_rest: Any) -> httpx2.Response:
-        if url.endswith("/resource"):
-            return _an_ok(_a_managed_deployment(replicas))
-
-        return _an_ok(_an_application(reconciling_itself))
-
-    platform.get.side_effect = answering
-    platform.post.return_value = _an_ok()
-    platform.patch.return_value = _an_ok()
+               reconciling_itself: bool = True) -> Any:
+    platform = create_autospec(DeploymentPlatformWrites, instance=True)
+    platform.rollout_of.return_value = _running(replicas)
+    platform.is_syncing_itself.return_value = reconciling_itself
 
     return platform
 
 
-def _scaling_out(platform: _Platform) -> ReplicaUndo:
-    return scale_out(
-        SOME_APPLICATION,
-        _settings(),
-        get=platform.get,
-        post=platform.post,
-        patch=platform.patch
-    )
+def _scaling_out(platform: Any) -> ReplicaUndo:
+    return scale_out(SOME_APPLICATION, platform)
+
+
+def _restoring(descriptor: ReplicaUndo, platform: Any) -> CapacityRestored:
+    return restore_replica_count(descriptor, platform)
 
 
 @pytest.mark.unit
@@ -171,19 +98,6 @@ def test_a_scale_out_doubles_the_count_that_is_running() -> None:
 
 
 @pytest.mark.unit
-def test_the_count_asked_for_is_carried_as_the_vendor_carries_it() -> None:
-    # Every resource-action parameter is a string on the wire, and the action's
-    # own script is what makes a number of it. A double sending an integer would
-    # be a double a real server refuses.
-    platform = a_platform()
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_the_count_was_sent_as_text(platform))
-
-
-@pytest.mark.unit
 def test_reconciliation_is_suspended_before_the_count_is_changed() -> None:
     # The platform's rule rather than a preference: a reconciling application has
     # its live replica count set back to whatever the repository holds at the next
@@ -194,7 +108,7 @@ def test_reconciliation_is_suspended_before_the_count_is_changed() -> None:
     Scenario() \
         .given(platform) \
         .when(lambda: _scaling_out(platform)) \
-        .then(_reconciliation_was_turned(platform, off=True))
+        .then(_it_was_asked_in_order(platform, "suspend_sync", "scale"))
 
 
 @pytest.mark.unit
@@ -265,7 +179,7 @@ def test_a_deployment_already_at_the_ceiling_is_refused_before_anything_changes(
 @pytest.mark.unit
 def test_a_platform_that_will_not_answer_is_not_reported_as_scaled() -> None:
     platform = a_platform()
-    platform.get.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.rollout_of.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
         .given(platform) \
@@ -277,13 +191,11 @@ def test_a_platform_that_will_not_answer_is_not_reported_as_scaled() -> None:
 
 
 @pytest.mark.unit
-def test_a_manifest_that_says_nothing_about_replicas_is_refused() -> None:
+def test_a_count_the_platform_could_not_say_is_refused() -> None:
     # A Deployment with no count in its manifest is one this cannot double, and a
     # guess of one would halve a shop serving three.
     platform = a_platform()
-    platform.get.side_effect = lambda url, **dont_care_rest: _an_ok(
-        {"manifest": json.dumps({"spec": {}})}
-    )
+    platform.rollout_of.side_effect = PlatformRefused("the manifest has no replicas")
 
     Scenario() \
         .given(platform) \
@@ -308,13 +220,15 @@ def test_restoring_puts_back_the_count_that_was_running() -> None:
 
 
 @pytest.mark.unit
-def test_restoring_turns_reconciliation_back_on_where_it_was_on() -> None:
+def test_restoring_turns_reconciliation_back_on_after_the_count() -> None:
+    # Re-enabling sync first would have the platform set the count back on its
+    # own - to the same number, and unverifiably, at a moment nothing here chose.
     platform = a_platform()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: _restoring(a_descriptor, platform)) \
-        .then(_reconciliation_was_turned(platform, off=False))
+        .then(_it_was_asked_in_order(platform, "scale", "resume_sync"))
 
 
 @pytest.mark.unit
@@ -336,7 +250,7 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
     # looks right from every angle a reader has, while receiving nothing anybody
     # ships to it.
     platform = a_platform()
-    platform.patch.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.resume_sync.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -347,8 +261,8 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform()
-    platform.post.side_effect = httpx2.ConnectError("no route to the platform")
-    platform.patch.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.scale.side_effect = PlatformUnreachable("no route to the platform")
+    platform.resume_sync.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -377,12 +291,12 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
     # are unavailable and told nothing about a state somebody has to put back,
     # which is exactly what is true.
     platform = a_platform()
-    platform.get.side_effect = httpx2.ConnectError("no route to host")
+    platform.rollout_of.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _scaling_out(platform))) \
-        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -390,12 +304,12 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     # The suspension is the first thing a scale-out changes, so a platform that
     # will not take it has left the estate as it found it.
     platform = a_platform()
-    platform.patch.return_value = _answering(503)
+    platform.suspend_sync.side_effect = PlatformUnreachable("503")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _scaling_out(platform))) \
-        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -404,12 +318,12 @@ def test_a_platform_that_died_before_a_scale_out_that_changed_nothing_is_unreach
     # the first write - and a platform that stopped answering before it took
     # nothing with it.
     platform = a_platform(reconciling_itself=False)
-    platform.post.side_effect = httpx2.ConnectError("no route to host")
+    platform.scale.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _scaling_out(platform))) \
-        .then(all_of(_it_is_reported_as_an_unreachable_platform()))
+        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -420,7 +334,7 @@ def test_a_scale_out_that_left_sync_suspended_says_so_and_still_reports_the_plat
     # the failure, so the walk can narrow itself and still know an application is
     # sitting un-reconciled.
     platform = a_platform(reconciling_itself=True)
-    platform.post.side_effect = httpx2.ConnectError("no route to host")
+    platform.scale.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
         .given(platform) \
@@ -441,21 +355,12 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
     # restart are still worth reaching for, and what a person has to look at is
     # the refusal rather than the platform.
     platform = a_platform(reconciling_itself=False)
-    platform.post.return_value = _answering(400)
+    platform.scale.side_effect = PlatformRefused("400")
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _scaling_out(platform))) \
-        .then(all_of(_it_is_not_reported_as_an_unreachable_platform()))
-
-
-def _answering(status: int) -> httpx2.Response:
-    """One of the platform's own answers, as `raise_for_status` will read it."""
-    return httpx2.Response(
-        status_code=status,
-        json={},
-        request=httpx2.Request("PATCH", DONT_CARE_URL)
-    )
+        .then(_it_is_not_reported_as_an_unreachable_platform())
 
 
 def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
@@ -518,12 +423,6 @@ def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
     return assertion
 
 
-def _restoring(descriptor: ReplicaUndo, platform: _Platform) -> CapacityRestored:
-    return restore_replica_count(
-        descriptor, _settings(), post=platform.post, patch=platform.patch
-    )
-
-
 def _a_descriptor(was_syncing_itself: bool) -> ReplicaUndo:
     return ReplicaUndo(
         application=SOME_APPLICATION,
@@ -532,34 +431,14 @@ def _a_descriptor(was_syncing_itself: bool) -> ReplicaUndo:
     )
 
 
-def _the_action_body(platform: _Platform) -> dict[str, Any]:
-    return dict(platform.post.call_args.kwargs["json"])
-
-
-def _the_count_asked_for(platform: _Platform) -> str | None:
-    parameters = _the_action_body(platform).get("resourceActionParameters", [])
-    counts = [
-        parameter["value"] for parameter in parameters
-        if parameter["name"] == "replicas"
-    ]
-
-    return counts[-1] if counts else None
-
-
-def _it_asked_for(platform: _Platform, replicas: int) -> Assertion[object]:
+def _it_asked_for(platform: Any, replicas: int) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
-        if not platform.post.called:
-            raise AssertionError(
-                f"Expected the platform to be asked for [{replicas}] replicas, "
-                f"and no action was run at all."
-            )
+        asked = [call.args for call in platform.scale.call_args_list]
 
-        asked = _the_count_asked_for(platform)
-
-        if asked != str(replicas):
+        if asked != [(SOME_APPLICATION, replicas)]:
             raise AssertionError(
-                f"Expected the platform to be asked for [{replicas}] replicas, "
-                f"and it was asked for [{asked}]."
+                f"Expected the platform to be asked once for [{replicas}] "
+                f"replicas of [{SOME_APPLICATION}], and it was asked {asked}."
             )
 
         return True
@@ -567,18 +446,16 @@ def _it_asked_for(platform: _Platform, replicas: int) -> Assertion[object]:
     return assertion
 
 
-def _the_count_was_sent_as_text(platform: _Platform) -> Assertion[object]:
+def _it_was_asked_in_order(platform: Any, *expected: str) -> Assertion[object]:
+    """The named operations happened, and in this order relative to each other."""
     def assertion(dont_care_result: object) -> bool:
-        parameters = _the_action_body(platform).get("resourceActionParameters", [])
-        wrongly_typed = [
-            parameter for parameter in parameters
-            if not isinstance(parameter["value"], str)
-        ]
+        asked = [name for name, _args, _kwargs in platform.method_calls]
+        relevant = [name for name in asked if name in expected]
 
-        if wrongly_typed:
+        if relevant != list(expected):
             raise AssertionError(
-                f"Expected every action parameter to be carried as text, as the "
-                f"platform carries them, and {wrongly_typed} are not."
+                f"Expected {list(expected)} in that order, and the platform was "
+                f"asked {asked}."
             )
 
         return True
@@ -586,69 +463,12 @@ def _the_count_was_sent_as_text(platform: _Platform) -> Assertion[object]:
     return assertion
 
 
-def _reconciliation_was_turned(platform: _Platform, off: bool) -> Assertion[object]:
-    """One merge patch to the application's own route, of the switch alone.
-
-    `enabled: false` to suspend and a removed `enabled` to restore - never an
-    `automated` object of Argus's own, which would replace the one the operator
-    declared, and never the spec route, which takes its body as the whole spec.
-    """
+def _the_sync_policy_was_not_touched(platform: Any) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
-        if not platform.patch.called:
+        if platform.suspend_sync.called or platform.resume_sync.called:
             raise AssertionError(
-                "Expected the sync policy to be written, and it was not written "
-                "at all."
-            )
-
-        expected = _the_switch_set_to(False if off else None)
-        url = platform.patch.call_args.args[0]
-        body = platform.patch.call_args.kwargs["json"]
-
-        if url != THE_APPLICATIONS_ROUTE:
-            raise AssertionError(
-                f"Expected the sync policy to be patched at "
-                f"[{THE_APPLICATIONS_ROUTE}], and it was patched at [{url}]."
-            )
-
-        if body[PATCH_REQUEST_TYPE] != APPLICATION_MERGE_PATCH:
-            raise AssertionError(
-                f"Expected a [{APPLICATION_MERGE_PATCH}] patch, and it was sent "
-                f"as [{body[PATCH_REQUEST_TYPE]}]."
-            )
-
-        if _the_sync_patches(platform) != [expected]:
-            raise AssertionError(
-                f"Expected automated sync to be turned {'off' if off else 'on'} "
-                f"by one patch of {expected}, and it was sent "
-                f"{_the_sync_patches(platform)}."
-            )
-
-        return True
-
-    return assertion
-
-def _the_sync_patches(platform: _Platform) -> list[dict[str, Any]]:
-    """Every merge patch the application route was sent, parsed, in order.
-
-    Parsed rather than compared as text, because the vendor carries the patch
-    as a JSON-encoded string and the order of its keys is nobody's contract.
-    """
-    return [
-        json.loads(call.kwargs["json"][PATCH_REQUEST_PATCH])
-        for call in platform.patch.call_args_list
-    ]
-
-
-def _the_switch_set_to(enabled: bool | None) -> dict[str, Any]:
-    return {SPEC: {SYNC_POLICY: {AUTOMATED: {ENABLED: enabled}}}}
-
-
-def _the_sync_policy_was_not_touched(platform: _Platform) -> Assertion[object]:
-    def assertion(dont_care_result: object) -> bool:
-        if platform.patch.called:
-            raise AssertionError(
-                f"Expected the sync policy to be left as it was found, and it "
-                f"was patched with [{platform.patch.call_args.kwargs['json']}]."
+                f"Expected the sync policy to be left as it was found, and the "
+                f"platform was asked {platform.method_calls}."
             )
 
         return True
@@ -656,12 +476,12 @@ def _the_sync_policy_was_not_touched(platform: _Platform) -> Assertion[object]:
     return assertion
 
 
-def _nothing_was_changed(platform: _Platform) -> Assertion[Exception | None]:
+def _nothing_was_changed(platform: Any) -> Assertion[Exception | None]:
     def assertion(dont_care_error: Exception | None) -> bool:
         changed = [
-            name for name, route in (("the action", platform.post),
-                                     ("the sync policy", platform.patch))
-            if route.called
+            name for name, operation in (("the count", platform.scale),
+                                         ("the sync policy", platform.suspend_sync))
+            if operation.called
         ]
 
         if changed:

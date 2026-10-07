@@ -35,6 +35,8 @@ from argus_core.models import (
     ReplicaUndo,
     RestartedService,
 )
+from deployment_platform import DeploymentPlatformWrites
+from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from mcp.server.fastmcp import FastMCP
 
 from write_mcp_server import (
@@ -50,32 +52,25 @@ from write_mcp_server import (
 )
 from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.flag_state import FlagWriteSettings
-from write_mcp_server.pinning import PinSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
-from write_mcp_server.restarting import RestartSettings
-from write_mcp_server.rolling_back import RollbackSettings
-from write_mcp_server.scaling import ScaleSettings
 
 
 def build_server(endpoint: WriteMcpEndpoint,
                  flag_settings: FlagWriteSettings,
                  repository_settings: RepositoryWriteSettings,
-                 restart_settings: RestartSettings,
-                 rollback_settings: RollbackSettings,
-                 scale_settings: ScaleSettings,
-                 pin_settings: PinSettings,
+                 platform: DeploymentPlatformWrites,
                  discard_settings: DiscardSettings) -> FastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Seven slices, not one. The flag tools speak to the provider, the code tool
-    speaks to the repository, the discard speaks to the store a service keeps its
-    derived copies in, and the restart, the rollback, the scale-out and the pin
-    each speak to the deployment platform - separately, because they are
-    different routes under different paths and a single slice would make one
-    tool's misconfiguration look like another's. Every credential named belongs to
-    this tier, and none of them belongs in another's calls. What keeps the *tiers*
-    apart is that the read server is handed a slice with no field any of these
-    could arrive in - not a check made here.
+    Three slices and a port. The flag tools speak to the provider, the code tool
+    speaks to the repository, and the discard speaks to the store a service keeps
+    its derived copies in. The restart, the rollback, the scale-out and the pin
+    all speak to the deployment platform, and are handed it rather than a slice:
+    where it is, under what credential and by which routes is the adapter's,
+    built once in `main`. Every credential named belongs to this tier, and none
+    of them belongs in another's calls. What keeps the *tiers* apart is what each
+    server is handed - the read server gets the platform's reads port, and no
+    slice with a field any of these could arrive in - not a check made here.
 
     The tool bodies stay registration only; the behaviour, and the seams a
     decorated function cannot carry, live in a module per route beside this one.
@@ -88,10 +83,6 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     def confirm_the_change_landed() -> list[str]:
         return flag_state.evaluated_flags(flag_settings)
-
-    confirm_a_new_process_is_serving = restarting.the_pod_start_time(
-        restart_settings
-    )
 
     @mcp.tool()
     def set_feature_flag(flag: str, enabled: bool) -> FlagUndo:
@@ -133,11 +124,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         judge whether the leak was reclaimed has to know the process it is
         judging is a new one. The behavior lives in
         `restarting.restart_service`; this is registration only."""
-        return restarting.restart_service(
-            service,
-            restart_settings,
-            observe=confirm_a_new_process_is_serving
-        )
+        return restarting.restart_service(service, platform)
 
     @mcp.tool()
     def roll_back_deployment(application: str) -> DeploymentRollbackUndo:
@@ -161,7 +148,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         descriptor returned, and both are what a withdrawal puts back. The
         behavior lives in `rolling_back.roll_back_deployment`; this is
         registration only."""
-        return rolling_back.roll_back_deployment(application, rollback_settings)
+        return rolling_back.roll_back_deployment(application, platform)
 
     @mcp.tool()
     def restore_deployment(
@@ -186,7 +173,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         rollback, so the revision is put back before reconciliation is
         re-enabled. The behavior lives in
         `rolling_back.restore_deployment`; this is registration only."""
-        return rolling_back.restore_deployment(descriptor, rollback_settings)
+        return rolling_back.restore_deployment(descriptor, platform)
 
     @mcp.tool()
     def scale_out(application: str) -> ReplicaUndo:
@@ -216,7 +203,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         is still arriving; the first two are recorded in the descriptor returned
         and are what a withdrawal puts back. The behavior lives in
         `scaling.scale_out`; this is registration only."""
-        return scaling.scale_out(application, scale_settings)
+        return scaling.scale_out(application, platform)
 
     @mcp.tool()
     def restore_replica_count(descriptor: ReplicaUndo) -> CapacityRestored:
@@ -237,7 +224,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         order would have the platform set the count itself, unverifiably, at a
         moment nothing here chose. The behavior lives in
         `scaling.restore_replica_count`; this is registration only."""
-        return scaling.restore_replica_count(descriptor, scale_settings)
+        return scaling.restore_replica_count(descriptor, platform)
 
     @mcp.tool()
     def pin_autoscaler(application: str) -> AutoscalerUndo:
@@ -266,7 +253,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         was reacting to is still there; the first two are recorded in the
         descriptor returned and are what a withdrawal puts back. The behavior
         lives in `pinning.pin_autoscaler`; this is registration only."""
-        return pinning.pin_autoscaler(application, pin_settings)
+        return pinning.pin_autoscaler(application, platform)
 
     @mcp.tool()
     def discard_cache_entries(keys: list[str]) -> CacheEntriesDiscarded:
@@ -322,7 +309,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         order would have the platform re-apply the manifest itself,
         unverifiably, at a moment nothing here chose. The behavior lives in
         `pinning.restore_autoscaler_floor`; this is registration only."""
-        return pinning.restore_autoscaler_floor(descriptor, pin_settings)
+        return pinning.restore_autoscaler_floor(descriptor, platform)
 
     @mcp.tool()
     def get_recent_flag_changes(since: str) -> list[FlagChange]:
@@ -407,10 +394,9 @@ def main() -> None:
         WriteMcpEndpoint.of(settings),
         FlagWriteSettings.of(settings),
         RepositoryWriteSettings.of(settings),
-        RestartSettings.of(settings),
-        RollbackSettings.of(settings),
-        ScaleSettings.of(settings),
-        PinSettings.of(settings),
+        # The adapter is built here and nowhere else in this tier, and handed on
+        # as the writes port: no action below names a route.
+        ArgoCd(ArgoCdSettings.of(settings)),
         DiscardSettings.of(settings)
     ).run(transport="streamable-http")
 

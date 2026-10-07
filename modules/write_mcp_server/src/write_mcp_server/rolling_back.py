@@ -1,7 +1,6 @@
 """Rolling a deployment back through the platform (spec §7.3, §12.1).
 
-The write tier's third action, and the only place in Argus that knows how a
-rollback is actually performed. Everything above the port sees an application
+The write tier's third action. Everything above the port sees an application
 name going in and a record of what changed coming back.
 
 The deployment rather than its configuration, because a revision carries the
@@ -10,21 +9,20 @@ together. So one tool answers a configuration changed into a broken state and
 new code that broke it alike; which of the two it was is the mode the
 Investigator named, and it decides what fix remains, not what is called here.
 
-Shaped like Argo CD's own rollback: `POST
-/api/v1/applications/{application}/rollback`, which re-syncs the application to
-an entry in its own deployment history. That is what makes this admissible as
-a generic mitigation rather than an infrastructure change somebody has to
-approve - the revision it applies was reviewed and ran before, so Argus is
-replaying somebody's change rather than authoring one. Nothing is written to
-the repository the revision came from, and nothing here may write one.
+Shaped like Argo CD's own rollback, which re-syncs the application to an entry
+in its own deployment history. That is what makes this admissible as a generic
+mitigation rather than an infrastructure change somebody has to approve - the
+revision it applies was reviewed and ran before, so Argus is replaying
+somebody's change rather than authoring one. Nothing is written to the
+repository the revision came from, and nothing here may write one.
 
-Three requests rather than one, because the platform's own rules make it
-three. The application is read, for two facts nobody above this port holds:
-which entry is currently deployed, and whether the platform is reconciling the
-application itself. Automated sync is then suspended, because a real Argo CD
-*refuses* a rollback while it is on and would in any case re-apply the
-revision being rolled away from at the next pass. Only then is the rollback
-asked for.
+Several asks of the platform rather than one, because its own rules make it so.
+It is asked two facts nobody above this port holds: which entry is currently
+deployed, and whether it is reconciling the application itself. Automated sync
+is then suspended, because a real Argo CD *refuses* a rollback while it is on
+and would in any case re-apply the revision being rolled away from at the next
+pass. Only then is the rollback asked for. How each is asked is the platform
+port's adapter's, and nothing here names a route.
 
 Which is also why this mitigates without resolving, and why the descriptor it
 returns records two things. The repository still holds the change that caused
@@ -37,56 +35,18 @@ ever knew either.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Final
 
-import httpx2
-from argus_core import SettingsSlice
 from argus_core.mcp_transport import an_unreachable_platform
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     DeploymentRestored,
     DeploymentRollbackUndo,
 )
-
-from write_mcp_server.argocd import (
-    REQUEST_TIMEOUT_SECONDS,
-    a_sync_patch,
-    could_not_be_reached,
-    headers_for,
-    is_reconciling_itself,
-    the_url_of,
+from deployment_platform import (
+    DeploymentPlatformError,
+    DeploymentPlatformWrites,
+    PlatformUnreachable,
 )
-
-# Argo CD's own wire vocabulary for the parts of an application only a rollback
-# reads. Named once here rather than spelled at each lookup: they are another
-# project's field names, and a typo in one is a silent `None` rather than an
-# error. What both actions against the platform read - the sync policy, and how
-# it is spelled - lives in `argocd` beside them.
-_STATUS: Final = "status"
-_HISTORY: Final = "history"
-_HISTORY_ID: Final = "id"
-_REVISION: Final = "revision"
-
-
-class RollbackSettings(SettingsSlice):
-    """Where a rollback is asked for, and under what credential.
-
-    Two paths, because the operation is three requests against two of the
-    platform's routes: the application is read and its sync patched on one, and
-    the rollback is asked for on the other. Templates rather than fixed routes,
-    for the reason the restart path is one: the demo's stand-in and a real
-    server are one setting with two values.
-    """
-
-    argocd_base_url: str
-    argocd_application_path: str
-    argocd_rollback_path: str
-    argocd_auth_token: str
-
-
-HttpGet = Callable[..., httpx2.Response]
-HttpPost = Callable[..., httpx2.Response]
-HttpPatch = Callable[..., httpx2.Response]
 
 
 class NoEarlierRevision(Exception):
@@ -103,16 +63,15 @@ class RollbackRefused(Exception):
     """The platform would not perform the rollback."""
 
 
-def _refusing(said: str, error: Exception,
+def _refusing(said: str, error: DeploymentPlatformError,
               left_behind: DeploymentRollbackUndo | None = None
               ) -> RollbackRefused:
     """This module's refusal, marked where the platform was never reached.
 
     The mark is what lets a caller tell four actions being unavailable from this
     rollback being rejected, without reading the words of either. It is this
-    module's to apply rather than `argocd`'s, for the reason that module gives
-    for holding no exception policy: what a response means is the platform's
-    vocabulary, and what to raise about it is the action's own.
+    module's to apply rather than the platform's: what a response means is the
+    platform's to say, and what to raise about it is the action's own.
 
     `left_behind` is what the failure cost, where it cost anything. A platform
     that disappears after reconciliation was suspended has left this application
@@ -123,7 +82,7 @@ def _refusing(said: str, error: Exception,
     and withholding it meant the mode was handled only when the platform failed
     on the first call.
     """
-    if could_not_be_reached(error):
+    if isinstance(error, PlatformUnreachable):
         return RollbackRefused(
             an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
         )
@@ -131,21 +90,16 @@ def _refusing(said: str, error: Exception,
     return RollbackRefused(said)
 
 
-def roll_back_deployment(
-    application: str,
-    settings: RollbackSettings,
-    get: HttpGet = httpx2.get,
-    post: HttpPost = httpx2.post,
-    patch: HttpPatch = httpx2.patch
-) -> DeploymentRollbackUndo:
+def roll_back_deployment(application: str,
+                         platform: DeploymentPlatformWrites) -> DeploymentRollbackUndo:
     """Returns `application` to the revision it was running before the current
     one, and reports what that cost.
 
     The entry rolled back to is the platform's to choose, and the choice is the
     one `argocd app rollback APPNAME` makes with its history id omitted: the
-    immediately preceding deployment. Nothing above this port holds a
-    deployment history to choose from, so a caller naming an entry would be
-    naming one it could not have read.
+    immediately preceding deployment, in the order the platform keeps its
+    history. Nothing above this port holds a deployment history to choose from,
+    so a caller naming an entry would be naming one it could not have read.
 
     Raises rather than half-succeeding. An application with no earlier entry
     raises before anything is touched; a platform that refuses the rollback
@@ -153,8 +107,10 @@ def roll_back_deployment(
     recorded nowhere yet, so leaving it in place and saying so is honest where
     quietly restoring it would hide a state somebody has to know about.
     """
-    state = _the_application(application, settings, get)
-    history = state.get(_STATUS, {}).get(_HISTORY, [])
+    try:
+        history = platform.deployments_of(application)
+    except DeploymentPlatformError as error:
+        raise _refusing(f"could not read [{application}]: {error}", error) from error
 
     if len(history) < 2:
         raise NoEarlierRevision(
@@ -163,36 +119,42 @@ def roll_back_deployment(
         )
 
     running, previous = history[-1], history[-2]
-    was_syncing_itself = is_reconciling_itself(state)
 
-    if was_syncing_itself:
-        _stop_reconciling(application, settings, patch)
+    try:
+        was_syncing_itself = platform.is_syncing_itself(application)
+
+        if was_syncing_itself:
+            platform.suspend_sync(application)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not suspend the sync of [{application}]: {error}", error
+        ) from error
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
     # has to put back whether the rollback then lands or the platform vanishes.
     undo = DeploymentRollbackUndo(
         application=application,
-        was_on_history_id=running[_HISTORY_ID],
-        was_on_revision=running[_REVISION],
+        was_on_history_id=running.history_id,
+        was_on_revision=running.revision,
         was_syncing_itself=was_syncing_itself
     )
 
-    _ask_for_the_rollback(
-        application,
-        previous[_HISTORY_ID],
-        settings,
-        post,
-        left_behind=undo if was_syncing_itself else None
-    )
+    try:
+        platform.roll_back(application, previous.history_id)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"[{application}] could not be rolled back to history entry "
+            f"[{previous.history_id}]: {error}",
+            error,
+            undo if was_syncing_itself else None
+        ) from error
 
     return undo
 
 
 def restore_deployment(descriptor: DeploymentRollbackUndo,
-                       settings: RollbackSettings,
-                       post: HttpPost = httpx2.post,
-                       patch: HttpPatch = httpx2.patch) -> DeploymentRestored:
+                       platform: DeploymentPlatformWrites) -> DeploymentRestored:
     """Puts back both of the things a rollback changed, and says which it
     managed.
 
@@ -208,15 +170,8 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     impossible.
     """
     revision = _tried(
-        lambda: _ask_for_the_rollback(
-            descriptor.application,
-            descriptor.was_on_history_id,
-            settings,
-            post,
-            # Nothing reads the refusal on this path - `_tried` turns it into a
-            # `False` the caller reports - and a descriptor here would describe
-            # putting back a change this call is itself the putting back of.
-            left_behind=None
+        lambda: platform.roll_back(
+            descriptor.application, descriptor.was_on_history_id
         )
     )
 
@@ -231,7 +186,7 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     return DeploymentRestored(
         revision_put_back=revision,
         automated_sync_put_back=_tried(
-            lambda: _start_reconciling(descriptor.application, settings, patch)
+            lambda: platform.resume_sync(descriptor.application)
         )
     )
 
@@ -243,91 +198,3 @@ def _tried(call: Callable[[], None]) -> bool:
         return False
 
     return True
-
-
-def _the_application(application: str,
-                     settings: RollbackSettings,
-                     get: HttpGet) -> dict[str, Any]:
-    url = the_url_of(
-        settings.argocd_base_url, settings.argocd_application_path, application
-    )
-
-    try:
-        response = get(
-            url,
-            headers=headers_for(settings.argocd_auth_token),
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-        state: dict[str, Any] = response.json()
-    except Exception as error:
-        raise _refusing(
-            f"could not read [{application}] from [{url}]: {error}", error
-        ) from error
-
-    return state
-
-
-def _stop_reconciling(application: str,
-                      settings: RollbackSettings,
-                      patch: HttpPatch) -> None:
-    _set_sync_policy(application, reconciling=False, settings=settings, patch=patch)
-
-
-def _start_reconciling(application: str,
-                       settings: RollbackSettings,
-                       patch: HttpPatch) -> None:
-    _set_sync_policy(application, reconciling=True, settings=settings, patch=patch)
-
-
-def _set_sync_policy(application: str,
-                     reconciling: bool,
-                     settings: RollbackSettings,
-                     patch: HttpPatch) -> None:
-    url = the_url_of(
-        settings.argocd_base_url, settings.argocd_application_path, application
-    )
-
-    try:
-        response = patch(
-            url,
-            json=a_sync_patch(application, reconciling),
-            headers=headers_for(settings.argocd_auth_token),
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-    except Exception as error:
-        raise _refusing(
-            f"could not change the sync policy of [{application}] at [{url}]: "
-            f"{error}",
-            error
-        ) from error
-
-
-def _ask_for_the_rollback(application: str,
-                          to_history_id: int,
-                          settings: RollbackSettings,
-                          post: HttpPost,
-                          *,
-                          left_behind: DeploymentRollbackUndo | None) -> None:
-    url = the_url_of(
-        settings.argocd_base_url, settings.argocd_rollback_path, application
-    )
-
-    try:
-        response = post(
-            url,
-            json={"name": application, "id": to_history_id},
-            headers=headers_for(settings.argocd_auth_token),
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        response.raise_for_status()
-    except Exception as error:
-        raise _refusing(
-            f"[{application}] could not be rolled back to history entry "
-            f"[{to_history_id}] at [{url}]: {error}",
-            error,
-            left_behind
-        ) from error
-
-

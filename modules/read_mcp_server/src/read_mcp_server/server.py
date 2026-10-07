@@ -31,6 +31,8 @@ from argus_core.models import (
     ServiceDependency,
 )
 from code_index.embedding import an_embedder
+from deployment_platform import DeploymentPlatformReads
+from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from mcp.server.fastmcp import FastMCP
 from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
@@ -45,12 +47,8 @@ from read_mcp_server import (
     rollouts,
 )
 from read_mcp_server.alert_rules import AlertRuleReadSettings
-from read_mcp_server.argocd import (
-    ArgocdSettings,
-    fetch_argocd_application,
-    fetch_deploys,
-)
 from read_mcp_server.change_source import ChangeSource
+from read_mcp_server.deploy_history import fetch_deploys
 from read_mcp_server.flags import FlagReadSettings
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import (
@@ -60,7 +58,6 @@ from read_mcp_server.registry import (
 )
 from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
-from read_mcp_server.rollouts import RolloutReadSettings, fetch_live_deployment
 from read_mcp_server.window import RetrievalSettings
 
 
@@ -69,8 +66,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  target_service: TargetServiceSettings,
                  metrics_settings: MetricsSettings,
                  flag_settings: FlagReadSettings,
-                 argocd_settings: ArgocdSettings,
-                 rollout_settings: RolloutReadSettings,
+                 platform: DeploymentPlatformReads,
                  registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
@@ -110,13 +106,9 @@ def build_server(endpoint: ReadMcpEndpoint,
     def toggles() -> list[dict[str, object]]:
         return list(flags.fetch_evaluated_toggles(flag_settings))
 
-    # Bound once and asked twice: the change channel reads the history for a
-    # window, and the deployment channel reads it to find what a revision
-    # replaced. Two closures over the same settings would be two places deciding
-    # where a deployment's server is.
-    def the_application(named: str) -> dict[str, Any]:
-        return fetch_argocd_application(named, argocd_settings)
-
+    # The deploy history for a window, as the change channel asks for it. The
+    # deployment channel and the rollout channel are handed the platform itself,
+    # so one object decides where the platform is for all three.
     def deploys(application: str,
                 *,
                 window_start: str,
@@ -125,18 +117,10 @@ def build_server(endpoint: ReadMcpEndpoint,
             application,
             window_start=window_start,
             window_end=window_end,
-            fetch=the_application
+            platform=platform
         )
 
     changes: ChangeSource = deploys
-
-    # The other half of what the platform knows about a deployment, and a
-    # different route: the application says what was synced, this says what is
-    # running. Bound here beside the application fetcher because the rollout
-    # channel asks both, and one closure deciding where the platform is is one
-    # place to correct when it moves.
-    def the_live_deployment(application: str) -> dict[str, Any]:
-        return fetch_live_deployment(application, rollout_settings)
 
     def from_grafana(path: str) -> dict[str, Any]:
         return alert_rules.fetch_from_grafana(path, alert_rule_settings)
@@ -346,7 +330,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         and an outage is not evidence for it. The behavior lives in
         `deployments.what_a_deployment_changed`; this is registration only."""
         return deployments.what_a_deployment_changed(
-            service, revision, repository_settings, fetch=the_application
+            service, revision, repository_settings, platform=platform
         )
 
     @mcp.tool()
@@ -372,7 +356,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         the rollout arrived. The behavior lives in
         `rollouts.how_far_the_rollout_has_got`; this is registration only."""
         return rollouts.how_far_the_rollout_has_got(
-            service, fetch_deployment=the_live_deployment
+            service, platform=platform
         )
 
     @mcp.tool()
@@ -420,7 +404,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         the deployment converged. The behavior lives in
         `rollouts.how_the_rollout_is_going`; this is registration only."""
         return rollouts.how_the_rollout_is_going(
-            service, fetch_deployment=the_live_deployment, fetch=the_application
+            service, platform=platform
         )
 
     @mcp.tool()
@@ -543,8 +527,11 @@ def main() -> None:
             TargetServiceSettings.of(settings),
             MetricsSettings.of(settings),
             FlagReadSettings.of(settings),
-            ArgocdSettings.of(settings),
-            RolloutReadSettings.of(settings),
+            # The adapter is built here and nowhere else in this tier, and handed
+            # on typed as the reads port: a write typed anywhere below does not
+            # type-check, which is the tier split held in the code this process
+            # runs as well as in the process boundary.
+            ArgoCd(ArgoCdSettings.of(settings)),
             ServiceRegistrySettings.of(settings),
             RepositoryReadSettings.of(settings),
             IndexReadSettings.of(settings),

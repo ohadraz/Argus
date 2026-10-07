@@ -26,7 +26,7 @@ import httpx2
 import psycopg
 from argus_incidents.repository import events
 from argus_testkit import Assertion
-from write_mcp_server.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
+from deployment_platform.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
