@@ -6,4 +6,4 @@
 ## 2. Review before commit
 
 - [x] 2.1 lint, typecheck, orchestrator module suite, integration, full e2e_replay
-- [ ] 2.2 Commit (one line, approved); archive the change
+- [x] 2.2 Commit (one line, approved); archive the change
