@@ -39,9 +39,11 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     Outcome,
+    PinAutoscaler,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
+    ScaleOut,
     UndoDescriptor,
     UnreadVerdict,
     Verdict,
@@ -893,6 +895,56 @@ def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
                 about=_a_candidate_blaming(
                     "kuki heap (memory_used_bytes / heap of 2048MiB limit)"
                 )
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      change_landed=change_landed,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(_the_action_was_not_taken(take),
+                     _the_incident_was_escalated(),
+                     _the_provider_was_never_asked(change_landed)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "some_deployment_action",
+    [
+        RollBackDeployment(application="kuki-service"),
+        ScaleOut(application="kuki-service"),
+        PinAutoscaler(application="kuki-service")
+    ],
+    ids=["rollback", "scale-out", "pin"]
+)
+def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_about_it(
+    some_deployment_action: Action,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # These change a deployment, and the flag provider's log answers about
+    # flags. Asked about a "flag" named after the application it finds no such
+    # change, which reads as the change never having landed - so the walk acted
+    # a second time on a deployment the dead worker may already have changed,
+    # and recorded what the first attempt left as what there is to put back.
+    # No record here says whether that worker managed it, so it ends the way
+    # the restart does: a human looks.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None)),
+            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=some_deployment_action,
+                about=_a_candidate_blaming("kuki-service's latest deployment")
             )
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,

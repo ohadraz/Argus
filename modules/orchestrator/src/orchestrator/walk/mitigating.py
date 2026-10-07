@@ -16,12 +16,12 @@ from argus_core.events import (
     publish,
 )
 from argus_core.models import (
+    FLAG_PROVIDER,
     Action,
     Actor,
     AlarmClaim,
     IncidentStatus,
     UnreadVerdict,
-    leaves_something_to_put_back,
     the_actions_through,
     the_direction_of,
     the_platform_of,
@@ -307,10 +307,14 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     unanswerable question is not a "no", and acting on it would be acting on a
     guess about whether production has already been changed.
 
-    An action that leaves nothing behind is never asked about, and reaches that
-    same case. A restart writes to no provider, so no log anywhere says whether
-    the dead worker managed it - and a second restart taken on that guess is
-    the loop the per-subject cap exists to prevent, arrived at by another road.
+    An action that does not go through the flag provider is never asked about,
+    and reaches that same case. The provider's log answers about flags: asked
+    about a "flag" named after a deployment it finds no such change, and that
+    "no" would have this walk roll back, scale or pin a second time a deployment
+    the dead worker may already have changed. Nothing else keeps a log that
+    says whether Argus's own change to a deployment landed - a restart writes to
+    nothing at all - and a second action taken on that guess is the loop the
+    per-subject cap exists to prevent, arrived at by another road.
 
     An outcome nobody here can read is the fourth state, and it escalates
     without asking the provider anything. A verdict was reached, so the
@@ -368,15 +372,15 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     #
     # The flag comes from the action rather than from the candidate, because
     # the provider's log answers about a flag it recorded moving and the
-    # candidate says what a model thought was wrong. And an action that leaves
-    # nothing behind is not asked about at all: a restart writes to no
-    # provider, so no log says whether the dead worker managed it, and that
-    # unanswerable question ends the same way every unanswerable one does.
+    # candidate says what a model thought was wrong. And an action through any
+    # other platform is not asked about at all: the provider's log knows
+    # nothing of a deployment, so its "no" would be a guess read as a fact, and
+    # that unanswerable question ends the same way every unanswerable one does.
     since = claimed.claimed_at if claimed is not None else None
     landed = (
         change_landed(the_subject_of(state.proposed_action), since)
         if since is not None
-        and leaves_something_to_put_back(state.proposed_action.action_type)
+        and the_platform_of(state.proposed_action.action_type) == FLAG_PROVIDER
         else None
     )
 
@@ -402,10 +406,10 @@ def _why_the_resumed_walk_stopped(landed: bool | None) -> str:
     managed before it stopped.
 
     The second is not always a provider that would not answer. An action
-    leaving nothing behind is never asked about in the first place - there is
-    no log of a restart to consult - so the words say that nothing can account
-    for the change rather than naming a provider that may never have been
-    involved.
+    through any platform but the flag provider is never asked about in the
+    first place - there is no log of a restart or a rollback to consult - so the
+    words say that nothing can account for the change rather than naming a
+    provider that was never involved.
     """
     if landed:
         return ("an earlier attempt changed this flag and stopped before "
