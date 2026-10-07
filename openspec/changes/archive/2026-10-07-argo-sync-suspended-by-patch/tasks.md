@@ -24,4 +24,4 @@
 
 - [x] 5.1 lint, typecheck, guard_layering, test_all, integration, full e2e_replay
 - [x] 5.2 Comments, docstrings, jargon, docs aligned; no missing, redundant or weak tests
-- [ ] 5.3 Commit the demo app and Argus (one line each, approved); push the demo app immediately before Argus, since its stand-in no longer answers the route Argus's `main` calls (PowerShell); archive the change
+- [x] 5.3 Commit the demo app and Argus (one line each, approved); push the demo app immediately before Argus, since its stand-in no longer answers the route Argus's `main` calls (PowerShell); archive the change
