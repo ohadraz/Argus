@@ -7,7 +7,6 @@ because it leaves nothing behind, verified in two steps - that it landed and
 that it helped - and treated as having mitigated the incident without
 resolving the cause.
 ## Requirements
-
 ### Requirement: Restarting the service is a mitigation Argus can take
 The system SHALL offer, on the write tier, a tool that restarts the service
 named by a hypothesis, and SHALL declare that action's kind a generic
@@ -52,7 +51,10 @@ outcomes, and a system that read only the symptoms would report the first as the
 second.
 
 The start time SHALL be read per service, so that restarting a dependency cannot
-be confirmed by observing the service that was paged.
+be confirmed by observing the service that was paged. It SHALL be read under the
+same credential the restart was asked for under, and with no credential at all
+where none is configured: a platform that answers nothing to a caller it cannot
+identify would otherwise leave every restart unconfirmable.
 
 #### Scenario: A restart that never landed is distinguished from one that did not help
 - **GIVEN** a restart whose call returned without error
@@ -73,6 +75,11 @@ be confirmed by observing the service that was paged.
 - **THEN** the process start time read is the restarted service's, and an
   unmoved start time on the alerting service does not report the restart as
   having failed
+
+#### Scenario: The start time is read under the platform's credential
+- **GIVEN** a platform configured with a credential
+- **WHEN** the restarted service's process start time is read
+- **THEN** the read carries that credential, as the restart itself did
 
 ### Requirement: A confirmed restart mitigates without resolving
 The system SHALL treat a confirmed restart as having mitigated the incident and
@@ -109,3 +116,4 @@ is the shape that would silently restart the wrong thing the moment it held two.
 - **GIVEN** an estate of two services
 - **WHEN** each is restarted in turn
 - **THEN** each call names that service's own resource
+
