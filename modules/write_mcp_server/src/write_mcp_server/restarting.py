@@ -38,7 +38,7 @@ from argus_core import SettingsSlice
 from argus_core.mcp_transport import an_unreachable_platform
 from argus_core.models import DEPLOYMENT_PLATFORM, RestartedService
 
-from write_mcp_server.argocd import could_not_be_reached
+from write_mcp_server.argocd import could_not_be_reached, headers_for
 
 # The action Argo CD runs, by the name it is registered under. A vendor's own
 # vocabulary, so it is named once here rather than spelled at the call.
@@ -195,9 +195,13 @@ def the_pod_start_time(settings: RestartSettings,
     unparseable timestamp would report an unconfirmable restart as a broken one.
     """
     def observe(service: str, /) -> float | None:
+        # Under the same credential as the action: a real Argo CD answers
+        # nothing to a caller it cannot identify, and a tree it would not
+        # serve is a restart that can never be confirmed.
         response = get(
             f"{settings.argocd_base_url}"
             f"{settings.argocd_resource_tree_path.format(application=service)}",
+            headers=headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
@@ -269,7 +273,7 @@ def restart_service(
     try:
         response = post(
             url,
-            headers=_headers_for(settings.argocd_auth_token),
+            headers=headers_for(settings.argocd_auth_token),
             json=_the_restart_action(settings, service),
             timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -347,13 +351,3 @@ def _wait_until_a_new_process_serves(service: str,
 
 def _restart_path(settings: RestartSettings, service: str) -> str:
     return settings.argocd_resource_action_path.format(application=service)
-
-
-def _headers_for(token: str) -> dict[str, str]:
-    """The credential, or no header at all where none is configured.
-
-    An empty token means the server takes none - the demo's stand-in does - and
-    sending `Bearer ` with nothing after it is a malformed credential rather
-    than an absent one.
-    """
-    return {"Authorization": f"Bearer {token}"} if token else {}

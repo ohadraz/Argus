@@ -422,6 +422,44 @@ def test_the_resource_tree_is_asked_about_the_service_being_confirmed() -> None:
 
 
 @pytest.mark.unit
+def test_the_resource_tree_is_read_under_the_platforms_credential() -> None:
+    # A real Argo CD answers nothing to a caller it cannot identify, so a tree
+    # read without the token is a 401 - and a restart that could not read the
+    # tree is one it can never confirm, on every platform but the stand-in.
+    some_token = "dont-care-looking-but-load-bearing-token"
+
+    Scenario() \
+        .given(
+            a_platform_reporting := a_platform_whose_tree_holds(
+                [a_pod(came_up=WHEN_THE_POD_THAT_CAME_UP_CAME_UP)]
+            )
+        ) \
+        .when(
+            lambda: the_pod_start_time(
+                some_settings(auth_token=some_token), get=a_platform_reporting
+            )(DONT_CARE_SERVICE)
+        ) \
+        .then(_the_tree_was_read_under(f"Bearer {some_token}", a_platform_reporting))
+
+
+@pytest.mark.unit
+def test_a_tree_read_from_a_platform_taking_no_credential_sends_no_header() -> None:
+    # Absence has to be absence, for the reason the restart's own request's is.
+    Scenario() \
+        .given(
+            a_platform_reporting := a_platform_whose_tree_holds(
+                [a_pod(came_up=WHEN_THE_POD_THAT_CAME_UP_CAME_UP)]
+            )
+        ) \
+        .when(
+            lambda: the_pod_start_time(
+                some_settings(auth_token=""), get=a_platform_reporting
+            )(DONT_CARE_SERVICE)
+        ) \
+        .then(_the_tree_was_read_with_no_credential(a_platform_reporting))
+
+
+@pytest.mark.unit
 def test_an_application_with_nothing_running_has_no_process_that_can_be_seen() -> None:
     # Different from an application reporting a pod that has not restarted: one
     # is a reading, the other is the absence of one, and only the second leaves
@@ -670,6 +708,34 @@ def _no_credential_was_sent(platform: _Platform) -> Assertion[object]:
             raise AssertionError(
                 f"Expected no credential to be sent at all, and "
                 f"[{headers['Authorization']}] was."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tree_was_read_under(expected: str, get: Any) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        sent = (get.call_args.kwargs.get("headers") or {}).get("Authorization")
+        if sent != expected:
+            raise AssertionError(
+                f"Expected the resource tree to be read under [{expected}], "
+                f"and it was read under [{sent}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tree_was_read_with_no_credential(get: Any) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        headers = get.call_args.kwargs.get("headers") or {}
+        if "Authorization" in headers:
+            raise AssertionError(
+                f"Expected the resource tree to be read with no credential at "
+                f"all, and [{headers['Authorization']}] was sent."
             )
 
         return True
