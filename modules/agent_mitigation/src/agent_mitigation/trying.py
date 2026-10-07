@@ -616,11 +616,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     `None` also means *nobody handed one over*, and the two are indistinguishable
     here by construction. That is safe only while every caller that has an onset
     passes it: `assembling.py` binds this function directly for exactly that
-    reason, where the package's own `mitigate()` composes through `ActionTaker`,
-    whose signature is one argument wide and deliberately carries no
-    configuration. Route the walk through that instead and a blind spot would be
-    judged on levels it does not have, with nothing anywhere saying so - which is
-    the one way this parameter can fail quietly.
+    reason. Route the walk through a seam one argument wide instead and a blind
+    spot would be judged on levels it does not have, with nothing anywhere saying
+    so - which is the one way this parameter can fail quietly.
 
     How long it is given is read off the service's own window rather than
     configured - `_when_a_recovery_would_have_shown` - or, where the rule that

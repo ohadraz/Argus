@@ -4,9 +4,9 @@ Proposing is policy, and policy has no lifetime: which action answers which
 cause is a fact about Argus, not about the process it is running in. So a
 strategy is built here, at import, and carries nothing that has to be reached
 over a network. Performing an action is the other half and is not here - that
-is I/O, it already has its seam in `ActionTaker` and in the Orchestrator's
-`Collaborators`, and a registry built to dispatch between one member would be
-the second action type's machinery bought before the second action type.
+is I/O, it already has its seam in the Orchestrator's `Collaborators`, and a
+registry built to dispatch between one member would be the second action type's
+machinery bought before the second action type.
 
 One question is asked of a strategy: `propose_action` holds a cause and asks
 what to do about it. Whether Argus may then take that action unasked is a
@@ -36,7 +36,7 @@ from argus_core.models import (
     SCALE_OUT,
     Action,
     ActionType,
-    ChangeEvent,
+    Circumstances,
     DiscardCacheEntries,
     FailureMode,
     FlagChange,
@@ -78,26 +78,19 @@ class MitigationStrategy(Protocol):
 
     action_types: frozenset[ActionType]
 
-    # The evidence is positional; the service, the keys and the deployments are
-    # named. A protocol that fixes a parameter's *name* obliges every
+    # Both positional. A protocol that fixes a parameter's *name* obliges every
     # implementation to repeat it, which is a real constraint on a stand-in whose
     # whole point is that it ignores what it is handed - `dont_care_hypothesis`
     # is the right name there and an error against a protocol spelling it
-    # `hypothesis`. The three that follow stay named because callers name them,
-    # and a keyword argument is part of the call; a third positional would make
-    # every existing call wrong.
+    # `hypothesis`.
     #
-    # The keys carry a default because one strategy of eight reads them, and a
-    # required parameter would be every call site naming an input that answers
-    # nothing for it. The deployments are defaulted for the same reason, and
-    # read by one strategy too.
+    # Everything but the candidate arrives as one value. Most strategies read
+    # one or two parts of it, and a new kind of evidence is a field there rather
+    # than a parameter every strategy has to spell whether or not it reads it.
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                /,
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None: ...
+                circumstances: Circumstances,
+                /) -> Action | None: ...
 
 
 class RevertFeatureFlagStrategy:
@@ -115,10 +108,7 @@ class RevertFeatureFlagStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The flag change to reverse, or `None` where the evidence names none.
 
         Reading the Investigator's conclusion is not a second investigation.
@@ -129,11 +119,9 @@ class RevertFeatureFlagStrategy:
         backwards cannot turn a flag the wrong way.
 
         The service is not read. A flag is named by the provider's own record
-        and is the same flag whichever service was alerting on it. The
-        parameter is still spelled as the protocol spells it, for the reason
-        the unread `flag_changes` is spelled that way in the strategy below.
+        and is the same flag whichever service was alerting on it.
         """
-        change = _the_change_to_undo(hypothesis.subject, flag_changes)
+        change = _the_change_to_undo(hypothesis.subject, circumstances.flag_changes)
 
         if change is None:
             return None
@@ -171,25 +159,20 @@ class RestartServiceStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The service to restart - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. A leak
         is not something a flag did - no toggle causes a heap to grow, and a
         flag that happened to move during the climb is a coincidence this must
         not act on - and what the candidate calls the leak is a description,
-        not an address. Both parameters are still spelled as the protocol
-        spells them: a strategy that renamed what it does not use would be one
-        nobody could call by keyword.
+        not an address.
 
         Always an action, where the older shape could answer `None`. A leak
         the model found no words for is still a leak in a service the alert
         names, and there is nothing left for this to fail to identify.
         """
-        return RestartService(service=service)
+        return RestartService(service=circumstances.service)
 
 
 class RollBackDeploymentStrategy:
@@ -225,23 +208,19 @@ class RollBackDeploymentStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The deployment to roll back - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. What was
         deployed is not something a flag did, and a flag that happened to move
         while the broken revision was running is a coincidence this must not
-        act on. Both parameters are still spelled as the protocol spells them,
-        for the reason the restart strategy's unread ones are.
+        act on.
 
         Always an action. A fault in what was deployed that the model found no
         words for is still a fault in a deployment the alert names, and there is
         nothing left for this to fail to identify.
         """
-        return RollBackDeployment(application=service)
+        return RollBackDeployment(application=circumstances.service)
 
 
 class RestartDependencyStrategy:
@@ -278,10 +257,7 @@ class RestartDependencyStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The dependency to restart, or `None` where the evidence names none.
 
         `None` rather than a restart of the alerting service, for the reason
@@ -290,11 +266,10 @@ class RestartDependencyStrategy:
         is the honest account: the mode has an answer in general and this
         particular diagnosis did not say what to apply it to.
 
-        The recorded flag changes are not read. A neighbour being slow is not
-        something a flag did, and one that happened to move meanwhile is a
-        coincidence this must not act on. The parameters are still spelled as the
-        protocol spells them, for the reason the other strategies' unread ones
-        are.
+        Nothing in the circumstances is read. The alerting service is the one
+        thing this must never fall back to, and a neighbour being slow is not
+        something a flag did: one that happened to move meanwhile is a
+        coincidence this must not act on.
         """
         if hypothesis.faulting_service is None:
             return None
@@ -336,23 +311,18 @@ class ScaleOutStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The deployment to make larger - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. Traffic
         arriving is not something a toggle did, and a flag that happened to move
-        while the load climbed is a coincidence this must not act on. Both
-        parameters are still spelled as the protocol spells them, for the reason
-        the restart strategy's unread ones are.
+        while the load climbed is a coincidence this must not act on.
 
         Always an action. A shortfall the model found no words for is still a
         shortfall in a deployment the alert names, and there is nothing left for
         this to fail to identify.
         """
-        return ScaleOut(application=service)
+        return ScaleOut(application=circumstances.service)
 
 
 class PinAutoscalerStrategy:
@@ -393,23 +363,18 @@ class PinAutoscalerStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The deployment whose autoscaler to hold - the one the incident is about.
 
         Neither the hypothesis nor the recorded flag changes are read. A controller
         oscillating is not something a toggle did, and a flag that happened to move
         while the count went up and down is a coincidence this must not act on.
-        Both parameters are still spelled as the protocol spells them, for the
-        reason the restart strategy's unread ones are.
 
         Always an action. A control loop the model found no words for is still a
         control loop on a deployment the alert names, and there is nothing left for
         this to fail to identify.
         """
-        return PinAutoscaler(application=service)
+        return PinAutoscaler(application=circumstances.service)
 
 
 class DiscardCacheEntriesStrategy:
@@ -443,10 +408,7 @@ class DiscardCacheEntriesStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The entries to discard, or `None` where the evidence named none.
 
         The keys are passed through exactly as they arrived - same keys, same
@@ -462,10 +424,12 @@ class DiscardCacheEntriesStrategy:
         alert, as a restart's does, because the store holds that service's copies
         and the model's `subject` is a description rather than an address.
         """
-        if not stale_entry_keys:
+        if not circumstances.stale_entry_keys:
             return None
 
-        return DiscardCacheEntries(service=service, keys=tuple(stale_entry_keys))
+        return DiscardCacheEntries(
+            service=circumstances.service, keys=tuple(circumstances.stale_entry_keys)
+        )
 
 
 class UndoTheRecordedChangeStrategy:
@@ -497,23 +461,16 @@ class UndoTheRecordedChangeStrategy:
 
     def propose(self,
                 hypothesis: Hypothesis,
-                flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                circumstances: Circumstances) -> Action | None:
         """The flag revert where the flag history names the change, else the
         rollback where the platform recorded a deployment, else `None`."""
-        flag_revert = RevertFeatureFlagStrategy().propose(
-            hypothesis, flag_changes, service=service
-        )
+        flag_revert = RevertFeatureFlagStrategy().propose(hypothesis, circumstances)
 
         if flag_revert is not None:
             return flag_revert
 
-        if deployments:
-            return RollBackDeploymentStrategy().propose(
-                hypothesis, flag_changes, service=service
-            )
+        if circumstances.deployments:
+            return RollBackDeploymentStrategy().propose(hypothesis, circumstances)
 
         return None
 

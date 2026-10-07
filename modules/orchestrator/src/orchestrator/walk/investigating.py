@@ -42,7 +42,11 @@ from argus_core.replay import nobody as records_nothing
 from incident_memory.describing import what_it_looked_like
 from incident_memory.ordering import demoting_what_was_refuted
 
-from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_do
+from orchestrator.walk.candidates import (
+    the_circumstances,
+    the_next_worth_trying,
+    what_each_would_do,
+)
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     FetchDependencies,
@@ -171,10 +175,10 @@ def investigator_node(
     # candidate asked without them is a candidate memory has nothing to
     # recognise.
     reordered = demoting_what_was_refuted(
-        what_each_would_do(findings.candidates, flag_changes,
-                           state.alert.service,
-                           state.alert.stale_entry_keys or (),
-                           deployments or ()),
+        what_each_would_do(
+            findings.candidates,
+            the_circumstances(state.alert, flag_changes, deployments)
+        ),
         recalled
     )
     candidates = [entry.candidate for entry in reordered.candidates]

@@ -5,6 +5,9 @@ the candidates it just formed to start on, and the walk, choosing which of
 them to try after one was refuted. One question with one answer, so a
 candidate the walk would skip is never the one the investigation begins
 with.
+
+What an action is worked out from is built here too, for those two and for the
+proposal node, so that all three reason from the same circumstances.
 """
 
 from __future__ import annotations
@@ -13,8 +16,10 @@ from collections.abc import Sequence
 
 from agent_mitigation import propose_action
 from argus_core.models import (
+    Alert,
     Attempt,
     ChangeEvent,
+    Circumstances,
     FlagChange,
     Hypothesis,
     Platform,
@@ -24,11 +29,50 @@ from argus_core.models import (
 )
 
 
+def the_circumstances(alert: Alert,
+                      flag_changes: Sequence[FlagChange] | None,
+                      deployments: Sequence[ChangeEvent] | None
+                      ) -> Circumstances | None:
+    """What every candidate in a round is answered from, or `None` where the
+    flag history could not be read.
+
+    Built here, once, for the three nodes that ask what a candidate would be
+    answered with - the investigation ordering its candidates, the walk choosing
+    the next one, and the proposal node answering the one chosen. Built by each
+    of them, they could come to disagree, and the walk would skip a candidate on
+    the strength of an action the proposal node then declines to take.
+
+    The alert's service, because an action addressed to a service is addressed
+    to the one the incident is about. The alert's keys for the same reason and
+    one more: an entry in a store is addressed by a key nothing in Argus may
+    compose, so the addresses the evidence carried are the only thing a discard
+    can be worked out from. Both histories are what the round read.
+
+    `None` where the provider could not be read, and then nothing is done about
+    anything. Not because every kind of action needs the history - a restart
+    does not - but because "I could not find out what changed" and "nothing
+    changed" lead to the same place, no action and a human, and acting on the
+    one as though it were the other is not something to do in production.
+
+    The alert's keys and an unread platform history are both carried as empty.
+    An alert that mentions no cache says nothing about entries rather than
+    claiming none is stale, and the one mode that reads deployments proposes a
+    rollback only where one was recorded - so neither absence has anything to
+    tell a strategy that an empty sequence does not.
+    """
+    if flag_changes is None:
+        return None
+
+    return Circumstances(
+        service=alert.service,
+        flag_changes=flag_changes,
+        stale_entry_keys=alert.stale_entry_keys or (),
+        deployments=deployments or ()
+    )
+
+
 def what_each_would_do(candidates: Sequence[Hypothesis],
-                       flag_changes: Sequence[FlagChange] | None,
-                       service: str,
-                       stale_entry_keys: Sequence[str] = (),
-                       deployments: Sequence[ChangeEvent] = ()
+                       circumstances: Circumstances | None
                        ) -> list[WhatWouldBeTried]:
     """Every candidate, beside the action that answers it.
 
@@ -40,40 +84,20 @@ def what_each_would_do(candidates: Sequence[Hypothesis],
     proposal has been made.
 
     Free of I/O and free of a model, for the same reason `propose_action` is:
-    the flag history arrives as a value.
+    the circumstances arrive as a value.
 
-    `stale_entry_keys` arrives the same way, and it is one of two inputs here
-    without which a candidate goes unanswered rather than answered differently.
-    An entry in a store is addressed by a key, a key's format belongs to
-    whoever wrote the store, and nothing in Argus may compose one - so the
-    addresses the evidence carried are the whole of what the discard can be
-    worked out from. Defaulted to nothing because every cause but one is
-    answered without them, which is also what makes a caller that forgets them
-    silent: the candidate is simply answered by no action at all.
-
-    `deployments` is the other, for the one candidate whose answer is read off
-    it: a corruption is undone by whichever change the histories hold, so asked
-    without this one, a corruption a revision caused is answered by nothing and
-    can never match a rollback already tried for it.
-
-    A history nobody could read is `None`, and then nothing would be done
-    about anything. Not because every kind of action needs the history - a
-    restart does not - but because this has to answer the same question the
-    proposal node will, and that node proposes nothing at all while the
-    provider cannot be read. An answer here that the node a few steps later
-    contradicts would be the walk skipping a candidate on the strength of an
-    action it then declines to take.
+    No circumstances - a flag history nobody could read - and nothing would be
+    done about anything, because this has to answer the same question the
+    proposal node will, and that node proposes nothing at all then.
     """
-    if flag_changes is None:
+    if circumstances is None:
         return [
             WhatWouldBeTried(candidate=candidate, identity=None)
             for candidate in candidates
         ]
 
     proposals = (
-        (candidate,
-         propose_action(candidate, flag_changes, service, stale_entry_keys,
-                        deployments=deployments))
+        (candidate, propose_action(candidate, circumstances))
         for candidate in candidates
     )
 

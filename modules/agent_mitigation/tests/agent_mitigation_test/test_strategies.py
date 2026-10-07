@@ -26,7 +26,7 @@ from argus_core.models import (
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     ActionType,
-    ChangeEvent,
+    Circumstances,
     DiscardCacheEntries,
     FailureMode,
     FlagChange,
@@ -83,8 +83,8 @@ def test_the_strategy_registered_for_a_cause_is_the_one_asked() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
-                flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
-                service=DONT_CARE_SERVICE,
+                Circumstances(service=DONT_CARE_SERVICE,
+                              flag_changes=[an_enabling_of(DONT_CARE_FLAG)]),
                 strategies=a_registry_answering_for_bad_deployments
             )
         ) \
@@ -105,8 +105,8 @@ def test_a_cause_no_strategy_answers_for_proposes_nothing() -> None:
         .when(
             lambda: propose_action(
                 a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
-                flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
-                service=DONT_CARE_SERVICE,
+                Circumstances(service=DONT_CARE_SERVICE,
+                              flag_changes=[an_enabling_of(DONT_CARE_FLAG)]),
                 strategies=a_registry_that_answers_for_nothing
             )
         ) \
@@ -130,7 +130,9 @@ def test_a_leak_is_answered_by_restarting_the_service_the_alert_names() -> None:
         ) \
         .when(
             lambda: RestartServiceStrategy().propose(
-                a_leak, NO_FLAGS_CHANGED, service=some_alerting_service
+                a_leak,
+                Circumstances(service=some_alerting_service,
+                              flag_changes=NO_FLAGS_CHANGED)
             )
         ) \
         .then(_the_service_to_restart_is(some_alerting_service))
@@ -150,7 +152,9 @@ def test_a_leak_whose_cause_describes_nothing_is_still_answered_with_a_restart()
         ) \
         .when(
             lambda: RestartServiceStrategy().propose(
-                a_leak_describing_nothing, NO_FLAGS_CHANGED, service=some_alerting_service
+                a_leak_describing_nothing,
+                Circumstances(service=some_alerting_service,
+                              flag_changes=NO_FLAGS_CHANGED)
             )
         ) \
         .then(_the_service_to_restart_is(some_alerting_service))
@@ -171,7 +175,9 @@ def test_a_flag_that_moved_during_a_leak_does_not_change_what_is_proposed() -> N
         ) \
         .when(
             lambda: RestartServiceStrategy().propose(
-                a_leak, a_flag_that_moved_meanwhile, service=some_alerting_service
+                a_leak,
+                Circumstances(service=some_alerting_service,
+                              flag_changes=a_flag_that_moved_meanwhile)
             )
         ) \
         .then(_the_service_to_restart_is(some_alerting_service))
@@ -191,7 +197,9 @@ def test_the_registry_argus_ships_answers_a_leak_with_a_restart() -> None:
         ) \
         .when(
             lambda: propose_action(
-                a_leak, flag_changes=NO_FLAGS_CHANGED, service=some_alerting_service
+                a_leak,
+                Circumstances(service=some_alerting_service,
+                              flag_changes=NO_FLAGS_CHANGED)
             )
         ) \
         .then(_the_service_to_restart_is(some_alerting_service))
@@ -211,7 +219,10 @@ def test_nothing_answers_an_upstream_dependency_failure() -> None:
             )
         ) \
         .when(
-            lambda: propose_action(an_upstream_failure, NO_FLAGS_CHANGED, DONT_CARE_SERVICE)
+            lambda: propose_action(
+                an_upstream_failure,
+                Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)
+            )
         ) \
         .then(
             nothing_was_proposed()
@@ -230,7 +241,10 @@ def test_nothing_answers_monitoring_configuration_drift_though_a_revision_is_the
             drift := a_hypothesis_blaming(FailureMode.MONITORING_CONFIGURATION_DRIFT)
         ) \
         .when(lambda: propose_action(
-            drift, NO_FLAGS_CHANGED, DONT_CARE_SERVICE, deployments=[a_deployment()]
+            drift,
+            Circumstances(service=DONT_CARE_SERVICE,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[a_deployment()])
         )) \
         .then(
             nothing_was_proposed()
@@ -293,8 +307,8 @@ def test_a_config_induced_failure_is_answered_by_rolling_the_configuration_back(
         .given(a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -311,8 +325,8 @@ def test_a_bad_deployment_is_answered_by_rolling_the_deployment_back() -> None:
         .given(a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.BAD_DEPLOYMENT),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -334,8 +348,8 @@ def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it
         .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
-            flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
-            service=DONT_CARE_SERVICE
+            Circumstances(service=DONT_CARE_SERVICE,
+                          flag_changes=[an_enabling_of(DONT_CARE_FLAG)])
         )) \
         .then(_the_action_proposed_names(DONT_CARE_FLAG))
 
@@ -350,9 +364,9 @@ def test_silent_data_corruption_a_deployment_caused_is_answered_by_rolling_it_ba
         .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES,
-            deployments=[a_deployment()]
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[a_deployment()])
         )) \
         .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -367,9 +381,9 @@ def test_silent_data_corruption_with_no_change_recorded_proposes_nothing() -> No
         .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES,
-            deployments=[]
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[])
         )) \
         .then(nothing_was_proposed())
 
@@ -388,9 +402,9 @@ def test_a_flag_the_corruption_names_wins_over_a_deployment_beside_it() -> None:
         .given(naming_a_flag) \
         .when(lambda: propose_action(
             naming_a_flag,
-            [an_enabling_of(the_flag_it_names)],
-            SOME_APPLICATION_THE_ALERT_NAMES,
-            deployments=[a_deployment()]
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=[an_enabling_of(the_flag_it_names)],
+                          deployments=[a_deployment()])
         )) \
         .then(_the_action_proposed_names(the_flag_it_names))
 
@@ -402,7 +416,10 @@ def test_a_deployment_recorded_changes_nothing_for_any_other_mode() -> None:
     Scenario() \
         .given(a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK)) \
         .when(lambda: propose_action(
-            a_leak, NO_FLAGS_CHANGED, DONT_CARE_SERVICE, deployments=[a_deployment()]
+            a_leak,
+            Circumstances(service=DONT_CARE_SERVICE,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[a_deployment()])
         )) \
         .then(_the_service_to_restart_is(DONT_CARE_SERVICE))
 
@@ -443,8 +460,8 @@ def test_a_monitoring_blind_spot_is_answered_by_rolling_the_deployment_back() ->
         .given(a_hypothesis_blaming(FailureMode.MONITORING_BLIND_SPOT)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.MONITORING_BLIND_SPOT),
-            flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
-            service=SOME_APPLICATION_THE_ALERT_NAMES
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=[an_enabling_of(DONT_CARE_FLAG)])
         )) \
         .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -461,8 +478,8 @@ def test_an_in_flight_compatibility_break_is_answered_by_rolling_the_deployment_
         .given(a_hypothesis_blaming(FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -482,8 +499,8 @@ def test_an_output_quality_degradation_is_answered_by_rolling_the_deployment_bac
         .given(a_hypothesis_blaming(FailureMode.OUTPUT_QUALITY_DEGRADATION)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.OUTPUT_QUALITY_DEGRADATION),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -502,7 +519,9 @@ def test_the_deployment_rolled_back_is_the_one_the_alert_names() -> None:
     Scenario() \
         .given(describing_a_symptom) \
         .when(lambda: propose_action(
-            describing_a_symptom, NO_FLAGS_CHANGED, SOME_APPLICATION_THE_ALERT_NAMES
+            describing_a_symptom,
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
 
@@ -516,8 +535,8 @@ def test_a_rollback_names_no_revision_to_return_to() -> None:
         .given(a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.CONFIG_INDUCED_FAILURE),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_it_carries_nothing_but_the_application())
 
@@ -539,7 +558,8 @@ def test_an_internal_dependency_is_answered_by_restarting_the_dependency() -> No
         ) \
         .when(
             lambda: RestartDependencyStrategy().propose(
-                a_slow_neighbour, NO_FLAGS_CHANGED, service="io-shop"
+                a_slow_neighbour,
+                Circumstances(service="io-shop", flag_changes=NO_FLAGS_CHANGED)
             )
         ) \
         .then(_the_service_to_restart_is(the_dependency_that_is_slow))
@@ -561,7 +581,8 @@ def test_the_alerting_service_is_not_what_gets_restarted() -> None:
         ) \
         .when(
             lambda: RestartDependencyStrategy().propose(
-                a_slow_neighbour, NO_FLAGS_CHANGED, service="io-shop"
+                a_slow_neighbour,
+                Circumstances(service="io-shop", flag_changes=NO_FLAGS_CHANGED)
             )
         ) \
         .then(_it_is_not_a_restart_of("io-shop"))
@@ -582,7 +603,8 @@ def test_a_dependency_failure_naming_no_service_proposes_nothing() -> None:
         ) \
         .when(
             lambda: RestartDependencyStrategy().propose(
-                a_diagnosis_with_no_address, NO_FLAGS_CHANGED, service="io-shop"
+                a_diagnosis_with_no_address,
+                Circumstances(service="io-shop", flag_changes=NO_FLAGS_CHANGED)
             )
         ) \
         .then(nothing_was_proposed())
@@ -598,7 +620,10 @@ def test_the_registry_argus_ships_answers_an_internal_dependency_failure() -> No
             )
         ) \
         .when(
-            lambda: propose_action(a_slow_neighbour, NO_FLAGS_CHANGED, "io-shop")
+            lambda: propose_action(
+                a_slow_neighbour,
+                Circumstances(service="io-shop", flag_changes=NO_FLAGS_CHANGED)
+            )
         ) \
         .then(_the_service_to_restart_is("io-pricing"))
 
@@ -617,8 +642,8 @@ def test_demand_saturation_is_answered_by_scaling_the_deployment_out() -> None:
         .when(
             lambda: ScaleOutStrategy().propose(
                 a_deployment_that_outgrew_its_size,
-                NO_FLAGS_CHANGED,
-                service=SOME_APPLICATION_THE_ALERT_NAMES
+                Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                              flag_changes=NO_FLAGS_CHANGED)
             )
         ) \
         .then(_it_scales_out(SOME_APPLICATION_THE_ALERT_NAMES))
@@ -642,7 +667,9 @@ def test_a_leak_and_a_saturated_service_reach_different_mitigations() -> None:
         .when(
             lambda: [
                 propose_action(
-                    hypothesis, NO_FLAGS_CHANGED, SOME_APPLICATION_THE_ALERT_NAMES
+                    hypothesis,
+                    Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                                  flag_changes=NO_FLAGS_CHANGED)
                 )
                 for hypothesis in the_two_halves_of_resource_exhaustion
             ]
@@ -672,8 +699,8 @@ def test_the_deployment_scaled_out_is_the_one_the_alert_names() -> None:
         .when(
             lambda: ScaleOutStrategy().propose(
                 describing_what_ran_out,
-                a_flag_that_moved_meanwhile,
-                service=SOME_APPLICATION_THE_ALERT_NAMES
+                Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                              flag_changes=a_flag_that_moved_meanwhile)
             )
         ) \
         .then(_it_scales_out(SOME_APPLICATION_THE_ALERT_NAMES))
@@ -690,8 +717,8 @@ def test_a_scale_out_names_no_count_to_scale_to() -> None:
         .given(a_hypothesis_blaming(FailureMode.DEMAND_SATURATION)) \
         .when(lambda: propose_action(
             a_hypothesis_blaming(FailureMode.DEMAND_SATURATION),
-            NO_FLAGS_CHANGED,
-            SOME_APPLICATION_THE_ALERT_NAMES
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_the_scale_out_carries_nothing_but_the_application())
 
@@ -722,9 +749,9 @@ def test_state_divergence_is_answered_by_discarding_the_entries_named() -> None:
         .when(
             lambda: propose_action(
                 a_promoted_stale_replica,
-                NO_FLAGS_CHANGED,
-                DONT_CARE_SERVICE,
-                stale_entry_keys=some_stale_keys
+                Circumstances(service=DONT_CARE_SERVICE,
+                              flag_changes=NO_FLAGS_CHANGED,
+                              stale_entry_keys=some_stale_keys)
             )
         ) \
         .then(
@@ -752,9 +779,9 @@ def test_the_entries_discarded_are_the_evidence_s_exactly_and_entirely() -> None
         .when(
             lambda: propose_action(
                 a_promoted_stale_replica,
-                NO_FLAGS_CHANGED,
-                DONT_CARE_SERVICE,
-                stale_entry_keys=many_stale_keys
+                Circumstances(service=DONT_CARE_SERVICE,
+                              flag_changes=NO_FLAGS_CHANGED,
+                              stale_entry_keys=many_stale_keys)
             )
         ) \
         .then(
@@ -777,9 +804,9 @@ def test_a_divergence_naming_no_entries_proposes_nothing() -> None:
         .when(
             lambda: propose_action(
                 a_divergence_naming_nothing,
-                NO_FLAGS_CHANGED,
-                DONT_CARE_SERVICE,
-                stale_entry_keys=()
+                Circumstances(service=DONT_CARE_SERVICE,
+                              flag_changes=NO_FLAGS_CHANGED,
+                              stale_entry_keys=())
             )
         ) \
         .then(
@@ -798,7 +825,10 @@ def test_a_mode_carrying_no_entries_is_answered_as_it_always_was() -> None:
             a_leak := a_hypothesis_blaming(FailureMode.RESOURCE_LEAK)
         ) \
         .when(
-            lambda: propose_action(a_leak, NO_FLAGS_CHANGED, DONT_CARE_SERVICE)
+            lambda: propose_action(
+                a_leak,
+                Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)
+            )
         ) \
         .then(
             _the_service_to_restart_is(DONT_CARE_SERVICE)
@@ -839,10 +869,7 @@ class _StandInStrategy:
 
     def propose(self,
                 dont_care_hypothesis: Hypothesis,
-                dont_care_flag_changes: Sequence[FlagChange],
-                service: str,
-                stale_entry_keys: Sequence[str] = (),
-                deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                dont_care_circumstances: Circumstances) -> Action | None:
         return self._proposing
 
 

@@ -16,6 +16,10 @@ about a symptom, so a restart addressed to the alert's service was invisible to
 a comparison over subjects - and the cases below say so twice over: once where
 two candidates worded nothing alike are the same experiment, and once where one
 subject spelled two ways is two different ones.
+
+What an action is worked out from is built here too, once for every node that
+asks: the alert's service and keys beside the round's two histories, or nothing
+at all where the flag history could not be read.
 """
 
 from __future__ import annotations
@@ -24,13 +28,20 @@ import pytest
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     ActionIdentity,
+    Alert,
     Attempt,
+    ChangeEvent,
+    Circumstances,
     FlagChange,
     Hypothesis,
     WhatWouldBeTried,
 )
 from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.walk.candidates import the_next_worth_trying, what_each_would_do
+from orchestrator.walk.candidates import (
+    the_circumstances,
+    the_next_worth_trying,
+    what_each_would_do,
+)
 
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
@@ -52,6 +63,7 @@ ANOTHER_FLAG = "legacy-checkout-fallback"
 SOME_SERVICE = "io-shop"
 ANOTHER_SERVICE = "io-shop-payments"
 DONT_CARE_MOMENT = "2026-09-10T09:12:00+00:00"
+DONT_CARE_ALERT_NAME = "HighErrorRate"
 
 type Chosen = tuple[int, Hypothesis] | None
 
@@ -425,8 +437,7 @@ def test_a_flag_candidate_is_answered_by_putting_that_flag_back() -> None:
         .given(the_flag_that_moved := [_a_change_to(SOME_FLAG)]) \
         .when(lambda: what_each_would_do(
             [a_candidate_blaming(some_incident_id, SOME_FLAG)],
-            the_flag_that_moved,
-            SOME_SERVICE
+            Circumstances(service=SOME_SERVICE, flag_changes=the_flag_that_moved)
         )) \
         .then(_each_would_do([putting_back(SOME_FLAG)]))
 
@@ -444,8 +455,7 @@ def test_a_leak_candidate_is_answered_by_restarting_the_alerts_service() -> None
         .when(lambda: what_each_would_do(
             [a_leak_blamed_on(some_incident_id,
                                "io-shop process heap (memory_used_bytes)")],
-            dont_care_changes,
-            SOME_SERVICE
+            Circumstances(service=SOME_SERVICE, flag_changes=dont_care_changes)
         )) \
         .then(_each_would_do([restarting(SOME_SERVICE)]))
 
@@ -462,8 +472,8 @@ def test_a_candidate_no_strategy_answers_would_have_nothing_done_about_it() -> N
         .when(lambda: what_each_would_do(
             [a_candidate_blaming(some_incident_id, SOME_FLAG),
              an_undetermined_hypothesis(some_incident_id)],
-            nothing_the_candidate_blames_moved,
-            SOME_SERVICE
+            Circumstances(service=SOME_SERVICE,
+                          flag_changes=nothing_the_candidate_blames_moved)
         )) \
         .then(_each_would_do([None, None]))
 
@@ -481,8 +491,7 @@ def test_a_history_nobody_could_read_answers_nothing_at_all() -> None:
         .given(nobody_could_say := None) \
         .when(lambda: what_each_would_do(
             [a_leak_blamed_on(some_incident_id, "io-shop process heap")],
-            nobody_could_say,
-            SOME_SERVICE
+            nobody_could_say
         )) \
         .then(_each_would_do([None]))
 
@@ -501,9 +510,9 @@ def test_a_divergence_candidate_is_answered_by_discarding_the_keys_handed_in() -
         .when(lambda: what_each_would_do(
             [a_divergence_blamed_on(some_incident_id,
                                     "cached monthly totals disagree with the ledger")],
-            [_a_change_to(SOME_FLAG)],
-            SOME_SERVICE,
-            the_keys_the_check_named
+            Circumstances(service=SOME_SERVICE,
+                          flag_changes=[_a_change_to(SOME_FLAG)],
+                          stale_entry_keys=the_keys_the_check_named)
         )) \
         .then(_each_would_do([discarding(SOME_SERVICE)]))
 
@@ -522,11 +531,74 @@ def test_a_corruption_candidate_is_answered_by_the_deployment_recorded() -> None
         .when(lambda: what_each_would_do(
             [a_corruption_blamed_on(some_incident_id,
                                     "monthly totals fall behind the purchases")],
-            [],
-            SOME_SERVICE,
-            deployments=the_revision_that_went_out
+            Circumstances(service=SOME_SERVICE,
+                          flag_changes=[],
+                          deployments=the_revision_that_went_out)
         )) \
         .then(_each_would_do([rolling_back(SOME_SERVICE)]))
+
+
+@pytest.mark.unit
+def test_the_circumstances_carry_the_alerts_addresses_beside_the_rounds_histories() -> None:
+    # Everything an action can be worked out from, gathered once. The service and
+    # the keys are the alert's, because those are addresses and only the alert
+    # carries them; the histories are what the round read.
+    some_keys = ("io-shop:summary:2026-09:shopper-4",)
+    some_flag_changes = [_a_change_to(SOME_FLAG)]
+    some_deployments = [a_deployment()]
+
+    Scenario() \
+        .given(
+            an_alert_naming_entries := Alert(
+                service=SOME_SERVICE,
+                alert_name=DONT_CARE_ALERT_NAME,
+                stale_entry_keys=some_keys,
+                stale_entries_found=len(some_keys)
+            )
+        ) \
+        .when(lambda: the_circumstances(
+            an_alert_naming_entries, some_flag_changes, some_deployments
+        )) \
+        .then(_the_circumstances_carry(
+            service=SOME_SERVICE,
+            flag_changes=some_flag_changes,
+            stale_entry_keys=some_keys,
+            deployments=some_deployments
+        ))
+
+
+@pytest.mark.unit
+def test_a_history_nobody_could_read_leaves_no_circumstances() -> None:
+    # The one place this is decided, so the node choosing a candidate and the node
+    # proposing for it cannot come to disagree about it. "I could not find out
+    # what changed" proposes nothing for anything - a restart included.
+    Scenario() \
+        .given(
+            dont_care_alert := Alert(service=SOME_SERVICE,
+                                     alert_name=DONT_CARE_ALERT_NAME)
+        ) \
+        .when(lambda: the_circumstances(dont_care_alert, None, [a_deployment()])) \
+        .then(_there_are_no_circumstances())
+
+
+@pytest.mark.unit
+def test_an_alert_naming_no_entries_and_an_unread_platform_carry_neither() -> None:
+    # Both arrive as `None` and both are carried as empty. An alert that mentions
+    # no cache says nothing about entries rather than claiming none is stale, and
+    # the one mode that reads deployments proposes a rollback only where one was
+    # recorded - so neither absence has anything to tell a strategy.
+    Scenario() \
+        .given(
+            an_alert_naming_no_entries := Alert(service=SOME_SERVICE,
+                                                alert_name=DONT_CARE_ALERT_NAME)
+        ) \
+        .when(lambda: the_circumstances(an_alert_naming_no_entries, [], None)) \
+        .then(_the_circumstances_carry(
+            service=SOME_SERVICE,
+            flag_changes=[],
+            stale_entry_keys=(),
+            deployments=[]
+        ))
 
 
 def _a_change_to(flag: str) -> FlagChange:
@@ -569,6 +641,59 @@ def _each_would_do(expected: list[ActionIdentity | None]
 
         if identities != expected:
             raise AssertionError(f"Expected {expected}, got {identities}")
+
+        return True
+
+    return assertion
+
+
+def _the_circumstances_carry(service: str,
+                             flag_changes: list[FlagChange],
+                             stale_entry_keys: tuple[str, ...],
+                             deployments: list[ChangeEvent]
+                             ) -> Assertion[Circumstances | None]:
+    """Every field compared, and every one that differs reported.
+
+    Compared as lists, because what is asserted is which items arrive in which
+    order - not which kind of sequence happens to hold them.
+    """
+    def assertion(built: Circumstances | None) -> bool:
+        if built is None:
+            raise AssertionError(
+                "Expected circumstances to be built from a readable flag history, "
+                "and there were none."
+            )
+
+        wrong = [
+            f"{name} expected {expected}, got {got}"
+            for name, expected, got in (
+                ("service", service, built.service),
+                ("flag_changes", flag_changes, list(built.flag_changes)),
+                ("stale_entry_keys", list(stale_entry_keys),
+                 list(built.stale_entry_keys)),
+                ("deployments", deployments, list(built.deployments))
+            )
+            if expected != got
+        ]
+
+        if wrong:
+            raise AssertionError(
+                f"The circumstances do not carry what they were built from: "
+                f"{'; '.join(wrong)}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _there_are_no_circumstances() -> Assertion[Circumstances | None]:
+    def assertion(built: Circumstances | None) -> bool:
+        if built is not None:
+            raise AssertionError(
+                f"Expected no circumstances where the flag history could not be "
+                f"read, got {built!r}."
+            )
 
         return True
 

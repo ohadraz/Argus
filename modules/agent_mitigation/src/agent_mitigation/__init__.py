@@ -1,14 +1,13 @@
 """The Mitigation agent: what to do about a cause, and doing it (spec §7.3).
 
-Six modules behind one public name. `strategies.py` says which action answers
+Five modules behind one public name. `strategies.py` says which action answers
 which cause, `admitting.py` says which kinds Argus may take unasked,
 `actions.py` chooses one without touching anything, `trying.py` performs one and
-judges what the service did, `undoing.py` puts a recorded change back, and
-`mitigating.py` composes the choice and the doing for callers that need no gate
-between them. The split follows §13's gate: the Orchestrator has to be able to
-reach the choice, and the question of admission, without reaching the write.
+judges what the service did, and `undoing.py` puts a recorded change back. The
+split follows §13's gate: the Orchestrator has to be able to reach the choice,
+and the question of admission, without reaching the write.
 
-`tools.py` is behind the same door rather than a seventh module of its own to
+`tools.py` is behind the same door rather than a sixth module of its own to
 import. What a caller running this agent has to supply - the settings slice it
 behaves by, the flag history it reads, whether the walk is still wanted - is
 named here; how those reach the provider is not, and stays inside.
@@ -24,7 +23,6 @@ from __future__ import annotations
 from agent_mitigation.actions import (
     REVERT_FEATURE_FLAG,
     Action,
-    ActionTaker,
     Outcome,
     RevertFeatureFlag,
     UndoAttempt,
@@ -39,7 +37,6 @@ from agent_mitigation.admitting import (
     is_within_reach,
 )
 from agent_mitigation.binding import an_undo_over
-from agent_mitigation.mitigating import mitigate
 from agent_mitigation.strategies import (
     MitigationStrategy,
     RestartDependencyStrategy,
@@ -75,7 +72,6 @@ __all__ = [
     "GENERIC_MITIGATIONS",
     "REVERT_FEATURE_FLAG",
     "Action",
-    "ActionTaker",
     "AdmittedMitigations",
     "DeploymentsBetween",
     "FlagChangesSince",
@@ -107,7 +103,6 @@ __all__ = [
     "how_a_change_arrives",
     "is_a_generic_mitigation",
     "is_within_reach",
-    "mitigate",
     "performing_writes_over",
     "recent_metrics_over",
     "rules_read_over",

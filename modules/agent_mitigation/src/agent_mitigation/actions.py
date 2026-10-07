@@ -1,8 +1,8 @@
 """What Mitigation proposes to do (spec §7.3, §13).
 
 The pure half of the agent. Choosing an action is a deterministic function of
-the cause the Investigator named and the changes the provider recorded - no
-model, no I/O. The Investigator already made the judgement; a model standing
+the cause the Investigator named and the circumstances the round established -
+no model, no I/O. The Investigator already made the judgement; a model standing
 between a verdict and a write can only hallucinate, or pick a tool that exists
 anyway.
 
@@ -23,14 +23,10 @@ here because this is where a caller reasoning about mitigation looks for them.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Protocol
-
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
     Action,
-    ChangeEvent,
-    FlagChange,
+    Circumstances,
     Hypothesis,
     Outcome,
     RevertFeatureFlag,
@@ -44,7 +40,6 @@ from agent_mitigation.strategies import DEFAULT_STRATEGIES, Strategies
 __all__ = [
     "REVERT_FEATURE_FLAG",
     "Action",
-    "ActionTaker",
     "Outcome",
     "RevertFeatureFlag",
     "UndoAttempt",
@@ -53,17 +48,6 @@ __all__ = [
     "propose_action",
     "state_name"
 ]
-
-class ActionTaker(Protocol):
-    """What `mitigate` needs from whatever performs an action.
-
-    A `Protocol` rather than a `Callable` alias so a test can stand it in with
-    `create_autospec`, which needs something introspectable. Specing against
-    `take_action` would be specing against the wrong shape: that one takes the
-    configuration it runs under, and what asks for an action holds none.
-    """
-
-    def __call__(self, action: Action) -> Outcome: ...
 
 
 def state_name(enabled: bool) -> str:
@@ -102,11 +86,8 @@ class UndoAttempt(BaseModel):
 
 
 def propose_action(hypothesis: Hypothesis,
-                   flag_changes: Sequence[FlagChange],
-                   service: str,
-                   stale_entry_keys: Sequence[str] = (),
-                   strategies: Strategies = DEFAULT_STRATEGIES,
-                   deployments: Sequence[ChangeEvent] = ()) -> Action | None:
+                   circumstances: Circumstances,
+                   strategies: Strategies = DEFAULT_STRATEGIES) -> Action | None:
     """The action that answers `hypothesis`, or `None` where none does
     (spec §7.3).
 
@@ -119,27 +100,14 @@ def propose_action(hypothesis: Hypothesis,
     strategy up by, which is not a different situation from having looked and
     found none.
 
-    Pure: `flag_changes` arrives as a value rather than being fetched here, so
-    that choosing an action cannot depend on a provider being reachable, and
+    Pure: the circumstances arrive as a value rather than being fetched here,
+    so that choosing an action cannot depend on a provider being reachable, and
     the Orchestrator can gate the choice before any I/O happens on its behalf.
 
-    `service` is the one the alert is about, and it is handed down rather than
-    read off the candidate. Only a strategy whose action is addressed to a
-    service uses it, but it arrives here because this is where the incident is
-    still in view: a strategy is registered against a cause and is handed
-    everything a cause can be answered with, rather than reaching back for the
-    parts it happens to need.
-
-    `stale_entry_keys` arrives the same way and for the same reason, and it is
-    the one input here that is an address rather than a description. A cache key
-    belongs to whoever wrote the cache, so nothing in Argus composes one - it is
-    carried from the evidence that named it to the action that acts on it, as a
-    value, and never through a model's conclusion. Defaulted to nothing, because
-    every mode but one is answered without it.
-
-    `deployments` arrives the same way, as what the platform recorded over the
-    flag history's window. One mode reads it - the one that names damage rather
-    than a change, and is answered by undoing whichever change the record holds.
+    They arrive whole, whichever parts the strategy reads. This is where the
+    incident is still in view: a strategy is registered against a cause and is
+    handed everything a cause can be answered with, rather than reaching back
+    for the parts it happens to need.
 
     `strategies` is a parameter so a caller can ask what a different set of
     them would propose. The default is the real registry rather than nothing,
@@ -154,10 +122,4 @@ def propose_action(hypothesis: Hypothesis,
     if strategy is None:
         return None
 
-    return strategy.propose(
-        hypothesis,
-        flag_changes,
-        service=service,
-        stale_entry_keys=stale_entry_keys,
-        deployments=deployments
-    )
+    return strategy.propose(hypothesis, circumstances)

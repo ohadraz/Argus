@@ -118,16 +118,7 @@ def an_action_in_force_at_once() -> Arrival:
     return Arrival.ARRIVED
 
 
-class FlagChangeFetcher(Protocol):
-    """What `mitigate` needs from whatever reads recent flag changes.
-
-    A `Protocol` for the reason `ActionTaker` is one, and asking nothing for
-    the same reason: how far back the window reaches was decided where the
-    process started.
-    """
-
-    def __call__(self) -> list[FlagChange]: ...
-# The same tool asked for a window that starts where the caller says, rather
+# The flag history asked for a window that starts where the caller says, rather
 # than where configuration says. Only the resumed walk needs that: it is asking
 # about one particular moment - when an action was claimed - and the configured
 # lookback is about something else entirely.

@@ -55,6 +55,7 @@ from argus_core.models.alert_rule import AlertRuleStanding
 from argus_core.models.attempt import Attempt
 from argus_core.models.candidate import WhatWouldBeTried
 from argus_core.models.change_event import ChangeEvent, ChangeKind
+from argus_core.models.circumstances import Circumstances
 from argus_core.models.code_search import CodeSearch
 from argus_core.models.disproof import Disproof
 from argus_core.models.evidence import Evidence
@@ -143,6 +144,7 @@ __all__ = [
     "FailureMode",
     "ChangeEvent",
     "ChangeKind",
+    "Circumstances",
     "CodeSearch",
     "Disproof",
     "Evidence",
