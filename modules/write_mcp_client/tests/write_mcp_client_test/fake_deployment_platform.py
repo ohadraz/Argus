@@ -11,6 +11,15 @@ from threading import Thread
 from typing import Any
 
 from argus_core import get_settings
+from write_mcp_server.argocd import (
+    APPLICATION_MERGE_PATCH,
+    AUTOMATED,
+    ENABLED,
+    PATCH_REQUEST_PATCH,
+    PATCH_REQUEST_TYPE,
+    SPEC,
+    SYNC_POLICY,
+)
 
 FAKE_PLATFORM_PORT = 8184
 
@@ -19,7 +28,6 @@ RESOURCE_PATH = "/argocd/{application}/resource"
 APPLICATION_PATH = "/argocd/{application}"
 RESOURCE_TREE_PATH = "/argocd/{application}/resource-tree"
 ROLLBACK_PATH = "/argocd/{application}/rollback"
-SPEC_PATH = "/argocd/{application}/spec"
 
 # How the platform spells a creation time, which is Kubernetes' own: RFC 3339
 # to the second. The resolution is not a shortcut - what the value is compared
@@ -50,6 +58,16 @@ THE_HISTORY_BEFORE_IT = 1
 # came from the platform rather than from a number the caller invented.
 THE_COUNT_RUNNING = 3
 
+
+def a_gitops_sync_policy() -> dict[str, Any]:
+    """Automated sync as an operator declares it, with `selfHeal` on.
+
+    `selfHeal` is there so that a suspension which disturbed the rest of the
+    policy is visible: a caller that wrote an `automated` object of its own, or
+    removed the operator's, would lose it.
+    """
+    return {AUTOMATED: {"selfHeal": True}}
+
 _APPLICATION_IN = re.compile(r"^/argocd/(?P<application>[^/]+)")
 
 
@@ -70,12 +88,13 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     confirmed against the dependency.
 
     It answers the surfaces a rollback needs for the same reason, and the same
-    way. A rollback is three requests against three routes - the application is
+    way. A rollback is three requests against two routes - the application is
     read for which entry is running and whether the platform reconciles it
-    itself, reconciliation is suspended, and only then is the rollback asked for
-    - so a fake that served a static application would let a caller that never
-    suspended anything pass. Here the spec route actually writes the policy, and
-    the rollback route refuses while the policy says the platform syncs itself,
+    itself, reconciliation is suspended by a merge patch of the application, and
+    only then is the rollback asked for - so a fake that served a static
+    application would let a caller that never suspended anything pass. Here the
+    patch is actually applied to the policy the application reports, and the
+    rollback route refuses while that policy says the platform syncs itself,
     exactly as a real server refuses it.
 
     One pod's creation time rather than one per application. What a per
@@ -87,9 +106,10 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
     process_start_time_seconds: float = THE_PROCESS_THAT_WAS_SERVING
     actions_run: list[dict[str, Any]] = []
+    sync_policy: dict[str, Any] = a_gitops_sync_policy()
     syncs_itself: bool = True
     rolled_back_to: list[int] = []
-    sync_policies_written: list[dict[str, Any]] = []
+    sync_patches_received: list[dict[str, Any]] = []
     replicas: int = THE_COUNT_RUNNING
 
     # Whether this platform's API server is serving at all. Off by default: an
@@ -151,23 +171,40 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
             )
         }
 
-    def do_PUT(self) -> None:
+    def do_PATCH(self) -> None:
+        """Argo CD's `PATCH /api/v1/applications/{name}`, for a merge patch.
+
+        The patch arrives as a JSON-encoded string inside the request, as the
+        vendor's `ApplicationPatchRequest` carries it, and is applied to the
+        policy the application then reports. A merge patch only: a caller that
+        sent another type would have it applied differently or not at all, so it
+        is refused here rather than answered as though it had landed.
+        """
         if self._refused_for_being_unavailable():
             return
 
-        if not self.path.endswith("/spec"):
+        if not (self._names_an_application() and self.path.count("/") == 2):
             self.send_response(404)
             self.end_headers()
             return
 
-        policy = self._the_body().get("syncPolicy", {})
-        type(self).sync_policies_written = self.sync_policies_written + [policy]
-        # The write is real, because the refusal below reads it back. A fake
-        # that accepted the policy and kept syncing would let a rollback pass
-        # that had suspended nothing.
-        type(self).syncs_itself = policy.get("automated") is not None
+        request = self._the_body()
 
-        self._respond_with({})
+        if request.get(PATCH_REQUEST_TYPE) != APPLICATION_MERGE_PATCH:
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        patch = json.loads(request[PATCH_REQUEST_PATCH])
+        type(self).sync_patches_received = self.sync_patches_received + [patch]
+        # The write is real, because the refusal below reads it back. A fake
+        # that accepted the patch and kept syncing would let a rollback pass
+        # that had suspended nothing.
+        policy = _merged(self.sync_policy, patch.get(SPEC, {}).get(SYNC_POLICY, {}))
+        type(self).sync_policy = policy
+        type(self).syncs_itself = _is_syncing(policy)
+
+        self._respond_with(self._the_application())
 
     def do_POST(self) -> None:
         if self._refused_for_being_unavailable():
@@ -282,15 +319,12 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     def _the_application(self) -> dict[str, Any]:
         """The application in Argo CD's own shape, as much of it as is read.
 
-        `automated` is present or absent rather than true or false, because that
-        is how Argo CD spells it and how the caller reads it - a fake reporting
-        `{"automated": false}` would be read as syncing itself and would make a
-        correct caller look broken.
+        The policy as declared and as since patched, `automated` and its switch
+        included - so a caller reads the arrangement exactly as a real server
+        would report it.
         """
-        policy: dict[str, Any] = {"automated": {}} if self.syncs_itself else {}
-
         return {
-            "spec": {"syncPolicy": policy},
+            SPEC: {SYNC_POLICY: self.sync_policy},
             "status": {
                 "history": [
                     {
@@ -327,6 +361,31 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         pass  # silence default request logging
 
 
+def _merged(target: Any, patch: Any) -> Any:
+    """`patch` applied to `target` as RFC 7386 says: an object merges key by key,
+    a `null` removes its key, and anything else replaces what was there.
+    """
+    if not isinstance(patch, dict):
+        return patch
+
+    result = dict(target) if isinstance(target, dict) else {}
+
+    for key, value in patch.items():
+        if value is None:
+            result.pop(key, None)
+        else:
+            result[key] = _merged(result.get(key), value)
+
+    return result
+
+
+def _is_syncing(policy: dict[str, Any]) -> bool:
+    """As Argo CD reads it: an `automated` whose `enabled` is absent or true."""
+    automated = policy.get(AUTOMATED)
+
+    return automated is not None and automated.get(ENABLED) is not False
+
+
 @contextmanager
 def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
     """Runs a fake deployment platform and points the platform settings at it.
@@ -359,7 +418,6 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
     os.environ["ARGOCD_APPLICATION_PATH"] = APPLICATION_PATH
     os.environ["ARGOCD_RESOURCE_TREE_PATH"] = RESOURCE_TREE_PATH
     os.environ["ARGOCD_ROLLBACK_PATH"] = ROLLBACK_PATH
-    os.environ["ARGOCD_SPEC_PATH"] = SPEC_PATH
     # Empty on purpose: the stand-in takes no credential, and an inherited one
     # would be sent as a header a real server would then refuse.
     os.environ["ARGOCD_AUTH_TOKEN"] = ""
@@ -373,9 +431,10 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
         platform_thread.join()
         FakeDeploymentPlatformHandler.process_start_time_seconds = THE_PROCESS_THAT_WAS_SERVING
         FakeDeploymentPlatformHandler.actions_run = []
+        FakeDeploymentPlatformHandler.sync_policy = a_gitops_sync_policy()
         FakeDeploymentPlatformHandler.syncs_itself = True
         FakeDeploymentPlatformHandler.rolled_back_to = []
-        FakeDeploymentPlatformHandler.sync_policies_written = []
+        FakeDeploymentPlatformHandler.sync_patches_received = []
         FakeDeploymentPlatformHandler.replicas = THE_COUNT_RUNNING
         del os.environ["ARGOCD_BASE_URL"]
         del os.environ["ARGOCD_RESOURCE_ACTION_PATH"]
@@ -383,6 +442,5 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
         del os.environ["ARGOCD_APPLICATION_PATH"]
         del os.environ["ARGOCD_RESOURCE_TREE_PATH"]
         del os.environ["ARGOCD_ROLLBACK_PATH"]
-        del os.environ["ARGOCD_SPEC_PATH"]
         del os.environ["ARGOCD_AUTH_TOKEN"]
         get_settings.cache_clear()

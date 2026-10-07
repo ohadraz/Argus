@@ -62,7 +62,7 @@ from argus_core.models import (
 
 from write_mcp_server.argocd import (
     REQUEST_TIMEOUT_SECONDS,
-    a_sync_policy,
+    a_sync_patch,
     could_not_be_reached,
     headers_for,
     is_reconciling_itself,
@@ -116,7 +116,7 @@ _PATCH_TYPE: Final = "patchType"
 class PinSettings(SettingsSlice):
     """Where a pin is asked for, and under what credential.
 
-    Four paths and no namespace, which is what asking the tree buys. The restart
+    Three paths and no namespace, which is what asking the tree buys. The restart
     and the scale-out each carry one because each addresses a resource the caller
     can already name; this addresses one only the platform can name, so the
     address is read rather than configured and there is no setting here to drift
@@ -137,7 +137,6 @@ class PinSettings(SettingsSlice):
     # Where the platform says what is actually *running*, which is the only place
     # the bounds in force can be read. The values file says what git asks for.
     argocd_resource_path: str
-    argocd_spec_path: str
     argocd_auth_token: str
 
 
@@ -158,7 +157,7 @@ class _TheAutoscaler:
 
 HttpGet = Callable[..., httpx2.Response]
 HttpPost = Callable[..., httpx2.Response]
-HttpPut = Callable[..., httpx2.Response]
+HttpPatch = Callable[..., httpx2.Response]
 
 
 class AlreadyHeldStill(Exception):
@@ -211,7 +210,7 @@ def pin_autoscaler(application: str,
                    settings: PinSettings,
                    get: HttpGet = httpx2.get,
                    post: HttpPost = httpx2.post,
-                   put: HttpPut = httpx2.put) -> AutoscalerUndo:
+                   patch: HttpPatch = httpx2.patch) -> AutoscalerUndo:
     """Raises `application`'s autoscaler floor to its ceiling, and reports what
     that cost.
 
@@ -247,7 +246,7 @@ def pin_autoscaler(application: str,
     )
 
     if was_syncing_itself:
-        _set_sync_policy(application, reconciling=False, settings=settings, put=put)
+        _set_sync_policy(application, reconciling=False, settings=settings, patch=patch)
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
@@ -275,7 +274,7 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
                              settings: PinSettings,
                              get: HttpGet = httpx2.get,
                              post: HttpPost = httpx2.post,
-                             put: HttpPut = httpx2.put) -> AutoscalingRestored:
+                             patch: HttpPatch = httpx2.patch) -> AutoscalingRestored:
     """Puts back both of the things a pin changed, and says which it managed.
 
     A pair rather than an exception, for the reason the scale-out's restore answers
@@ -320,7 +319,7 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
         floor_put_back=floor,
         automated_sync_put_back=_tried(
             lambda: _set_sync_policy(
-                descriptor.application, reconciling=True, settings=settings, put=put
+                descriptor.application, reconciling=True, settings=settings, patch=patch
             )
         )
     )
@@ -447,15 +446,15 @@ def _read(url: str,
 def _set_sync_policy(application: str,
                      reconciling: bool,
                      settings: PinSettings,
-                     put: HttpPut) -> None:
+                     patch: HttpPatch) -> None:
     url = the_url_of(
-        settings.argocd_base_url, settings.argocd_spec_path, application
+        settings.argocd_base_url, settings.argocd_application_path, application
     )
 
     try:
-        response = put(
+        response = patch(
             url,
-            json=a_sync_policy(reconciling),
+            json=a_sync_patch(application, reconciling),
             headers=headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS
         )

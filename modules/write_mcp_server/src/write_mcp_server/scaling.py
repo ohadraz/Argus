@@ -63,7 +63,7 @@ from argus_core.models import DEPLOYMENT_PLATFORM, CapacityRestored, ReplicaUndo
 
 from write_mcp_server.argocd import (
     REQUEST_TIMEOUT_SECONDS,
-    a_sync_policy,
+    a_sync_patch,
     could_not_be_reached,
     headers_for,
     is_reconciling_itself,
@@ -104,8 +104,9 @@ THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR: Final = 12
 class ScaleSettings(SettingsSlice):
     """Where a scale-out is asked for, and under what credential.
 
-    Four paths, because the operation is three requests against three of the
-    platform's routes and the undo uses two of them. Templates rather than fixed
+    Three paths, because the operation is four requests against three of the
+    platform's routes - the application is read and patched on one - and the
+    undo uses two of them. Templates rather than fixed
     routes, for the reason every other Argo CD path here is one: the demo's
     stand-in and a real server are one setting with two values.
 
@@ -121,14 +122,13 @@ class ScaleSettings(SettingsSlice):
     # the count to replace can be read. The values file says what git asks for.
     argocd_resource_path: str
     argocd_resource_action_path: str
-    argocd_spec_path: str
     argocd_auth_token: str
     scale_namespace: str
 
 
 HttpGet = Callable[..., httpx2.Response]
 HttpPost = Callable[..., httpx2.Response]
-HttpPut = Callable[..., httpx2.Response]
+HttpPatch = Callable[..., httpx2.Response]
 
 
 class AlreadyAtItsLargest(Exception):
@@ -180,7 +180,7 @@ def scale_out(application: str,
               settings: ScaleSettings,
               get: HttpGet = httpx2.get,
               post: HttpPost = httpx2.post,
-              put: HttpPut = httpx2.put) -> ReplicaUndo:
+              patch: HttpPatch = httpx2.patch) -> ReplicaUndo:
     """Doubles what `application` is running, and reports what that cost.
 
     Doubling rather than a figure somebody chose: what a saturated deployment
@@ -211,7 +211,7 @@ def scale_out(application: str,
     )
 
     if was_syncing_itself:
-        _set_sync_policy(application, reconciling=False, settings=settings, put=put)
+        _set_sync_policy(application, reconciling=False, settings=settings, patch=patch)
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
@@ -236,7 +236,7 @@ def scale_out(application: str,
 def restore_replica_count(descriptor: ReplicaUndo,
                           settings: ScaleSettings,
                           post: HttpPost = httpx2.post,
-                          put: HttpPut = httpx2.put) -> CapacityRestored:
+                          patch: HttpPatch = httpx2.patch) -> CapacityRestored:
     """Puts back both of the things a scale-out changed, and says which it managed.
 
     A pair rather than an exception, for the reason the rollback's restore answers
@@ -282,7 +282,7 @@ def restore_replica_count(descriptor: ReplicaUndo,
         count_put_back=count,
         automated_sync_put_back=_tried(
             lambda: _set_sync_policy(
-                descriptor.application, reconciling=True, settings=settings, put=put
+                descriptor.application, reconciling=True, settings=settings, patch=patch
             )
         )
     )
@@ -369,15 +369,15 @@ def _read(url: str,
 def _set_sync_policy(application: str,
                      reconciling: bool,
                      settings: ScaleSettings,
-                     put: HttpPut) -> None:
+                     patch: HttpPatch) -> None:
     url = the_url_of(
-        settings.argocd_base_url, settings.argocd_spec_path, application
+        settings.argocd_base_url, settings.argocd_application_path, application
     )
 
     try:
-        response = put(
+        response = patch(
             url,
-            json=a_sync_policy(reconciling),
+            json=a_sync_patch(application, reconciling),
             headers=headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS
         )

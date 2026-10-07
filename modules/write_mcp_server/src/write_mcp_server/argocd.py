@@ -1,9 +1,9 @@
 """What every action against the deployment platform has to know about it.
 
 Not a tool and not an action - the vocabulary the platform's own API is spoken
-in, and the two or three facts about it that are easy to get subtly wrong. Two
-actions now change live state under a GitOps controller, and both have to suspend
-its reconciliation first; a second copy of how that is spelled is a second copy
+in, and the two or three facts about it that are easy to get subtly wrong. Three
+actions change live state under a GitOps controller, and each has to suspend its
+reconciliation first; a second copy of how that is spelled is a second copy
 that comes to disagree with the first about what "syncing" means.
 
 What is deliberately *not* here is any exception policy. A rollback that cannot
@@ -15,16 +15,32 @@ every request stays in the module that owns the action.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Final
 
 import httpx2
 
-# Argo CD's own wire vocabulary for the parts of an application both actions read
+# Argo CD's own wire vocabulary for the parts of an application the actions read
 # and write. Named once rather than spelled at each lookup: they are another
 # project's field names, and a typo in one is a silent `None` rather than an error.
 SPEC: Final = "spec"
 SYNC_POLICY: Final = "syncPolicy"
 AUTOMATED: Final = "automated"
+# The switch Argo CD 3.1 put inside `automated`, so that automated sync can be
+# turned off while what it was configured to do - `prune`, `selfHeal` - is kept.
+# Absent means on.
+ENABLED: Final = "enabled"
+
+# The fields of `ApplicationPatchRequest`, the body of
+# `PATCH /api/v1/applications/{name}` (bound with `body: "*"`). The patch itself
+# travels as a JSON-encoded string and is applied to the whole application.
+PATCH_REQUEST_NAME: Final = "name"
+PATCH_REQUEST_PATCH: Final = "patch"
+PATCH_REQUEST_TYPE: Final = "patchType"
+# That route's name for an RFC 7386 merge patch. Not the resource route's
+# `application/merge-patch+json`: the two routes spell the same kind of patch
+# differently, and one constant for both would send one of them a type it refuses.
+APPLICATION_MERGE_PATCH: Final = "merge"
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -82,24 +98,42 @@ def could_not_be_reached(error: Exception) -> bool:
 def is_reconciling_itself(application_state: dict[str, Any]) -> bool:
     """Whether the platform syncs this application on its own.
 
-    Argo CD spells it as the *presence* of an `automated` object rather than as a
-    boolean, so this is a lookup for a key and not a truthiness test - an
-    `automated` of `{}` means automated, and reading it as false would leave an
-    action to be refused by a server this had just called compliant.
+    Read exactly as Argo CD's own `SyncPolicy.IsAutomatedSyncEnabled` reads it: an
+    `automated` object whose `enabled` is absent or true. The presence of the
+    object is a lookup for a key and not a truthiness test - an `automated` of
+    `{}` means automated, and reading it as false would leave an action to be
+    refused by a server this had just called compliant. And `enabled: false`
+    means configured and not syncing, so there is nothing to suspend.
 
     The single most repeatable mistake about this API, which is why it is here
-    rather than in either of the modules that asks.
+    rather than in any of the modules that asks.
     """
-    policy = application_state.get(SPEC, {}).get(SYNC_POLICY, {})
+    policy = application_state.get(SPEC, {}).get(SYNC_POLICY) or {}
+    automated = policy.get(AUTOMATED)
 
-    return policy.get(AUTOMATED) is not None
+    return automated is not None and automated.get(ENABLED) is not False
 
 
-def a_sync_policy(reconciling: bool) -> dict[str, Any]:
-    """The body that turns the platform's own reconciliation on or off.
+def a_sync_patch(application: str, reconciling: bool) -> dict[str, Any]:
+    """The request that turns the platform's own reconciliation off or back on.
 
-    Spelled here for the reason reading it is: suspending sync is the *removal* of
-    a key rather than a flag set to false, and a body that said `false` would be
-    accepted and change nothing.
+    A merge patch of the switch alone, for `PATCH /api/v1/applications/{name}`.
+    Not the spec route: that takes its body as the *whole* spec and replaces the
+    application's with it, so a body carrying only a sync policy fails validation
+    or, unvalidated, erases the source and destination. And not an `automated`
+    object of Argus's own: the one the operator declared carries their `prune`
+    and `selfHeal`, and writing another would replace it.
+
+    Off is `enabled: false`. Back on is a `null`, which a merge patch reads as
+    removing the key and the platform reads as on - what was found, since an
+    application syncing itself had `enabled` absent or true.
     """
-    return {SYNC_POLICY: {AUTOMATED: {}} if reconciling else {}}
+    switch = None if reconciling else False
+
+    return {
+        PATCH_REQUEST_NAME: application,
+        PATCH_REQUEST_PATCH: json.dumps(
+            {SPEC: {SYNC_POLICY: {AUTOMATED: {ENABLED: switch}}}}
+        ),
+        PATCH_REQUEST_TYPE: APPLICATION_MERGE_PATCH
+    }

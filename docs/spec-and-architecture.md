@@ -684,9 +684,11 @@ and writing one shape is a service that works whichever version it is. That is
 also why it mitigates without resolving in all three - the repository still holds
 the change, whether that change is a value, a line of code, or a revision whose
 rollout was stopped half-way, and what stops it being re-applied is the
-platform's own reconciliation staying suspended. Writing to the repository
-instead would be an infrastructure change, which is a tier up and a human's to
-approve.
+platform's own reconciliation staying suspended. Suspending it switches automated
+sync off and touches nothing else the application declares: the operator's own
+settings for it - pruning, self-healing - are where they were when an undo
+switches it back on. Writing to the repository instead would be an
+infrastructure change, which is a tier up and a human's to approve.
 
 Discarding cached entries is in the set on the same criterion, and it is the
 member most likely to be mistaken for a weakening of it. Removing data sounds

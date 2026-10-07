@@ -623,19 +623,18 @@ class Settings(BaseSettings):
     # it scales - so a pin reads the application's resource tree, which publishes
     # every resource's own name and namespace, rather than being told. A setting
     # here would be a second copy of a fact the cluster owns.
-    # Where a rollback is asked for, and where the sync policy is written.
-    # Two more templates rather than one: the platform's rollback and its
-    # spec are different routes, and a real Argo CD's are
-    # `/api/v1/applications/{application}/rollback` and `.../spec`.
+    # Where a rollback is asked for. A real Argo CD's is
+    # `/api/v1/applications/{application}/rollback`.
     #
-    # Both exist because a rollback is three requests, not one - the
-    # application is read for which entry is running and whether the platform
-    # is reconciling it, reconciliation is suspended because a real server
-    # refuses a rollback while it is on, and only then is the rollback asked
-    # for. The application itself is read through `argocd_application_path`
-    # above, which the read tier already names.
+    # A rollback is three requests, not one - the application is read for which
+    # entry is running and whether the platform is reconciling it,
+    # reconciliation is suspended because a real server refuses a rollback while
+    # it is on, and only then is the rollback asked for. The first two go to
+    # `argocd_application_path` above: the suspension is a merge patch of the
+    # application itself (`PATCH /api/v1/applications/{application}`, Argo CD
+    # 3.1 or later), never a write to its spec route, which replaces the whole
+    # spec with whatever it is sent.
     argocd_rollback_path: str = Field(default="/argocd/{application}/rollback")
-    argocd_spec_path: str = Field(default="/argocd/{application}/spec")
     # Where the platform reports what is actually running. A pod's creation time
     # is what confirms a restart landed, and it is per application, which is the
     # whole reason this is not read off the metrics: restarting a dependency has

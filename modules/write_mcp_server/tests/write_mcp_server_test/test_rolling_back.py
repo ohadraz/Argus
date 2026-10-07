@@ -13,6 +13,7 @@ back exactly as much as this records and no more.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock, create_autospec
@@ -26,6 +27,15 @@ from argus_core.mcp_transport import (
 )
 from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from write_mcp_server.argocd import (
+    APPLICATION_MERGE_PATCH,
+    AUTOMATED,
+    ENABLED,
+    PATCH_REQUEST_PATCH,
+    PATCH_REQUEST_TYPE,
+    SPEC,
+    SYNC_POLICY,
+)
 from write_mcp_server.rolling_back import (
     NoEarlierRevision,
     RollbackRefused,
@@ -38,12 +48,20 @@ SOME_APPLICATION = "io-shop"
 DONT_CARE_URL = "http://argocd.invalid"
 SOME_APPLICATION_PATH = "/api/v1/applications/{application}"
 SOME_ROLLBACK_PATH = "/api/v1/applications/{application}/rollback"
-SOME_SPEC_PATH = "/api/v1/applications/{application}/spec"
+# Where the application itself is, which is where a patch to it goes.
+THE_APPLICATIONS_ROUTE = f"{DONT_CARE_URL}/api/v1/applications/{SOME_APPLICATION}"
 
 THE_ENTRY_RUNNING = 2
 THE_ENTRY_BEFORE_IT = 1
 THE_REVISION_RUNNING = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 THE_REVISION_BEFORE_IT = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
+
+# Automated sync as an operator declares it, and as one switches it off while
+# keeping what it was configured to do. Whichever of the two an application
+# carries, `selfHeal` is in it - so a module that wrote an `automated` object of
+# its own would be a module that dropped it.
+SYNCING_ITSELF = {"selfHeal": True}
+SWITCHED_OFF = {"selfHeal": True, ENABLED: False}
 
 
 @dataclass
@@ -52,7 +70,7 @@ class _Platform:
 
     get: MagicMock = field(default_factory=lambda: create_autospec(httpx2.get))
     post: MagicMock = field(default_factory=lambda: create_autospec(httpx2.post))
-    put: MagicMock = field(default_factory=lambda: create_autospec(httpx2.put))
+    patch: MagicMock = field(default_factory=lambda: create_autospec(httpx2.patch))
 
 
 def _settings() -> RollbackSettings:
@@ -60,17 +78,16 @@ def _settings() -> RollbackSettings:
         argocd_base_url=DONT_CARE_URL,
         argocd_application_path=SOME_APPLICATION_PATH,
         argocd_rollback_path=SOME_ROLLBACK_PATH,
-        argocd_spec_path=SOME_SPEC_PATH,
         argocd_auth_token=""
     )
 
 
 def _an_application(history: list[dict[str, Any]],
-                    reconciling_itself: bool) -> dict[str, Any]:
-    policy: dict[str, Any] = {"automated": {}} if reconciling_itself else {}
+                    automated: dict[str, Any] | None) -> dict[str, Any]:
+    policy: dict[str, Any] = {AUTOMATED: automated} if automated is not None else {}
 
     return {
-        "spec": {"syncPolicy": policy},
+        SPEC: {SYNC_POLICY: policy},
         "status": {"history": history}
     }
 
@@ -91,16 +108,16 @@ def _an_ok(body: dict[str, Any] | None = None) -> httpx2.Response:
 
 
 def a_platform(history: list[dict[str, Any]] | None = None,
-               reconciling_itself: bool = True) -> _Platform:
+               automated: dict[str, Any] | None = SYNCING_ITSELF) -> _Platform:
     platform = _Platform()
     platform.get.return_value = _an_ok(
         _an_application(
             history if history is not None else _two_deployments(),
-            reconciling_itself
+            automated
         )
     )
     platform.post.return_value = _an_ok()
-    platform.put.return_value = _an_ok()
+    platform.patch.return_value = _an_ok()
 
     return platform
 
@@ -111,7 +128,7 @@ def _rolling_back(platform: _Platform) -> DeploymentRollbackUndo:
         _settings(),
         get=platform.get,
         post=platform.post,
-        put=platform.put
+        patch=platform.patch
     )
 
 
@@ -131,7 +148,7 @@ def test_a_rollback_returns_to_the_entry_before_the_one_running() -> None:
 def test_reconciliation_is_suspended_before_the_rollback_is_asked_for() -> None:
     # The platform refuses a rollback while it syncs the application itself,
     # and would re-apply the revision being rolled away from at the next pass.
-    platform = a_platform(reconciling_itself=True)
+    platform = a_platform(automated=SYNCING_ITSELF)
 
     Scenario() \
         .given(platform) \
@@ -144,7 +161,7 @@ def test_reconciliation_is_suspended_before_the_rollback_is_asked_for() -> None:
 
 @pytest.mark.unit
 def test_an_application_nobody_was_reconciling_is_left_alone() -> None:
-    platform = a_platform(reconciling_itself=False)
+    platform = a_platform(automated=None)
 
     Scenario() \
         .given(platform) \
@@ -152,6 +169,23 @@ def test_an_application_nobody_was_reconciling_is_left_alone() -> None:
         .then(all_of(
             _the_sync_policy_was_not_touched(platform),
             _the_descriptor_records_sync_was(False)
+        ))
+
+
+@pytest.mark.unit
+def test_an_application_whose_automated_sync_is_switched_off_is_left_alone() -> None:
+    # Read as the platform reads it: an `automated` carrying `enabled: false` is
+    # configured and not syncing. Suspending it would change nothing, and an undo
+    # that later turned it back on would start something Argus did not stop.
+    platform = a_platform(automated=SWITCHED_OFF)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _rolling_back(platform)) \
+        .then(all_of(
+            _the_sync_policy_was_not_touched(platform),
+            _the_descriptor_records_sync_was(False),
+            _it_rolled_back_to(platform, THE_ENTRY_BEFORE_IT)
         ))
 
 
@@ -220,7 +254,7 @@ def test_restoring_puts_back_the_entry_that_was_running() -> None:
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: restore_deployment(
-            descriptor, _settings(), post=platform.post, put=platform.put
+            descriptor, _settings(), post=platform.post, patch=platform.patch
         )) \
         .then(all_of(
             _it_rolled_back_to(platform, THE_ENTRY_RUNNING),
@@ -235,7 +269,7 @@ def test_restoring_turns_reconciliation_back_on_where_it_was_on() -> None:
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: restore_deployment(
-            descriptor, _settings(), post=platform.post, put=platform.put
+            descriptor, _settings(), post=platform.post, patch=platform.patch
         )) \
         .then(_reconciliation_was_turned(platform, off=False))
 
@@ -249,7 +283,7 @@ def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=False)) \
         .when(lambda: restore_deployment(
-            descriptor, _settings(), post=platform.post, put=platform.put
+            descriptor, _settings(), post=platform.post, patch=platform.patch
         )) \
         .then(all_of(
             _the_sync_policy_was_not_touched(platform),
@@ -262,12 +296,12 @@ def test_a_restore_that_only_managed_the_revision_says_so() -> None:
     # The half that is easy to lose. The deployment looks right and is
     # receiving nothing anybody ships to it.
     platform = a_platform()
-    platform.put.side_effect = httpx2.ConnectError("no route to host")
+    platform.patch.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: restore_deployment(
-            descriptor, _settings(), post=platform.post, put=platform.put
+            descriptor, _settings(), post=platform.post, patch=platform.patch
         )) \
         .then(_it_reports_restored(revision=True, automated_sync=False))
 
@@ -276,12 +310,12 @@ def test_a_restore_that_only_managed_the_revision_says_so() -> None:
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform()
     platform.post.side_effect = httpx2.ConnectError("no route to host")
-    platform.put.side_effect = httpx2.ConnectError("no route to host")
+    platform.patch.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: restore_deployment(
-            descriptor, _settings(), post=platform.post, put=platform.put
+            descriptor, _settings(), post=platform.post, patch=platform.patch
         )) \
         .then(_it_reports_restored(revision=False, automated_sync=False))
 
@@ -305,7 +339,7 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     # The suspension is the first thing a rollback changes, so a platform that
     # refuses it has left the estate exactly as it found it.
     platform = a_platform()
-    platform.put.return_value = _answering(503)
+    platform.patch.return_value = _answering(503)
 
     Scenario() \
         .given(platform) \
@@ -318,7 +352,7 @@ def test_a_platform_that_died_before_a_rollback_that_changed_nothing_is_unreacha
     # An application nobody was reconciling needs no suspension, so the rollback
     # request is the first write - and a platform that stopped answering before
     # it took nothing with it.
-    platform = a_platform(reconciling_itself=False)
+    platform = a_platform(automated=None)
     platform.post.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
@@ -338,7 +372,7 @@ def test_a_rollback_that_left_sync_suspended_says_so_and_still_reports_the_platf
     # is one boolean this tier put there. It travels on the failure, which is
     # what makes marking safe: the earlier rule refused the mark because a
     # suspension was recorded nowhere, and now it is recorded here.
-    platform = a_platform(reconciling_itself=True)
+    platform = a_platform(automated=SYNCING_ITSELF)
     platform.post.side_effect = httpx2.ConnectError("no route to host")
 
     Scenario() \
@@ -360,7 +394,7 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
     # The distinction the change rests on. This platform is reachable and this
     # rollback is what it would not do, so the other actions through it are
     # still worth trying.
-    platform = a_platform(reconciling_itself=False)
+    platform = a_platform(automated=None)
     platform.post.return_value = _answering(400)
 
     Scenario() \
@@ -374,7 +408,7 @@ def _answering(status: int) -> httpx2.Response:
     return httpx2.Response(
         status_code=status,
         json={},
-        request=httpx2.Request("PUT", DONT_CARE_URL)
+        request=httpx2.Request("PATCH", DONT_CARE_URL)
     )
 
 
@@ -445,32 +479,67 @@ def _it_rolled_back_to(platform: _Platform, entry: int) -> Assertion[object]:
 
 
 def _reconciliation_was_turned(platform: _Platform, off: bool) -> Assertion[object]:
-    def assertion(dont_care: object) -> bool:
-        if not platform.put.called:
+    """One merge patch to the application's own route, of the switch alone.
+
+    `enabled: false` to suspend and a removed `enabled` to restore - never an
+    `automated` object of Argus's own, which would replace the one the operator
+    declared, and never the spec route, which takes its body as the whole spec.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        if not platform.patch.called:
             raise AssertionError(
                 "Expected the sync policy to be written, and it was not."
             )
 
-        policy = platform.put.call_args.kwargs["json"]["syncPolicy"]
-        was_turned_off = policy.get("automated") is None
+        expected = _the_switch_set_to(False if off else None)
+        url = platform.patch.call_args.args[0]
+        body = platform.patch.call_args.kwargs["json"]
 
-        if was_turned_off is not off:
+        if url != THE_APPLICATIONS_ROUTE:
             raise AssertionError(
-                f"Expected reconciliation to be turned {'off' if off else 'on'}, "
-                f"and the policy written was {policy}."
+                f"Expected the sync policy to be patched at "
+                f"[{THE_APPLICATIONS_ROUTE}], and it was patched at [{url}]."
+            )
+
+        if body[PATCH_REQUEST_TYPE] != APPLICATION_MERGE_PATCH:
+            raise AssertionError(
+                f"Expected a [{APPLICATION_MERGE_PATCH}] patch, and it was sent "
+                f"as [{body[PATCH_REQUEST_TYPE]}]."
+            )
+
+        if _the_sync_patches(platform) != [expected]:
+            raise AssertionError(
+                f"Expected automated sync to be turned {'off' if off else 'on'} "
+                f"by one patch of {expected}, and it was sent "
+                f"{_the_sync_patches(platform)}."
             )
 
         return True
 
     return assertion
 
+def _the_sync_patches(platform: _Platform) -> list[dict[str, Any]]:
+    """Every merge patch the application route was sent, parsed, in order.
+
+    Parsed rather than compared as text, because the vendor carries the patch
+    as a JSON-encoded string and the order of its keys is nobody's contract.
+    """
+    return [
+        json.loads(call.kwargs["json"][PATCH_REQUEST_PATCH])
+        for call in platform.patch.call_args_list
+    ]
+
+
+def _the_switch_set_to(enabled: bool | None) -> dict[str, Any]:
+    return {SPEC: {SYNC_POLICY: {AUTOMATED: {ENABLED: enabled}}}}
+
 
 def _the_sync_policy_was_not_touched(platform: _Platform) -> Assertion[object]:
     def assertion(dont_care: object) -> bool:
-        if platform.put.called:
+        if platform.patch.called:
             raise AssertionError(
-                f"Expected the sync policy to be left alone, and it was written "
-                f"as {platform.put.call_args.kwargs.get('json')}."
+                f"Expected the sync policy to be left alone, and it was patched "
+                f"with {platform.patch.call_args.kwargs.get('json')}."
             )
 
         return True
@@ -480,7 +549,7 @@ def _the_sync_policy_was_not_touched(platform: _Platform) -> Assertion[object]:
 
 def _nothing_was_changed(platform: _Platform) -> Assertion[Exception | None]:
     def assertion(dont_care: Exception | None) -> bool:
-        if platform.post.called or platform.put.called:
+        if platform.post.called or platform.patch.called:
             raise AssertionError(
                 "Expected nothing to be changed, and the platform was written to."
             )

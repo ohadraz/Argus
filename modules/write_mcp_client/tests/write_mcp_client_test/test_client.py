@@ -24,6 +24,7 @@ from write_mcp_client import (
     set_feature_flag,
     write_mcp,
 )
+from write_mcp_server.argocd import AUTOMATED, ENABLED
 
 from write_mcp_client_test.fake_deployment_platform import (
     THE_HISTORY_BEFORE_IT,
@@ -440,29 +441,36 @@ def the_process_reported_is_the_one_now_serving(
 def the_platform_stopped_reconciling(
     handler: type[FakeDeploymentPlatformHandler]
 ) -> Assertion[object]:
-    """Reconciliation was suspended, and suspended by a policy with no
-    `automated` in it at all.
+    """Reconciliation was suspended by switching `automated` off, and the rest
+    of the policy is as the operator declared it.
 
-    Argo CD spells the arrangement as the presence of a key rather than as a
-    boolean, so a caller writing `{"automated": false}` would leave a server
-    still syncing while believing it had stopped it - and the fake, reading the
-    key the way a real one does, would then refuse the rollback.
+    Argo CD reads `enabled: false` as configured and not syncing, so the
+    operator's `automated` object stays where it was, `selfHeal` and all. A
+    caller that removed `automated` would suspend sync and lose that with it; one
+    that sent a policy to the spec route would replace the whole spec.
     """
     def assertion(dont_care_result: object) -> bool:
-        if not handler.sync_policies_written:
+        if not handler.sync_patches_received:
             raise AssertionError(
-                "Expected the sync policy to have been written before the "
+                "Expected the sync policy to have been patched before the "
                 "rollback, and the platform was never asked to change it - so "
                 "the rollback was asked for against an application still "
                 "reconciling itself."
             )
 
-        suspending = handler.sync_policies_written[0]
+        automated = handler.sync_policy.get(AUTOMATED)
 
-        if "automated" in suspending:
+        if automated is None or automated.get(ENABLED) is not False:
             raise AssertionError(
-                f"Expected reconciliation to be suspended by a policy naming no "
-                f"`automated` at all, and [{suspending}] was written."
+                f"Expected reconciliation to be suspended by switching "
+                f"`automated` off, and the platform holds "
+                f"[{handler.sync_policy}]."
+            )
+
+        if automated.get("selfHeal") is not True:
+            raise AssertionError(
+                f"Expected the operator's `selfHeal` to survive the suspension, "
+                f"and the platform holds [{handler.sync_policy}]."
             )
 
         return True

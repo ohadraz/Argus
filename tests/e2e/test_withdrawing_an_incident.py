@@ -35,6 +35,7 @@ from argus_core.events import ChangeUndone
 from argus_core.models import IncidentStatus
 from argus_incidents.repository import events, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from write_mcp_server.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
@@ -530,18 +531,19 @@ def _wait_until_the_shop_stops_reconciling_itself() -> None:
 def _the_shop_reconciles_itself() -> bool:
     """Whether the platform is syncing the application on its own.
 
-    Spelled as the presence of `automated` rather than as a boolean, because
-    that is how Argo CD spells it - an `automated` of `{}` means automated, and
-    reading it as false here would have this wait return the moment the stack
-    came up.
+    Read as Argo CD reads it: an `automated` object whose `enabled` is absent or
+    true. An `automated` of `{}` means automated, and reading it as false here
+    would have this wait return the moment the stack came up; one carrying
+    `enabled: false` is suspended, which is how Argus suspends it.
     """
     response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
+    automated = response.json()[SPEC][SYNC_POLICY].get(AUTOMATED)
 
-    return response.json()["spec"]["syncPolicy"].get("automated") is not None
+    return automated is not None and automated.get(ENABLED) is not False
 
 
 def _the_shop_is_slow_again() -> Assertion[httpx2.Response]:

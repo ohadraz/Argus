@@ -35,6 +35,15 @@ from argus_core.mcp_transport import (
 )
 from argus_core.models import CapacityRestored, ReplicaUndo
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from write_mcp_server.argocd import (
+    APPLICATION_MERGE_PATCH,
+    AUTOMATED,
+    ENABLED,
+    PATCH_REQUEST_PATCH,
+    PATCH_REQUEST_TYPE,
+    SPEC,
+    SYNC_POLICY,
+)
 from write_mcp_server.scaling import (
     THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR,
     AlreadyAtItsLargest,
@@ -49,8 +58,9 @@ DONT_CARE_URL = "http://argocd.invalid"
 SOME_APPLICATION_PATH = "/api/v1/applications/{application}"
 SOME_RESOURCE_PATH = "/api/v1/applications/{application}/resource"
 SOME_ACTION_PATH = "/api/v1/applications/{application}/resource/actions/v2"
-SOME_SPEC_PATH = "/api/v1/applications/{application}/spec"
 SOME_NAMESPACE = "production"
+# Where the application itself is, which is where a patch to it goes.
+THE_APPLICATIONS_ROUTE = f"{DONT_CARE_URL}/api/v1/applications/{SOME_APPLICATION}"
 
 # What the deployment is running when anybody looks, and what one doubling of it
 # comes to. Three is the size the fixture's own values file asks for.
@@ -70,7 +80,7 @@ class _Platform:
 
     get: MagicMock = field(default_factory=lambda: create_autospec(httpx2.get))
     post: MagicMock = field(default_factory=lambda: create_autospec(httpx2.post))
-    put: MagicMock = field(default_factory=lambda: create_autospec(httpx2.put))
+    patch: MagicMock = field(default_factory=lambda: create_autospec(httpx2.patch))
 
 
 def _settings() -> ScaleSettings:
@@ -79,16 +89,18 @@ def _settings() -> ScaleSettings:
         argocd_application_path=SOME_APPLICATION_PATH,
         argocd_resource_path=SOME_RESOURCE_PATH,
         argocd_resource_action_path=SOME_ACTION_PATH,
-        argocd_spec_path=SOME_SPEC_PATH,
         argocd_auth_token="",
         scale_namespace=SOME_NAMESPACE
     )
 
 
 def _an_application(reconciling_itself: bool) -> dict[str, Any]:
-    policy: dict[str, Any] = {"automated": {}} if reconciling_itself else {}
+    """Automated sync as an operator declares it, `selfHeal` and all, or none."""
+    policy: dict[str, Any] = (
+        {AUTOMATED: {"selfHeal": True}} if reconciling_itself else {}
+    )
 
-    return {"spec": {"syncPolicy": policy}}
+    return {SPEC: {SYNC_POLICY: policy}}
 
 
 def _a_managed_deployment(replicas: int) -> dict[str, Any]:
@@ -130,7 +142,7 @@ def a_platform(replicas: int = THE_COUNT_RUNNING,
 
     platform.get.side_effect = answering
     platform.post.return_value = _an_ok()
-    platform.put.return_value = _an_ok()
+    platform.patch.return_value = _an_ok()
 
     return platform
 
@@ -141,7 +153,7 @@ def _scaling_out(platform: _Platform) -> ReplicaUndo:
         _settings(),
         get=platform.get,
         post=platform.post,
-        put=platform.put
+        patch=platform.patch
     )
 
 
@@ -324,7 +336,7 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
     # looks right from every angle a reader has, while receiving nothing anybody
     # ships to it.
     platform = a_platform()
-    platform.put.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.patch.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -336,7 +348,7 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform()
     platform.post.side_effect = httpx2.ConnectError("no route to the platform")
-    platform.put.side_effect = httpx2.ConnectError("no route to the platform")
+    platform.patch.side_effect = httpx2.ConnectError("no route to the platform")
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -378,7 +390,7 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     # The suspension is the first thing a scale-out changes, so a platform that
     # will not take it has left the estate as it found it.
     platform = a_platform()
-    platform.put.return_value = _answering(503)
+    platform.patch.return_value = _answering(503)
 
     Scenario() \
         .given(platform) \
@@ -442,7 +454,7 @@ def _answering(status: int) -> httpx2.Response:
     return httpx2.Response(
         status_code=status,
         json={},
-        request=httpx2.Request("PUT", DONT_CARE_URL)
+        request=httpx2.Request("PATCH", DONT_CARE_URL)
     )
 
 
@@ -508,7 +520,7 @@ def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
 
 def _restoring(descriptor: ReplicaUndo, platform: _Platform) -> CapacityRestored:
     return restore_replica_count(
-        descriptor, _settings(), post=platform.post, put=platform.put
+        descriptor, _settings(), post=platform.post, patch=platform.patch
     )
 
 
@@ -575,33 +587,68 @@ def _the_count_was_sent_as_text(platform: _Platform) -> Assertion[object]:
 
 
 def _reconciliation_was_turned(platform: _Platform, off: bool) -> Assertion[object]:
+    """One merge patch to the application's own route, of the switch alone.
+
+    `enabled: false` to suspend and a removed `enabled` to restore - never an
+    `automated` object of Argus's own, which would replace the one the operator
+    declared, and never the spec route, which takes its body as the whole spec.
+    """
     def assertion(dont_care_result: object) -> bool:
-        if not platform.put.called:
+        if not platform.patch.called:
             raise AssertionError(
                 "Expected the sync policy to be written, and it was not written "
                 "at all."
             )
 
-        policy = platform.put.call_args.kwargs["json"]["syncPolicy"]
-        suspended = policy.get("automated") is None
+        expected = _the_switch_set_to(False if off else None)
+        url = platform.patch.call_args.args[0]
+        body = platform.patch.call_args.kwargs["json"]
 
-        if suspended != off:
+        if url != THE_APPLICATIONS_ROUTE:
             raise AssertionError(
-                f"Expected automated sync to be turned {'off' if off else 'on'}, "
-                f"and the policy written was [{policy}]."
+                f"Expected the sync policy to be patched at "
+                f"[{THE_APPLICATIONS_ROUTE}], and it was patched at [{url}]."
+            )
+
+        if body[PATCH_REQUEST_TYPE] != APPLICATION_MERGE_PATCH:
+            raise AssertionError(
+                f"Expected a [{APPLICATION_MERGE_PATCH}] patch, and it was sent "
+                f"as [{body[PATCH_REQUEST_TYPE]}]."
+            )
+
+        if _the_sync_patches(platform) != [expected]:
+            raise AssertionError(
+                f"Expected automated sync to be turned {'off' if off else 'on'} "
+                f"by one patch of {expected}, and it was sent "
+                f"{_the_sync_patches(platform)}."
             )
 
         return True
 
     return assertion
 
+def _the_sync_patches(platform: _Platform) -> list[dict[str, Any]]:
+    """Every merge patch the application route was sent, parsed, in order.
+
+    Parsed rather than compared as text, because the vendor carries the patch
+    as a JSON-encoded string and the order of its keys is nobody's contract.
+    """
+    return [
+        json.loads(call.kwargs["json"][PATCH_REQUEST_PATCH])
+        for call in platform.patch.call_args_list
+    ]
+
+
+def _the_switch_set_to(enabled: bool | None) -> dict[str, Any]:
+    return {SPEC: {SYNC_POLICY: {AUTOMATED: {ENABLED: enabled}}}}
+
 
 def _the_sync_policy_was_not_touched(platform: _Platform) -> Assertion[object]:
     def assertion(dont_care_result: object) -> bool:
-        if platform.put.called:
+        if platform.patch.called:
             raise AssertionError(
                 f"Expected the sync policy to be left as it was found, and it "
-                f"was written with [{platform.put.call_args.kwargs['json']}]."
+                f"was patched with [{platform.patch.call_args.kwargs['json']}]."
             )
 
         return True
@@ -613,7 +660,7 @@ def _nothing_was_changed(platform: _Platform) -> Assertion[Exception | None]:
     def assertion(dont_care_error: Exception | None) -> bool:
         changed = [
             name for name, route in (("the action", platform.post),
-                                     ("the sync policy", platform.put))
+                                     ("the sync policy", platform.patch))
             if route.called
         ]
 

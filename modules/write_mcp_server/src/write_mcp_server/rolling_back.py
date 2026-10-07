@@ -50,7 +50,7 @@ from argus_core.models import (
 
 from write_mcp_server.argocd import (
     REQUEST_TIMEOUT_SECONDS,
-    a_sync_policy,
+    a_sync_patch,
     could_not_be_reached,
     headers_for,
     is_reconciling_itself,
@@ -71,22 +71,22 @@ _REVISION: Final = "revision"
 class RollbackSettings(SettingsSlice):
     """Where a rollback is asked for, and under what credential.
 
-    Three paths, because the operation is three requests against three of the
-    platform's routes. Templates rather than fixed routes, for the reason the
-    restart path is one: the demo's stand-in and a real server are one setting
-    with two values.
+    Two paths, because the operation is three requests against two of the
+    platform's routes: the application is read and its sync patched on one, and
+    the rollback is asked for on the other. Templates rather than fixed routes,
+    for the reason the restart path is one: the demo's stand-in and a real
+    server are one setting with two values.
     """
 
     argocd_base_url: str
     argocd_application_path: str
     argocd_rollback_path: str
-    argocd_spec_path: str
     argocd_auth_token: str
 
 
 HttpGet = Callable[..., httpx2.Response]
 HttpPost = Callable[..., httpx2.Response]
-HttpPut = Callable[..., httpx2.Response]
+HttpPatch = Callable[..., httpx2.Response]
 
 
 class NoEarlierRevision(Exception):
@@ -136,7 +136,7 @@ def roll_back_deployment(
     settings: RollbackSettings,
     get: HttpGet = httpx2.get,
     post: HttpPost = httpx2.post,
-    put: HttpPut = httpx2.put
+    patch: HttpPatch = httpx2.patch
 ) -> DeploymentRollbackUndo:
     """Returns `application` to the revision it was running before the current
     one, and reports what that cost.
@@ -166,7 +166,7 @@ def roll_back_deployment(
     was_syncing_itself = is_reconciling_itself(state)
 
     if was_syncing_itself:
-        _stop_reconciling(application, settings, put)
+        _stop_reconciling(application, settings, patch)
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
@@ -192,7 +192,7 @@ def roll_back_deployment(
 def restore_deployment(descriptor: DeploymentRollbackUndo,
                        settings: RollbackSettings,
                        post: HttpPost = httpx2.post,
-                       put: HttpPut = httpx2.put) -> DeploymentRestored:
+                       patch: HttpPatch = httpx2.patch) -> DeploymentRestored:
     """Puts back both of the things a rollback changed, and says which it
     managed.
 
@@ -231,7 +231,7 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     return DeploymentRestored(
         revision_put_back=revision,
         automated_sync_put_back=_tried(
-            lambda: _start_reconciling(descriptor.application, settings, put)
+            lambda: _start_reconciling(descriptor.application, settings, patch)
         )
     )
 
@@ -270,28 +270,28 @@ def _the_application(application: str,
 
 def _stop_reconciling(application: str,
                       settings: RollbackSettings,
-                      put: HttpPut) -> None:
-    _set_sync_policy(application, reconciling=False, settings=settings, put=put)
+                      patch: HttpPatch) -> None:
+    _set_sync_policy(application, reconciling=False, settings=settings, patch=patch)
 
 
 def _start_reconciling(application: str,
                        settings: RollbackSettings,
-                       put: HttpPut) -> None:
-    _set_sync_policy(application, reconciling=True, settings=settings, put=put)
+                       patch: HttpPatch) -> None:
+    _set_sync_policy(application, reconciling=True, settings=settings, patch=patch)
 
 
 def _set_sync_policy(application: str,
                      reconciling: bool,
                      settings: RollbackSettings,
-                     put: HttpPut) -> None:
+                     patch: HttpPatch) -> None:
     url = the_url_of(
-        settings.argocd_base_url, settings.argocd_spec_path, application
+        settings.argocd_base_url, settings.argocd_application_path, application
     )
 
     try:
-        response = put(
+        response = patch(
             url,
-            json=a_sync_policy(reconciling),
+            json=a_sync_patch(application, reconciling),
             headers=headers_for(settings.argocd_auth_token),
             timeout=REQUEST_TIMEOUT_SECONDS
         )

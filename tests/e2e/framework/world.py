@@ -26,6 +26,7 @@ import httpx2
 import psycopg
 from argus_incidents.repository import events
 from argus_testkit import Assertion
+from write_mcp_server.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
@@ -170,15 +171,20 @@ def latency_back_to_baseline() -> Assertion[httpx2.Response]:
 def _argos_automated_sync() -> Any:
     """The application's automated sync policy, or `None` where it is suspended.
 
-    Argo CD spells "this application syncs itself" as the presence of an
-    `automated` object rather than as a boolean, so suspending it is the removal
-    of a key.
+    Read as Argo CD reads it: an `automated` object whose `enabled` is absent or
+    true. Suspending is `enabled: false`, which keeps the object and the
+    operator's settings in it, so a present `automated` is not on its own an
+    application syncing itself.
     """
     response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/argocd/{THE_SERVICE_NAME}",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
-    spec: dict[str, Any] = response.json()["spec"]
+    spec: dict[str, Any] = response.json()[SPEC]
+    automated = spec[SYNC_POLICY].get(AUTOMATED)
 
-    return spec["syncPolicy"].get("automated")
+    if automated is None or automated.get(ENABLED) is False:
+        return None
+
+    return automated
