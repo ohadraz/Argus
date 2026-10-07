@@ -20,6 +20,7 @@ from argus_core.models import (
     MetricBucket,
     Ownership,
     RetrievalChannel,
+    RuleReading,
     ServiceDependency,
     ToolDefinition,
     Transcript,
@@ -90,6 +91,7 @@ CASE_THE_DEPLOYED_CORRUPTION = "silent-data-corruption-is-told-from-a-bad-deploy
 CASE_THE_STOPPED_READINGS = "monitoring-blind-spot-is-told-from-a-bad-deployment"
 CASE_A_WINDOW_THAT_STOPS = "a-window-that-stops-is-not-read-as-a-well-service"
 CASE_THE_STALE_CACHE = "state-divergence-is-told-from-silent-data-corruption"
+CASE_THE_DEGRADED_ANSWERS = "output-quality-degradation-is-told-from-a-bad-deployment"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -192,6 +194,12 @@ MUST_IDENTIFY_THE_STALE_CACHE = 9  # UNMEASURED - no pooled samples yet
 # than noise.
 MUST_IDENTIFY_THE_STOPPED_READINGS = 9  # UNMEASURED - no pooled samples yet
 MUST_NOT_READ_A_STOPPED_WINDOW_AS_WELL = 10  # UNMEASURED - no pooled samples yet
+# The one case here whose departure is in no series but the rule's own, and
+# unmeasured for its siblings' reason. Every request succeeded as fast as ever, so
+# the five fixed series are flat end to end - and its near misses are the two
+# deploy readings: a revision that broke the code, and a value that broke the
+# service. Both claim requests failed or slowed, and neither did.
+MUST_IDENTIFY_THE_DEGRADED_ANSWERS = 9  # UNMEASURED - no pooled samples yet
 # How sure a model may sound about a cause the evidence does not carry.
 #
 # The two "nothing explains this" fixtures and the upstream one are a matched
@@ -389,6 +397,29 @@ WHAT_THE_RENAMED_METRICS_PORT_SHIPPED = [
     "  -  portName: metrics",
     "  +  portName: http-metrics"
 ]
+
+# The paging rule a quality incident names, and the share it watches - the
+# purchases the categoriser filed with confidence - before and after a model
+# upgrade it never recovered from. The uid is the shop's own rule's; the
+# shares are the shop's own calm and broken figures.
+THE_CATEGORISATION_RULE = "io-shop-categorisation-confidence-low"
+CALM_CONFIDENT_SHARE = 0.90
+DEGRADED_CONFIDENT_SHARE = 0.40
+
+# The revision that moved the categoriser to its second model, and what it
+# shipped: one value in the file the deployment carried. Real commits on the
+# Target Service's `deploy/categoriser-model-v2` branch, as the others are.
+THE_REVISION_THAT_UPGRADED_THE_MODEL = "7c3ca00"
+WHAT_THE_MODEL_UPGRADE_SHIPPED = [
+    f"Deployment of revision {THE_REVISION_THAT_UPGRADED_THE_MODEL} to io-shop, "
+    f"compared against d268103 - the revision deployed before it.",
+    "modified deploy/values-production.yaml",
+    "  @@ -61,4 +61,4 @@ cache:",
+    "   categoriser:",
+    "  -  model: v1",
+    "  +  model: v2"
+]
+A_MODEL_LOADED = "INFO checkout: categoriser loaded model v2"
 
 # The deploy that explains nothing, named once so the fixture that stages it and
 # the assertion that refuses it cannot come to mean different deploys.
@@ -1084,6 +1115,43 @@ def test_a_window_whose_rows_stop_is_not_read_as_a_healthy_service() -> None:
         )
 
 
+@pytest.mark.eval
+@needs_the_real_api
+def test_answers_a_model_upgrade_made_worse_are_told_from_a_deployment_that_broke_the_service()\
+        -> None:
+    # The one case here whose departure is in the paging rule's own series and
+    # nowhere else. Every request succeeded as fast as it ever had, so the error
+    # rate, the quantiles and the heap are flat end to end - and what fell is the
+    # share of purchases the categoriser filed with confidence, which only the
+    # rule watches.
+    #
+    # Its near misses are both of the deploy readings. A revision at the onset is
+    # the shape `bad-deployment` is named from, and a values file with one value
+    # changed is the shape `config-induced-failure` is named from; both claim
+    # requests failed or slowed, and the window says none did. The diff names a
+    # model, and the series that fell is what that model does.
+    some_incident = an_incident_where_a_model_upgrade_degraded_the_answers()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_DEGRADED_ANSWERS,
+                MUST_IDENTIFY_THE_DEGRADED_ANSWERS,
+                _a_run_where(
+                    the_cause_was_identified_as(
+                        FailureMode.OUTPUT_QUALITY_DEGRADATION
+                    )
+                )
+            )
+        )
+
+
 @dataclass(frozen=True)
 class Incident:
     """One pinned incident, as the six retrieval channels would serve it.
@@ -1588,6 +1656,45 @@ def an_incident_where_the_readings_stopped() -> Incident:
         }
     )
 
+
+def an_incident_where_a_model_upgrade_degraded_the_answers() -> Incident:
+    """A model upgrade that made the answers worse and nothing slower.
+
+    The rule's series falls at the onset and nothing else moves: the error rate
+    sits at its baseline, every quantile is flat and the heap is where it was.
+    The logs are ordinary trade and one line saying the categoriser loaded its
+    new model, which names the version and says nothing about whether it is any
+    good - that is the series' to say.
+
+    The deployment sits two minutes before the onset, and its diff is one value
+    in the values file. That is the near miss: read alone, it is a configuration
+    change that broke something, and only the window says the something was
+    what the answers said rather than whether they arrived.
+    """
+    return _an_incident(
+        alert=a_quality_alert(),
+        buckets=_a_calm_stretch_then_a_fall_in_confidence(),
+        log_lines=[
+            a_log_line_at(-2, A_MODEL_LOADED),
+            a_log_line_at(-1, A_SUCCESS),
+            a_log_line_at(1, A_SUCCESS),
+            a_log_line_at(2, A_SUCCESS)
+        ],
+        changes=[
+            a_deploy_at(
+                -2,
+                THE_REVISION_THAT_UPGRADED_THE_MODEL,
+                _as_a_deploy_is_actually_summarised(
+                    THE_REVISION_THAT_UPGRADED_THE_MODEL
+                )
+            )
+        ],
+        what_each_deployment_changed={
+            THE_REVISION_THAT_UPGRADED_THE_MODEL: WHAT_THE_MODEL_UPGRADE_SHIPPED
+        }
+    )
+
+
 def an_incident_underway_before_the_window_opens() -> Incident:
     """Every retrieved minute is inside the incident, and the cause is outside.
 
@@ -1654,7 +1761,8 @@ def a_bucket_at(offset_minutes: int,
                 memory_used_bytes: int = CALM_MEMORY_BYTES,
                 request_volume: int = CALM_REQUEST_VOLUME,
                 cpu_used_cores: float = CALM_CPU_CORES,
-                cpu_limit_cores: float = CPU_LIMIT_CORES) -> MetricBucket:
+                cpu_limit_cores: float = CPU_LIMIT_CORES,
+                confident_share: float | None = None) -> MetricBucket:
     """One minute as the metrics channel would serve it.
 
     The traffic and the CPU are parameters rather than fixtures of the shop,
@@ -1663,6 +1771,10 @@ def a_bucket_at(offset_minutes: int,
     bucket holding both flat could not state either half. Every other case leaves
     them where they were - a quarter-loaded shop serving steady traffic - which is
     what keeps them evidence about those two cases rather than scenery in nine.
+
+    `confident_share` is the paging rule's own series, and absent everywhere but
+    the one case whose alert names a rule watching it: a window read for no rule
+    carries no such reading. Worse below, as the rule that watches it says.
     """
     return MetricBucket(
         bucket_id=_minute(offset_minutes),
@@ -1675,7 +1787,11 @@ def a_bucket_at(offset_minutes: int,
         memory_limit_bytes=MEMORY_LIMIT_BYTES,
         process_start_time_seconds=DONT_CARE_STARTED_AT,
         cpu_used_cores=cpu_used_cores,
-        cpu_limit_cores=cpu_limit_cores
+        cpu_limit_cores=cpu_limit_cores,
+        rule_reading=(
+            RuleReading(value=confident_share, worse_when="below")
+            if confident_share is not None else None
+        )
     )
 
 
@@ -2049,14 +2165,18 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
         return list(pool.map(investigate_once, range(RUNS_PER_CASE)))
 
 
-def _the_metrics_of(incident: Incident) -> Callable[[str | None], list[MetricBucket]]:
+def _the_metrics_of(
+    incident: Incident
+) -> Callable[[str | None, str | None], list[MetricBucket]]:
     """The whole metrics span, whatever it is anchored on.
 
     The anchor is ignored on purpose: the metrics channel has one span and the
     model is told so, and a fixture that varied it by anchor would be inventing
-    a retrieval the real one does not offer.
+    a retrieval the real one does not offer. So is the rule: whether a minute
+    carries the rule's series is the fixture's to say, in the buckets it stages.
     """
-    def fetch(dont_care_alert_time: str | None) -> list[MetricBucket]:
+    def fetch(dont_care_alert_time: str | None,
+              dont_care_rule: str | None) -> list[MetricBucket]:
         return list(incident.buckets)
 
     return fetch
@@ -2453,6 +2573,23 @@ def an_absence_alert() -> Alert:
     )
 
 
+def a_quality_alert() -> Alert:
+    """The rule that fires on what the answers say rather than on whether they
+    arrived.
+
+    The only alert here naming the rule that fired, because it is the only one
+    whose series is not among the five every window carries - and the window is
+    read for the rule it names.
+    """
+    return Alert(
+        service="checkout",
+        alert_name="CategorisationConfidenceLow",
+        severity="critical",
+        summary="share of purchases categorised confidently below 80% for 5 minutes",
+        rule=THE_CATEGORISATION_RULE
+    )
+
+
 def a_flag_change_at(offset_minutes: int, flag: str) -> ChangeEvent:
     """One flag switched on, as the change channel would serve it.
 
@@ -2504,4 +2641,23 @@ def _a_window_that_stops() -> list[MetricBucket]:
     return [
         a_bucket_at(minute, CALM_ERROR_RATE)
         for minute in range(-45, THE_MINUTE_THE_SHOP_WENT_QUIET)
+    ]
+
+
+def _a_calm_stretch_then_a_fall_in_confidence() -> list[MetricBucket]:
+    """Three quarters of an hour of calm, then the rule's series falls - onset
+    at offset 1.
+
+    Every one of the five fixed series is at its calm figure in every minute,
+    which is the whole of the mode: requests succeeded as fast as they ever had.
+    What moves is the share the rule watches, from the shop's calm figure to its
+    broken one, and it does not come back.
+    """
+    return [
+        *(
+            a_bucket_at(minute, CALM_ERROR_RATE, confident_share=CALM_CONFIDENT_SHARE)
+            for minute in range(-45, 1)
+        ),
+        a_bucket_at(1, CALM_ERROR_RATE, confident_share=DEGRADED_CONFIDENT_SHARE),
+        a_bucket_at(2, CALM_ERROR_RATE, confident_share=DEGRADED_CONFIDENT_SHARE)
     ]

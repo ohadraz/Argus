@@ -34,8 +34,10 @@ def metrics_tool() -> ToolDefinition:
         description=(
             "Per-minute error rate, latency and request volume for the service, over "
             "the fixed span around the alert. The onset you were given was located "
-            "from this. Takes no window: the span is one the metrics source decides, "
-            "and it is already wider than any log window you may ask for."
+            "from this. Where the alert rule that paged watches a series of its own, "
+            "each minute also carries that series' value as rule_reading. Takes no "
+            "window: the span is one the metrics source decides, and it is already "
+            "wider than any log window you may ask for."
         ),
         properties={},
         required=[]
@@ -44,10 +46,13 @@ def metrics_tool() -> ToolDefinition:
 
 def read_metrics(call: ToolCall,
                  alert_time: str | None,
+                 rule: str | None,
                  fetch_metrics: MetricsFetcher,
                  already_read: Sequence[Reading],
                  narrator: Narrator) -> Served:
-    """The buckets, anchored on the alert as they always are.
+    """The buckets, anchored on the alert as they always are, and read for the
+    rule that paged as the loop's own read was - so the model's second look
+    shows the same columns as its first.
 
     Rendered as JSON rather than prose because they are already structured, and
     re-describing them in sentences would lose the per-minute alignment that
@@ -67,7 +72,7 @@ def read_metrics(call: ToolCall,
     narrator.say(RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time)
 
     try:
-        buckets = fetch_metrics(alert_time)
+        buckets = fetch_metrics(alert_time, rule)
     except Exception as error:
         # Reported rather than raised, exactly as the other channels report it,
         # and this one was the exception among them. A read that fails here

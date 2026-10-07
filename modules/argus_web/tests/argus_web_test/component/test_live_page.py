@@ -20,9 +20,15 @@ from argus_core.events import (
     MetricsRetrieved,
     OnsetDetected,
 )
-from argus_core.models import Alert, FailureMode, IncidentStatus, MetricBucket
+from argus_core.models import (
+    Alert,
+    FailureMode,
+    IncidentStatus,
+    MetricBucket,
+    RuleReading,
+)
 from argus_incidents.repository import events, incidents
-from argus_testkit import Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of
 
 from argus_web_test.framework.assertions import (
     the_page_keeps_asking,
@@ -174,6 +180,76 @@ def test_a_metrics_retrieval_is_shown_as_a_table_with_the_bad_minutes_marked() -
 
 
 @pytest.mark.component
+def test_a_metrics_retrieval_read_for_a_rule_shows_the_rules_series() -> None:
+    # On an incident in what the service answers, the only column that moved.
+    # A page leaving it out would show a reader five flat series and no reason
+    # anybody was paged.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"))
+        _recorded(
+            conn,
+            MetricsRetrieved(
+                incident_id=incident_id,
+                window_start="2026-08-30T10:12Z",
+                window_end="2026-08-30T10:14Z",
+                buckets=[
+                    _a_bucket("2026-08-30T10:12Z", error_rate=0.01,
+                              rule_reading=RuleReading(value=0.9, worse_when="below")),
+                    _a_bucket("2026-08-30T10:14Z", error_rate=0.01,
+                              rule_reading=RuleReading(value=0.4, worse_when="below"))
+                ]
+            )
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_shows("rule-reading", "0.9", "0.4")
+        )
+
+
+@pytest.mark.component
+def test_a_metrics_retrieval_read_for_no_rule_shows_no_rules_series() -> None:
+    # Not a column of blanks: a window read for no rule has no such series, and
+    # an empty column under a heading reads as a series that went missing.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"))
+        _recorded(
+            conn,
+            MetricsRetrieved(
+                incident_id=incident_id,
+                window_start="2026-08-30T10:12Z",
+                window_end="2026-08-30T10:14Z",
+                buckets=[
+                    _a_bucket("2026-08-30T10:12Z", error_rate=0.01),
+                    _a_bucket("2026-08-30T10:14Z", error_rate=0.31)
+                ]
+            )
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            all_of(
+                the_page_shows("rule-reading"),
+                _the_page_does_not_say("paging rule's series")
+            )
+        )
+
+
+@pytest.mark.component
 def test_a_log_retrieval_is_shown_with_its_levels_distinguished() -> None:
     # Warnings and errors apart from the rest, at a glance, in a page somebody
     # is scanning while the incident is still running.
@@ -301,6 +377,16 @@ def test_an_incidents_own_page_narrates_it_too() -> None:
         )
 
 
+def _the_page_does_not_say(text: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if text in page:
+            raise AssertionError(f"Expected the page not to say [{text}], it did.")
+
+        return True
+
+    return assertion
+
+
 def _no_incidents_at_all(conn: psycopg.Connection) -> None:
     """An empty database, which is the one state the front page's rule cannot
     be set up into by adding a row.
@@ -330,7 +416,9 @@ def _an_alert(service: str) -> Alert:
     return Alert(service=service, alert_name="HighErrorRate")
 
 
-def _a_bucket(bucket_id: str, error_rate: float) -> MetricBucket:
+def _a_bucket(bucket_id: str,
+              error_rate: float,
+              rule_reading: RuleReading | None = None) -> MetricBucket:
     return MetricBucket(
         bucket_id=bucket_id,
         error_rate=error_rate,
@@ -341,7 +429,8 @@ def _a_bucket(bucket_id: str, error_rate: float) -> MetricBucket:
         memory_used_bytes=440 * 1024**2,
         process_start_time_seconds=1_756_000_000.0,
         cpu_used_cores=0.77,
-        cpu_limit_cores=3.0
+        cpu_limit_cores=3.0,
+        rule_reading=rule_reading
     )
 
 

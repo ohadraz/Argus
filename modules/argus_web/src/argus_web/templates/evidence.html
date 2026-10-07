@@ -11,12 +11,16 @@
 <div class="evidence">
 
 {% if story.metrics %}
+{# The paging rule's own series, as a column only where some minute carries it.
+   A window read for no rule has no such series, and a column of blanks under a
+   heading reads as a series that went missing. #}
+{% set rule_was_read = story.metrics|rejectattr('rule_reading', 'none')|list|length > 0 %}
 <section class="metrics-read">
   <h2 id="metrics-read">Metrics it read</h2>
   <div class="scroll" data-scroll="metrics">
   <table class="buckets">
     <thead>
-      <tr><th>minute (UTC)</th><th>errors</th><th>p50</th><th>p95</th><th>p99</th><th>requests</th><th>memory</th></tr>
+      <tr><th>minute (UTC)</th><th>errors</th><th>p50</th><th>p95</th><th>p99</th><th>requests</th><th>memory</th>{% if rule_was_read %}<th>paging rule's series</th>{% endif %}</tr>
     </thead>
     <tbody>
     {# Marked at the rate the shop's own console reddens a row at. Two screens
@@ -36,6 +40,11 @@
         <td>{{ bucket.p99_ms }}</td>
         <td>{{ bucket.request_volume }}</td>
         <td>{{ bucket.memory }}</td>
+        {% if rule_was_read %}
+        <td data-rule-reading="{{ bucket.rule_reading if bucket.rule_reading is not none else '' }}">
+          {{ bucket.rule_reading if bucket.rule_reading is not none else '' }}
+        </td>
+        {% endif %}
       </tr>
     {% endfor %}
     </tbody>

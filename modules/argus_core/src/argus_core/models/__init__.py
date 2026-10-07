@@ -65,7 +65,12 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
-from argus_core.models.metrics import MetricBucket
+from argus_core.models.metrics import (
+    RULE_READING_FIELD,
+    MetricBucket,
+    RuleReading,
+    WorseWhen,
+)
 from argus_core.models.model_policy import (
     LARGEST_UNSTREAMED_ANSWER,
     Effort,
@@ -170,6 +175,8 @@ __all__ = [
     "Reading",
     "Refusal",
     "RetrievalChannel",
+    "RuleReading",
+    "RULE_READING_FIELD",
     "PinAutoscaler",
     "ReplicaUndo",
     "RestartService",
@@ -190,6 +197,7 @@ __all__ = [
     "UndoDescriptor",
     "Undone",
     "WhatWouldBeTried",
+    "WorseWhen",
     # Public because `ClaimedAction` names it in an annotation a consumer has
     # to be able to write, not because callers asked for it.
     "UnreadVerdict",

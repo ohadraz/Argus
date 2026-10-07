@@ -56,8 +56,10 @@ class RateTable(BaseModel):
 type Rates = Callable[[], RateTable | None]
 
 # Pre-aggregated service metrics over a window - the same channel the
-# Investigator reads, asked for a wider window than it ever had reason to.
-type Metrics = Callable[[datetime, datetime], list[MetricBucket]]
+# Investigator reads, asked for a wider window than it ever had reason to, and
+# for the same rule: the one that paged, whose own series each minute then
+# carries beside the five. `None` for an incident paged by no rule.
+type Metrics = Callable[[datetime, datetime, str | None], list[MetricBucket]]
 
 
 class EngagedResponder(BaseModel):

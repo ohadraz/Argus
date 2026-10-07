@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import MetricBucket
+from argus_core.models import MetricBucket, RuleReading
 from argus_testkit import (
     Assertion,
     Kept,
@@ -25,7 +25,7 @@ from argus_testkit import (
     the_answer_was,
     the_error_mentioned,
 )
-from metrics_source.minutes import MetricsSettings, MetricsUnavailable
+from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 
 # Prometheus's own vocabulary, spelled out here rather than shared with the
@@ -281,6 +281,145 @@ def test_a_prometheus_nobody_can_reach_is_unavailability() -> None:
         )
 
 
+@pytest.mark.unit
+def test_the_paging_rules_query_rides_on_the_buckets_with_its_direction() -> None:
+    # The rule's own query is asked beside the fixed ones, and each minute it
+    # answers for carries its reading - with the direction the rule judges it
+    # in, so whatever reads the bucket next judges it the rule's way round.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "avg(categoriser_confident_ratio)"
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering({
+                **_every_fixed_query_answering_for(some_minute),
+                some_rule_query: [(_the_end_of(some_minute), "0.41")]
+            })
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
+        ) \
+        .then(
+            _every_bucket_carried(RuleReading(value=0.41, worse_when="below"))
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_query_prometheus_refuses_leaves_the_fixed_window_intact() -> None:
+    # The rule's query is somebody else's PromQL, and Prometheus may refuse it.
+    # That costs the window its sixth series and nothing else: the five a
+    # disproof rests on are still there, and the window reads as one with no
+    # rule reading - which disproves nothing - rather than as no window at all.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "avg(categoriser_confident_ratio)"
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering(
+                _every_fixed_query_answering_for(some_minute),
+                refusing=some_rule_query
+            )
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
+        ) \
+        .then(
+            all_of(
+                _the_buckets_were_for(["2026-10-04T12:00:00Z"]),
+                _every_bucket_carried(None)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_query_with_no_samples_leaves_every_minute_without_a_reading() -> None:
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "avg(categoriser_confident_ratio)"
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering(
+                _every_fixed_query_answering_for(some_minute)
+            )
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
+        ) \
+        .then(
+            all_of(
+                _the_buckets_were_for(["2026-10-04T12:00:00Z"]),
+                _every_bucket_carried(None)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_query_answered_in_several_series_leaves_every_minute_without_a_reading() -> None:
+    # An unaggregated query is answered once for every instance it matches, and
+    # which of them paged is the rule's own reduction to decide - not the order
+    # the answer happened to list them in. Read as one series, it would be
+    # whichever came last.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "categoriser_confident_ratio"
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering(
+                {
+                    **_every_fixed_query_answering_for(some_minute),
+                    some_rule_query: [(_the_end_of(some_minute), "0.41")]
+                },
+                in_two_series=some_rule_query
+            )
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
+        ) \
+        .then(
+            all_of(
+                _the_buckets_were_for(["2026-10-04T12:00:00Z"]),
+                _every_bucket_carried(None)
+            )
+        )
+
+
+def _every_fixed_query_answering_for(minute: datetime) -> dict[str, list[tuple[float, str]]]:
+    dont_care_reading = "1"
+
+    return {query: [(_the_end_of(minute), dont_care_reading)] for query in QUERY_FOR.values()}
+
+
+def _every_bucket_carried(expected: RuleReading | None) -> Assertion[list[MetricBucket]]:
+    def assertion(buckets: list[MetricBucket]) -> bool:
+        carried = [bucket.rule_reading for bucket in buckets]
+
+        if not buckets or any(reading != expected for reading in carried):
+            raise AssertionError(
+                f"Expected every bucket to carry the rule reading [{expected}], "
+                f"and they carried {carried}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_prometheus_refusing_with(status: int, error_type: str, error: str) -> Any:
     """An HTTP call answering every query with Prometheus's error envelope."""
     def get(url: str, *, params: Mapping[str, str], **dont_care: Any) -> httpx2.Response:
@@ -342,12 +481,17 @@ def _the_buckets_were_for(minutes: list[str]) -> Assertion[list[MetricBucket]]:
 
 
 def _a_prometheus_answering(samples: Mapping[str, Sequence[tuple[float, str]]],
-                            asked: Kept[httpx2.Request] | None = None) -> Any:
+                            asked: Kept[httpx2.Request] | None = None,
+                            refusing: str | None = None,
+                            in_two_series: str | None = None) -> Any:
     """An HTTP call answering each query with its samples, in Prometheus's
     matrix envelope, and recording each request where asked to.
 
     A query with no samples is answered as Prometheus answers a series nobody
-    exposes: success, and an empty result - not an error.
+    exposes: success, and an empty result - not an error. The one query named
+    by `refusing` is answered as Prometheus answers a query it cannot run, and
+    the one named by `in_two_series` as it answers a query matching two
+    instances: once for each.
     """
     def get(url: str, *, params: Mapping[str, str], **dont_care: Any) -> httpx2.Response:
         request = httpx2.Request("GET", url, params=params)
@@ -355,7 +499,15 @@ def _a_prometheus_answering(samples: Mapping[str, Sequence[tuple[float, str]]],
         if asked is not None:
             asked.take(request)
 
+        if params["query"] == refusing:
+            return httpx2.Response(
+                400,
+                json={"status": "error", "errorType": "bad_data", "error": "dont-care"},
+                request=request
+            )
+
         values = [[at, value] for at, value in samples.get(params["query"], [])]
+        instances = 2 if params["query"] == in_two_series else 1
 
         return httpx2.Response(
             200,
@@ -363,7 +515,10 @@ def _a_prometheus_answering(samples: Mapping[str, Sequence[tuple[float, str]]],
                 "status": "success",
                 "data": {
                     "resultType": "matrix",
-                    "result": [{"metric": {}, "values": values}] if values else []
+                    "result": [
+                        {"metric": {"instance": f"dont-care-{instance}"}, "values": values}
+                        for instance in range(instances)
+                    ] if values else []
                 }
             },
             request=request

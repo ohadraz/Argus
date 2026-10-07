@@ -451,12 +451,31 @@ def test_the_service_is_re_read_over_the_read_tier() -> None:
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write, lambda: recent_metrics_over(read)())
+            _asking(read, write, lambda: recent_metrics_over(read)(None))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(METRICS_TOOL),
             _the_write_tier_was_asked_for()
         ))
+
+
+@pytest.mark.integration
+def test_the_service_is_re_read_for_the_series_the_rule_watches() -> None:
+    # The rule travels to the read tier as the tool's own argument, because the
+    # read tier is where it is resolved into a query. A seam that dropped it would
+    # come back with the five fixed series and nothing saying it had.
+    some_rule = "some-rule"
+
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _the_rules_asked_for(read, lambda: recent_metrics_over(read)(some_rule))
+        ) \
+        .then(
+            _the_rules_were([some_rule])
+        )
 
 
 @pytest.mark.integration
@@ -912,6 +931,28 @@ def _a_session_that_answers_with(answer: object) -> Mock:
     client.call.return_value = answer
 
     return client
+
+
+def _the_rules_asked_for(read: Mock, ask: Callable[[], object]) -> Callable[[], list[object]]:
+    """Runs one seam and reports which rule each call to the tier named."""
+    def step() -> list[object]:
+        ask()
+
+        return [asked.kwargs.get("rule") for asked in read.call.call_args_list]
+
+    return step
+
+
+def _the_rules_were(rules: list[str]) -> Assertion[list[object]]:
+    def assertion(asked: list[object]) -> bool:
+        if asked != rules:
+            raise AssertionError(
+                f"Expected the read tier to be asked for the rules {rules}, got {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _asking(read: Mock, write: Mock, ask: Callable[[], object]) -> Callable[[], _Asked]:

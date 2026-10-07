@@ -16,8 +16,14 @@ from decimal import Decimal
 from math import isclose
 
 import pytest
-from agent_postmortem.estimate import ErrorRates, error_rates_over, loss_between
-from argus_core.models import MetricBucket
+from agent_postmortem.estimate import (
+    ErrorRates,
+    RuleSeriesLevels,
+    error_rates_over,
+    loss_between,
+    rule_series_over,
+)
+from argus_core.models import MetricBucket, RuleReading
 from argus_testkit import Assertion, Scenario
 
 INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
@@ -189,6 +195,187 @@ def test_a_window_with_no_minutes_inside_the_broken_stretch_measures_nothing() -
 
 
 @pytest.mark.unit
+def test_the_rules_series_is_measured_at_the_levels_the_error_rate_is() -> None:
+    # The one series a fault in what the service answers moves, so the one a
+    # reader of that incident needs the levels of: what it was before, what it
+    # was while broken, and how bad it got. Its worst is its lowest here, because
+    # the rule calls it worse falling - a share of confident answers at its
+    # highest is the service at its best.
+    some_calm_share = 0.95
+    a_bad_minute = 0.42
+    the_worst_minute = 0.38
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=RuleReading(value=some_calm_share, worse_when="below")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=a_bad_minute, worse_when="below")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6),
+                          rule_reading=RuleReading(value=the_worst_minute, worse_when="below"))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_rules_levels_are(RuleSeriesLevels(
+                baseline=some_calm_share,
+                while_broken=(a_bad_minute + the_worst_minute) / 2,
+                at_its_worst=the_worst_minute,
+                worse_when="below"
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_the_worst_of_a_series_its_rule_calls_worse_rising_is_its_highest() -> None:
+    # The other direction, and the reason the rule's own is carried: the same
+    # three minutes have a different worst depending on which way the rule
+    # fires, and only the rule knows.
+    some_calm_level = 0.10
+    a_bad_minute = 0.60
+    the_worst_minute = 0.75
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=RuleReading(value=some_calm_level, worse_when="above")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=the_worst_minute, worse_when="above")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6),
+                          rule_reading=RuleReading(value=a_bad_minute, worse_when="above"))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_rules_levels_are(RuleSeriesLevels(
+                baseline=some_calm_level,
+                while_broken=(a_bad_minute + the_worst_minute) / 2,
+                at_its_worst=the_worst_minute,
+                worse_when="above"
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_a_window_carrying_no_rules_series_measures_none() -> None:
+    # A window read for no rule has no such series, and none is not a level of
+    # zero: a series nobody read reported as having sat at nothing would be an
+    # incident that broke its answers entirely.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _no_rules_series_was_measured()
+        )
+
+
+@pytest.mark.unit
+def test_a_reading_once_the_service_recovered_is_not_counted_in_the_rules_series() -> None:
+    # The bound the error rate keeps, and the one a series is likelier to test:
+    # a share of confident answers can go on sagging past the minute the service
+    # came back, and the recovery minute itself is the first one that is not the
+    # incident however it reads.
+    some_calm_share = 0.95
+    the_worst_minute_while_broken = 0.42
+    an_even_worse_minute_once_recovered = 0.10
+    the_minute_it_recovered = INCIDENT_START + timedelta(minutes=6)
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=RuleReading(value=some_calm_share, worse_when="below")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=the_worst_minute_while_broken,
+                                                   worse_when="below")),
+                _a_bucket(at=the_minute_it_recovered,
+                          rule_reading=RuleReading(value=an_even_worse_minute_once_recovered,
+                                                   worse_when="below"))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, the_minute_it_recovered)
+        ) \
+        .then(
+            _the_rules_levels_are(RuleSeriesLevels(
+                baseline=some_calm_share,
+                while_broken=the_worst_minute_while_broken,
+                at_its_worst=the_worst_minute_while_broken,
+                worse_when="below"
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_a_minute_without_a_reading_does_not_count_towards_the_rules_series() -> None:
+    # A minute the series was not read in has no level of it, and counting it
+    # as one - as zero, or as the minute before - would put a figure in the mean
+    # that nobody measured.
+    some_calm_share = 0.95
+    the_one_broken_reading = 0.42
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=RuleReading(value=some_calm_share, worse_when="below")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=the_one_broken_reading,
+                                                   worse_when="below")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_rules_levels_are(RuleSeriesLevels(
+                baseline=some_calm_share,
+                while_broken=the_one_broken_reading,
+                at_its_worst=the_one_broken_reading,
+                worse_when="below"
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_series_with_no_calm_reading_measures_none() -> None:
+    # Read only once the service was broken, the series has levels and nothing
+    # to say they are worse than - and a level against nothing is an unanswered
+    # question, not a small answer.
+    dont_care_reading = 0.42
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=dont_care_reading,
+                                                   worse_when="below"))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _no_rules_series_was_measured()
+        )
+
+
+@pytest.mark.unit
 def test_the_loss_is_the_shortfall_against_what_the_calm_period_predicted() -> None:
     # The whole estimate: the calm rate scaled to the length of the incident,
     # less what actually came in while it was broken.
@@ -248,7 +435,9 @@ def _estimates(expected: Decimal) -> Assertion[Decimal]:
     return assertion
 
 
-def _a_bucket(at: datetime, error_rate: float) -> MetricBucket:
+def _a_bucket(at: datetime,
+              error_rate: float = DONT_CARE_ERROR_RATE,
+              rule_reading: RuleReading | None = None) -> MetricBucket:
     return MetricBucket(
         bucket_id=at.strftime("%Y-%m-%dT%H:%M"),
         error_rate=error_rate,
@@ -259,7 +448,8 @@ def _a_bucket(at: datetime, error_rate: float) -> MetricBucket:
         memory_used_bytes=440 * 1024**2,
         process_start_time_seconds=1_756_000_000.0,
         cpu_used_cores=0.77,
-        cpu_limit_cores=3.0
+        cpu_limit_cores=3.0,
+        rule_reading=rule_reading
     )
 
 
@@ -294,6 +484,37 @@ def _the_levels_are(baseline: float,
 
         if not all(isclose(one, other) for one, other in zip(got, expected, strict=True)):
             raise AssertionError(f"Expected levels {expected}, got {got}")
+
+        return True
+
+    return assertion
+
+
+def _the_rules_levels_are(expected: RuleSeriesLevels) -> Assertion[RuleSeriesLevels | None]:
+    def assertion(measured: RuleSeriesLevels | None) -> bool:
+        if measured is None:
+            raise AssertionError(
+                f"Expected the rule's series measured at {expected}, nothing was measured.")
+
+        got = (measured.baseline, measured.while_broken, measured.at_its_worst)
+        wanted = (expected.baseline, expected.while_broken, expected.at_its_worst)
+
+        if (
+            not all(isclose(one, other) for one, other in zip(got, wanted, strict=True))
+            or measured.worse_when != expected.worse_when
+        ):
+            raise AssertionError(f"Expected the rule's series at {expected}, got {measured}.")
+
+        return True
+
+    return assertion
+
+
+def _no_rules_series_was_measured() -> Assertion[RuleSeriesLevels | None]:
+    def assertion(measured: RuleSeriesLevels | None) -> bool:
+        if measured is not None:
+            raise AssertionError(
+                f"Expected the rule's series left unmeasured, got [{measured}].")
 
         return True
 

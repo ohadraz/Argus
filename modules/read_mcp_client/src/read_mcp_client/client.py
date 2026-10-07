@@ -74,20 +74,24 @@ def get_log_lines(alert_time: str | None = None,
 def get_metrics_summary(alert_time: str | None = None,
                         window_start: str | None = None,
                         window_end: str | None = None,
+                        rule: str | None = None,
                         *,
                         client: McpClient) -> list[MetricBucket]:
     """Reads per-minute aggregated metrics for one window of an incident.
 
     Phase one of spec §16's two-phase retrieval: the buckets it returns show
     which minutes are anomalous, and the earliest anomalous one gives the
-    onset a follow-up `get_log_lines` window is anchored on.
+    onset a follow-up `get_log_lines` window is anchored on. `rule` is the uid
+    of the alert rule that paged; where its series can be followed, each bucket
+    carries that series' reading as `rule_reading`.
     """
     return client.call(
         "get_metrics_summary",
         _METRIC_BUCKETS.validate_python,
         alert_time=alert_time,
         window_start=window_start,
-        window_end=window_end)
+        window_end=window_end,
+        rule=rule)
 
 
 def get_change_events(service: str,

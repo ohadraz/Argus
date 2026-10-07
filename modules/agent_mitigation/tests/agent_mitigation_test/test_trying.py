@@ -3194,7 +3194,7 @@ def _it_carries_back(expected: UndoDescriptor) -> Assertion[Outcome]:
 
 def _a_read_that_fails_once_then_answers(
     window: list[MetricBucket]
-) -> Callable[[], list[MetricBucket]]:
+) -> MetricsFetcher:
     """A metrics read that raises the first time and answers after.
 
     The real failure this stands for is a read tier whose tool executed and
@@ -3205,7 +3205,7 @@ def _a_read_that_fails_once_then_answers(
     """
     answered = False
 
-    def read() -> list[MetricBucket]:
+    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
         nonlocal answered
 
         if answered:
@@ -3257,7 +3257,7 @@ def _the_unanswered_read_was_said(published: list[IncidentEvent],
     return assertion
 
 
-def _a_read_that_never_answers() -> Callable[[], list[MetricBucket]]:
+def _a_read_that_never_answers() -> MetricsFetcher:
     """A metrics read that fails every time it is asked.
 
     The shape of the failure, and what makes it a different case from the one
@@ -3265,7 +3265,7 @@ def _a_read_that_never_answers() -> Callable[[], list[MetricBucket]]:
     recover between passes, so a window bought to measure recovery can run out
     with not one reading in it.
     """
-    def read() -> list[MetricBucket]:
+    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
         raise McpToolError("MCP tool call [get_metrics_summary] failed: timed out")
 
     return read
@@ -3558,6 +3558,44 @@ def test_metrics_that_cannot_be_read_do_not_keep_the_rule_from_judging() -> None
 
 
 @pytest.mark.unit
+def test_the_service_is_re_read_for_the_rule_that_paged() -> None:
+    # On the rule's path the window dates the recovery, and the minute it should
+    # date is the one the rule's own series came back in. Read without the rule,
+    # the window carries the five fixed series alone, and on an incident only
+    # that series departed in the minute recorded is one nothing was wrong in.
+    fetch_metrics: MagicMock = create_autospec(
+        MetricsFetcher, instance=True, return_value=a_still_failing_window()
+    )
+
+    Scenario() \
+        .given(
+            the_rule_resolved := _a_rule_reading(_a_rule_standing(
+                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+            ))
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=fetch_metrics,
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                rule=SOME_RULE,
+                read_rule=the_rule_resolved
+            )
+        ) \
+        .then(
+            _the_service_was_read_for(fetch_metrics, SOME_RULE)
+        )
+
+
+@pytest.mark.unit
 def test_a_rule_still_firing_is_read_again_until_it_stops() -> None:
     # Polled, not read once: a rule firing inside its deadline is asked again,
     # and the evaluation that reads it normal confirms.
@@ -3775,6 +3813,21 @@ def test_the_rules_deadline_is_read_off_its_first_reading() -> None:
             the_verdict_is(Verdict.REFUTED),
             _each_look_reported(published, False, False)
         ))
+
+
+def _the_service_was_read_for(fetch_metrics: MagicMock, rule: str) -> Assertion[Outcome]:
+    """That every read of the service was made for this rule."""
+    def assertion(dont_care_outcome: Outcome) -> bool:
+        asked = [read.args for read in fetch_metrics.call_args_list]
+        if not asked or any(args != (rule,) for args in asked):
+            raise AssertionError(
+                f"Expected every read of the service to be made for the rule "
+                f"[{rule}], and they were made as {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _an_action_judged_by_the_rule(read_rule: RuleReader,

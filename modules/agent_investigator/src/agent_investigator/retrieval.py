@@ -31,7 +31,14 @@ from write_mcp_client import get_recent_flag_changes
 
 
 class MetricsFetcher(Protocol):
-    def __call__(self, alert_time: str | None, /) -> list[MetricBucket]: ...
+    """The metrics, anchored on the alert and read for the rule that paged.
+
+    The rule rather than the series it watches: what that series is called in
+    the metrics backend's own language is the read tier's to work out, and
+    nothing on this side of the port speaks it.
+    """
+
+    def __call__(self, alert_time: str | None, rule: str | None, /) -> list[MetricBucket]: ...
 
 
 class LogFetcher(Protocol):
@@ -222,17 +229,23 @@ def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
 
 
 def fetch_metrics(alert_time: str | None,
+                  rule: str | None,
                   *,
                   client: McpClient) -> list[MetricBucket]:
     """Phase one of spec §16's two-phase retrieval: the per-minute buckets the
     onset is located in.
 
     A named function rather than `get_metrics_summary` passed directly,
-    because the loop needs exactly one of that tool's four calling shapes -
+    because the loop needs exactly one of that tool's calling shapes -
     anchored on the alert - and a seam is only useful if a test can spec
     against the shape the caller actually uses.
+
+    `rule` is the uid of the rule that paged, so each minute carries that
+    rule's own series beside the five fixed ones. It is the only signal a
+    fault in what the service answers departs in, and a window read without it
+    is five flat lines under an alarm.
     """
-    return get_metrics_summary(alert_time=alert_time, client=client)
+    return get_metrics_summary(alert_time=alert_time, rule=rule, client=client)
 
 
 def fetch_logs(window_start: str,

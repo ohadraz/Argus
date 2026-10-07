@@ -19,7 +19,7 @@ from typing import Any, Final
 from argus_core.models import Ask, ToolDefinition, ToolResult, ToolResults, Transcript, Turn
 from pydantic import BaseModel, field_validator
 
-from agent_postmortem.estimate import ErrorRates
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
 
@@ -166,6 +166,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         f"the response, not of the fault - do not report it as how long the "
         f"service was broken.",
         *_what_the_error_rate_did(measured.error_rates),
+        *_what_the_rules_series_did(measured.rule_series),
         "",
         "What Argus did, in order:",
         *(f"  - {line}" for line in evidence.timeline),
@@ -306,4 +307,28 @@ def _what_the_error_rate_did(rates: ErrorRates | None) -> list[str]:
         f"peaking at {rates.at_its_worst:.1%}.",
         f"Rise above baseline: {rates.rise:.1%} of traffic failed that "
         f"otherwise would not have."
+    ]
+
+
+def _what_the_rules_series_did(levels: RuleSeriesLevels | None) -> list[str]:
+    """The series the paging rule evaluates, at the error rate's levels.
+
+    Nothing at all where the metrics carry no such series - not a line saying it
+    sat at nothing, which would describe a service whose answers had gone
+    entirely. Its direction is said with it, because its worst is its lowest or
+    its highest according to the rule, and the number alone does not say which.
+
+    Plain numbers rather than percentages: the series is in whatever unit its
+    rule watches, and only the rule knows what that is.
+    """
+    if levels is None:
+        return []
+
+    worse = "worse falling" if levels.worse_when == "below" else "worse rising"
+
+    return [
+        f"The series the paging rule evaluates, which it calls {worse}: "
+        f"{levels.baseline:g} before it began, "
+        f"{levels.while_broken:g} on average while it was broken, and "
+        f"{levels.at_its_worst:g} at its worst."
     ]

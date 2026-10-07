@@ -20,7 +20,7 @@ from __future__ import annotations
 import random
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 from unittest.mock import create_autospec
 
 import pytest
@@ -36,9 +36,10 @@ from argus_testkit import (
     raising,
     returning,
 )
-from metrics_source.minutes import MetricsSource, MetricsUnavailable
+from metrics_source.minutes import MetricsSource, MetricsUnavailable, RuleSeries
 from read_mcp_server.change_source import ChangeSource, ChangeSourceUnavailable
 from read_mcp_server.retrieval import (
+    SeriesTheRuleWatches,
     get_change_events,
     get_log_lines,
     get_metrics_summary,
@@ -210,7 +211,8 @@ def test_get_metrics_summary_returns_what_the_source_reports() -> None:
             lambda: get_metrics_summary(
                 alert_time=an_iso_minute(some_alert_time),
                 settings=CONFIGURED_WINDOWS,
-                source=metrics_source
+                source=metrics_source,
+                series_of=_a_grafana_following_nothing()
             )
         ) \
         .then(
@@ -235,7 +237,8 @@ def test_get_metrics_summary_asks_the_source_for_the_window_around_the_alert() -
             lambda: get_metrics_summary(
                 alert_time=an_iso_minute(some_alert_time),
                 settings=CONFIGURED_WINDOWS,
-                source=metrics_source
+                source=metrics_source,
+                series_of=_a_grafana_following_nothing()
             )
         ) \
         .then(
@@ -264,6 +267,7 @@ def test_get_metrics_summary_without_a_window_asks_for_the_span_up_to_now() -> N
             lambda: get_metrics_summary(
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
+                series_of=_a_grafana_following_nothing(),
                 now=lambda: some_now
             )
         ) \
@@ -292,12 +296,113 @@ def test_an_unreadable_metrics_source_surfaces_as_a_failure() -> None:
                 lambda: get_metrics_summary(
                     alert_time=an_iso_minute(_an_alert_time()),
                     settings=CONFIGURED_WINDOWS,
-                    source=metrics_source
+                    source=metrics_source,
+                    series_of=_a_grafana_following_nothing()
                 )
             )
         ) \
         .then(
             an_error_was_raised(MetricsUnavailable)
+        )
+
+
+@pytest.mark.unit
+def test_get_metrics_summary_for_a_rule_asks_the_source_for_the_rules_series() -> None:
+    # The alert named the rule that paged, and the window is read with that
+    # rule's own series beside the five - so a rule paging on something none of
+    # them can show is judged on what it fired on.
+    some_rule = "some-rule"
+    some_series = RuleSeries(query="avg(some_confident_ratio)", worse_when="below")
+    metrics_source = _a_mock_metrics_source()
+
+    Scenario() \
+        .given(
+            calling(returning(metrics_source, []))
+        ) \
+        .when(
+            lambda: get_metrics_summary(
+                alert_time=an_iso_minute(_an_alert_time()),
+                rule=some_rule,
+                settings=CONFIGURED_WINDOWS,
+                source=metrics_source,
+                series_of=_a_grafana_following(some_rule, to=some_series)
+            )
+        ) \
+        .then(
+            _the_metrics_source_was_asked_for_the_rules_series(metrics_source, some_series)
+        )
+
+
+@pytest.mark.unit
+def test_get_metrics_summary_without_a_window_still_asks_for_the_rules_series() -> None:
+    # The unanchored read is Mitigation's, watching whether a recovery holds -
+    # and on an incident only the rule's series showed, that series coming back
+    # is the recovery. Read without it, five series that never moved would say
+    # the service recovered the moment anything was done.
+    some_rule = "some-rule"
+    some_series = RuleSeries(query="avg(some_confident_ratio)", worse_when="below")
+    metrics_source = _a_mock_metrics_source()
+
+    Scenario() \
+        .given(
+            calling(returning(metrics_source, []))
+        ) \
+        .when(
+            lambda: get_metrics_summary(
+                rule=some_rule,
+                settings=CONFIGURED_WINDOWS,
+                source=metrics_source,
+                series_of=_a_grafana_following(some_rule, to=some_series)
+            )
+        ) \
+        .then(
+            _the_metrics_source_was_asked_for_the_rules_series(metrics_source, some_series)
+        )
+
+
+@pytest.mark.unit
+def test_get_metrics_summary_for_no_rule_asks_for_no_rules_series() -> None:
+    metrics_source = _a_mock_metrics_source()
+
+    Scenario() \
+        .given(
+            calling(returning(metrics_source, []))
+        ) \
+        .when(
+            lambda: get_metrics_summary(
+                alert_time=an_iso_minute(_an_alert_time()),
+                settings=CONFIGURED_WINDOWS,
+                source=metrics_source,
+                series_of=_a_grafana_following_nothing()
+            )
+        ) \
+        .then(
+            _the_metrics_source_was_asked_for_the_rules_series(metrics_source, None)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_whose_series_cannot_be_followed_reads_the_window_without_it() -> None:
+    # The window is still served; it simply has no sixth series in it - which
+    # is what lets nothing downstream disprove an alarm it could not read.
+    some_rule = "some-rule"
+    metrics_source = _a_mock_metrics_source()
+
+    Scenario() \
+        .given(
+            calling(returning(metrics_source, []))
+        ) \
+        .when(
+            lambda: get_metrics_summary(
+                alert_time=an_iso_minute(_an_alert_time()),
+                rule=some_rule,
+                settings=CONFIGURED_WINDOWS,
+                source=metrics_source,
+                series_of=_a_grafana_following(some_rule, to=None)
+            )
+        ) \
+        .then(
+            _the_metrics_source_was_asked_for_the_rules_series(metrics_source, None)
         )
 
 
@@ -579,6 +684,47 @@ def _the_metrics_source_was_asked_for(metrics_source: Any,
                 f"Expected the metrics source to be asked for "
                 f"[{to_iso(started_at)}..{to_iso(ended_at)}], but it was asked for "
                 f"[{'..'.join(to_iso(moment) for moment in asked)}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_grafana_following(rule: str, to: RuleSeries | None) -> SeriesTheRuleWatches:
+    """A rule follower that knows one rule, and follows it to `to`."""
+    def follow(asked: str) -> RuleSeries | None:
+        if asked != rule:
+            raise AssertionError(f"Expected the rule [{rule}] to be followed, not [{asked}].")
+
+        return to
+
+    follower = create_autospec(SeriesTheRuleWatches, instance=True)
+    follower.side_effect = follow
+
+    return cast(SeriesTheRuleWatches, follower)
+
+
+def _a_grafana_following_nothing() -> SeriesTheRuleWatches:
+    """A rule follower that fails the test if it is asked anything."""
+    def follow(asked: str) -> RuleSeries | None:
+        raise AssertionError(f"No rule was named, and [{asked}] was followed anyway.")
+
+    follower = create_autospec(SeriesTheRuleWatches, instance=True)
+    follower.side_effect = follow
+
+    return cast(SeriesTheRuleWatches, follower)
+
+
+def _the_metrics_source_was_asked_for_the_rules_series(
+        metrics_source: Any, expected: RuleSeries | None) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        asked = metrics_source.call_args.kwargs.get("rule_series")
+
+        if asked != expected:
+            raise AssertionError(
+                f"Expected the metrics source to be asked for the rule's series "
+                f"[{expected}], but it was asked for [{asked}]."
             )
 
         return True

@@ -14,9 +14,9 @@ from typing import Any, Final
 
 import httpx2
 from argus_core import to_iso
-from argus_core.models import MetricBucket
+from argus_core.models import RULE_READING_FIELD, MetricBucket, RuleReading
 
-from metrics_source.minutes import MetricsSettings, MetricsUnavailable
+from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
 
 # How a request is sent. Injected rather than called outright so that a test
 # can see the question asked and write the answer, without a network and
@@ -88,7 +88,8 @@ _EVERY_BUCKET_NEEDS: Final = frozenset(QUERIES) - {
 def buckets_between(started_at: datetime,
                     ended_at: datetime,
                     settings: MetricsSettings,
-                    get: Get = httpx2.get) -> list[MetricBucket]:
+                    get: Get = httpx2.get,
+                    rule_series: RuleSeries | None = None) -> list[MetricBucket]:
     """The service's minute buckets between two instants, as Prometheus
     reports them.
 
@@ -97,29 +98,39 @@ def buckets_between(started_at: datetime,
     minute earlier. The window is asked for by the ends of its minutes, up to
     the end of the minute it ends in, finished or not - asking is what lets a
     source that can report that minute do so.
+
+    `rule_series` is one more query, the paging rule's own, asked the same way
+    and set on each minute it answers for. Where Prometheus refuses it, or it
+    answers nothing, the window is served without it: the rule's query is
+    whatever somebody wrote into the rule, and a query Argus could not read
+    costs the window its sixth series rather than the five every other
+    judgement rests on.
     """
+    url = f"{settings.prometheus_base_url}{_THE_RANGE_QUERY_PATH}"
+    window = {
+        _START: str((_the_first_minute_in(started_at) + _A_MINUTE).timestamp()),
+        _END: str((_the_minute_of(ended_at) + _A_MINUTE).timestamp()),
+        _STEP: _A_MINUTE_STEP
+    }
     readings: dict[datetime, dict[str, float]] = defaultdict(dict)
 
     for field, query in QUERIES.items():
-        answer = _asked(
-            get,
-            f"{settings.prometheus_base_url}{_THE_RANGE_QUERY_PATH}",
-            {
-                _QUERY: query,
-                _START: str((_the_first_minute_in(started_at) + _A_MINUTE).timestamp()),
-                _END: str((_the_minute_of(ended_at) + _A_MINUTE).timestamp()),
-                _STEP: _A_MINUTE_STEP
-            }
-        )
+        for minute, value in _samples_in(_asked(get, url, {_QUERY: query, **window})):
+            readings[minute][field] = value
 
-        for series in answer[_DATA][_RESULT]:
-            for at, value in series[_VALUES]:
-                minute = datetime.fromtimestamp(float(at), UTC) - _A_MINUTE
-                readings[minute][field] = float(value)
+    rule_readings = (
+        _the_rules_readings(get, url, window, rule_series)
+        if rule_series is not None
+        else {}
+    )
 
     return [
         MetricBucket.model_validate(
-            {"bucket_id": to_iso(minute), **_as_fields(readings[minute])}
+            {
+                "bucket_id": to_iso(minute),
+                **_as_fields(readings[minute]),
+                RULE_READING_FIELD: rule_readings.get(minute)
+            }
         )
         for minute in sorted(readings)
         # A minute missing a reading every bucket needs is not reported at all,
@@ -127,6 +138,42 @@ def buckets_between(started_at: datetime,
         # serving nothing, which is a different incident from one nobody heard
         # about.
         if readings[minute].keys() >= _EVERY_BUCKET_NEEDS
+    ]
+
+
+def _the_rules_readings(get: Get,
+                        url: str,
+                        window: Mapping[str, str],
+                        rule_series: RuleSeries) -> dict[datetime, RuleReading]:
+    """The rule's series by minute, or nothing where Prometheus would not
+    answer it.
+
+    Nothing too where it answers with more than one series. An unaggregated
+    query is answered once for every instance it matches, and which of them
+    paged is the rule's own reduction to decide - read as one, the series
+    would be whichever the answer happened to list last.
+    """
+    try:
+        answer = _asked(get, url, {_QUERY: rule_series.query, **window})
+    except MetricsUnavailable:
+        return {}
+
+    if len(answer[_DATA][_RESULT]) > 1:
+        return {}
+
+    return {
+        minute: RuleReading(value=value, worse_when=rule_series.worse_when)
+        for minute, value in _samples_in(answer)
+    }
+
+
+def _samples_in(answer: Any) -> list[tuple[datetime, float]]:
+    """Every sample in one answer, each against the minute it describes - the
+    minute that ended at the sample's own time."""
+    return [
+        (datetime.fromtimestamp(float(at), UTC) - _A_MINUTE, float(value))
+        for series in answer[_DATA][_RESULT]
+        for at, value in series[_VALUES]
     ]
 
 

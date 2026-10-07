@@ -595,7 +595,13 @@ DEFAULT_STRATEGIES: Strategies = {
     # handed an incident and work out what to act on; this one is handed the
     # addresses or proposes nothing, because a cache key is not Argus's to
     # compose.
-    FailureMode.STATE_DIVERGENCE: DiscardCacheEntriesStrategy()
+    FailureMode.STATE_DIVERGENCE: DiscardCacheEntriesStrategy(),
+    # The fifth mode returning a deployment, and the one whose requests never
+    # failed: the revision made the answers worse while every request still
+    # succeeded as fast as before. Returning it puts the answers back, and what
+    # confirms that is the rule that paged - whose series is the only one that
+    # moved.
+    FailureMode.OUTPUT_QUALITY_DEGRADATION: RollBackDeploymentStrategy()
 }
 
 

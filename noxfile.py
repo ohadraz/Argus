@@ -2115,6 +2115,11 @@ _THE_STALE_CACHE_CASE: Final = "tests/e2e/test_a_stale_cache_is_discarded.py"
 # minute it paged - does not vary by which tool found a file.
 _THE_UNDATED_FINDING_CASE: Final = "tests/e2e/test_an_undated_finding_is_investigated.py"
 
+# The categoriser upgrade, a decision for the same reason: that a walk dates and
+# judges an incident on the rule's own series does not vary by which tool found a
+# file.
+_THE_CATEGORISER_CASE: Final = "tests/e2e/test_a_categoriser_upgrade_is_rolled_back.py"
+
 
 def _the_cases_for(mode: str) -> list[str]:
     """The suite, less what this mode has no index for and less what it has no
@@ -2126,30 +2131,31 @@ def _the_cases_for(mode: str) -> list[str]:
     store, no watermark and no push to move one - those cases are not pending
     against this stack, they are about a mechanism it does not have.
 
-    The large-fix, scale-out, pin, unreachable-platform and undated-finding cases
-    are left out of the other two modes for a different reason, and it is a decision
-    rather than an absence. One claims that an answer the size of a whole large file
-    survives the round trip - streamed, reassembled, parsed and written; another
-    that a mode reaches the fourth mitigation and the platform answers for the
-    capacity; the third that a controller re-derives a count Argus set, and that the
-    fifth mitigation is what holds; the fourth that a walk narrows itself to the one
-    platform still answering; the fifth that a finding nobody can date is walked
-    from the minute it paged. Nothing in any of those varies by which tool the model
-    found a file with, and the walks that do differ per mode are covered by their
-    siblings - so recording them three times would buy three recordings of one
-    assertion, at a real investigation each, on every re-record for ever. The pin's
-    is the dearest: its near-miss is a whole mitigation attempt, answered by the
-    model and then refuted, so one capture bills for two. The unreachable platform's
-    is not, though it looks it - a platform that refuses an action ends that attempt
-    without the model being asked anything, so its walk is one investigation like
-    any other.
+    The large-fix, scale-out, pin, unreachable-platform, undated-finding and
+    categoriser cases are left out of the other two modes for a different reason,
+    and it is a decision rather than an absence. One claims that an answer the size
+    of a whole large file survives the round trip - streamed, reassembled, parsed
+    and written; another that a mode reaches the fourth mitigation and the
+    platform answers for the capacity; the third that a controller re-derives a
+    count Argus set, and that the fifth mitigation is what holds; the fourth that a
+    walk narrows itself to the one platform still answering; the fifth that a
+    finding nobody can date is walked from the minute it paged; the sixth that a
+    walk dates and judges an incident on the rule's own series. Nothing in any of
+    those varies by which tool the model found a file with, and the walks that do
+    differ per mode are covered by their siblings - so recording them three times
+    would buy three recordings of one assertion, at a real investigation each, on
+    every re-record for ever. The pin's is the dearest: its near-miss is a whole
+    mitigation attempt, answered by the model and then refuted, so one capture
+    bills for two. The unreachable platform's is not, though it looks it - a
+    platform that refuses an action ends that attempt without the model being asked
+    anything, so its walk is one investigation like any other.
 
     The stale-cache case is the third shape, and it is neither of those two. It is
     not about a mechanism this stack lacks, and nothing was decided about what its
     claim is worth: it is simply recorded under two modes and not the third, so
     under `meaning` there is no queue for the double to answer from. That makes it
     the one exclusion here with an expiry - it goes when the recording arrives,
-    where the five above stay for as long as their reasoning holds.
+    where the six above stay for as long as their reasoning holds.
     """
     left_out = []
 
@@ -2162,6 +2168,7 @@ def _the_cases_for(mode: str) -> list[str]:
         left_out.append(f"--ignore={_THE_PIN_CASE}")
         left_out.append(f"--ignore={_THE_UNREACHABLE_PLATFORM_CASE}")
         left_out.append(f"--ignore={_THE_UNDATED_FINDING_CASE}")
+        left_out.append(f"--ignore={_THE_CATEGORISER_CASE}")
 
     if mode == _SEARCHING_BY_GREP_ALONE:
         left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")

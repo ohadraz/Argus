@@ -9,7 +9,7 @@ subject.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import Mock, create_autospec
+from unittest.mock import Mock, call, create_autospec
 
 import pytest
 from agent_investigator import Findings, Reading, investigate
@@ -53,6 +53,8 @@ from argus_core.models import (
     MetricBucket,
     ModelPolicy,
     RetrievalChannel,
+    RuleReading,
+    WorseWhen,
 )
 from argus_core.replay import CallType, ReplayEntry
 from argus_testkit import Assertion, Kept, Scenario, all_of, calling, raising
@@ -72,6 +74,7 @@ from agent_investigator_test.framework.builders.incident import (
     CALM_CPU_CAPACITY_CORES,
     CALM_CPU_CORES,
     CALM_ERROR_RATE,
+    CALM_MINUTES,
     DONT_CARE_STARTED_AT,
     a_steady_window,
     a_window_of,
@@ -128,6 +131,15 @@ THE_LAST_TURN_WARNING = "last turn"
 # "it said no", so the distinction has to survive as far as the summary.
 THE_ANSWER_WAS_CUT_SHORT = "cut short"
 THE_MODEL_DECLINED = "declined"
+
+# The column the paging rule's own series is carried under, and the name a
+# disproof reports it by. Restated for the reason the bounds are: it is what the
+# model reads, and what a human reads when an alarm is closed.
+THE_RULES_SERIES = "rule_reading"
+
+# The share of answers given confidently while nothing is wrong - the series a
+# quality rule watches, and one that is worse falling.
+SOME_CALM_SHARE = 0.9
 
 
 @pytest.mark.unit
@@ -1222,6 +1234,240 @@ def test_an_undated_finding_is_anchored_on_the_minute_the_alarm_fired_in() -> No
 
 
 @pytest.mark.unit
+def test_the_metrics_the_loop_reads_are_read_for_the_rule_that_paged() -> None:
+    # The onset is measured from this read, so this is the read that has to
+    # carry the series the rule watches. A quality incident departs in that
+    # series alone, and a window read without it is five flat lines under an
+    # alarm.
+    some_rule = "kuki-rule"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(rule=some_rule))
+        ) \
+        .then(
+            _the_metrics_were_first_read_for(
+                investigation.metrics_fetcher, to_iso(AN_ALERT_TIME), some_rule
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_flat_window_missing_the_rules_series_disproves_nothing() -> None:
+    # The window was never shown what the rule watched, so its flatness says
+    # nothing about the alarm. A rule on a quality series is exactly the rule
+    # the five fixed signals cannot see, and closing it on them would close
+    # every such incident as a well service.
+    #
+    # So it goes on as an alarm a flat window cannot contradict goes on, and the
+    # model is asked.
+    some_rule = "kuki-rule"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None, rule=some_rule)
+            )
+        ) \
+        .then(
+            all_of(
+                _nothing_was_disproven(),
+                _the_model_was_asked(investigation.model, times=1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_rules_series_could_not_be_read() -> None:
+    # Where the case above goes on to, and the paragraph it would otherwise hear
+    # is false. An alarm nothing dates was a check's own finding, which knows
+    # something no series does - but this rule watches a series, and the series
+    # is not in the window at all.
+    #
+    # So the model is told whose series is missing rather than that the rule saw
+    # past the metrics. The fault is in a series it cannot see, not in one no
+    # series could ever carry.
+    some_rule = "kuki-rule"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None, rule=some_rule)
+            )
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model, some_rule, "could not be read"
+                ),
+                _what_was_asked_first_avoids(
+                    investigation.model, "knows something no series does"
+                )
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_undated_finding_is_not_told_its_rule_watches_a_series() -> None:
+    # The case above's counterpart. Every alert Grafana sends names the rule that
+    # sent it, a check's own finding included - and that rule evaluates no
+    # series, so there is none missing. Its finding is what no series carries.
+    some_rule = "kuki-rule"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(
+                    stated_onset=None, claim=AlarmClaim.ITS_OWN_FINDING, rule=some_rule
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model, "knows something no series does"
+                ),
+                _what_was_asked_first_avoids(investigation.model, "could not be read")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_disproof_names_the_rules_series_among_the_signals_it_judged() -> None:
+    # The rule's series was read and stayed where it always is, so the alarm is
+    # contradicted on the series it fired on as well as on the five. A disproof
+    # leaving it out would claim less than was checked, and one naming it where
+    # it was never read would claim more - and either reads exactly like a sound
+    # one.
+    some_rule = "kuki-rule"
+    some_steady_share = RuleReading(value=SOME_CALM_SHARE, worse_when="below")
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window(rule_reading=some_steady_share)))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None, rule=some_rule)
+            )
+        ) \
+        .then(
+            _the_alarm_was_disproven_over((*THE_JUDGED_SIGNALS, THE_RULES_SERIES))
+        )
+
+
+@pytest.mark.unit
+def test_the_rules_reading_is_carried_as_its_value() -> None:
+    # The cell is the number the rule compares with its line. A reading written
+    # as the object holding it puts a direction in every row of the window -
+    # the repetition the rows exist to avoid - and hands the model a cell to
+    # parse before it can compare anything.
+    some_departed_share = 0.4
+    some_metrics = a_window_of(
+        [CALM_ERROR_RATE] * CALM_MINUTES + [0.09, 0.18],
+        rule_readings=[
+            *[RuleReading(value=SOME_CALM_SHARE, worse_when="below")] * (CALM_MINUTES + 1),
+            RuleReading(value=some_departed_share, worse_when="below")
+        ]
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(rule="dont-care-rule"))
+        ) \
+        .then(
+            all_of(
+                _a_row_of_what_was_asked_first_ends_with(
+                    investigation.model, f"{some_departed_share}"
+                ),
+                _what_was_asked_first_avoids(investigation.model, "worse_when")
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("worse_when", "the_other_way"), [("below", "above"), ("above", "below")])
+def test_the_model_is_told_which_rule_the_column_is_and_which_way_is_worse(
+        worse_when: WorseWhen,
+        the_other_way: str) -> None:
+    # A column the model cannot place is a number with no meaning. It is told
+    # once which rule paged on it and which way that rule calls worse - the one
+    # thing the values cannot say for themselves, since a share of confident
+    # answers is worse falling and an error rate is worse rising.
+    some_rule = "kuki-rule"
+    some_metrics = a_window_of(
+        [CALM_ERROR_RATE] * CALM_MINUTES + [0.09, 0.18],
+        rule_readings=[RuleReading(value=SOME_CALM_SHARE, worse_when=worse_when)]
+        * (CALM_MINUTES + 2)
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(rule=some_rule))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model, some_rule, f"worse when {worse_when}"
+                ),
+                _what_was_asked_first_avoids(
+                    investigation.model, f"worse when {the_other_way}"
+                )
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_rules_column_is_explained_before_the_rows_rather_than_after_them() -> None:
+    # The rows are what a model scans for where a series turned, and a sentence
+    # after the last of them reads as another row - one with no minute and no
+    # numbers, in the one table the opening asks to be read row by row.
+    some_rule = "kuki-rule"
+    some_metrics = a_window_of(
+        [CALM_ERROR_RATE] * CALM_MINUTES + [0.09, 0.18],
+        rule_readings=[RuleReading(value=SOME_CALM_SHARE, worse_when="below")]
+        * (CALM_MINUTES + 2)
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(rule=some_rule))
+        ) \
+        .then(
+            _what_was_asked_first_names_the_rule_before_the_rows(investigation.model, some_rule)
+        )
+
+
+@pytest.mark.unit
 def test_a_later_round_is_shown_what_was_tried_and_what_was_read() -> None:
     # The more valuable half of what a second round is bought with. The window
     # may reach further back, but a refutation is evidence the model has never
@@ -1476,6 +1722,29 @@ def test_a_discard_already_tried_is_described_as_copies_thrown_away() -> None:
                 investigation.model, f"set {some_service_whose_copies_went}"
             )
         ))
+
+
+def _the_metrics_were_first_read_for(reader: Mock,
+                                     alert_time: str,
+                                     rule: str) -> Assertion[Findings]:
+    """The loop's own read, before the model's first turn, and what it asked for.
+
+    Compared against `call_args_list` rather than through
+    `assert_called_once_with`, which does not survive a spec built from a
+    `Protocol`: `self` is left on the signature, so every comparison fails while
+    printing identically.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        first = reader.call_args_list[0] if reader.call_args_list else None
+        if first != call(alert_time, rule):
+            raise AssertionError(
+                f"Expected the metrics to be read first anchored on [{alert_time}] "
+                f"for the rule [{rule}], and the first read was {first}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_readings_cover_the_incident(expected: bool) -> Assertion[Findings]:
@@ -1742,6 +2011,25 @@ def _the_model_was_asked(model: Mock, times: int) -> Assertion[Findings]:
     return assertion
 
 
+def _a_row_of_what_was_asked_first_ends_with(model: Mock, cell: str) -> Assertion[Findings]:
+    """Some row of the opening's table ends in this cell - whatever the columns
+    before it are, which are the bucket's to decide."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        opening = _the_transcript_of(model, turn=0)[0]
+        if not isinstance(opening, Ask):
+            raise AssertionError(f"Expected the conversation to open with an ask, got [{opening}].")
+
+        if not any(line.endswith(f",{cell}") for line in opening.text.splitlines()):
+            raise AssertionError(
+                f"Expected a row of the opening message to end with [{cell}], got "
+                f"[{opening.text}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _what_was_asked_first_mentions(model: Mock, *expected: str) -> Assertion[Findings]:
     """The opening message - the one thing Argus writes as prose."""
     def assertion(dont_care_findings: Findings) -> bool:
@@ -1811,6 +2099,31 @@ def _what_was_asked_first_avoids(model: Mock, *forbidden: str) -> Assertion[Find
         if said:
             raise AssertionError(
                 f"Expected the opening message not to say {said}, got [{opening.text}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_asked_first_names_the_rule_before_the_rows(model: Mock,
+                                                          rule: str) -> Assertion[Findings]:
+    """The rule's column is placed before the table, not after its last row.
+
+    A sentence after the last row reads as one more row of it.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        opening = _the_transcript_of(model, turn=0)[0]
+        if not isinstance(opening, Ask):
+            raise AssertionError(f"Expected the conversation to open with an ask, got [{opening}].")
+
+        named_at = opening.text.find(f"({rule})")
+        header_at = opening.text.find(f"{next(iter(MetricBucket.model_fields))},")
+
+        if named_at == -1 or header_at == -1 or named_at > header_at:
+            raise AssertionError(
+                f"Expected the rule [{rule}] named before the rows' header, got "
+                f"[{opening.text}]."
             )
 
         return True
@@ -2026,6 +2339,40 @@ def test_the_onset_it_found_is_published() -> None:
         ) \
         .then(
             _the_onset_published_was(published, the_onset_of(some_metrics))
+        )
+
+
+@pytest.mark.unit
+def test_a_departure_only_the_rules_series_shows_is_measured_and_investigated() -> None:
+    # The incident this whole channel exists for: every request served as fast
+    # and as successfully as before, and the one series that moves is the one
+    # the rule that paged evaluates. It is dated where that series fell, and
+    # investigated rather than closed - five flat lines are not evidence against
+    # an alarm on a sixth that did not stay flat.
+    some_metrics = a_window_of(
+        [CALM_ERROR_RATE] * (CALM_MINUTES + 2),
+        rule_readings=[RuleReading(value=SOME_CALM_SHARE, worse_when="below")] * CALM_MINUTES
+        + [RuleReading(value=0.4, worse_when="below")] * 2
+    )
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None, rule="dont-care-rule"),
+                publisher=published.append
+            )
+        ) \
+        .then(
+            all_of(
+                _the_onset_published_was(published, some_metrics[CALM_MINUTES].bucket_id),
+                _nothing_was_disproven(),
+                _the_model_was_asked(investigation.model, times=1)
+            )
         )
 
 

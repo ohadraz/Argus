@@ -232,12 +232,31 @@ def test_the_metrics_channel_is_asked_over_the_read_tier() -> None:
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write, lambda: metrics_over(read)(SOME_ALERT_TIME))
+            _asking(read, write, lambda: metrics_over(read)(SOME_ALERT_TIME, None))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(METRICS_TOOL),
             _the_write_tier_was_asked_for()
         ))
+
+
+@pytest.mark.integration
+def test_the_metrics_channel_asks_for_the_series_the_rule_watches() -> None:
+    # The rule travels to the read tier as the tool's own argument, because the
+    # read tier is where it is resolved into a query. A channel that dropped it
+    # would come back with the five fixed series and nothing saying it had.
+    some_rule = "kuki-rule"
+
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _the_rules_asked_for(read, lambda: metrics_over(read)(SOME_ALERT_TIME, some_rule))
+        ) \
+        .then(
+            _the_rules_were([some_rule])
+        )
 
 
 @pytest.mark.integration
@@ -310,6 +329,28 @@ def _asking(read: Mock, write: Mock, ask: Callable[[], object]) -> Callable[[], 
         )
 
     return step
+
+
+def _the_rules_asked_for(read: Mock, ask: Callable[[], object]) -> Callable[[], list[object]]:
+    """Runs one channel and reports which rule each call to the tier named."""
+    def step() -> list[object]:
+        ask()
+
+        return [asked.kwargs.get("rule") for asked in read.call.call_args_list]
+
+    return step
+
+
+def _the_rules_were(rules: list[str]) -> Assertion[list[object]]:
+    def assertion(asked: list[object]) -> bool:
+        if asked != rules:
+            raise AssertionError(
+                f"Expected the read tier to be asked for the rules {rules}, got {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_read_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:

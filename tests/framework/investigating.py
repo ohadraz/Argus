@@ -32,7 +32,8 @@ A_STEADY_START_TIME = 1_756_000_000.0
 A_MINUTES_SAMPLE = 200
 
 
-def metrics_that_show_an_onset(dont_care_window_start: str | None) -> list[MetricBucket]:
+def metrics_that_show_an_onset(dont_care_window_start: str | None,
+                               dont_care_rule: str | None) -> list[MetricBucket]:
     """Enough of a departure that the investigation does not stop at retrieval.
 
     An incident with no metrics escalates before a model is ever called, which

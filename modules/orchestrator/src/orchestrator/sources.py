@@ -203,9 +203,13 @@ def _what_a_title_is_worth(*,
 
 def _metrics_between(window_start: datetime,
                      window_end: datetime,
+                     rule: str | None,
                      *,
                      client: McpClient) -> list[MetricBucket]:
-    """The metrics channel, asked for a window spanning the whole incident."""
+    """The metrics channel, asked for a window spanning the whole incident and
+    for the rule that paged, so the document's figures are read off the series
+    the walk's were."""
     return get_metrics_summary(window_start=to_iso(window_start),
                                window_end=to_iso(window_end),
+                               rule=rule,
                                client=client)

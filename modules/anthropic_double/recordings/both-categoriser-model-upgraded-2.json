@@ -1,0 +1,53 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "EsAECqQBCBIYAipAULu3FheIg4A6QZArzNjw4wBm+ZStNhEUWeeVNYqEJ16lwU2ZfBJvZV3UDbirrmSZmXbyJ68zHZix4cL9p2AkezIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKaAREKD2NsYXVkZS1zb25uZXQtNagBpI6Y1gYSDLsdCAJ1U5C3q4JaixoMhOVquytlvUbLTZyCIjBcZS/42RSur/06kyKsAvlRc4U+9coWrR8dPjVpmQfJjKob4DJhDJZ6lfSIG6O9zTkqyALJa5/tQxvpe6AHpDuVLaVsHvtgHtmVcp751Q3mENbJ7Pu21MMozSitSGABQA7PqhhWgHGbZXg0YC/7nH5SDbLo2IRUjs2aa/aU6ZbQxHKyA9v+eypwx/7mtNynDfhboE1dfaYF1sYzGYp6nclzxlghHMKaD87adn34RXVRVZbRkcp31xuuMJcNmi0kgaP5GM6YhdThmyTbAJuDBpQNmkMNXe+FFG/GVBk/KcvBRVWpvk/S6+0GkIMGu9Me/9M0x58zLFmlxrAHedUgIhK3yRd2dMoHBlUV5harD8gV2SzF109/R5uJoR9zSJOLI2yFc7WJ/ETnTxCqaydmV1TPZXlH3P4bqvSSSFXlYvoCL4WWzxXIQihz0EUa7c3D5GVPHI7JGpNiJ5STEP9eIJbQti9tZhe4wq59EKqpX2JEDfrkDiU0WD03Q3MaGAE=",
+      "thinking": "The 08:42:00Z deploy lines up exactly with the onset \u2014 rule_reading drops from ~0.90 to ~0.40-0.48 right at that minute while error_rate, latency, and cpu stay flat, which matches the output-quality-degradation pattern precisely since only rule_reading moved. I should check what was in that deployment.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01VMECzHHjFvsXZxiV9ea3EF",
+      "input": {
+        "revision": "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+      },
+      "name": "get_what_a_deployment_changed",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_012VTc9w12ELiZhT6hkihhSb",
+      "input": {},
+      "name": "get_rollout_state",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CfnaxZxokXj2cNmTyRdyy",
+  "model": "claude-sonnet-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 723
+    },
+    "cache_creation_input_tokens": 723,
+    "cache_read_input_tokens": 30080,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 235,
+    "output_tokens_details": {
+      "thinking_tokens": 123
+    },
+    "service_tier": "standard"
+  }
+}

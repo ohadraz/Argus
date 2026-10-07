@@ -16,6 +16,7 @@ from agent_mitigation.tools import (
     DeploymentRoller,
     DeploymentScaler,
     FlagSetter,
+    MetricsFetcher,
     PerformingWrites,
     ServiceRestarter,
     StillWanted,
@@ -186,8 +187,14 @@ def a_clock_reading_at(start: datetime,
     return clock
 
 
-def metrics_reading(window: list[MetricBucket]) -> Callable[[], list[MetricBucket]]:
-    return lambda: window
+def metrics_reading(window: list[MetricBucket]) -> MetricsFetcher:
+    """A read of the service answering with one window, whichever rule it was
+    read for - the rule decides which series the read tier adds, and the window
+    a test hands in already says which it carries."""
+    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+        return window
+
+    return read
 
 
 def dont_care_restart() -> ServiceRestarter:

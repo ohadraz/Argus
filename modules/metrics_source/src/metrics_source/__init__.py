@@ -5,10 +5,16 @@ behind it. What travels upwards is Argus's own `MetricBucket`; a vendor's
 query language, envelope and errors stop at the adapter that speaks them.
 """
 
-from metrics_source.minutes import MetricsSettings, MetricsSource, MetricsUnavailable
+from metrics_source.minutes import (
+    MetricsSettings,
+    MetricsSource,
+    MetricsUnavailable,
+    RuleSeries,
+)
 
 __all__ = [
     "MetricsSettings",
     "MetricsSource",
     "MetricsUnavailable",
+    "RuleSeries",
 ]

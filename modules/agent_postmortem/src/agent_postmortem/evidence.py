@@ -53,6 +53,11 @@ class IncidentEvidence(BaseModel):
     # then falls back to the series, which is the best available answer and the
     # only one there is.
     recorded_recovery_at: datetime | None = None
+    # The alert rule that paged, as the alert addressed it. `measure` reads the
+    # metrics again over the whole incident, and read for this rule they carry its
+    # own series - the one a fault in what the service answers departs in alone.
+    # `None` for an incident paged by nothing that named a rule.
+    rule: str | None = None
     alert_summary: str
     timeline: list[str]
     candidates: list[str]

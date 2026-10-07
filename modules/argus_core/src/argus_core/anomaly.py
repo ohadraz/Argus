@@ -6,7 +6,7 @@ from math import inf
 from statistics import median
 from typing import NamedTuple
 
-from argus_core.models.metrics import MetricBucket
+from argus_core.models.metrics import RULE_READING_FIELD, MetricBucket, RuleReading
 
 # Five of a bucket's series are judged here - the error rate, the median, the
 # 95th, the 99th and the memory in use - and the rest are retrieved without being
@@ -22,6 +22,14 @@ from argus_core.models.metrics import MetricBucket
 # `cache_hit_ratio` are read by whoever is diagnosing and are no part of the
 # judgement that there is an incident at all - see `_departure_threshold`, which
 # refuses to derive a floor from the reported volume for a related reason.
+#
+# A sixth series is judged where a window carries it: the one the paging rule
+# evaluates, read in the rule's own direction. It is there because a rule can
+# page on something none of the five can show - a model's confident share, a
+# refusal rate - and a window judged on the five alone would call that alarm
+# false. A series worse below its line is judged negated, so that "above the
+# bar departs" holds for it as it does for the other five, and a minute it does
+# not cover is no reading rather than a low one.
 
 # The smallest wobble a baseline is credited with, as a fraction of the
 # baseline itself. A window of identical minutes has zero measured spread, so
@@ -831,13 +839,13 @@ def _minutes_still_at_the_incidents_level(
 
     each_series = [
         _minutes_above(values, _subsided_threshold(values, thresholds, the_action))
-        for values in _the_five_series(buckets)
+        for values in _the_judged_series(buckets)
     ]
 
     return [any(minute) for minute in zip(*each_series, strict=True)]
 
 
-def _subsided_threshold(values: Sequence[float],
+def _subsided_threshold(values: Sequence[float | None],
                         thresholds: AnomalyThresholds,
                         the_action: int | None = None) -> float:
     """What a minute has to have fallen below to count as no longer the
@@ -923,7 +931,7 @@ def _subsided_threshold(values: Sequence[float],
     stating: recovery becomes harder to claim on a spiky incident and identical
     on a flat one.
     """
-    departed = _departure_threshold(values, thresholds, _THE_QUIETEST_MINUTES)
+    departed = _departure_threshold(_read(values), thresholds, _THE_QUIETEST_MINUTES)
     above = _minutes_above(values, departed)
 
     if not _departs_for_long_enough_to_be_the_incident(above, thresholds):
@@ -935,7 +943,7 @@ def _subsided_threshold(values: Sequence[float],
     return max(departed, level - subsided * (level - departed))
 
 
-def _the_incidents_own_level(values: Sequence[float],
+def _the_incidents_own_level(values: Sequence[float | None],
                              above: Sequence[bool],
                              the_action: int | None) -> float:
     """How high this series sat while it was the incident, taken from the
@@ -980,7 +988,7 @@ def _the_incidents_own_level(values: Sequence[float],
     departed_minutes = [
         (minute, value)
         for minute, (value, departed) in enumerate(zip(values, above, strict=True))
-        if departed
+        if departed and value is not None
     ]
     its_history = [
         value for minute, value in departed_minutes if minute < its_history_ends_at
@@ -989,7 +997,7 @@ def _the_incidents_own_level(values: Sequence[float],
     return median(its_history or [value for _, value in departed_minutes])
 
 
-def _minutes_above(values: Sequence[float], ceiling: float) -> list[bool]:
+def _minutes_above(values: Sequence[float | None], ceiling: float) -> list[bool]:
     """Which of one series' minutes are above `ceiling`, in window order.
 
     The one place a reading is compared to a bar, and that is the point of it.
@@ -1002,8 +1010,11 @@ def _minutes_above(values: Sequence[float], ceiling: float) -> list[bool]:
     One series rather than five, because who wants the five ored together is the
     caller's question and not this one's. `_departures` ors them; the exclusion
     asks about the single series it is being asked about.
+
+    A minute with no reading is never above anything. Only the rule's series has
+    such minutes, and a minute nobody read is not evidence of the incident.
     """
-    return [value > ceiling for value in values]
+    return [value is not None and value > ceiling for value in values]
 
 
 def _departs_for_long_enough_to_be_the_incident(departures: Sequence[bool],
@@ -1039,7 +1050,8 @@ def _departures(buckets: Sequence[MetricBucket],
                 thresholds: AnomalyThresholds,
                 calm: _CalmStretch) -> list[bool]:
     """Whether each minute, in window order, has left the baseline on error
-    rate, any of the three latency quantiles, or memory.
+    rate, any of the three latency quantiles, memory, or the paging rule's own
+    series where the window carries it.
 
     All of them are checked because different failures move different metrics -
     a bad flag spikes errors, a slow dependency does not, and a leak moves
@@ -1057,8 +1069,8 @@ def _departures(buckets: Sequence[MetricBucket],
         return []
 
     each_series = [
-        _minutes_above(values, _departure_threshold(values, thresholds, calm))
-        for values in _the_five_series(buckets)
+        _minutes_above(values, _departure_threshold(_read(values), thresholds, calm))
+        for values in _the_judged_series(buckets)
     ]
 
     return [any(minute) for minute in zip(*each_series, strict=True)]
@@ -1094,17 +1106,61 @@ THE_JUDGED_SIGNALS: tuple[str, ...] = tuple(
 )
 
 
-def _the_five_series(buckets: Sequence[MetricBucket]) -> list[list[float]]:
-    """One window read as the five series a departure can appear in.
+# What the paging rule's own series is reported under, beside the five.
+_THE_RULES_SERIES = RULE_READING_FIELD
+
+
+def signals_judged_in(buckets: Sequence[MetricBucket]) -> tuple[str, ...]:
+    """The signals this window is judged on: the five, and the paging rule's own
+    series wherever a minute of the window carries it.
+
+    Per window rather than a constant, because the sixth is there only where the
+    window was read for a rule whose series could be followed - and a disproof
+    naming a signal the window never held reads exactly like one naming a signal
+    it judged.
+    """
+    if _carries_the_rules_series(buckets):
+        return (*THE_JUDGED_SIGNALS, _THE_RULES_SERIES)
+
+    return THE_JUDGED_SIGNALS
+
+
+def _the_judged_series(buckets: Sequence[MetricBucket]) -> list[list[float | None]]:
+    """One window read as the series a departure can appear in.
 
     Named once, because every question about whether a signal moved is asked of
-    these same five and an answer derived from four of them would be a different
-    rule wearing this one's name.
+    these same series and an answer derived from fewer of them would be a
+    different rule wearing this one's name. The five always; the rule's series
+    where the window carries it, turned so that worse is higher.
     """
-    return [
+    five: list[list[float | None]] = [
         [read(bucket) for bucket in buckets]
         for _, read in _THE_SERIES_A_DEPARTURE_APPEARS_IN
     ]
+
+    if not _carries_the_rules_series(buckets):
+        return five
+
+    return [*five, [_oriented(bucket.rule_reading) for bucket in buckets]]
+
+
+def _carries_the_rules_series(buckets: Sequence[MetricBucket]) -> bool:
+    return any(bucket.rule_reading is not None for bucket in buckets)
+
+
+def _oriented(reading: RuleReading | None) -> float | None:
+    """A rule reading turned so that higher is worse, or `None` where the minute
+    carries none."""
+    if reading is None:
+        return None
+
+    return reading.value if reading.worse_when == "above" else -reading.value
+
+
+def _read(values: Sequence[float | None]) -> list[float]:
+    """The readings a series actually has, in window order - what a baseline is
+    drawn from. A minute with no reading has no place in one."""
+    return [value for value in values if value is not None]
 
 
 def _run_length_from(departures: Sequence[bool], start: int) -> int:
@@ -1170,7 +1226,7 @@ def _departure_threshold(values: Sequence[float],
     baseline = median(quiet)
     spread = max(
         calm.spread(quiet, baseline),
-        baseline * calm.minimum_spread_as_fraction_of_baseline,
+        abs(baseline) * calm.minimum_spread_as_fraction_of_baseline,
         _WITHIN_THE_NOISE_OF_ITS_OWN_STEPS * _what_the_series_resolves(quiet)
     )
 
@@ -1208,6 +1264,12 @@ def _the_quietest_minutes(values: Sequence[float]) -> list[float]:
 
 def _the_windows_opening(values: Sequence[float]) -> list[float]:
     """The window's earliest minutes, sorted so a spread can be read off them.
+
+    Earliest among the minutes the series was read in, because the caller drops
+    the unread ones first - and deliberately. A rule's series first read partway
+    into the window is judged from its own first readings; cut by position
+    instead, its opening is empty, and a climb after ten calm read minutes went
+    undated where this order dates it.
     """
     return sorted(values[: _opening_length(len(values))])
 

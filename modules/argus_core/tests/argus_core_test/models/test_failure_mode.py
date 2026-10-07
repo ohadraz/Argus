@@ -391,6 +391,30 @@ def test_the_mode_whose_evidence_carries_two_onsets_says_which_is_which() -> Non
         ))
 
 
+@pytest.mark.unit
+def test_the_two_ways_a_revision_can_make_a_service_worse_say_what_separates_them() -> None:
+    # Both arrive as one deployment at the onset and both are answered by
+    # returning it, so neither the change channel nor the mitigation tells them
+    # apart. One revision makes requests fail or slow; the other leaves every
+    # request exactly as it was and makes what the service decides worse - a
+    # model's outputs, filed or answered with less confidence - which only the
+    # series the paging rule watches can show.
+    #
+    # Both directions. A model that has just seen a revision land at the onset
+    # reaches for a bad deployment first, and one weighing degraded output has
+    # to be told when a deployment is the likelier reading.
+    Scenario() \
+        .given(the_two_ways := (
+            FailureMode.BAD_DEPLOYMENT,
+            FailureMode.OUTPUT_QUALITY_DEGRADATION
+        )) \
+        .when(lambda: the_two_ways) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_the_rules_series()
+        ))
+
+
 class _Meaning:
     """The assertions about one mode's meaning, which all need to name it.
 
@@ -933,6 +957,38 @@ def _it_says_the_onset_is_when_the_copy_began_being_served() -> Assertion[str]:
                 "the stale copy began being served, so a model dating it from "
                 "the oldest wrong record - which every other mode taught it to "
                 "do - puts the onset hours before anybody could have seen it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_the_rules_series() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to send the model to the series the paging rule watches.
+
+    Naming the other mode is not enough, for the reason it is not enough of any
+    pair above. What a model has in front of it is a deployment at the onset,
+    which both of these have, and the five request-level series say whether that
+    revision made requests fail or slow. Where it did not, the only series that
+    moved is the one the rule evaluates - so a meaning that does not name that
+    column leaves the model reading five flat series as a deployment that did
+    nothing.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "rule_reading" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without naming rule_reading, the series the paging rule "
+                f"watches - so the model is left to judge whether a revision "
+                f"made anything worse from series that cannot show it."
             )
 
         return True

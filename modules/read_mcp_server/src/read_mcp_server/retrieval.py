@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from typing import Protocol
 
 import httpx2
 from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
 from argus_core.models import ChangeEvent, MetricBucket
-from metrics_source import MetricsSource
+from metrics_source import MetricsSource, RuleSeries
 
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.window import (
@@ -30,6 +31,17 @@ class TargetServiceSettings(SettingsSlice):
 
 
 FetchLogs = Callable[[], list[str]]
+
+
+class SeriesTheRuleWatches(Protocol):
+    """How the metrics read learns which series a rule is evaluated over.
+
+    A `Protocol` so a test stands it in with `create_autospec`; bound where the
+    process starts to the Grafana this deployment reads its rules from. `None`
+    where the rule's series cannot be followed.
+    """
+
+    def __call__(self, rule: str, /) -> RuleSeries | None: ...
 
 
 def _parse_log_timestamp(line: str) -> datetime | None:
@@ -132,9 +144,11 @@ def get_log_lines(alert_time: str | None = None,
 def get_metrics_summary(alert_time: str | None = None,
                         window_start: str | None = None,
                         window_end: str | None = None,
+                        rule: str | None = None,
                         *,
                         settings: RetrievalSettings,
                         source: MetricsSource,
+                        series_of: SeriesTheRuleWatches,
                         now: Callable[[], datetime] = utc_now) -> list[MetricBucket]:
     """Returns per-minute aggregated metrics for one window of an incident.
 
@@ -151,17 +165,27 @@ def get_metrics_summary(alert_time: str | None = None,
     always been handed. A source that cannot be read raises
     `MetricsUnavailable`, which propagates: "could not ask" must never arrive
     as an empty summary.
+
+    `rule` is the uid of the rule that paged, where the alert named one. Its
+    series is read beside the fixed ones, so each minute carries what the rule
+    fired on; a rule whose series cannot be followed adds nothing, and the
+    window is read as it would be for no rule at all.
     """
     window = resolve_metrics_window(
         alert_time, window_start, window_end, settings=settings
     )
+    rule_series = series_of(rule) if rule is not None else None
 
     if window.start is None or window.end is None:
         until = now()
 
-        return source(until - timedelta(minutes=settings.metrics_window_minutes), until)
+        return source(
+            until - timedelta(minutes=settings.metrics_window_minutes),
+            until,
+            rule_series=rule_series
+        )
 
-    return source(window.start, window.end)
+    return source(window.start, window.end, rule_series=rule_series)
 
 
 def get_change_events(service: str,

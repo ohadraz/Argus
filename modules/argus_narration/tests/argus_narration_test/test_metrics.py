@@ -21,7 +21,7 @@ so the row says both, in the units a dashboard says them in.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import MetricBucket
+from argus_core.models import MetricBucket, RuleReading
 from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -192,12 +192,40 @@ def test_a_deployment_with_no_cpu_limit_says_what_it_used_and_nothing_more() -> 
         .then(_it_says_the_cpu_is("0.8 cores"))
 
 
+@pytest.mark.unit
+def test_a_minute_carrying_the_rules_reading_shows_its_value() -> None:
+    # The series the paging rule evaluates, and on an incident in what the
+    # service answers the only column that moved. The value alone: which way the
+    # rule calls worse is the same on every minute and is not a reading. To three
+    # figures, because a backend's average arrives with sixteen and nobody reads
+    # past the third.
+    some_share = 0.8823529411764706
+
+    Scenario() \
+        .given(a_minute_read_for_a_rule := _a_bucket(
+            rule_reading=RuleReading(value=some_share, worse_when="below")
+        )) \
+        .when(lambda: a_bucket_row(a_minute_read_for_a_rule)) \
+        .then(_it_shows_the_rules_reading("0.882"))
+
+
+@pytest.mark.unit
+def test_a_minute_carrying_no_rules_reading_shows_none() -> None:
+    # A minute read for no rule has no such reading, and none is not a reading
+    # of zero.
+    Scenario() \
+        .given(a_minute_read_for_no_rule := _a_bucket(rule_reading=None)) \
+        .when(lambda: a_bucket_row(a_minute_read_for_no_rule)) \
+        .then(_it_shows_the_rules_reading(None))
+
+
 def _a_bucket(error_rate: float = 0.01,
               bucket_id: str = SOME_MINUTE,
               memory_used_bytes: int = 440 * A_MEGABYTE,
               memory_limit_bytes: int | None = 2 * A_GIGABYTE,
               cpu_used_cores: float = 0.77,
-              cpu_limit_cores: float | None = 3.0) -> MetricBucket:
+              cpu_limit_cores: float | None = 3.0,
+              rule_reading: RuleReading | None = None) -> MetricBucket:
     """One minute of metrics, with the latencies nothing here reads."""
     return MetricBucket(
         bucket_id=bucket_id,
@@ -210,7 +238,8 @@ def _a_bucket(error_rate: float = 0.01,
         memory_limit_bytes=memory_limit_bytes,
         process_start_time_seconds=DONT_CARE_STARTED_AT,
         cpu_used_cores=cpu_used_cores,
-        cpu_limit_cores=cpu_limit_cores
+        cpu_limit_cores=cpu_limit_cores,
+        rule_reading=rule_reading
     )
 
 
@@ -281,6 +310,19 @@ def _it_reports_what_was_measured(measured: MetricBucket) -> Assertion[BucketRow
         if reported != expected:
             raise AssertionError(
                 f"Expected the figures {expected} as measured, got {reported}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_shows_the_rules_reading(expected: str | None) -> Assertion[BucketRow]:
+    def assertion(row: BucketRow) -> bool:
+        if row.rule_reading != expected:
+            raise AssertionError(
+                f"Expected the rule's reading shown as [{expected}], "
+                f"got [{row.rule_reading}]."
             )
 
         return True

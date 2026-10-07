@@ -17,20 +17,40 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_core.models import AlertRuleStanding
+from argus_core.models import AlertRuleStanding, WorseWhen
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
+from metrics_source import RuleSeries
 from read_mcp_server.alert_rules import (
+    CLASSIC_CONDITIONS,
+    CONDITION,
+    CONDITIONS,
     DATA,
+    DATASOURCE_UID,
+    EVALUATOR,
+    EXPR,
+    EXPRESSION,
+    EXPRESSION_DATASOURCE,
     FOLDER_UID,
     FROM,
     GROUPS,
+    GT,
+    GTE,
     HEALTH,
     HEALTHY,
     INACTIVE,
     INTERVAL,
     KEEP_FIRING_FOR,
     LAST_EVALUATION,
+    LT,
+    LTE,
+    MATH,
+    MODEL,
+    OUTSIDE_RANGE,
+    PARAMS,
+    QUERY,
+    REDUCE,
+    REF_ID,
     RELATIVE_TIME_RANGE,
     RULE_DEFINITION_PATH,
     RULE_GROUP,
@@ -38,12 +58,15 @@ from read_mcp_server.alert_rules import (
     RULE_STATE_PATH,
     RULES,
     STATE,
+    THRESHOLD,
+    TYPE,
     UID,
     AlertRuleReadSettings,
     AlertRuleUnreadable,
     FetchFromGrafana,
     fetch_from_grafana,
     how_the_rule_stands,
+    the_series_the_rule_watches,
 )
 
 SOME_RULE = "some-rule"
@@ -53,6 +76,9 @@ SOME_GROUP = "some-group"
 SOME_EVALUATION = datetime(2026, 10, 6, 10, 20, tzinfo=UTC)
 
 DONT_CARE_PATH = "/some/path"
+
+SOME_QUERY = "avg(some_confident_ratio)"
+SOME_OTHER_QUERY = "avg(some_other_ratio)"
 
 # Grafana's other words for a rule's state in its Prometheus-compatible answer,
 # which Argus never reads by name: anything but inactive is not normal.
@@ -275,6 +301,161 @@ def test_no_credential_is_sent_where_none_is_configured() -> None:
         .then(_it_asked_with_the_credential(a_get, None))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(("evaluator", "worse_when"), [
+    (GT, "above"),
+    (GTE, "above"),
+    (LT, "below"),
+    (LTE, "below")
+])
+def test_a_threshold_over_a_reduced_query_is_followed_to_its_query_and_direction(
+        evaluator: str, worse_when: WorseWhen) -> None:
+    # Grafana's own default shape for a rule: a query, a reduce over it, and a
+    # threshold over the reduce - the condition naming the threshold. Followed
+    # from the condition back to the one query it reads.
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=a_grafana_defining(
+                    a_query("A", SOME_QUERY),
+                    a_reduce("B", of="A"),
+                    a_threshold("C", of="B", evaluator=evaluator),
+                    condition="C"
+                )
+            )
+        ) \
+        .then(_the_series_is(SOME_QUERY, worse_when))
+
+
+@pytest.mark.unit
+def test_a_classic_condition_is_followed_to_its_query_and_direction() -> None:
+    # The older shape, still provisioned: one expression naming the query in
+    # its own parameters and carrying the evaluator beside it.
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=a_grafana_defining(
+                    a_query("A", SOME_QUERY),
+                    a_classic_condition("B", of="A", evaluator=LT),
+                    condition="B"
+                )
+            )
+        ) \
+        .then(_the_series_is(SOME_QUERY, "below"))
+
+
+@pytest.mark.unit
+def test_a_classic_condition_joining_two_clauses_watches_no_series_argus_can_follow() -> None:
+    # Two clauses joined by AND or OR fire on two comparisons at once, so no one
+    # series is what paged. And a rule Argus cannot follow costs the window its
+    # sixth series - never the window itself.
+    some_clause = {EVALUATOR: {TYPE: LT, PARAMS: [0.8]}, QUERY: {PARAMS: ["A"]}}
+
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=a_grafana_defining(
+                    a_query("A", SOME_QUERY),
+                    an_expression(
+                        "B", {TYPE: CLASSIC_CONDITIONS, CONDITIONS: [some_clause, some_clause]}
+                    ),
+                    condition="B"
+                )
+            )
+        ) \
+        .then(_no_series_is_followed())
+
+
+@pytest.mark.unit
+def test_a_rule_with_a_math_step_watches_no_series_argus_can_follow() -> None:
+    # A math expression between the query and the threshold changes what is
+    # compared. The query's own series is not what fires the rule, and judging
+    # it as though it were would date the onset off the wrong numbers.
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=a_grafana_defining(
+                    a_query("A", SOME_QUERY),
+                    a_reduce("B", of="A"),
+                    a_math("C", expression="$B * 100"),
+                    a_threshold("D", of="C", evaluator=GT),
+                    condition="D"
+                )
+            )
+        ) \
+        .then(_no_series_is_followed())
+
+
+@pytest.mark.unit
+def test_a_rule_reading_two_queries_watches_no_series_argus_can_follow() -> None:
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=a_grafana_defining(
+                    a_query("A", SOME_QUERY),
+                    a_query("B", SOME_OTHER_QUERY),
+                    a_reduce("C", of="A"),
+                    a_threshold("D", of="C", evaluator=GT),
+                    condition="D"
+                )
+            )
+        ) \
+        .then(_no_series_is_followed())
+
+
+@pytest.mark.unit
+def test_a_rule_firing_inside_or_outside_a_range_has_no_one_direction() -> None:
+    # Worse above and worse below at once. A series with two bad sides cannot
+    # be turned so that higher is worse.
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=a_grafana_defining(
+                    a_query("A", SOME_QUERY),
+                    a_reduce("B", of="A"),
+                    a_threshold("C", of="B", evaluator=OUTSIDE_RANGE),
+                    condition="C"
+                )
+            )
+        ) \
+        .then(_no_series_is_followed())
+
+
+@pytest.mark.unit
+def test_a_query_with_no_expression_watches_no_series_argus_can_follow() -> None:
+    # A query step with no expression has nothing to ask the metrics backend. One
+    # in some other language than PromQL is followed, and refused there instead.
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=a_grafana_defining(
+                    a_query("A", None),
+                    a_reduce("B", of="A"),
+                    a_threshold("C", of="B", evaluator=GT),
+                    condition="C"
+                )
+            )
+        ) \
+        .then(_no_series_is_followed())
+
+
+@pytest.mark.unit
+def test_a_rule_grafana_will_not_define_watches_no_series() -> None:
+    # The rule's series is a sixth signal a window can do without. Grafana out
+    # of reach costs the window that signal, and is not a reason to serve no
+    # window at all.
+    an_unreachable_grafana = create_autospec(FetchFromGrafana)
+    an_unreachable_grafana.side_effect = AlertRuleUnreadable("dont-care")
+
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=cast(FetchFromGrafana, an_unreachable_grafana)
+            )
+        ) \
+        .then(_no_series_is_followed())
+
+
 def a_settings(token: str = "") -> AlertRuleReadSettings:
     return AlertRuleReadSettings(
         grafana_base_url="http://grafana.invalid", grafana_auth_token=token
@@ -363,6 +544,97 @@ def a_grafana_holding(state: str | None = INACTIVE,
     fetch.side_effect = answer
 
     return cast(FetchFromGrafana, fetch)
+
+
+def a_grafana_defining(*data: dict[str, Any], condition: str) -> FetchFromGrafana:
+    """A Grafana answering `SOME_RULE`'s definition, with these steps and this
+    condition, and nothing else."""
+    definition = {CONDITION: condition, DATA: list(data)}
+
+    def answer(path: str) -> dict[str, Any]:
+        if path != RULE_DEFINITION_PATH.format(rule=SOME_RULE):
+            raise AssertionError(f"Grafana was asked for [{path}], which it does not serve.")
+
+        return definition
+
+    fetch = create_autospec(FetchFromGrafana)
+    fetch.side_effect = answer
+
+    return cast(FetchFromGrafana, fetch)
+
+
+def a_query(ref_id: str, expr: str | None) -> dict[str, Any]:
+    """A data query against Prometheus, as a rule's definition carries one."""
+    model: dict[str, Any] = {REF_ID: ref_id}
+
+    if expr is not None:
+        model[EXPR] = expr
+
+    return {REF_ID: ref_id, DATASOURCE_UID: "some-prometheus", MODEL: model}
+
+
+def a_reduce(ref_id: str, of: str) -> dict[str, Any]:
+    return an_expression(ref_id, {TYPE: REDUCE, EXPRESSION: of, "reducer": "mean"})
+
+
+def a_math(ref_id: str, expression: str) -> dict[str, Any]:
+    return an_expression(ref_id, {TYPE: MATH, EXPRESSION: expression})
+
+
+def a_threshold(ref_id: str, of: str, evaluator: str) -> dict[str, Any]:
+    return an_expression(ref_id, {
+        TYPE: THRESHOLD,
+        EXPRESSION: of,
+        CONDITIONS: [{EVALUATOR: {TYPE: evaluator, PARAMS: [0.8]}}]
+    })
+
+
+def a_classic_condition(ref_id: str, of: str, evaluator: str) -> dict[str, Any]:
+    return an_expression(ref_id, {
+        TYPE: CLASSIC_CONDITIONS,
+        CONDITIONS: [{
+            EVALUATOR: {TYPE: evaluator, PARAMS: [0.8]},
+            QUERY: {PARAMS: [of]},
+            "reducer": {TYPE: "avg"}
+        }]
+    })
+
+
+def an_expression(ref_id: str, model: dict[str, Any]) -> dict[str, Any]:
+    """A server-side expression step - the datasource Grafana names every
+    expression by."""
+    return {
+        REF_ID: ref_id,
+        DATASOURCE_UID: EXPRESSION_DATASOURCE,
+        MODEL: {REF_ID: ref_id, **model}
+    }
+
+
+def _the_series_is(query: str,
+                   worse_when: WorseWhen) -> Assertion[RuleSeries | None]:
+    def assertion(followed: RuleSeries | None) -> bool:
+        if followed != RuleSeries(query=query, worse_when=worse_when):
+            raise AssertionError(
+                f"Expected the rule to be followed to [{query}], worse "
+                f"[{worse_when}], and it was followed to [{followed}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_series_is_followed() -> Assertion[RuleSeries | None]:
+    def assertion(followed: RuleSeries | None) -> bool:
+        if followed is not None:
+            raise AssertionError(
+                f"Expected no series Argus could follow, and the rule was "
+                f"followed to [{followed}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_reads_normal(expected: bool) -> Assertion[AlertRuleStanding]:

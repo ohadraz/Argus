@@ -189,6 +189,24 @@ class FailureMode(StrEnum):
     # mitigation answers it: what is owed is the monitoring's configuration rolled
     # forward, which is a change to a file and nothing Argus may make.
     MONITORING_CONFIGURATION_DRIFT = "monitoring-configuration-drift"
+    # A model the service runs is answering worse - classifying, ranking,
+    # generating with less confidence or less sense than it did - while every
+    # request succeeds at the speed it always did. The first mode in this set
+    # whose symptom is in what the service *decides* rather than in whether or
+    # how fast it serves, so none of the request-level series moves and only a
+    # rule written against a quality measure pages anybody.
+    #
+    # Not one mode with the bad deployment, though it usually arrives as one -
+    # a model upgraded, a preprocessing step changed - and is answered the same
+    # way, by returning the deployment. The split is by what got worse: there
+    # requests fail or slow, here they are served as promptly and as
+    # successfully as before and their answers are wrong. A reader who calls it
+    # a bad deployment takes the right action and writes a record that says the
+    # service misbehaved in a way no series shows.
+    #
+    # What is left to fix afterwards is the model or what it is fed: a training
+    # and serving pipeline that disagree, a vocabulary, a prompt.
+    OUTPUT_QUALITY_DEGRADATION = "output-quality-degradation"
 
     def meaning(self) -> str:
         """What this mode is, in the words the model weighing it reads.
@@ -238,7 +256,11 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "over monitoring-blind-spot on whether the service or the reporting of "
         "it stopped: a revision can change what a monitor can reach without "
         "touching a single request, and there the shop serves everything "
-        "correctly while the minutes that would show it go missing"
+        "correctly while the minutes that would show it go missing. Choose it "
+        "over output-quality-degradation when the request-level series moved - "
+        "an error rate that stepped or latency that climbed; where all of them "
+        "held still and only rule_reading, the series the paging rule watches, "
+        "departed, the revision made the answers worse rather than the serving"
     ),
     FailureMode.RESOURCE_LEAK: (
         "consumption climbs while traffic does not - a heap never released, a "
@@ -422,5 +444,20 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "is the configuration doing the watching. What is owed is the "
         "monitoring's configuration rolled forward to the change, and the change "
         "kept; no mitigation answers it"
+    ),
+    FailureMode.OUTPUT_QUALITY_DEGRADATION: (
+        "a model the service runs is answering worse - filing, ranking or "
+        "generating with less confidence or less sense than before - while "
+        "every request succeeds as quickly as it always did. Expect the error "
+        "rate and every latency and resource series to be flat: the departure "
+        "is in rule_reading, the series the paging rule watches, which is a "
+        "quality measure rather than a request-level one. Choose this over "
+        "bad-deployment when a revision landed at the onset and only "
+        "rule_reading moved: both arrive as one deployment and both are "
+        "answered by returning it, and what separates them is whether the "
+        "revision made requests fail or slow, or left them as they were and "
+        "made their answers worse. What is left to fix is the model or what it "
+        "is fed - a training and serving pipeline that disagree, a vocabulary, "
+        "a prompt - so returning the deployment mitigates and does not resolve"
     )
 }

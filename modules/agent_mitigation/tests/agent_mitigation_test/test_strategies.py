@@ -468,6 +468,27 @@ def test_an_in_flight_compatibility_break_is_answered_by_rolling_the_deployment_
 
 
 @pytest.mark.unit
+def test_an_output_quality_degradation_is_answered_by_rolling_the_deployment_back() -> None:
+    # Another mode reaching this strategy, and the one whose requests never
+    # failed. The revision made the answers worse while every request still
+    # succeeded as fast as before, so returning the deployment is what puts the
+    # answers back - the account differs from a bad deployment's and the action
+    # does not.
+    #
+    # Registered rather than left out, for the reason the blind spot is: a mode
+    # absent from this mapping is refused as nothing answering it, and an
+    # incident diagnosed correctly would escalate with no action named.
+    Scenario() \
+        .given(a_hypothesis_blaming(FailureMode.OUTPUT_QUALITY_DEGRADATION)) \
+        .when(lambda: propose_action(
+            a_hypothesis_blaming(FailureMode.OUTPUT_QUALITY_DEGRADATION),
+            NO_FLAGS_CHANGED,
+            SOME_APPLICATION_THE_ALERT_NAMES
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
 def test_the_deployment_rolled_back_is_the_one_the_alert_names() -> None:
     # Not Argus's configuration, which would hardcode one deployment's answer
     # into the agent, and not the hypothesis, whose subject is the model's

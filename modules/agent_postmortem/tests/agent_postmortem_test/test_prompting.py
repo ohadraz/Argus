@@ -19,7 +19,7 @@ only shape left, and the one this file exists to keep distinct from the other.
 from __future__ import annotations
 
 import pytest
-from agent_postmortem.estimate import ErrorRates
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
@@ -161,6 +161,49 @@ def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() ->
         ) \
         .then(
             _says("not known")
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_what_the_rules_series_did() -> None:
+    # The series that paged, at the levels the error rate is given at, and which
+    # way its rule calls worse. On an incident only that series moved in, the
+    # error rate says nothing happened - and a write-up from it alone describes
+    # a service that was fine.
+    some_calm_share = 0.95
+    some_share_while_broken = 0.4
+    the_worst_minute = 0.38
+
+    Scenario() \
+        .given(
+            an_incident_whose_answers_got_worse := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=some_calm_share,
+                                             while_broken=some_share_while_broken,
+                                             at_its_worst=the_worst_minute,
+                                             worse_when="below"))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_answers_got_worse)
+        ) \
+        .then(
+            _says(f"{some_calm_share:g}", f"{some_share_while_broken:g}",
+                  f"{the_worst_minute:g}", "worse falling")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_rules_series_is_told_nothing_of_one() -> None:
+    # Not a line saying the series sat at nothing: an incident paged by a rule
+    # watching no series of its own has none to report.
+    Scenario() \
+        .given(
+            an_incident_paged_on_the_error_rate := a_measured_incident(rule_series=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_the_error_rate)
+        ) \
+        .then(
+            _does_not_say("paging rule")
         )
 
 

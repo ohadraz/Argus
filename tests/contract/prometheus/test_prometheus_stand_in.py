@@ -17,11 +17,18 @@ does: a units slip on either side shows there and nowhere else. Beyond that,
 what everything depends on is that a minute comes back at all, with the same
 fields filled, and that a refusal comes back as one.
 
+A rule's own series is asked the same way, and needs it more. Its query is not
+the adapter's but whatever the rule evaluates, handed over verbatim, and a source
+that will not run it leaves the readings off and serves the window anyway - so a
+query that is not PromQL, or names a gauge the shop does not expose, would fail
+silently everywhere but here.
+
 The real half has to be given data, and a scrape is how a real Prometheus gets
 it. So the shop is seeded, Prometheus scrapes it every five seconds (see
 `docker-compose.yml`), and the first minute it can answer for is the first one
-it watched end. That is the one wait in here - up to a minute and a half - and
-no clock can be injected into it, because the clock is Prometheus's.
+it watched end. That is the one wait in here - up to a minute and a half, paid
+once for the module and shared by every case that reads a window - and no clock
+can be injected into it, because the clock is Prometheus's.
 """
 
 from __future__ import annotations
@@ -32,17 +39,16 @@ from datetime import UTC, datetime, timedelta
 import httpx2
 import pytest
 from argus_core import get_settings
-from argus_core.models import MetricBucket
+from argus_core.models import MetricBucket, WorseWhen
 from argus_testkit import (
     Assertion,
     Scenario,
     all_of,
     an_error_was_raised,
     attempting,
-    calling,
     the_error_mentioned,
 )
-from metrics_source import MetricsSettings, MetricsUnavailable
+from metrics_source import MetricsSettings, MetricsUnavailable, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 
 # Where each half answers. The real one is the `prometheus` service in Argus's
@@ -78,13 +84,38 @@ A_MINUTE = timedelta(minutes=1)
 # shop's own figure on both sides, and the two have to be equal.
 FIGURES_THAT_HOLD_STILL = ("memory_limit_bytes", "cpu_limit_cores", "process_start_time_seconds")
 
+# The expressions the shop's own alert rules evaluate, as Grafana hands them
+# over in a rule's definition: the categoriser's confident share, and the share
+# of its limit the heap is using. Restated rather than imported, because the
+# shop is another repository and these are the words that cross between the two.
+THE_CATEGORISER_RULES_QUERY = "avg(categoriser_confident_ratio)"
+THE_MEMORY_RULES_QUERY = (
+    "max(max_over_time(process_resident_memory_bytes[1m]))"
+    " / max(container_spec_memory_limit_bytes)"
+)
+
+# Which way a rule calls worse. The source never reads it - it rides back on each
+# reading as it was handed in - so either is the same question to both halves.
+DONT_CARE_DIRECTION: WorseWhen = "above"
+
 # What Prometheus calls a query it will not run. The one part of a refusal the
 # adapter carries into what it raises, and so the part a reader acts on.
 BAD_DATA = "bad_data"
 
 
+@pytest.fixture(scope="module")
+def a_window_prometheus_watched() -> None:
+    """The shop seeded, and the first minute a real Prometheus can answer for
+    waited out - once, for every case that reads a window."""
+    _until_prometheus_has_watched_a_minute_end_since(
+        _the_shop_was_seeded_with(A_SCENARIO_THAT_GOES_ON_REPORTING)
+    )
+
+
 @pytest.mark.contract
-def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it() -> None:
+def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it(
+    a_window_prometheus_watched: None
+) -> None:
     # The whole of the happy path. Each field of a bucket is its own
     # expression, and a minute comes back only if every field it cannot be
     # without was answered - so one minute back from a real Prometheus says
@@ -93,10 +124,6 @@ def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it() -> None:
     # Prometheus would leave empty, and that the figures which hold still are
     # the same figures.
     Scenario() \
-        .given(
-            seeded_at := _the_shop_was_seeded_with(A_SCENARIO_THAT_GOES_ON_REPORTING),
-            calling(lambda: _until_prometheus_has_watched_a_minute_end_since(seeded_at))
-        ) \
         .when(lambda: buckets_between(*_the_last_few_minutes(), _settings_for(THE_REAL_ONE))) \
         .then(all_of(
             _some_minute_came_back(),
@@ -104,6 +131,36 @@ def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it() -> None:
                 *_the_last_few_minutes(), _settings_for(THE_STAND_IN)
             )),
             _its_still_figures_are_the_stand_ins(at_the_stand_in)
+        ))
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "rules_query",
+    [THE_CATEGORISER_RULES_QUERY, THE_MEMORY_RULES_QUERY],
+    ids=["categoriser", "memory"]
+)
+def test_a_rules_series_prometheus_watched_reads_as_the_stand_in_reads_it(
+    a_window_prometheus_watched: None,
+    rules_query: str
+) -> None:
+    # The series a rule evaluates, asked of both halves as one more query. The
+    # rule's series coming back at all from a real Prometheus says the
+    # expression is PromQL over a gauge the shop exposes; the comparison says
+    # the stand-in fills it for the minutes Prometheus does. Not the same
+    # figure: a gauge read at a minute's end is whichever scrape landed last,
+    # and the stand-in answers the minute's own row.
+    Scenario() \
+        .when(lambda: buckets_between(
+            *_the_last_few_minutes(), _settings_for(THE_REAL_ONE),
+            rule_series=RuleSeries(rules_query, DONT_CARE_DIRECTION)
+        )) \
+        .then(all_of(
+            _the_rules_series_came_back(),
+            _it_reads_as(buckets_between(
+                *_the_last_few_minutes(), _settings_for(THE_STAND_IN),
+                rule_series=RuleSeries(rules_query, DONT_CARE_DIRECTION)
+            ))
         ))
 
 
@@ -180,6 +237,27 @@ def _some_minute_came_back() -> Assertion[list[MetricBucket]]:
             raise AssertionError(
                 "Expected Prometheus to answer for a minute it watched end, it answered "
                 "for none: a field every bucket needs went unanswered in every minute."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_rules_series_came_back() -> Assertion[list[MetricBucket]]:
+    """That some minute carries the rule's reading.
+
+    Needed beside the comparison rather than left to it: a source that will not
+    run the rule's query leaves the readings off and serves the window, so two
+    halves that both refused would read as two halves that agree.
+    """
+    def assertion(buckets: list[MetricBucket]) -> bool:
+        if not any(bucket.rule_reading is not None for bucket in buckets):
+            raise AssertionError(
+                f"Expected Prometheus to answer the rule's query for some minute, it "
+                f"answered for none of {[bucket.bucket_id for bucket in buckets]}: the "
+                f"query is not one it will run, or names a series the shop does not "
+                f"expose."
             )
 
         return True

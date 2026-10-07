@@ -8,7 +8,7 @@ from typing import NamedTuple
 import pytest
 from argus_core import ReadMcpEndpoint, get_settings, parse_iso
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, MetricBucket
+from argus_core.models import ChangeEvent, MetricBucket, RuleReading
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import (
@@ -16,6 +16,23 @@ from read_mcp_client import (
     get_log_lines,
     get_metrics_summary,
     read_mcp,
+)
+from read_mcp_server.alert_rules import (
+    CONDITION,
+    CONDITIONS,
+    DATA,
+    DATASOURCE_UID,
+    EVALUATOR,
+    EXPR,
+    EXPRESSION,
+    EXPRESSION_DATASOURCE,
+    LT,
+    MODEL,
+    PARAMS,
+    REDUCE,
+    REF_ID,
+    THRESHOLD,
+    TYPE,
 )
 
 from read_mcp_client_test.conftest import FakeTargetServiceHandler
@@ -87,6 +104,8 @@ def test_both_retrieval_phases_drive_each_other_through_the_client(
                 a_failure_line_at(some_time_the_error_appeared)
             ])
         ))
+
+
 @pytest.mark.integration
 def test_get_change_events_reaches_the_real_read_mcp_server(
     running_read_mcp: type[FakeTargetServiceHandler]
@@ -145,6 +164,38 @@ def test_one_session_serves_every_call_made_over_it(
         ) \
         .then(
             _every_call_was_answered()
+        )
+
+
+@pytest.mark.integration
+def test_the_paging_rules_series_reaches_the_caller_through_the_client(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    # The rule's uid crosses the protocol one way and its readings cross it
+    # back, direction and all - which is the half no unit test reaches: a
+    # nested reading that did not survive the round trip would arrive as no
+    # reading, and a window with none disproves nothing.
+    some_minute = datetime(2026, 8, 20, 11, 45, 0, tzinfo=UTC)
+    some_rule = "some-rule"
+    some_rule_query = "avg(some_confident_ratio)"
+
+    Scenario() \
+        .given(
+            calling(_the_target_service_watches(
+                running_read_mcp, some_rule, some_rule_query,
+                metrics=[{**a_metric_at(some_minute), "some_confident_ratio": 0.41}]
+            ))
+        ) \
+        .when(
+            _asking_the_server(lambda client: get_metrics_summary(
+                window_start=an_iso_minute(some_minute),
+                window_end=an_iso_minute(some_minute + timedelta(minutes=1)),
+                rule=some_rule,
+                client=client
+            ))
+        ) \
+        .then(
+            _every_bucket_carried(RuleReading(value=0.41, worse_when="below"))
         )
 
 
@@ -220,6 +271,51 @@ def _the_changes_reference(*expected_references: str) -> Assertion[list[ChangeEv
         assert actual == list(expected_references), (
             f"Expected changes {list(expected_references)}, got {actual}."
         )
+        return True
+
+    return assertion
+
+
+def _the_target_service_watches(handler: type[FakeTargetServiceHandler],
+                                rule: str,
+                                query: str,
+                                metrics: list[dict[str, object]]) -> Callable[[], None]:
+    """A service whose rule fires below its line on `query`, which is answered
+    from each row's `some_confident_ratio`."""
+    def step() -> None:
+        handler.metrics = metrics
+        handler.rules = {rule: _a_rule_firing_below_its_line_on(query)}
+        handler.rule_queries = {query: "some_confident_ratio"}
+
+    return step
+
+
+def _a_rule_firing_below_its_line_on(query: str) -> dict[str, object]:
+    """A rule in Grafana's provisioning shape: a query, a reduce, a threshold."""
+    return {
+        CONDITION: "C",
+        DATA: [
+            {REF_ID: "A", DATASOURCE_UID: "some-prometheus",
+             MODEL: {REF_ID: "A", EXPR: query}},
+            {REF_ID: "B", DATASOURCE_UID: EXPRESSION_DATASOURCE,
+             MODEL: {REF_ID: "B", TYPE: REDUCE, EXPRESSION: "A"}},
+            {REF_ID: "C", DATASOURCE_UID: EXPRESSION_DATASOURCE,
+             MODEL: {REF_ID: "C", TYPE: THRESHOLD, EXPRESSION: "B",
+                     CONDITIONS: [{EVALUATOR: {TYPE: LT, PARAMS: [0.8]}}]}}
+        ]
+    }
+
+
+def _every_bucket_carried(expected: RuleReading) -> Assertion[list[MetricBucket]]:
+    def assertion(buckets: list[MetricBucket]) -> bool:
+        carried = [bucket.rule_reading for bucket in buckets]
+
+        if not buckets or any(reading != expected for reading in carried):
+            raise AssertionError(
+                f"Expected every bucket to carry the rule reading [{expected}], "
+                f"and they carried {carried}."
+            )
+
         return True
 
     return assertion

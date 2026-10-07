@@ -19,7 +19,8 @@ Nothing here is a judgement, and no term is a proxy for another: every figure
 is money over a window, measured by the party that took it.
 
 The error rate is measured too, but only to tell the model what happened. No
-figure rests on it.
+figure rests on it. So is the paging rule's own series, where the window carries
+one, for the same reason and with the same three levels.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from argus_core import parse_iso
-from argus_core.models import MetricBucket
+from argus_core.models import MetricBucket, WorseWhen
 from pydantic import BaseModel
 
 from agent_postmortem.sources import RateTable
@@ -128,6 +129,65 @@ def error_rates_over(buckets: list[MetricBucket],
         baseline=_mean(before),
         while_broken=_mean(while_broken),
         at_its_worst=max(while_broken)
+    )
+
+
+class RuleSeriesLevels(BaseModel):
+    """What the series the paging rule evaluates did, at the error rate's three
+    levels, and which way its rule calls worse.
+
+    The series a fault in what the service answers moves alone: every request
+    succeeded, so the error rate says nothing happened, and this is what says
+    what did. The direction travels with the levels because "at its worst" means
+    the lowest of a share of confident answers and the highest of a latency, and
+    a reader handed the number without it cannot tell which it was.
+
+    No rise, unlike the error rate's. That one is attribution in a unit everyone
+    shares - a share of traffic - and a difference between two levels of a
+    series in whatever unit its rule watches is not.
+    """
+
+    baseline: float
+    while_broken: float
+    at_its_worst: float
+    worse_when: WorseWhen
+
+
+def rule_series_over(buckets: list[MetricBucket],
+                     began: datetime,
+                     until: datetime | None) -> RuleSeriesLevels | None:
+    """What the paging rule's series did over the stretch the service was broken.
+
+    The same stretch and the same rules as `error_rates_over` - the calm minutes
+    before `began` for the baseline, `began` up to `until` for the other two -
+    because a series measured over a different span would be a second incident
+    on the same page. Only the minutes carrying a reading count, since a minute
+    without one has no level of the series in it.
+
+    `None` where no minute carries a reading - a window read for no rule, or for
+    one whose series could not be followed - and where either side is empty,
+    because a level against nothing is an unanswered question rather than a
+    small answer.
+    """
+    before = [bucket.rule_reading for bucket in buckets
+              if bucket.rule_reading is not None
+              and parse_iso(bucket.bucket_id) < began]
+    while_broken = [bucket.rule_reading for bucket in buckets
+                    if bucket.rule_reading is not None
+                    and began <= parse_iso(bucket.bucket_id)
+                    and (until is None or parse_iso(bucket.bucket_id) < until)]
+
+    if not before or not while_broken:
+        return None
+
+    worse_when = while_broken[0].worse_when
+    values = [reading.value for reading in while_broken]
+
+    return RuleSeriesLevels(
+        baseline=_mean([reading.value for reading in before]),
+        while_broken=_mean(values),
+        at_its_worst=min(values) if worse_when == "below" else max(values),
+        worse_when=worse_when
     )
 
 

@@ -99,6 +99,7 @@ RECORDED_STATE_DIVERGENCE = "cache-failed-over"
 RECORDED_UNDATED_STATE_DIVERGENCE = "cache-failed-over-undated"
 RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
 RECORDED_FLAG_REVERT_LEAVES_A_FLAP = "flag-revert-leaves-a-flap"
+RECORDED_OUTPUT_QUALITY_DEGRADATION = "categoriser-model-upgraded"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,
@@ -115,7 +116,8 @@ THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
     RECORDED_FLAG_TOGGLE,
     RECORDED_RESOURCE_LEAK,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
-    RECORDED_LARGE_CODE_FIX
+    RECORDED_LARGE_CODE_FIX,
+    RECORDED_OUTPUT_QUALITY_DEGRADATION
 })
 
 # Not arbitrary! the Target Service names itself in its own log

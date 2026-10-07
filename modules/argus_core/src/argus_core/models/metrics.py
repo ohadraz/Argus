@@ -1,6 +1,32 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Final, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+# Which side of its threshold a rule calls worse: `above` for a rule that fires
+# over its line, `below` for one that fires under it. Named once, because the
+# reading, the series a source is asked for and every level measured from them
+# all carry it, and four spellings of one fact are four places to drift.
+type WorseWhen = Literal["above", "below"]
+
+
+class RuleReading(BaseModel):
+    """One minute of the series the paging rule evaluates, and which way it is
+    worse.
+
+    `worse_when` is the rule's own direction, read from the evaluator its
+    threshold applies: `above` for a rule that fires over its line, `below` for
+    one that fires under it. It rides on the reading rather than beside the
+    window, so that whatever judges a minute - an onset, a recovery, a
+    postmortem's figure - judges it the way the rule does without being told
+    separately.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    value: float
+    worse_when: WorseWhen
 
 
 class MetricBucket(BaseModel):
@@ -63,6 +89,12 @@ class MetricBucket(BaseModel):
     answering nothing reports. A reader has to be able to tell a deployment
     without a fast path from one whose fast path has gone.
 
+    `rule_reading` is the minute's value of the series the rule that paged
+    evaluates, where the window was read for a rule whose series could be
+    followed. Nullable, and absent everywhere else: a window read for no rule
+    has no such series, and a rule whose query Argus cannot follow has one
+    nobody read - neither is a reading of zero.
+
     `memory_limit_bytes` is nullable because a deployment imposing no limit is
     ordinary, and zero would make "no limit set" indistinguishable from "no
     memory available". Usage and limit are carried as absolute byte counts
@@ -83,3 +115,12 @@ class MetricBucket(BaseModel):
     cpu_used_cores: float
     cpu_limit_cores: float | None = None
     cache_hit_ratio: float | None = None
+    rule_reading: RuleReading | None = None
+
+
+# The name `MetricBucket.rule_reading` is keyed and reported by, for whoever has
+# to name the field rather than reach it: a source building a bucket from keys,
+# a reader choosing which columns to write. Said once beside the field, because
+# a key the bucket does not have is dropped without a word - the reading lost,
+# and the window read as one nobody had a rule for.
+RULE_READING_FIELD: Final = "rule_reading"

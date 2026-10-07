@@ -111,9 +111,12 @@ def _the_arms_asked_for() -> tuple[tuple[str, Effort], ...]:
     return tuple(asking.parse_args().arms) or THE_ARMS_ALREADY_COMPARED
 
 
-def _the_metrics_of(incident: Incident) -> Callable[[str | None], list[MetricBucket]]:
-    """The whole span, whatever it is anchored on - as the real channel serves it."""
-    def fetch(_: str | None) -> list[MetricBucket]:
+def _the_metrics_of(
+    incident: Incident
+) -> Callable[[str | None, str | None], list[MetricBucket]]:
+    """The whole span, whatever it is anchored on and whichever rule it is read
+    for - as the real channel serves it."""
+    def fetch(_alert_time: str | None, _rule: str | None) -> list[MetricBucket]:
         return list(incident.buckets)
 
     return fetch

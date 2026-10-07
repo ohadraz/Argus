@@ -32,7 +32,7 @@ from argus_core.models import (
 )
 from code_index.embedding import an_embedder
 from mcp.server.fastmcp import FastMCP
-from metrics_source import MetricsSettings, MetricsSource
+from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 
 from read_mcp_server import (
@@ -98,8 +98,12 @@ def build_server(endpoint: ReadMcpEndpoint,
 
     # The port bound to the one vendor this deployment reads metrics from, so
     # that what the tool is handed names a window and nothing else.
-    def metrics(started_at: datetime, ended_at: datetime) -> list[MetricBucket]:
-        return buckets_between(started_at, ended_at, metrics_settings)
+    def metrics(started_at: datetime,
+                ended_at: datetime,
+                rule_series: RuleSeries | None = None) -> list[MetricBucket]:
+        return buckets_between(
+            started_at, ended_at, metrics_settings, rule_series=rule_series
+        )
 
     metrics_source: MetricsSource = metrics
 
@@ -136,6 +140,11 @@ def build_server(endpoint: ReadMcpEndpoint,
 
     def from_grafana(path: str) -> dict[str, Any]:
         return alert_rules.fetch_from_grafana(path, alert_rule_settings)
+
+    # Which series a rule watches, read off its definition in the same Grafana
+    # the rule's standing is read from.
+    def series_the_rule_watches(rule: str) -> RuleSeries | None:
+        return alert_rules.the_series_the_rule_watches(rule, fetch=from_grafana)
 
     def registered(service: str) -> dict[str, object]:
         return fetch_registered_service(service, registry_settings)
@@ -176,21 +185,26 @@ def build_server(endpoint: ReadMcpEndpoint,
     @mcp.tool()
     def get_metrics_summary(alert_time: str | None = None,
                             window_start: str | None = None,
-                            window_end: str | None = None) -> list[MetricBucket]:
+                            window_end: str | None = None,
+                            rule: str | None = None) -> list[MetricBucket]:
         """Returns per-minute aggregated metrics for one window of an incident.
 
         Phase one of Two-phase retrieval: cheap enough to read whole, it shows
         the incident's shape - which minutes are anomalous, and whether error
         rate or latency moved - so a caller can locate the onset and anchor a
         log window on it.
-        Windowing works exactly as in `get_log_lines`; the behavior lives in
-        `retrieval.get_metrics_summary`."""
+        Windowing works exactly as in `get_log_lines`. `rule` is the uid of the
+        alert rule that paged: its own series is read beside the fixed ones and
+        carried on each minute as `rule_reading`, with the direction the rule
+        fires in. The behavior lives in `retrieval.get_metrics_summary`."""
         return retrieval.get_metrics_summary(
             alert_time,
             window_start,
             window_end,
+            rule,
             settings=retrieval_settings,
-            source=metrics_source
+            source=metrics_source,
+            series_of=series_the_rule_watches
         )
 
     @mcp.tool()

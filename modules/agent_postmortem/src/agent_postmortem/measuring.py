@@ -49,10 +49,12 @@ from agent_postmortem.estimate import (
     BASELINE_WINDOW,
     BASELINE_WINDOW_HOURS,
     ErrorRates,
+    RuleSeriesLevels,
     duration_in_hours,
     error_rates_over,
     in_the_reporting_currency,
     loss_between,
+    rule_series_over,
 )
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.responder_cost import ResponderCost, responder_cost
@@ -118,6 +120,10 @@ class Measurements(BaseModel):
     # the end of the window, and this one measured nothing after the onset - so
     # the duration above is the time nobody could see, not a stretch of trouble.
     unobserved_from: datetime | None = None
+    # What the paging rule's own series did, at the error rate's levels, or
+    # `None` where the metrics carry no such series. Told to the model beside
+    # the error rate and resting no figure, as that does.
+    rule_series: RuleSeriesLevels | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -138,7 +144,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     # the onset beside it: a duration measured to recovery and a rise measured
     # to the close would be two incidents on one page, which is the failure
     # this function exists to prevent.
-    metrics = sources.metrics(began - BASELINE_WINDOW, evidence.ended_at)
+    metrics = sources.metrics(began - BASELINE_WINDOW, evidence.ended_at, evidence.rule)
     recovered_at = _when_the_service_came_back(
         evidence.recorded_recovery_at, metrics, sources.thresholds
     )
@@ -183,7 +189,9 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         engaged=engaged,
         cost=_what_the_response_cost(engaged, bands, sources.working_hours_a_year),
         bands=bands,
-        unobserved_from=_when_the_sight_was_lost(metrics, began)
+        unobserved_from=_when_the_sight_was_lost(metrics, began),
+        # Over the same stretch as the error rate, for the same reason.
+        rule_series=rule_series_over(metrics, began, recovered_at)
     )
 
 

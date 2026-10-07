@@ -79,6 +79,7 @@ from tests.e2e.framework.argus import (
     RECORDED_LARGE_CODE_FIX,
     RECORDED_MONITORING_BLIND_SPOT,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
+    RECORDED_OUTPUT_QUALITY_DEGRADATION,
     RECORDED_PRICING_SERVICE_DEGRADED,
     RECORDED_RESOURCE_LEAK,
     RECORDED_SILENT_DATA_CORRUPTION,
@@ -651,6 +652,21 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         IncidentStatus.ESCALATED,
         (_AN_ACTION_WAS_TAKEN, _A_VERDICT_REFUTED_AN_ACTION),
         may_take_seconds=_A_WALK_JUDGED_BY_THE_SUSTAINED_RULE_SECONDS
+    ),
+    # A categoriser upgrade that files purchases worse, and nothing else moves:
+    # the one series that departs is the share the shop's rule watches, so the
+    # onset, the verdict and the recovery are all read off it. Captured under
+    # `both` alone, like the case that replays it.
+    #
+    # Held to the verdict as well as the action, because the rollback is judged
+    # by that rule and nothing else could confirm it - and to the fix, because
+    # the upgrade is still on the branch once the earlier model is back.
+    _Recording(
+        RECORDED_OUTPUT_QUALITY_DEGRADATION,
+        "categoriser-model-upgraded",
+        "CategorisationConfidenceLow",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED, _A_FIX_WAS_PROPOSED)
     )
 )
 

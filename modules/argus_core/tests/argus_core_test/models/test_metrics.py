@@ -5,12 +5,18 @@ for a reason and the reasons differ. A limit is absent where a deployment
 imposes none; a hit ratio is absent where a deployment consults no cache. In
 both cases zero would be a different claim - "no memory available", "the cache
 answered nothing" - and both are claims a reader would act on.
+
+The rule's reading is nullable for a third reason: it is what the rule that paged
+evaluates, and a window read for no rule, or for one whose series could not be
+followed, has nothing to carry. It carries its direction beside its value,
+because a share that falls is as much a departure as a latency that climbs, and
+which of the two a given series is belongs to the rule, not to the number.
 """
 
 from __future__ import annotations
 
 import pytest
-from argus_core.models import MetricBucket
+from argus_core.models import RULE_READING_FIELD, MetricBucket, RuleReading
 from argus_testkit import Assertion, Scenario, all_of
 from pydantic import ValidationError
 
@@ -102,6 +108,60 @@ def test_a_bucket_reporting_no_cpu_at_all_is_refused() -> None:
     # fact about the service - and nothing should be invited to read it as one.
     with pytest.raises(ValidationError):
         MetricBucket.model_validate(_a_minute_without_its_cpu())
+
+
+@pytest.mark.unit
+def test_a_bucket_carries_the_paging_rules_reading_and_which_way_is_worse() -> None:
+    Scenario() \
+        .given(a_minute_read_for_a_rule := a_bucket(
+            rule_reading={"value": 0.41, "worse_when": "below"}
+        )) \
+        .when(lambda: a_minute_read_for_a_rule) \
+        .then(_the_rule_reading_is(RuleReading(value=0.41, worse_when="below")))
+
+
+@pytest.mark.unit
+def test_a_bucket_read_for_no_rule_carries_no_rule_reading() -> None:
+    Scenario() \
+        .given(a_minute_read_for_no_rule := a_bucket()) \
+        .when(lambda: a_minute_read_for_no_rule) \
+        .then(_the_rule_reading_is(None))
+
+
+@pytest.mark.unit
+def test_a_bucket_keyed_by_the_rule_reading_field_carries_the_reading() -> None:
+    # The name a source keys a minute's reading by, and a reader leaves the
+    # column out by. Spelled as a string in each, it was free to drift from the
+    # field - and a key the bucket does not have is dropped without a word, the
+    # reading lost and the window read as one nobody had a rule for.
+    Scenario() \
+        .given(
+            a_minute_keyed_by_name := {RULE_READING_FIELD: {"value": 0.41, "worse_when": "below"}}
+        ) \
+        .when(lambda: a_bucket(**a_minute_keyed_by_name)) \
+        .then(_the_rule_reading_is(RuleReading(value=0.41, worse_when="below")))
+
+
+@pytest.mark.unit
+def test_a_rule_reading_worse_neither_above_nor_below_is_refused() -> None:
+    # Above and below are the two directions a threshold has. Anything else is a
+    # reading nothing downstream could orient, and judging it either way would be
+    # a guess presented as a departure.
+    with pytest.raises(ValidationError):
+        RuleReading.model_validate({"value": 0.41, "worse_when": "sideways"})
+
+
+def _the_rule_reading_is(expected: RuleReading | None) -> Assertion[MetricBucket]:
+    def assertion(bucket: MetricBucket) -> bool:
+        if bucket.rule_reading != expected:
+            raise AssertionError(
+                f"Expected the rule's reading to be [{expected}], and the bucket "
+                f"carried [{bucket.rule_reading}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_hit_ratio_is(expected: float | None) -> Assertion[MetricBucket]:

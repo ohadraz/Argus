@@ -24,6 +24,7 @@ from decimal import Decimal
 from math import isclose
 
 import pytest
+from agent_postmortem.estimate import RuleSeriesLevels
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.sources import EngagedResponder, PayBand
 from argus_testkit import Assertion, Kept, Scenario, all_of
@@ -44,11 +45,13 @@ from agent_postmortem_test.framework.builders import (
     an_engagement_source_that_cannot_answer,
     an_evidence_bundle,
     hours_between,
+    metrics_recording_the_rule_into,
     metrics_recording_the_window_into,
     metrics_showing_error_rates,
     metrics_that_answer_with_nothing,
     metrics_that_recovered,
     metrics_that_stop_at_the_onset,
+    metrics_whose_rule_series_went,
     rates_published,
     rates_that_cannot_be_read,
     revenue_that_was,
@@ -535,6 +538,63 @@ def test_the_metrics_window_spans_the_whole_incident() -> None:
 
 
 @pytest.mark.unit
+def test_the_metrics_are_read_for_the_rule_that_paged() -> None:
+    # The document reports the rule series' own figures, and only a window read
+    # for the rule carries that series. Read for no rule, the postmortem of an
+    # incident only that series departed in would describe five series that
+    # never moved.
+    some_rule = "kuki-rule"
+    rules_asked_for: Kept[str | None] = Kept()
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule=some_rule)
+        ) \
+        .when(
+            lambda: measure(
+                evidence,
+                some_sources(metrics=metrics_recording_the_rule_into(rules_asked_for)))
+        ) \
+        .then(
+            _asked_metrics_for_the_rule(some_rule, rules_asked_for)
+        )
+
+
+@pytest.mark.unit
+def test_the_rules_series_is_measured_over_the_stretch_the_service_was_broken() -> None:
+    # Over the same stretch as the error rate, bounded by the same onset and the
+    # same recovery: a series measured to a different end would be a second
+    # incident on the same page. The reading at the recovery minute is the worst
+    # of all, so a stretch that ran past it would say so.
+    some_calm_share = 0.95
+    a_bad_minute = 0.42
+    the_worst_minute = 0.38
+    an_even_worse_minute_once_recovered = 0.10
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=ENDED_AT)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_whose_rule_series_went(
+                baseline=some_calm_share,
+                while_broken=a_bad_minute,
+                at_its_worst=the_worst_minute,
+                worse_when="below",
+                once_recovered=an_even_worse_minute_once_recovered
+            )))
+        ) \
+        .then(
+            _the_rules_series_was(RuleSeriesLevels(
+                baseline=some_calm_share,
+                while_broken=(a_bad_minute + the_worst_minute) / 2,
+                at_its_worst=the_worst_minute,
+                worse_when="below"
+            ))
+        )
+
+
+@pytest.mark.unit
 def test_the_response_is_priced_at_the_bands_published_for_it() -> None:
     # The second cost, and the one nobody thinks to check: an incident's real
     # price is what it took out of the shop plus what it took out of the people.
@@ -882,6 +942,39 @@ def _priced_no_response() -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected no response cost where it could not be priced in full, "
                 f"got [{measured.cost.midpoint}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rules_series_was(expected: RuleSeriesLevels) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        got = measured.rule_series
+
+        if (
+            got is None
+            or not isclose(got.baseline, expected.baseline)
+            or not isclose(got.while_broken, expected.while_broken)
+            or not isclose(got.at_its_worst, expected.at_its_worst)
+            or got.worse_when != expected.worse_when
+        ):
+            raise AssertionError(f"Expected the rule's series at {expected}, got [{got}].")
+
+        return True
+
+    return assertion
+
+
+def _asked_metrics_for_the_rule(rule: str,
+                                rules: Kept[str | None]) -> Assertion[Measurements]:
+    def assertion(dont_care_measured: Measurements) -> bool:
+        asked = rules.only()
+
+        if asked != rule:
+            raise AssertionError(
+                f"Expected the metrics to be read for the rule [{rule}], "
+                f"got [{asked}].")
 
         return True
 

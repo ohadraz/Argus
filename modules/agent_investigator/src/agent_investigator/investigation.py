@@ -22,11 +22,11 @@ from typing import Any, Final, assert_never
 
 from argus_core import parse_iso, to_iso, to_iso_minute
 from argus_core.anomaly import (
-    THE_JUDGED_SIGNALS,
     AnomalyThresholds,
     earliest_bucket_is_anomalous,
     find_onset,
     has_a_reading_since,
+    signals_judged_in,
 )
 from argus_core.events import (
     ChannelsUnread,
@@ -53,6 +53,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    RULE_READING_FIELD,
     SCALE_OUT,
     AlarmClaim,
     Alert,
@@ -67,10 +68,12 @@ from argus_core.models import (
     ModelPolicy,
     Reading,
     RetrievalChannel,
+    RuleReading,
     ToolCall,
     ToolResult,
     ToolResults,
     Turn,
+    WorseWhen,
 )
 
 # `records_nothing` is aliased because `events` and `replay` each call their
@@ -300,14 +303,16 @@ def investigate(
     # Read by the loop rather than offered as the first tool call, so that the
     # onset is a measurement instead of a decision. Anchored on the alert
     # rather than bounded, which is what the event says: the span is the
-    # metrics tool's own (spec §16), not this loop's to name.
+    # metrics tool's own (spec §16), not this loop's to name. Read for the rule
+    # that paged, so the onset is measured on the series it fired on as well as
+    # on the five.
     narrator.say(
         RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time
     )
     started_reading_at = time.monotonic()
 
     try:
-        metric_buckets = fetch_metrics(alert_time)
+        metric_buckets = fetch_metrics(alert_time, alert.rule)
     except Exception as unanswered:
         # The one read no channel guard can absorb, because it happens before
         # there is a model to tell. Every window the model could ask for is
@@ -366,14 +371,14 @@ def investigate(
     measured_onset = find_onset(metric_buckets, thresholds)
     stated_onset = _the_onset_the_alert_states(alert)
     onset = measured_onset or stated_onset
+    the_window_cannot_contradict_it = _a_flat_window_says_nothing_about(
+        alert, metric_buckets
+    )
 
-    if (
-        onset is None
-        and alert.claim is not AlarmClaim.ITS_OWN_FINDING
-        and metric_buckets
-    ):
+    if onset is None and not the_window_cannot_contradict_it and metric_buckets:
         # The window was read, it holds no departure in any judged signal, and
-        # the rule that fired was watching one of those signals. So the window is
+        # those signals include whatever the rule that fired was watching - the
+        # five, or its own series where it named one. So the window is
         # not short of evidence about this alarm - it is evidence against it.
         #
         # A window with no minutes in it is not that, and falls through. The
@@ -384,16 +389,17 @@ def investigate(
             alert, incident_id, metric_buckets, narrator
         )
 
-    if onset is None and alert.claim is AlarmClaim.ITS_OWN_FINDING:
-        # A rule whose subject no series carries, and no date. Nothing here
-        # contradicts the alarm, so the investigation goes on - but it has to be
-        # anchored on something, and the only minute anybody knows is the one the
-        # alarm fired in. That is where to look from and not when this began.
+    if onset is None and the_window_cannot_contradict_it:
+        # A rule whose subject this window does not carry, and no date. Nothing
+        # here contradicts the alarm, so the investigation goes on - but it has
+        # to be anchored on something, and the only minute anybody knows is the
+        # one the alarm fired in. That is where to look from and not when this
+        # began.
         #
-        # Conditioned on the claim, which the branch above is conditioned on the
-        # other way round, and the gap between the two is a real case rather than
-        # a formality: a series alarm over a window with *no minutes in it* is
-        # disproved by nothing and anchored by nothing either. It ends below,
+        # Conditioned on the same measurement the branch above is conditioned on
+        # the other way round, and the gap between the two is a real case rather
+        # than a formality: a series alarm over a window with *no minutes in it*
+        # is disproved by nothing and anchored by nothing either. It ends below,
         # where every undated incident ended before any of this - and the one
         # time this condition was missing, that case walked a whole
         # investigation of a service nothing had been read about.
@@ -421,6 +427,10 @@ def investigate(
         service=alert.service,
         onset=onset,
         alert_time=alert_time,
+        # The rule the read above was made for, so the model's own re-read
+        # comes back with the same columns rather than without the one this
+        # alarm fired on.
+        rule=alert.rule,
         settings=settings,
         # The same measurement the findings carry, handed here because it decides
         # a window as well as a gate: where no reading covers the incident's
@@ -725,6 +735,67 @@ def _declined(alert: Alert,
     return Findings(candidates=[undetermined], already_read=dispatcher.readings)
 
 
+def _a_flat_window_says_nothing_about(alert: Alert,
+                                      metric_buckets: list[MetricBucket]) -> bool:
+    """Whether this window, flat, would be no evidence about the alarm.
+
+    Two ways it can be. The rule reported a finding of its own, which no series
+    carries, so no window could contradict it. Or the rule watches a series of
+    its own and the window was read without it - the read tier could not follow
+    the rule's query, or the metrics backend answered nothing for it - so the
+    window was never shown what the rule saw, and five flat signals say nothing
+    about a sixth.
+
+    A window with no minutes in it is not the second case. Nothing was read at
+    all, which disproves nothing and anchors nothing, and is told apart from
+    both by the caller.
+    """
+    if alert.claim is AlarmClaim.ITS_OWN_FINDING:
+        return True
+
+    return (
+        alert.rule is not None
+        and bool(metric_buckets)
+        and _which_way_the_rules_series_is_worse(metric_buckets) is None
+    )
+
+
+def _the_rule_whose_series_was_not_read(alert: Alert,
+                                        metric_buckets: list[MetricBucket]) -> str | None:
+    """The rule that paged, where no minute of the window carries its reading.
+
+    `None` where no rule paged, where the rule reported a finding of its own -
+    which evaluates no series, so none is missing - or where its series was read,
+    which is a window that says what the rule saw.
+    """
+    if (
+        alert.rule is None
+        or alert.claim is AlarmClaim.ITS_OWN_FINDING
+        or _which_way_the_rules_series_is_worse(metric_buckets) is not None
+    ):
+        return None
+
+    return alert.rule
+
+
+def _which_way_the_rules_series_is_worse(metric_buckets: list[MetricBucket]
+                                         ) -> WorseWhen | None:
+    """The paging rule's direction, as the window's readings of it carry it.
+
+    `None` where no minute carries a reading, which is a window that was read
+    for no rule, or for one whose series the read tier could not follow or the
+    metrics backend answered nothing for.
+    """
+    return next(
+        (
+            bucket.rule_reading.worse_when
+            for bucket in metric_buckets
+            if bucket.rule_reading is not None
+        ),
+        None
+    )
+
+
 def _the_minute_the_alarm_fired_in(alert: Alert) -> str | None:
     """The minute the alert went off, as a bucket id, where it says.
 
@@ -800,14 +871,18 @@ def _the_alarm_was_disproven(alert: Alert,
     that said otherwise was looking at a series that never moved.
 
     Reached only for a rule watching such a series. A rule reporting a finding no
-    series carries is not contradicted by a flat window and never arrives here.
+    series carries is not contradicted by a flat window and never arrives here,
+    and nor is a rule whose own series the window was read without.
+
+    The signals named are the ones this window was judged on: the five, and the
+    rule's own series wherever the window carries it.
 
     It still carries an undetermined candidate, because `Findings.candidates` is
     never empty and a reader walking the candidates should find the account there
     like any other. What makes this ending its own is the disproof beside them.
     """
     disproof = Disproof(
-        signals_judged=THE_JUDGED_SIGNALS,
+        signals_judged=signals_judged_in(metric_buckets),
         earliest_minute=metric_buckets[0].bucket_id,
         latest_minute=metric_buckets[-1].bucket_id,
         minutes_judged=len(metric_buckets)
@@ -951,7 +1026,10 @@ def _the_opening_message(alert: Alert,
         f"summary: {alert.summary or 'none given'}",
         "",
         "## Onset",
-        _the_onset_paragraph(alert, onset, how_the_minute_is_known, rows_stop_at)
+        _the_onset_paragraph(
+            alert, onset, how_the_minute_is_known, rows_stop_at,
+            _the_rule_whose_series_was_not_read(alert, metric_buckets)
+        )
     ]
 
     if opened_already_elevated:
@@ -972,9 +1050,25 @@ def _the_opening_message(alert: Alert,
         f"One row per minute, in time order, comma-separated under the header. "
         f"{_what_the_rows_are(how_the_minute_is_known, rows_stop_at)} An empty cell is a "
         f"reading this service does not have at all, which is not the same as a "
-        f"reading of zero.",
-        _the_minutes_as_rows(metric_buckets)
+        f"reading of zero."
     ])
+
+    worse_when = _which_way_the_rules_series_is_worse(metric_buckets)
+    if worse_when is not None:
+        # Said once, here, rather than carried in every row: a column the model
+        # cannot place is a number with no meaning, and the one thing its values
+        # cannot say for themselves is which way the rule calls worse. Above the
+        # rows rather than after them, where it would read as one more row.
+        rule_named = (
+            f"the rule that paged ({alert.rule})" if alert.rule else "the rule that paged"
+        )
+        said.append(
+            f"rule_reading is the series {rule_named} evaluates, and that rule calls "
+            f"it worse when {worse_when} its threshold. A departure in it is a "
+            f"departure in exactly what paged, even where every other column is flat."
+        )
+
+    said.append(_the_minutes_as_rows(metric_buckets))
 
     if already_refuted:
         said.extend([
@@ -1026,7 +1120,8 @@ def _where_the_rows_stop(metric_buckets: list[MetricBucket],
 def _the_onset_paragraph(alert: Alert,
                          onset: str,
                          how_the_minute_is_known: HowTheMinuteIsKnown,
-                         rows_stop_at: str | None) -> str:
+                         rows_stop_at: str | None,
+                         unread_rule: str | None) -> str:
     """What the model is told about the minute it is working from.
 
     Four cases, and each of the last three is one a model gets wrong unprompted.
@@ -1040,7 +1135,9 @@ def _the_onset_paragraph(alert: Alert,
     has. It is the only case where the minute given is not a claim about when
     anything began, and a model told it plainly as an onset would date the
     incident from the moment somebody noticed - then look for a change there and
-    find the one that was deploying while the alarm went off.
+    find the one that was deploying while the alarm went off. Its last sentence
+    says why nothing dates it, which `unread_rule` decides: a rule whose own
+    series the window lacks, or something that knows what no series carries.
 
     The first two are left as they were. Every incident built before a window
     could stop walks one of them, and the flat wording was written for a window
@@ -1061,8 +1158,7 @@ def _the_onset_paragraph(alert: Alert,
             f"where to look from, not when anything started. Do not treat it as "
             f"the onset and do not reach for a change at it: a change in that "
             f"minute is a change that happened while somebody was being paged. "
-            f"What raised this knows something no series does, and how long it had "
-            f"been true before anybody looked is not in any of the evidence."
+            f"{_what_raised_it(unread_rule)}"
         )
 
     if rows_stop_at is not None:
@@ -1085,6 +1181,29 @@ def _the_onset_paragraph(alert: Alert,
         f"whatever raised this knows something no series does, and the minute it "
         f"gives is long before the alert fired. The change that caused it is at "
         f"that minute, not at this one."
+    )
+
+
+def _what_raised_it(unread_rule: str | None) -> str:
+    """Why nothing in the window dates the incident, said of whatever paged.
+
+    Two different absences. A check's own finding knows something no series
+    carries, so the metrics were never going to show it. A rule watching a
+    series fired on a series this window lacks, so the departure is real and
+    simply out of sight - and a model told the first of a case that is the
+    second stops looking at the metrics for the one thing they would show.
+    """
+    if unread_rule is not None:
+        return (
+            f"It was raised by the rule {unread_rule}, which watches a series of "
+            f"its own, and that series could not be read - it is not among the rows "
+            f"below. Whatever departed is in that series, and how long it had been "
+            f"departed before anybody looked is not in any of the evidence."
+        )
+
+    return (
+        "What raised this knows something no series does, and how long it had "
+        "been true before anybody looked is not in any of the evidence."
     )
 
 
@@ -1167,17 +1286,38 @@ def _the_minutes_as_rows(metric_buckets: list[MetricBucket]) -> str:
     above says plainly: a service consulting no cache has no hit ratio, and a
     cache answering nothing has one of zero, and a reader that could not tell
     them apart would diagnose the second as the first.
+
+    The rule's reading is the one field left out when no minute carries it. It
+    is not a measurement of the service a deployment may lack, as the hit ratio
+    is, but what the paging rule evaluates - and a window read for no rule has
+    no such column to report empty. Where it is present its cell is the value
+    alone: the direction is the same on every minute, and is said once beside
+    the rows rather than in each of them.
     """
-    fields = list(MetricBucket.model_fields)
+    fields = [
+        field
+        for field in MetricBucket.model_fields
+        if field != RULE_READING_FIELD
+        or _which_way_the_rules_series_is_worse(metric_buckets) is not None
+    ]
     rows = [
-        ",".join(
-            "" if (reading := getattr(bucket, field)) is None else str(reading)
-            for field in fields
-        )
+        ",".join(_the_cell(getattr(bucket, field)) for field in fields)
         for bucket in metric_buckets
     ]
 
     return "\n".join([",".join(fields), *rows])
+
+
+def _the_cell(reading: object) -> str:
+    """One reading as a row writes it: empty where there is none, and a rule's
+    reading as the number its rule compares."""
+    if reading is None:
+        return ""
+
+    if isinstance(reading, RuleReading):
+        return str(reading.value)
+
+    return str(reading)
 
 
 def _what_was_done_in(attempt: Attempt) -> str:

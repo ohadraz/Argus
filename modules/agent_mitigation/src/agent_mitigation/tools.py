@@ -156,7 +156,15 @@ class DeploymentsBetween(Protocol):
 
 
 class MetricsFetcher(Protocol):
-    def __call__(self) -> list[MetricBucket]: ...
+    """The service's metrics, read for the rule that paged.
+
+    The rule rather than the series it watches: what that series is called in
+    the metrics backend's own language is the read tier's to work out, and
+    nothing on this side of the port speaks it. `None` for an alert naming no
+    rule, which is read for the five fixed series alone.
+    """
+
+    def __call__(self, rule: str | None, /) -> list[MetricBucket]: ...
 
 
 class RuleReader(Protocol):
@@ -778,7 +786,7 @@ def somebody_else_changed_flag_since(
     )
 
 
-def fetch_recent_metrics(*, client: McpClient) -> list[MetricBucket]:
+def fetch_recent_metrics(rule: str | None, *, client: McpClient) -> list[MetricBucket]:
     """The service's metric buckets, over the retention the read tier holds.
 
     Unanchored deliberately. The verdict asks whether the minutes since the
@@ -786,8 +794,12 @@ def fetch_recent_metrics(*, client: McpClient) -> list[MetricBucket]:
     own quiet stretch - a window narrowed to post-action minutes alone would
     have no departure to contrast with, and would read any steady rate as
     healthy however elevated it was.
+
+    Read for the rule that paged, so each minute carries that rule's own series
+    beside the five - and the recovery is dated on the series that paged rather
+    than on five that may never have moved.
     """
-    return get_metrics_summary(client=client)
+    return get_metrics_summary(rule=rule, client=client)
 
 
 def restart_a_service(service: str, *, client: McpClient) -> RestartedService:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,8 +14,9 @@ from argus_core.anomaly import (
     has_a_reading_since,
     has_recovered_since,
     minutes_a_recovery_must_hold,
+    signals_judged_in,
 )
-from argus_core.models.metrics import MetricBucket
+from argus_core.models.metrics import MetricBucket, RuleReading, WorseWhen
 from argus_core.timestamps import parse_iso, to_iso_minute
 from argus_testkit import Assertion, Scenario
 
@@ -1762,6 +1764,177 @@ def test_a_flat_window_recovers_from_an_incident_it_never_had() -> None:
 
 
 @pytest.mark.unit
+def test_find_onset_catches_a_departure_only_the_rules_series_shows() -> None:
+    # A model filing the shop's purchases with less confidence, while every
+    # request is served as fast and as successfully as before. The five
+    # request-level series are flat, and the only departure in the window is in
+    # the series the paging rule evaluates - which falls, because the rule fires
+    # below its line.
+    a_confident_share = [0.9] * 10
+    a_share_that_fell = [0.4] * 4
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 14,
+        rule_readings=a_confident_share + a_share_that_fell,
+        worse_when="below"
+    )
+
+    first_minute_filed_worse = some_window[10]
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(first_minute_filed_worse.bucket_id)
+        )
+
+
+@pytest.mark.unit
+def test_a_series_that_is_worse_below_does_not_depart_by_rising() -> None:
+    # The same climb that would be an incident in a latency is an improvement in
+    # a share the shop wants high. Judged the latency's way round, a model that
+    # got better would page somebody.
+    a_confident_share = [0.6] * 10
+    a_share_that_improved = [0.95] * 4
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 14,
+        rule_readings=a_confident_share + a_share_that_improved,
+        worse_when="below"
+    )
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _no_onset_was_found()
+        )
+
+
+@pytest.mark.unit
+def test_a_series_worse_below_is_not_departed_by_a_dip_inside_its_floor() -> None:
+    # A calm stretch that never varies has no spread of its own, so the floor
+    # is a fraction of the baseline - and a series read the other way up has a
+    # baseline below zero. Taken as it stands, that floor is negative and floors
+    # nothing, and a share easing from nine in ten to eighty-five in a hundred
+    # reads as an incident starting.
+    a_confident_share = [0.9] * 10
+    a_share_a_little_lower = [0.85] * 4
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 14,
+        rule_readings=a_confident_share + a_share_a_little_lower,
+        worse_when="below"
+    )
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _no_onset_was_found()
+        )
+
+
+@pytest.mark.unit
+def test_recovery_waits_for_the_rules_series_to_come_back() -> None:
+    # An incident only the rule's series showed can only be confirmed over by
+    # that series coming back. Asking five series that never moved whether they
+    # have returned confirms a mitigation the instant it is taken.
+    a_confident_share = [0.9] * CALM_MINUTES
+    a_share_that_fell = [0.4] * 3
+    a_share_back_where_it_was = [0.9] * 4
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * (CALM_MINUTES + 7),
+        rule_readings=a_confident_share + a_share_that_fell + a_share_back_where_it_was,
+        worse_when="below"
+    )
+
+    first_confident_minute_after_it = some_window[CALM_MINUTES + 3]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS)) \
+        .then(_the_recovery_is(first_confident_minute_after_it.bucket_id))
+
+
+@pytest.mark.unit
+def test_minutes_the_rules_series_does_not_cover_are_not_departures_in_it() -> None:
+    # A window can open before the rule's series was being read - the minutes a
+    # source had nothing for. A missing reading is no reading, and a series worse
+    # below that took it for a zero would read every one of them as the worst
+    # minute it ever had.
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 14,
+        rule_readings=[None] * 6 + [0.9] * 8,
+        worse_when="below"
+    )
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _no_onset_was_found()
+        )
+
+
+@pytest.mark.unit
+def test_a_window_read_for_no_rule_is_judged_on_the_five_series() -> None:
+    some_window = a_window_departing_from(CALM_ERROR_RATE)
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: signals_judged_in(some_window)
+        ) \
+        .then(
+            _the_signals_judged_are(
+                ("error_rate", "p50_ms", "p95_ms", "p99_ms", "memory_used_bytes")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_window_carrying_the_rules_series_names_it_among_those_judged() -> None:
+    # A disproof says what it was made over. A window that carried the rule's
+    # series and judged it has to say so, or a reader cannot tell a rule whose
+    # series was flat from a rule whose series nobody looked at.
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * 8,
+        rule_readings=[0.9] * 8,
+        worse_when="below"
+    )
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: signals_judged_in(some_window)
+        ) \
+        .then(
+            _the_signals_judged_are(
+                ("error_rate", "p50_ms", "p95_ms", "p99_ms", "memory_used_bytes",
+                 "rule_reading")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_every_judged_signal_is_a_series_a_window_actually_carries() -> None:
     # The names exist so that a disproof can say what it was made over: an
     # assertion that nothing departed is worth exactly as much as the signals
@@ -1897,11 +2070,14 @@ def a_window_of(error_rates: list[float],
                 p95_ms_values: list[int] | None = None,
                 memory_bytes: list[int] | None = None,
                 p50_ms_values: list[int] | None = None,
-                p99_ms_values: list[int] | None = None) -> list[MetricBucket]:
+                p99_ms_values: list[int] | None = None,
+                rule_readings: Sequence[float | None] | None = None,
+                worse_when: WorseWhen = "above") -> list[MetricBucket]:
     latencies = p95_ms_values or [CALM_P95_MS] * len(error_rates)
     medians = p50_ms_values or [CALM_P50_MS] * len(error_rates)
     tails = p99_ms_values or [CALM_P99_MS] * len(error_rates)
     memory = memory_bytes or [CALM_MEMORY_BYTES] * len(error_rates)
+    readings = rule_readings or [None] * len(error_rates)
     window_start = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
     dont_care_volume = 1000
     dont_care_started_at = window_start.timestamp()
@@ -1919,11 +2095,29 @@ def a_window_of(error_rates: list[float],
             process_start_time_seconds=dont_care_started_at,
             cpu_used_cores=0.77,
             cpu_limit_cores=3.0,
+            rule_reading=(
+                None if reading is None
+                else RuleReading(value=reading, worse_when=worse_when)
+            )
         )
-        for offset, (error_rate, p50_ms, p95_ms, p99_ms, memory_used) in enumerate(
-            zip(error_rates, medians, latencies, tails, memory, strict=True)
+        for offset, (error_rate, p50_ms, p95_ms, p99_ms, memory_used, reading) in enumerate(
+            zip(error_rates, medians, latencies, tails, memory, readings, strict=True)
         )
     ]
+
+
+def _the_signals_judged_are(expected: tuple[str, ...]) -> Assertion[tuple[str, ...]]:
+    """That a window reports exactly these signals as the ones it was judged on."""
+    def the_signals_judged_are(judged: tuple[str, ...]) -> bool:
+        if judged != expected:
+            raise AssertionError(
+                f"Expected the window to be judged on {list(expected)}, and it "
+                f"named {list(judged)}."
+            )
+
+        return True
+
+    return the_signals_judged_are
 
 
 def _the_recovery_is(expected: str) -> Assertion[str | None]:

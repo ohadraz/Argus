@@ -289,7 +289,8 @@ def take_action(action: Action,
         )
 
     settled = _what_watching_the_service_settled(
-        fetch_metrics, arrivals(action), now, sleep, still_wanted, settings,
+        # Read for the rule that paged, so the recovery is dated on its series.
+        partial(fetch_metrics, rule), arrivals(action), now, sleep, still_wanted, settings,
         thresholds, action.action_type, incident_id, publisher, onset,
         read_the_rule=(
             partial(read_rule, rule)
@@ -573,7 +574,7 @@ class _Settled(NamedTuple):
     because: str
 
 
-def _what_watching_the_service_settled(fetch_metrics: MetricsFetcher,
+def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBucket]],
                                        has_arrived: HasArrived,
                                        now: Clock,
                                        sleep: Sleeper,

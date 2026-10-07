@@ -8,9 +8,10 @@ retrieval window is anchored on it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
-from argus_core.models import AlarmClaim, Alert, MetricBucket
+from argus_core.models import AlarmClaim, Alert, MetricBucket, RuleReading
 
 # Long enough for the anomaly detector to have a baseline to depart from.
 CALM_MINUTES = 10
@@ -57,7 +58,8 @@ A_SERVICE = "kuki"
 def an_alert(started_at: datetime | None = AN_ALERT_TIME,
              stated_onset: datetime | None = None,
              claim: AlarmClaim = AlarmClaim.A_SERIES_CONDITION,
-             stale_entry_keys: tuple[str, ...] | None = None) -> Alert:
+             stale_entry_keys: tuple[str, ...] | None = None,
+             rule: str | None = None) -> Alert:
     """The alert that opened the incident.
 
     `started_at` is a parameter because its absence is a real case - an alert
@@ -83,6 +85,12 @@ def an_alert(started_at: datetime | None = AN_ALERT_TIME,
     other reading to stage a rule whose subject no series carries - and that is
     the whole of what decides whether a window with no departure in it closes
     the incident or says nothing about it.
+
+    `rule` is absent by default because an alert naming no rule is read for the
+    five fixed series alone, which is what every case written before a rule's
+    own series could be read stages. A case names one to have the window read
+    for it - and to ask what follows when the window carries that series, or
+    does not.
     """
     return Alert(
         service=A_SERVICE,
@@ -91,7 +99,8 @@ def an_alert(started_at: datetime | None = AN_ALERT_TIME,
         stated_onset=stated_onset,
         claim=claim,
         stale_entry_keys=stale_entry_keys,
-        stale_entries_found=None if stale_entry_keys is None else len(stale_entry_keys)
+        stale_entries_found=None if stale_entry_keys is None else len(stale_entry_keys),
+        rule=rule
     )
 
 
@@ -117,13 +126,22 @@ def a_window_that_stops_reporting() -> list[MetricBucket]:
     return a_window_of([CALM_ERROR_RATE] * MINUTES_BEFORE_THE_SHOP_WENT_QUIET)
 
 
-def a_steady_window() -> list[MetricBucket]:
-    """No minute departs from the baseline, so there is no onset to find."""
-    return a_window_of([CALM_ERROR_RATE] * (CALM_MINUTES + 2))
+def a_steady_window(rule_reading: RuleReading | None = None) -> list[MetricBucket]:
+    """No minute departs from the baseline, so there is no onset to find.
+
+    `rule_reading` is every minute's reading of the paging rule's series, the
+    same one throughout so that series is as steady as the rest. Absent by
+    default: a window read for no rule carries none.
+    """
+    minutes = CALM_MINUTES + 2
+
+    return a_window_of([CALM_ERROR_RATE] * minutes, rule_readings=[rule_reading] * minutes)
 
 
 def a_window_of(error_rates: list[float],
-                cache_hit_ratios: list[float | None] | None = None) -> list[MetricBucket]:
+                cache_hit_ratios: list[float | None] | None = None,
+                rule_readings: Sequence[RuleReading | None] | None = None
+                ) -> list[MetricBucket]:
     """Minutes carrying these error rates, and nothing else worth noticing.
 
     `cache_hit_ratios` is the one reading here that can genuinely be absent,
@@ -131,8 +149,12 @@ def a_window_of(error_rates: list[float],
     service consulting no cache has no hit ratio, and a cache answering
     nothing has one of zero. Anything rendering the window has to keep those
     apart, and a builder that could only produce one of them could not ask.
+
+    `rule_readings` is absent for the same reason: a window read for no rule
+    carries no reading of one, which is not a reading of zero.
     """
     ratios = cache_hit_ratios if cache_hit_ratios is not None else [None] * len(error_rates)
+    readings = rule_readings if rule_readings is not None else [None] * len(error_rates)
 
     return [
         MetricBucket(
@@ -146,9 +168,12 @@ def a_window_of(error_rates: list[float],
             process_start_time_seconds=DONT_CARE_STARTED_AT,
             cpu_used_cores=CALM_CPU_CORES,
             cpu_limit_cores=CALM_CPU_CAPACITY_CORES,
-            cache_hit_ratio=ratio
+            cache_hit_ratio=ratio,
+            rule_reading=reading
         )
-        for offset, (error_rate, ratio) in enumerate(zip(error_rates, ratios, strict=True))
+        for offset, (error_rate, ratio, reading) in enumerate(
+            zip(error_rates, ratios, readings, strict=True)
+        )
     ]
 
 

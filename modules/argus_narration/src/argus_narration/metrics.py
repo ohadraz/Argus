@@ -64,6 +64,13 @@ class BucketRow(BaseModel):
     # equal figures - and a reader scanning a column of pairs for equality is being
     # asked to do arithmetic the column can do for them.
     cpu: str
+    # The minute's value of the series the paging rule evaluates, where the
+    # window was read for a rule that watches one - on an incident in what the
+    # service answers, the only column that moved. The value alone: which way
+    # the rule calls worse is the same on every minute and is not a reading. To
+    # three figures, since a backend's average arrives with sixteen. `None` where
+    # the minute carries none, which is not a reading of zero.
+    rule_reading: str | None = None
     elevated: bool
 
 
@@ -79,6 +86,9 @@ def a_bucket_row(bucket: MetricBucket) -> BucketRow:
         request_volume=bucket.request_volume,
         memory=_memory_said(bucket.memory_used_bytes, bucket.memory_limit_bytes),
         cpu=_cpu_said(bucket.cpu_used_cores, bucket.cpu_limit_cores),
+        rule_reading=(
+            f"{bucket.rule_reading.value:.3g}" if bucket.rule_reading is not None else None
+        ),
         elevated=bucket.error_rate >= _ELEVATED_ERROR_RATE
     )
 

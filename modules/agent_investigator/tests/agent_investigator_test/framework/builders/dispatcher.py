@@ -38,7 +38,8 @@ def a_dispatcher(reads_metrics: Mock | None = None,
                  reads_a_deployment: Mock | None = None,
                  reads_the_rollout: Mock | None = None,
                  alert_time: str | None = AN_ALERT_TIME,
-                 readings_cover_the_incident: bool = True) -> Dispatcher:
+                 readings_cover_the_incident: bool = True,
+                 rule: str | None = None) -> Dispatcher:
     """A dispatcher whose unnamed channels answer with nothing.
 
     Each test names the one channel it is about; the others must not be the
@@ -56,11 +57,17 @@ def a_dispatcher(reads_metrics: Mock | None = None,
     `readings_cover_the_incident` is a parameter for the same reason: a window
     that stops before the incident's own minutes dates the onset off the last
     reading there was, and it changes where a default change window ends.
+
+    `rule` is absent by default because most tool tests are about a channel the
+    rule has nothing to do with. It is a parameter because the metrics channel
+    reads the paging rule's series as well as the five, and has to be handed
+    which rule that is.
     """
     return Dispatcher(
         service=A_SERVICE,
         onset=AN_ONSET,
         alert_time=alert_time,
+        rule=rule,
         readings_cover_the_incident=readings_cover_the_incident,
         settings=some_investigation_settings(),
         fetch_metrics=reads_metrics or create_autospec(

@@ -27,7 +27,7 @@ from argus_core.events import (
     RecoveryChecked,
 )
 from argus_core.llm import ClientFor
-from argus_core.models import OpenedPullRequest, PostmortemDocument
+from argus_core.models import Alert, OpenedPullRequest, PostmortemDocument
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from argus_incidents.repository import (
@@ -94,6 +94,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         ended_at=incident.ended_at,
         onset_at=_when_it_actually_began(conn, incident_id),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
+        rule=_the_rule_that_paged(incident.alert_payload),
         alert_summary=_what_was_alerted(incident.alert_payload),
         timeline=_what_happened(conn, incident_id),
         candidates=_what_was_considered(conn, incident_id),
@@ -202,6 +203,15 @@ def _when_it_came_back(conn: psycopg.Connection,
                   and event.recovered_minute is not None]
 
     return parse_iso(recoveries[-1]) if recoveries else None
+
+
+def _the_rule_that_paged(alert_payload: dict[str, object]) -> str | None:
+    """The rule the alert named, read back through the alert's own model.
+
+    Through `Alert` rather than by key, so that what is read is the field the
+    alert declares and not a string that happens to sit under its name.
+    """
+    return Alert.model_validate(alert_payload).rule
 
 
 def _what_was_alerted(alert_payload: dict[str, object]) -> str:

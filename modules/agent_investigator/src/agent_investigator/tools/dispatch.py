@@ -107,6 +107,10 @@ class Dispatcher:
                  # Defaulted to the covered case so that every construction which
                  # does not say otherwise keeps the window it had.
                  readings_cover_the_incident: bool = True,
+                 # The rule that paged, whose series a metrics read carries
+                 # beside the five. `None` for an alert naming no rule, which is
+                 # read for the five alone.
+                 rule: str | None = None,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
                  having_read: Sequence[Reading] = (),
@@ -115,6 +119,7 @@ class Dispatcher:
         self._onset = onset
         self._settings = settings
         self._alert_time = alert_time
+        self._rule = rule
         self._readings_cover_the_incident = readings_cover_the_incident
         self._narrator = narrator if narrator is not None else Narrator("", nobody)
         self._replay = replay if replay is not None else Replay("")
@@ -221,7 +226,8 @@ class Dispatcher:
     def _serve(self, call: ToolCall) -> Served:
         if call.name == METRICS_TOOL:
             return read_metrics(
-                call, self._alert_time, self._fetch_metrics, self._readings, self._narrator
+                call, self._alert_time, self._rule, self._fetch_metrics, self._readings,
+                self._narrator
             )
 
         if call.name == LOGS_TOOL:

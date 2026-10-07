@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from argus_core import get_settings, parse_iso
 from metrics_source.prometheus_adapter import QUERIES
+from read_mcp_server.alert_rules import RULE_DEFINITION_PATH
 
 FAKE_TARGET_SERVICE_PORT = 8180
 READ_MCP_TEST_PORT = 8190
@@ -29,6 +30,12 @@ THE_RANGE_QUERY_PATH = f"{PROMETHEUS_PREFIX}/api/v1/query_range"
 # Which bucket field each query asks for - the inverse of what the adapter asks.
 FIELD_ASKED_BY = {query: field for field, query in QUERIES.items()}
 
+# Where the fake answers as Grafana, under a prefix for the reason Prometheus is,
+# and the provisioning API's route for one rule's definition beneath it - the
+# route the server asks, less the rule it fills in.
+GRAFANA_PREFIX = "/grafana"
+RULE_DEFINITION_PREFIX = f"{GRAFANA_PREFIX}{RULE_DEFINITION_PATH.removesuffix('{rule}')}"
+
 
 class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     logs: list[str] = []
@@ -41,6 +48,12 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     # under `/argocd/<application>`, in Argo CD's own wire shape, because the
     # adapter under test is the one that would read a real server.
     deploys: list[dict[str, object]] = []
+    # Alert rule definitions by uid, in Grafana's provisioning shape, and the
+    # queries those definitions name beyond the adapter's own - each mapped to
+    # the row field that answers it, so a rule's series is served from the same
+    # rows as everything else.
+    rules: dict[str, dict[str, object]] = {}
+    rule_queries: dict[str, str] = {}
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
@@ -49,6 +62,14 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
             self._respond_with(self.logs)
         elif url.path == THE_RANGE_QUERY_PATH:
             self._respond_with(self._a_matrix(parse_qs(url.query)))
+        elif url.path.startswith(RULE_DEFINITION_PREFIX):
+            rule = url.path.removeprefix(RULE_DEFINITION_PREFIX)
+
+            if rule in self.rules:
+                self._respond_with(self.rules[rule])
+            else:
+                self.send_response(404)
+                self.end_headers()
         elif url.path.startswith("/argocd/"):
             application = url.path.removeprefix("/argocd/")
             self._respond_with(
@@ -64,7 +85,8 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     def _a_matrix(self, params: dict[str, list[str]]) -> dict[str, object]:
         """The rows' readings for one query, in Prometheus's matrix envelope,
         from the minutes whose ends fall between `start` and `end`."""
-        field = FIELD_ASKED_BY[params["query"][0]]
+        query = params["query"][0]
+        field = FIELD_ASKED_BY.get(query) or self.rule_queries[query]
         start, end = float(params["start"][0]), float(params["end"][0])
         values = [
             [minute_end, str(row[field])]
@@ -100,11 +122,12 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
 @pytest.fixture
 def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     """Starts a fake Target Service (stdlib http.server, background thread,
-    serving canned `/logs`, Prometheus's range query and
-    `/argocd/<application>` JSON) plus a real `read_mcp_server` subprocess
+    serving canned `/logs`, Prometheus's range query, Grafana's rule definitions
+    and `/argocd/<application>` JSON) plus a real `read_mcp_server` subprocess
     pointed at it - proves `read_mcp_client` reaches a real server without
     Docker or a real Target Service. Yields the handler class so a test can set
-    `.logs`, `.metrics` and `.deploys` before calling through the client."""
+    `.logs`, `.metrics`, `.deploys`, `.rules` and `.rule_queries` before calling
+    through the client."""
     fake_target_service = HTTPServer(
         ("127.0.0.1", FAKE_TARGET_SERVICE_PORT), FakeTargetServiceHandler
     )
@@ -120,6 +143,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     # process answers all of them.
     env["ARGOCD_BASE_URL"] = fake_target_service_url
     env["PROMETHEUS_BASE_URL"] = f"{fake_target_service_url}{PROMETHEUS_PREFIX}"
+    env["GRAFANA_BASE_URL"] = f"{fake_target_service_url}{GRAFANA_PREFIX}"
     env["READ_MCP_HOST"] = "127.0.0.1"
     env["READ_MCP_PORT"] = str(READ_MCP_TEST_PORT)
     read_mcp_process = subprocess.Popen([sys.executable, "-m", "read_mcp_server.server"], env=env)
@@ -140,6 +164,8 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
         FakeTargetServiceHandler.logs = []
         FakeTargetServiceHandler.metrics = []
         FakeTargetServiceHandler.deploys = []
+        FakeTargetServiceHandler.rules = {}
+        FakeTargetServiceHandler.rule_queries = {}
         del os.environ["READ_MCP_HOST"]
         del os.environ["READ_MCP_PORT"]
         get_settings.cache_clear()

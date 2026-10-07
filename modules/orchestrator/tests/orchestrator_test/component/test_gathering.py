@@ -352,6 +352,26 @@ def test_an_incident_that_read_the_code_and_changed_nothing_carries_no_fix(
 
 
 @pytest.mark.component
+def test_the_evidence_carries_the_rule_that_paged(a_clean_database: None) -> None:
+    # The postmortem reads the incident's metrics again, over the whole of it,
+    # and has to read them for the rule the walk read them for - or the series
+    # that paged is missing from the one window the document is measured from.
+    some_rule = "kuki-rule"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, rule=some_rule)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_rule(some_rule)
+            )
+
+
+@pytest.mark.component
 def test_a_postmortem_is_written_from_the_sources_it_was_handed(
     a_clean_database: None
 ) -> None:
@@ -417,7 +437,7 @@ def _sources_recording_into(
         rates=lambda: None,
         engagement=lambda dont_care_incident_id: None,
         bands=lambda: None,
-        metrics=lambda dont_care_start, dont_care_end: [],
+        metrics=lambda dont_care_start, dont_care_end, dont_care_rule: [],
         thresholds=DONT_CARE_THRESHOLDS,
         working_hours_a_year=DONT_CARE_WORKING_YEAR,
         reporting_currency="USD"
@@ -553,6 +573,17 @@ def _carries_the_recovery(expected: datetime) -> Assertion[IncidentEvidence]:
     return assertion
 
 
+def _carries_the_rule(expected: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.rule != expected:
+            raise AssertionError(
+                f"Expected the rule that paged, [{expected}], got [{evidence.rule}].")
+
+        return True
+
+    return assertion
+
+
 def _carries_the_onset(expected: datetime) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.onset_at != expected:
@@ -601,7 +632,7 @@ def _carries_no_proposal() -> Assertion[IncidentEvidence]:
     return assertion
 
 
-def _an_incident_that_ended(conn: psycopg.Connection) -> str:
+def _an_incident_that_ended(conn: psycopg.Connection, rule: str | None = None) -> str:
     """An incident with both a row and an account of itself.
 
     The events as well as the rows, because the document is written from the
@@ -609,7 +640,7 @@ def _an_incident_that_ended(conn: psycopg.Connection) -> str:
     moved and whose story says nothing is one the postmortem has nothing to
     read.
     """
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule)
     incident_id = incidents.create(conn, some_alert)
     events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
     incidents.transition(

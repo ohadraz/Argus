@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 
 from agent_postmortem import IncidentEvidence, write_postmortem
-from agent_postmortem.estimate import ErrorRates
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
@@ -46,10 +46,12 @@ from argus_core.models import (
     MetricBucket,
     OpenedPullRequest,
     PostmortemDocument,
+    RuleReading,
     ToolCall,
     ToolDefinition,
     Transcript,
     Turn,
+    WorseWhen,
 )
 from argus_testkit import Kept
 
@@ -141,7 +143,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        log_lines: list[str] | None = None,
                        tokens_spent: int = DONT_CARE_TOKENS_SPENT,
                        pull_request: OpenedPullRequest | None = None,
-                       recommended_action: str | None = None
+                       recommended_action: str | None = None,
+                       rule: str | None = None
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -157,6 +160,10 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     acting on it, which is the exception the whole of `RECOMMENDED` exists for.
     A bundle carrying one as standard would have every test written against an
     incident that is not over.
+
+    No rule by default: an incident paged by nothing that names one is read for
+    the five fixed series alone, which is every bundle written before a rule's
+    own series could be read.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -171,7 +178,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         log_lines=log_lines if log_lines is not None else ["dont care"],
         tokens_spent=tokens_spent,
         pull_request=pull_request,
-        recommended_action=recommended_action
+        recommended_action=recommended_action,
+        rule=rule
     )
 
 
@@ -188,7 +196,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         engaged: EngagementAnswer | None = NOBODY_RESPONDED,
                         cost: ResponderCost | None = None,
                         bands: Mapping[str, PayBand] | None = NO_BANDS_NEEDED,
-                        unobserved_from: datetime | None = None) -> Measurements:
+                        unobserved_from: datetime | None = None,
+                        rule_series: RuleSeriesLevels | None = None) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -202,6 +211,9 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
     `currency` is not settable: it is the table's base, and a measured incident
     whose figure is in a currency its own rate table does not name is not a
     state anything can produce.
+
+    No rule series by default, which is an incident paged by a rule watching
+    none of its own - every incident measured before one could be read.
     """
     return Measurements(
         duration_in_hours=duration_in_hours,
@@ -218,7 +230,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         engaged=engaged,
         cost=cost,
         bands=bands,
-        unobserved_from=unobserved_from
+        unobserved_from=unobserved_from,
+        rule_series=rule_series
     )
 
 
@@ -439,7 +452,8 @@ def metrics_showing_error_rates(baseline: float, during: float) -> Metrics:
     it finds there.
     """
     def metrics_between(dont_care_start: datetime,
-                        dont_care_end: datetime) -> list[MetricBucket]:
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
         return [
             a_bucket(at=ONSET - timedelta(minutes=1), error_rate=baseline),
             a_bucket(at=ONSET + timedelta(minutes=5), error_rate=during),
@@ -465,7 +479,8 @@ def metrics_that_recovered(
     `RECOVERED_AT` are visibly different numbers.
     """
     def metrics_between(dont_care_start: datetime,
-                        dont_care_end: datetime) -> list[MetricBucket]:
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
         return [
             *(a_bucket(at=ONSET + timedelta(minutes=minute), error_rate=baseline)
               for minute in range(-10, 0)),
@@ -473,6 +488,44 @@ def metrics_that_recovered(
               for minute in range(0, 10)),
             *(a_bucket(at=ONSET + timedelta(minutes=minute), error_rate=baseline)
               for minute in range(10, 31))
+        ]
+
+    return metrics_between
+
+
+def metrics_whose_rule_series_went(baseline: float,
+                                   while_broken: float,
+                                   at_its_worst: float,
+                                   worse_when: WorseWhen,
+                                   once_recovered: float | None = None) -> Metrics:
+    """A window in which only the paging rule's own series moved.
+
+    The error rate is the calm one throughout, because that is the incident the
+    series exists for: every request succeeded, and what went wrong was what the
+    answers said. One calm minute before the onset, then two broken ones - the
+    second of them the worst.
+
+    `once_recovered`, where given, is a reading at `ENDED_AT` itself - the first
+    minute that is no longer the incident - for the cases that need one there to
+    prove it is left out.
+    """
+    def metrics_between(dont_care_start: datetime,
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [
+            a_bucket(at=ONSET - timedelta(minutes=1),
+                     error_rate=DONT_CARE_BASELINE_ERROR_RATE,
+                     rule_reading=RuleReading(value=baseline, worse_when=worse_when)),
+            a_bucket(at=ONSET + timedelta(minutes=5),
+                     error_rate=DONT_CARE_BASELINE_ERROR_RATE,
+                     rule_reading=RuleReading(value=while_broken, worse_when=worse_when)),
+            a_bucket(at=ENDED_AT - timedelta(minutes=1),
+                     error_rate=DONT_CARE_BASELINE_ERROR_RATE,
+                     rule_reading=RuleReading(value=at_its_worst, worse_when=worse_when)),
+            *([a_bucket(at=ENDED_AT,
+                        error_rate=DONT_CARE_BASELINE_ERROR_RATE,
+                        rule_reading=RuleReading(value=once_recovered, worse_when=worse_when))]
+              if once_recovered is not None else [])
         ]
 
     return metrics_between
@@ -486,7 +539,8 @@ def metrics_that_stop_at_the_onset() -> Metrics:
     which is a source that could not be read, this one answered.
     """
     def metrics_between(dont_care_start: datetime,
-                        dont_care_end: datetime) -> list[MetricBucket]:
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
         return [
             a_bucket(at=ONSET + timedelta(minutes=minute),
                      error_rate=DONT_CARE_BASELINE_ERROR_RATE)
@@ -498,7 +552,8 @@ def metrics_that_stop_at_the_onset() -> Metrics:
 
 def metrics_that_answer_with_nothing() -> Metrics:
     def metrics_between(dont_care_start: datetime,
-                        dont_care_end: datetime) -> list[MetricBucket]:
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
         return []
 
     return metrics_between
@@ -507,7 +562,8 @@ def metrics_that_answer_with_nothing() -> Metrics:
 def metrics_recording_the_window_into(
         windows: Kept[tuple[datetime, datetime]]) -> Metrics:
     def metrics_between(window_start: datetime,
-                        window_end: datetime) -> list[MetricBucket]:
+                        window_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
         windows.take((window_start, window_end))
 
         return []
@@ -515,7 +571,22 @@ def metrics_recording_the_window_into(
     return metrics_between
 
 
-def a_bucket(at: datetime, error_rate: float) -> MetricBucket:
+def metrics_recording_the_rule_into(rules: Kept[str | None]) -> Metrics:
+    """A metrics source noting which rule each read was made for, and answering
+    with nothing - what is asked of it is the question rather than the figures."""
+    def metrics_between(dont_care_start: datetime,
+                        dont_care_end: datetime,
+                        rule: str | None) -> list[MetricBucket]:
+        rules.take(rule)
+
+        return []
+
+    return metrics_between
+
+
+def a_bucket(at: datetime,
+             error_rate: float,
+             rule_reading: RuleReading | None = None) -> MetricBucket:
     return MetricBucket(
         bucket_id=at.strftime("%Y-%m-%dT%H:%M"),
         error_rate=error_rate,
@@ -526,7 +597,8 @@ def a_bucket(at: datetime, error_rate: float) -> MetricBucket:
         memory_used_bytes=440 * 1024**2,
         process_start_time_seconds=1_756_000_000.0,
         cpu_used_cores=0.77,
-        cpu_limit_cores=3.0
+        cpu_limit_cores=3.0,
+        rule_reading=rule_reading
     )
 
 

@@ -1066,6 +1066,187 @@ def _a_fix_of_the_scrape_configuration(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+# The categoriser upgrade and the commit before it, as the demo app's `scenarios.py`
+# names them (`THE_COMMIT_THAT_UPGRADED_THE_CATEGORISER` and the one before). A
+# pair that moves if the scenario is restaged, as the control plane's pair above.
+THE_REVISION_THAT_UPGRADED_THE_CATEGORISER: Final = (
+    "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+)
+THE_REVISION_BEFORE_THE_UPGRADE: Final = "d268103129978816ce705c50c14cd42c7c5fe46e"
+
+# The module the fix is of and its test, read from the shop's checkout as the scrape
+# configuration is: the repository double carries neither.
+THE_CATEGORISER: Final = "src/io_shop/categorising.py"
+THE_TEST_OF_THE_CATEGORISER: Final = "tests/io_shop/test_categorising.py"
+THE_TITLE_HANDED_OVER_AS_GIVEN: Final = "    return model.predict(title.split())\n"
+THE_TITLE_FOLDED_FIRST: Final = (
+    "    # Folded here rather than trusted to the model: a version whose tokeniser\n"
+    "    # moved into its training pipeline takes words exactly as given, and a\n"
+    "    # title is capitalised however the catalogue wrote it.\n"
+    "    return model.predict(title.lower().split())\n"
+)
+THE_TEST_OF_THE_FOLDING: Final = '''
+
+def test_the_upgrade_reads_a_word_however_it_is_capitalised() -> None:
+    assert categorise("KEYBOARD with backlight", V2).category == "Computing"
+    assert categorise("Kettle in brushed steel", V2).confident
+'''
+
+
+def _a_model_upgrade_that_files_worse(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by a conclusion about the categoriser.
+
+    Borrowed from the bad-deployment walk, which is the one world with the thing
+    this one turns on: a revision at the onset, a rollback at the end and a fix
+    after it. The difference is which series moved - that walk read every
+    quantile climb, this one the share the categoriser files confidently while
+    every request is as quick and as successful as it was - and the mode is the
+    whole of that difference.
+
+    One hypothesis, for the reason the rewrites above give: the mode is what this
+    rehearsal exercises and what it cannot judge.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.84,
+                            "failure_mode": "output-quality-degradation",
+                            "faulting_service": None,
+                            "from_state": THE_REVISION_BEFORE_THE_UPGRADE,
+                            "subject": (
+                                f"revision {THE_REVISION_THAT_UPGRADED_THE_CATEGORISER} "
+                                f"(categoriser.model v1 -> v2)"
+                            ),
+                            "summary": (
+                                f"Revision {THE_REVISION_THAT_UPGRADED_THE_CATEGORISER} "
+                                f"moved the shop's categoriser from v1 to v2 at the "
+                                f"onset minute, and from that minute the share of "
+                                f"purchases filed with confidence falls from about "
+                                f"nine in ten to under half while the error rate, "
+                                f"every latency quantile, memory and CPU hold "
+                                f"where they were. The requests still succeed; "
+                                f"what they produce is worse. v2 takes words "
+                                f"exactly as given where v1 folded their case, so "
+                                f"a capitalised title matches nothing and is filed "
+                                f"under General. Returning the deployment loads v1 "
+                                f"again."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": None,
+                                    "claim": (
+                                        f"deployed revision "
+                                        f"{THE_REVISION_THAT_UPGRADED_THE_CATEGORISER}, "
+                                        f"from deploy"
+                                    )
+                                },
+                                {
+                                    "at": None,
+                                    "claim": "categoriser loaded model v2"
+                                },
+                                {
+                                    "at": None,
+                                    "claim": (
+                                        "-  model: v1\n"
+                                        "+  model: v2"
+                                    )
+                                }
+                            ],
+                            "to_state": THE_REVISION_THAT_UPGRADED_THE_CATEGORISER
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
+def _the_shops_own(path: str, must_hold: str) -> str:
+    """A file from the shop's checkout, refused if it no longer holds what a
+    fabricated fix of it assumes."""
+    held = (THE_SHOPS_CHECKOUT / path).read_text(encoding="utf-8")
+
+    if must_hold not in held:
+        raise SystemExit(
+            f"[{path}] in the shop's checkout no longer holds "
+            f"[{must_hold.strip()}] - the fixture has moved, and a fabricated fix "
+            f"against a file that has changed rehearses nothing"
+        )
+
+    return held
+
+
+def _a_fix_of_the_categoriser(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `submit_fix`, replaced by the title folded before the model
+    sees it, and a test that the upgrade reads a capitalised word.
+
+    The envelope kept as recorded, for the reason every rewrite here keeps it.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_SUBMITS_A_FIX:
+            block = {
+                **block,
+                "input": {
+                    "summary": "Fold a title's case before the categoriser looks it up",
+                    "explanation": (
+                        "v2's tokeniser moved into its training pipeline, which "
+                        "lowercases titles before the vocabulary is built, so the "
+                        "model takes words exactly as given. `categorise` handed it "
+                        "the title as the catalogue wrote it, and a capitalised "
+                        "word matched nothing. The title is now folded before any "
+                        "model sees it; v1, which folded its own input, files "
+                        "exactly as it did."
+                    ),
+                    "files": [
+                        {
+                            "path": THE_CATEGORISER,
+                            "content": _the_shops_own(
+                                THE_CATEGORISER, THE_TITLE_HANDED_OVER_AS_GIVEN
+                            ).replace(
+                                THE_TITLE_HANDED_OVER_AS_GIVEN, THE_TITLE_FOLDED_FIRST, 1
+                            )
+                        },
+                        {
+                            "path": THE_TEST_OF_THE_CATEGORISER,
+                            "content": _the_shops_own(
+                                THE_TEST_OF_THE_CATEGORISER, "def test_"
+                            ) + THE_TEST_OF_THE_FOLDING
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_SUBMITS_A_FIX}] answer to "
+            f"rewrite, so its Code-Fix proposed nothing"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answers have to be rewritten, by the set being fabricated, and which tool
 # call marks each. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -1120,6 +1301,13 @@ _THE_ANSWERS_THAT_HAVE_TO_DIFFER: Final[
     "both-monitoring-configuration-drift": (
         (THE_TOOL_THAT_ANSWERS, _a_rename_the_monitoring_did_not_follow),
         (THE_TOOL_THAT_FINDS_NOTHING, _a_fix_of_the_scrape_configuration)
+    ),
+    # `both` alone, as the case that replays it is collected. Borrowed from the
+    # bad-deployment walk, so two answers differ: the mode the investigation
+    # names, and the fix that walk submitted to a different file.
+    "both-categoriser-model-upgraded": (
+        (THE_TOOL_THAT_ANSWERS, _a_model_upgrade_that_files_worse),
+        (THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_categoriser)
     )
 }
 
