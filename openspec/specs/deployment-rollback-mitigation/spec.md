@@ -9,7 +9,6 @@ shipped with, so one action answers a bad deployment and a configuration changed
 into a broken state alike. It mitigates and does not resolve - the repository
 still holds what caused the incident.
 ## Requirements
-
 ### Requirement: A config-induced failure is a failure mode of its own
 The system SHALL carry a failure mode for a deployment's configuration having
 been changed into a broken state, distinct from a bad deployment and from a
@@ -216,3 +215,14 @@ belongs.
 - **GIVEN** an incident determined as an in-flight compatibility break
 - **WHEN** the mitigations available for it are enumerated
 - **THEN** completing the rollout is not among them
+
+### Requirement: Rolling back answers output-quality degradation
+The strategy registry SHALL map `output-quality-degradation` to the deployment
+rollback, as it maps a bad deployment and a config-induced failure: a revision
+that made the answers worse is undone by returning to the one that answered well.
+
+#### Scenario: The mode maps to the rollback strategy
+- **GIVEN** a hypothesis determining output-quality degradation
+- **WHEN** a mitigation is proposed for it
+- **THEN** a deployment rollback is proposed
+

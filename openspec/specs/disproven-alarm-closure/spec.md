@@ -13,7 +13,6 @@ window with no departure in it is not evidence against that alarm and must not
 close it. Which of the two a rule is, only the rule knows, so the alert carries
 it.
 ## Requirements
-
 ### Requirement: An alert says whether it reports a series or a finding of its own
 
 The system SHALL read, from the alert, whether the condition it reports was
@@ -47,10 +46,12 @@ distinguishes the two is what the rule looked at, which only the rule knows.
 ### Requirement: A window with no departure disproves an alarm that reported a series
 
 The system SHALL conclude that the alarm was disproven when the retrieved window
-holds no departure in any judged signal, the alert states no onset, and the alert
-reports a series condition. The conclusion SHALL record which signals were
-judged and over what window, because an assertion that nothing departed is only
-as good as the span and the signals it was made over.
+holds no departure in any judged signal, the alert states no onset, the alert
+reports a series condition, and - where the alert names a rule - the window
+carries that rule's series. The conclusion SHALL record which signals were
+judged, the paging rule's series among them where it was read, and over what
+window, because an assertion that nothing departed is only as good as the span
+and the signals it was made over.
 
 #### Scenario: A well service under a series alarm is disproven
 - **GIVEN** an alert reporting a high error rate, and a window in which no judged
@@ -65,6 +66,13 @@ as good as the span and the signals it was made over.
 - **WHEN** the investigation runs
 - **THEN** the alarm is not disproven and the investigation proceeds from the
   onset it measured
+
+#### Scenario: A disproof names the rule's series it judged
+- **GIVEN** an alert naming a rule whose series was read, and a window in which
+  neither the five signals nor the rule's series departs
+- **WHEN** the investigation runs
+- **THEN** the alarm is recorded as disproven, and the signals judged include the
+  rule's series
 
 ### Requirement: A window with no minutes in it disproves nothing
 
@@ -146,3 +154,17 @@ look at a service Argus has established is well.
 - **WHEN** the walk ends
 - **THEN** exactly one page is raised, saying which condition the rule reported
   and that the window held no departure in any judged signal
+
+### Requirement: An alarm whose rule's series could not be read is not disproven
+The system SHALL NOT conclude that an alarm was disproven when the alert names a
+rule and the window carries none of that rule's series. The window was never
+shown what the rule watched, so its flatness is no evidence about the alarm; the
+investigation SHALL proceed as it does for an alarm a flat window cannot
+contradict.
+
+#### Scenario: An unreadable rule leaves the alarm standing
+- **GIVEN** an alert naming a rule whose series could not be resolved, and a
+  window in which the five signals are flat
+- **WHEN** the investigation runs
+- **THEN** the alarm is not disproven and the investigation goes on
+

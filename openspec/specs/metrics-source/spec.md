@@ -5,7 +5,6 @@ How Argus reads a service's per-minute metrics: through a port in its own
 vocabulary, with the monitoring vendor - Prometheus, read over its range-query
 API - confined to one adapter aimed by a base-URL setting, so that "nobody
 could say" never arrives looking like a quiet window.
-
 ## Requirements
 ### Requirement: Metrics are read through a port, in Argus's own vocabulary
 The system SHALL read a service's per-minute metrics through a `MetricsSource`
@@ -69,4 +68,20 @@ Prometheus's own.
 - **WHEN** the adapter is asked for a window
 - **THEN** it raises `MetricsUnavailable` carrying Prometheus's `errorType`
   and `error`
+
+### Requirement: A window may carry one more query's values
+The Prometheus adapter SHALL accept one additional PromQL query beside its fixed ones and, when
+given one, SHALL carry its value for each minute on that minute's bucket. A minute the additional
+query has no value for SHALL still be returned with its fixed fields, and an additional query
+Prometheus refuses SHALL leave every minute without it rather than failing the window.
+
+#### Scenario: The additional query's values ride on the buckets
+- **GIVEN** an additional query Prometheus answers for every minute of a window
+- **WHEN** the adapter is asked for that window with it
+- **THEN** every bucket carries the query's value for its minute
+
+#### Scenario: A refused additional query does not cost the window
+- **GIVEN** an additional query Prometheus answers with `bad_data`
+- **WHEN** the adapter is asked for a window with it
+- **THEN** the buckets are returned with their fixed fields and no additional value
 

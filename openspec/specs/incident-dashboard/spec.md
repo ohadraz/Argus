@@ -3,7 +3,6 @@
 ## Purpose
 Argus's own screen - what it saw about an incident, and what it did about it. Served by the Web Application (§7.7, §7.9), so a walk is legible to somebody who was not watching it happen, and a running incident can be watched beside the Target Service's own console.
 ## Requirements
-
 ### Requirement: Argus has a view of its own reasoning
 
 `argus_web` SHALL serve a server-rendered page showing what Argus did about an incident. It is Argus's screen, not the shop's: the Target Service's console shows the incident from outside, and this shows it from inside.
@@ -109,3 +108,16 @@ The page SHALL carry Argus's own identity - its favicon and name - so a browser 
 
 - **WHEN** the shop's console and Argus's page are open side by side
 - **THEN** the two tabs are distinguishable by their icons alone
+
+### Requirement: The evidence shows the paging rule's series
+The page's metrics evidence SHALL show the paging rule's series as a column of its
+own beside the fixed signals, where an incident's metrics carry it, and the
+narration of the metrics SHALL include it. Where they carry none, no such column
+SHALL be shown.
+
+#### Scenario: A quality incident's evidence shows the quality series
+- **GIVEN** an incident whose metrics carry the rule's series
+- **WHEN** its evidence is viewed
+- **THEN** each minute shows the rule's series beside its error rate and
+  latencies
+

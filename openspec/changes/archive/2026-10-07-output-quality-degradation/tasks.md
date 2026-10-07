@@ -64,4 +64,4 @@
 
 - [x] 9.1 lint, typecheck, guard_layering, test_all, integration, contract, full e2e_replay
 - [x] 9.2 Comments, docstrings, jargon, docs aligned; no missing, redundant or weak tests
-- [ ] 9.3 Commit the demo app and Argus (one line each, approved); archive the change
+- [x] 9.3 Commit the demo app and Argus (one line each, approved); archive the change
