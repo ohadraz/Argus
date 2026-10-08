@@ -12,6 +12,8 @@ four words means "it worked" is a reader that will one day match none of them.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from argus_core.events import (
     ActionRefused,
@@ -22,6 +24,7 @@ from argus_core.events import (
     IncidentEvent,
     LogsRetrieved,
     MitigationResumed,
+    PlacementRecorded,
     PlatformUnavailable,
     Publisher,
     RetrievalRequested,
@@ -34,9 +37,12 @@ from argus_core.ids import new_id
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
+    PodPlacement,
+    RecordedPlacement,
     the_actions_through,
 )
 from argus_core.models.action import Verdict
@@ -160,7 +166,8 @@ def test_an_unavailable_platform_carries_what_it_took_away() -> None:
         .then(all_of(
             _it_is(published),
             _it_took_away([
-                RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER
+                RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER,
+                PIN_TO_ACCELERATOR
             ])
         ))
 
@@ -322,6 +329,32 @@ def test_a_candidate_selected_reads_back_as_the_one_now_under_test() -> None:
                 hypothesis_id=new_id(),
                 summary="the checkout flag was toggled on",
                 confidence=0.72
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_a_recorded_placement_reads_back_with_the_onset_it_was_recorded_against() -> None:
+    # The placement means nothing without the minute it was read against: which
+    # pods started at the onset is the whole of what it is published for, and a
+    # reader months later has the event and not the walk.
+    Scenario() \
+        .given(
+            published := PlacementRecorded(
+                incident_id=new_id(),
+                placement=RecordedPlacement(
+                    onset=datetime(2026, 10, 8, 9, 30, tzinfo=UTC),
+                    pods=(
+                        PodPlacement(
+                            pod="io-shop-7d9c4f8b6-x2k9p",
+                            node="gpu-a100-0",
+                            accelerator="NVIDIA-A100-SXM4-40GB",
+                            started_at=datetime(2026, 10, 8, 9, 29, 30, tzinfo=UTC)
+                        ),
+                    )
+                )
             )
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \

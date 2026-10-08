@@ -69,7 +69,9 @@ def next_candidate_node(state: IncidentState,
     next_up = the_next_worth_trying(
         what_each_would_do(
             state.candidates,
-            the_circumstances(state.alert, state.flag_changes, state.deployments)
+            the_circumstances(
+                state.alert, state.flag_changes, state.deployments, state.placement
+            )
         ),
         attempts,
         start=state.candidate_index + 1,
@@ -114,9 +116,9 @@ def next_candidate_node(state: IncidentState,
     # failed is the means of acting on it.
     #
     # Names the actions rather than the platform alone, and derives them from the
-    # kinds rather than listing them, so a sixth mitigation cannot leave this
+    # kinds rather than listing them, so a further mitigation cannot leave this
     # sentence stale. A reader told only that a platform is down has to work out
-    # which of Argus's five went with it, which is what saying anything here is
+    # which of Argus's seven went with it, which is what saying anything here is
     # for.
     if state.unreachable_platforms:
         return StateDelta(
@@ -161,7 +163,7 @@ def _what_the_platforms_took_away(platforms: Sequence[Platform]) -> str:
     actions it carries tells them what Argus could not do about the incident
     they are now holding, which is the question they actually have.
 
-    Derived from the kinds rather than written out, so that the day a sixth
+    Derived from the kinds rather than written out, so that the day a further
     mitigation is added this sentence is right without anybody remembering it.
     """
     return "; ".join(

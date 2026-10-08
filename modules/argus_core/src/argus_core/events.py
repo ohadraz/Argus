@@ -37,6 +37,7 @@ from argus_core.models.fix import FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.metrics import MetricBucket
+from argus_core.models.placement import RecordedPlacement
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
@@ -263,6 +264,21 @@ class FlagChangesRetrieved(_Event):
     changes: list[FlagChange]
 
 
+class PlacementRecorded(_Event):
+    """Where the alerting service's pods were running, recorded against the
+    onset before anything was done.
+
+    Published because it is the basis of an action and the one reading nothing
+    else in the record holds: a deployment history says what was deployed, and a
+    replica moved to another card with nothing deployed is visible only here. The
+    onset travels with it because which pods started at the onset is what the
+    placement is read for, and a reader has the event and not the walk.
+    """
+
+    kind: Literal["placement-recorded"] = "placement-recorded"
+    placement: RecordedPlacement
+
+
 class ActionTaken(_Event):
     """A change Argus made to the service, for a candidate."""
 
@@ -290,6 +306,11 @@ class ActionTaken(_Event):
     # one kind of line could compare against it would have every publisher
     # restate a fact about the incident on every row it wrote.
     a_dependency_of: str | None = None
+    # The card a pin held the deployment to, and `None` for every other kind.
+    # Carried beside the subject rather than in it, because the subject of a pin
+    # is the application: which card is the half a reader checks against the
+    # placement recorded at the onset, and nothing else on the line says it.
+    accelerator: str | None = None
 
 
 class AwaitingRecovery(_Event):
@@ -463,9 +484,9 @@ class AlarmDisproven(_Event):
 class PlatformUnavailable(_Event):
     """A platform Argus acts through did not answer, and what went with it.
 
-    The account of a thing that is never about one action. Four of the five
+    The account of a thing that is never about one action. Five of the seven
     generic mitigations reach the estate through the deployment platform, so a
-    platform that is not answering has taken four away at once - and an incident
+    platform that is not answering has taken five away at once - and an incident
     that was then mitigated by the one action on a live platform reads, without
     this, as though Argus simply preferred that action. Which is the record
     misstating the reasoning it exists to hold.
@@ -481,7 +502,7 @@ class PlatformUnavailable(_Event):
 
     `actions_unavailable` is carried rather than looked up from the mapping that
     holds it, though the two agree today. An event is read months later without
-    the code that published it, and a sixth mitigation added in between changes
+    the code that published it, and a further mitigation added in between changes
     what the platform carries *now* - it must not change what an incident from
     before it says went away then.
     """
@@ -717,6 +738,7 @@ type IncidentEvent = Annotated[
         | ChangesRetrieved
         | ChannelsUnread
         | FlagChangesRetrieved
+        | PlacementRecorded
         | OnsetDetected
         | HypothesisFormed
         | CandidateSelected

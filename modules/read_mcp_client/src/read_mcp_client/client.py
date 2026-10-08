@@ -8,6 +8,7 @@ from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
     MetricBucket,
+    PodPlacement,
     RolloutProgress,
     ServiceDependency,
 )
@@ -27,6 +28,7 @@ _WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
 _ROLLOUT_STATE: Final = TypeAdapter(list[str])
 _ROLLOUT_PROGRESS: Final = TypeAdapter(RolloutProgress)
 _ALERT_RULE: Final = TypeAdapter(AlertRuleStanding)
+_PLACEMENTS: Final = TypeAdapter(list[PodPlacement])
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
@@ -222,6 +224,26 @@ def get_alert_rule(rule: str, *, client: McpClient) -> AlertRuleStanding:
     normal when the rule cannot be read.
     """
     return client.call("get_alert_rule", _ALERT_RULE.validate_python, rule=rule)
+
+
+def get_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
+    """Reads where each of a service's replicas runs - its node, that node's
+    card, and when the pod started.
+
+    The evidence for the one failure mode whose cause is a placement: a replica
+    moved onto another card with nothing deployed is in no history, no diff and
+    no flag log. The Investigator reads it on every incident, before its model is
+    asked anything, and puts each start either side of the onset.
+
+    Raises rather than answering that the service runs nowhere when the platform
+    could not be reached: an empty answer finds no replica that moved, which is
+    an outage read as an all-clear.
+    """
+    return client.call(
+        "get_placements",
+        _PLACEMENTS.validate_python,
+        service=service
+    )
 
 
 def get_enabled_flags(*, client: McpClient) -> list[str]:

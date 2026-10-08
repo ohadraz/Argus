@@ -25,9 +25,11 @@ from typing import Any
 
 import pytest
 from argus_core.models.undo_descriptor import (
+    PIN_TO_ACCELERATOR_TOOL,
     ROLL_BACK_DEPLOYMENT_TOOL,
     SCALE_OUT_TOOL,
     SET_FEATURE_FLAG_TOOL,
+    AcceleratorPinUndo,
     DeploymentRollbackUndo,
     FlagUndo,
     ReplicaUndo,
@@ -44,6 +46,8 @@ A_CONFIG_ROLLBACK = "deployment-revision"
 SOME_APPLICATION = "io-shop"
 SOME_ENVIRONMENT = "production"
 A_RESIZE = "replica-count"
+A_PIN_TO_A_CARD = "accelerator-pin"
+SOME_CARD = "Tesla-V100-SXM2-16GB"
 THE_MOMENT_ARGUS_WROTE = datetime(2026, 9, 20, 12, 15, tzinfo=UTC)
 # The count the deployment was running before Argus made it larger.
 THE_COUNT_IT_WAS_RUNNING = 3
@@ -366,6 +370,93 @@ def test_a_scale_out_descriptor_goes_back_to_the_wire_as_it_came_off_it() -> Non
         .then(
             _it_is_the_wire_shape(a_scale_out)
         )
+
+
+@pytest.mark.unit
+def test_an_accelerator_pin_descriptor_records_the_selector_it_replaced() -> None:
+    Scenario() \
+        .given(
+            a_pin := _the_wire_shape_of_an_accelerator_pin(was_pinned_to=None)
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_pin)
+        ) \
+        .then(all_of(
+            _it_is_a(AcceleratorPinUndo),
+            _it_puts_the_selector_back_to(None),
+            _it_restores_automated_sync_to(True),
+            _the_tool_that_undoes_it_is(PIN_TO_ACCELERATOR_TOOL)
+        ))
+
+
+@pytest.mark.unit
+def test_an_accelerator_pin_descriptor_that_does_not_say_what_was_there_is_rejected() -> None:
+    # "There was no selector" and "nobody wrote down what there was" are different
+    # facts, and an undo that took the second for the first would strip a pin
+    # somebody else had set.
+    incomplete = _the_wire_shape_of_an_accelerator_pin(was_pinned_to=None)
+    del incomplete["was_pinned_to"]
+
+    Scenario() \
+        .given(
+            incomplete
+        ) \
+        .when(
+            attempting(lambda: parse_undo_descriptor(incomplete))
+        ) \
+        .then(all_of(
+            an_error_was_raised(ValidationError),
+            _it_complains_about("was_pinned_to")
+        ))
+
+
+@pytest.mark.unit
+def test_an_accelerator_pin_descriptor_goes_back_to_the_wire_as_it_came_off_it() -> None:
+    a_pin = _the_wire_shape_of_an_accelerator_pin(was_pinned_to="NVIDIA-A100-SXM4-40GB")
+
+    Scenario() \
+        .given(
+            a_pin
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_pin).model_dump(mode="json")
+        ) \
+        .then(
+            _it_is_the_wire_shape(a_pin)
+        )
+
+
+def _the_wire_shape_of_an_accelerator_pin(was_pinned_to: str | None) -> dict[str, Any]:
+    """One pin to a card as the write tier reports it, before anything has read
+    it."""
+    return {
+        "kind": A_PIN_TO_A_CARD,
+        "tool": PIN_TO_ACCELERATOR_TOOL,
+        "application": SOME_APPLICATION,
+        "was_pinned_to": was_pinned_to,
+        "pinned_to": SOME_CARD,
+        "was_syncing_itself": True,
+        "written_at": to_iso(THE_MOMENT_ARGUS_WROTE)
+    }
+
+
+def _it_puts_the_selector_back_to(card: str | None) -> Assertion[UndoDescriptor]:
+    def assertion(descriptor: UndoDescriptor) -> bool:
+        if not isinstance(descriptor, AcceleratorPinUndo):
+            raise AssertionError(
+                f"Expected a descriptor putting a pin back, got a [{descriptor.kind}] "
+                f"one."
+            )
+
+        if descriptor.was_pinned_to != card:
+            raise AssertionError(
+                f"Expected the selector to be put back to [{card}], got "
+                f"[{descriptor.was_pinned_to}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_wire_shape_of_a_rollback(was_syncing_itself: bool) -> dict[str, Any]:

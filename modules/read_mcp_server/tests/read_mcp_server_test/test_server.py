@@ -45,6 +45,9 @@ RETRIEVAL_BY_MEANING = "search_repository_by_meaning"
 # Where the rule that paged stands, which is what a mitigation on a series alert
 # is judged by.
 THE_ALERT_RULE = "get_alert_rule"
+# Where each replica runs, which the Investigator reads on every incident before
+# its model is asked anything.
+THE_PLACEMENT = "get_placements"
 
 
 @pytest.mark.unit
@@ -103,6 +106,19 @@ def test_every_deployment_offers_the_alert_rule_a_mitigation_is_judged_by() -> N
         )) \
         .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
         .then(_the_tools_include(THE_ALERT_RULE))
+
+
+@pytest.mark.unit
+def test_every_deployment_offers_where_the_replicas_run() -> None:
+    # Above the index guard for the rollout counts' reason: where a pod runs is
+    # not a search, and a tier offering it under one mode only would leave the
+    # Investigator's every round without the one reading a moved replica shows in.
+    Scenario() \
+        .given(a_deployment_that_keeps_no_index := _a_read_tier_searching(
+            SEARCHING_BY_GREP_ALONE
+        )) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(_the_tools_include(THE_PLACEMENT))
 
 
 def _the_tools_offered_by(mode: CodeSearch) -> list[str]:

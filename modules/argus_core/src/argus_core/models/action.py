@@ -332,13 +332,44 @@ class DiscardCacheEntries(BaseModel):
     keys: tuple[str, ...] = Field(min_length=1)
 
 
+class PinToAccelerator(BaseModel):
+    """Holding a deployment's pods to one kind of accelerator.
+
+    The seventh generic mitigation, and a drain in Google SRE's sense: traffic is
+    moved off a class of hardware without anything deployed changing. It is
+    admitted on that ground, which is the set's own (spec §13), and not because
+    it can be put back - though it can.
+
+    It answers a placement rather than a change Argus could return. A replica
+    landed on a card whose arithmetic answers differently, with no revision
+    behind it, so there is nothing for a rollback to return to; what puts the
+    service back is the deployment held to the card its replicas ran on before.
+
+    `accelerator` is that card, worked out from the placement the Investigator
+    recorded against the onset and never read at the moment of acting - what a
+    platform says once the incident is under way is the very thing in question.
+    It is not part of the action's identity, for the reason a discard's keys are
+    not: an identity carrying it would let one deployment be pinned once per card
+    under a cap meant to stop the same thing being done over and over.
+
+    Like the scale-out and the autoscaler's pin, it carries **no undo
+    descriptor**: what it replaces - the selector the deployment had, and whether
+    the platform was reconciling it - is known only to the tier that did the
+    work.
+    """
+
+    action_type: Literal["pin-to-accelerator"] = "pin-to-accelerator"
+    application: str
+    accelerator: str
+
+
 # `action_type` is Argus's own word for what was done - it is a column on the
 # `action` table and a field on the event a reader sees - so it tags the union,
 # where the descriptor's `tool` is the write tier's wire vocabulary and does
 # not.
 type Action = Annotated[
     RevertFeatureFlag | RestartService | RollBackDeployment | ScaleOut
-    | PinAutoscaler | DiscardCacheEntries,
+    | PinAutoscaler | DiscardCacheEntries | PinToAccelerator,
     Field(discriminator="action_type")
 ]
 
@@ -347,7 +378,7 @@ type Action = Annotated[
 # what was done without carrying the proposal, and the row keeps a column.
 type ActionType = Literal[
     "revert-feature-flag", "restart-service", "roll-back-deployment", "scale-out",
-    "pin-autoscaler", "discard-cache-entries"
+    "pin-autoscaler", "discard-cache-entries", "pin-to-accelerator"
 ]
 
 # The tags as values, for the row and the event that carry them without
@@ -368,6 +399,7 @@ ROLL_BACK_DEPLOYMENT: Final = "roll-back-deployment"
 SCALE_OUT: Final = "scale-out"
 PIN_AUTOSCALER: Final = "pin-autoscaler"
 DISCARD_CACHE_ENTRIES: Final = "discard-cache-entries"
+PIN_TO_ACCELERATOR: Final = "pin-to-accelerator"
 
 
 # What an action reaches the estate through. A role rather than a vendor, for
@@ -476,10 +508,24 @@ class CapacityRestored(BaseModel):
     automated_sync_put_back: bool
 
 
-class AutoscalingRestored(BaseModel):
-    """Which of the two things a pin changed were put back.
+class AcceleratorPinRestored(BaseModel):
+    """Which of the two things a pin to an accelerator changed were put back.
 
-    `CapacityRestored`'s shape for the other action that changes live state under
+    `AutoscalingRestored`'s shape for the fourth action that changes live state
+    under a GitOps controller, and two flags for that one's reason: a deployment
+    back on the selector it had looks right from every angle a reader has, and is
+    silently receiving nothing anybody ships to it while the reconciliation Argus
+    suspended is still suspended.
+    """
+
+    pin_put_back: bool
+    automated_sync_put_back: bool
+
+
+class AutoscalingRestored(BaseModel):
+    """Which of the two things an autoscaler pin changed were put back.
+
+    `CapacityRestored`'s shape for the next action that changes live state under
     a GitOps controller, and two flags rather than one for the reason that one has
     two: a restore can half-succeed and the half that fails is the quiet one. An
     autoscaler back at the floor it was declared with looks right from every angle
@@ -500,7 +546,10 @@ class AutoscalingRestored(BaseModel):
 # asked of the *tag* - the row records a kind, and the walk that reads it back
 # hours later has the column and not the action it came from.
 _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
-    {REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER}
+    {
+        REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER,
+        PIN_TO_ACCELERATOR
+    }
 )
 
 # The kinds of action that change something outliving the action itself. Every
@@ -616,7 +665,11 @@ def the_subject_of(action: Action) -> str:
             return action.flag
         case RestartService():
             return action.service
-        case RollBackDeployment() | ScaleOut() | PinAutoscaler():
+        case (
+            RollBackDeployment() | ScaleOut() | PinAutoscaler() | PinToAccelerator()
+        ):
+            # The application rather than the card, for a pin to an accelerator:
+            # see `PinToAccelerator`.
             return action.application
         case DiscardCacheEntries():
             # The service rather than the keys, and the keys are the reason to
@@ -662,7 +715,9 @@ def the_service_addressed_by(action: Action) -> str | None:
             return None
         case RestartService():
             return action.service
-        case RollBackDeployment() | ScaleOut() | PinAutoscaler():
+        case (
+            RollBackDeployment() | ScaleOut() | PinAutoscaler() | PinToAccelerator()
+        ):
             return action.application
         case DiscardCacheEntries():
             # An address like a restart's, not a flag's. The store holds one
@@ -688,7 +743,28 @@ def the_direction_of(action: Action) -> bool | None:
             return action.enabled
         case (
             RestartService() | RollBackDeployment() | ScaleOut() | PinAutoscaler()
-            | DiscardCacheEntries()
+            | DiscardCacheEntries() | PinToAccelerator()
+        ):
+            return None
+        case _:
+            assert_never(action)
+
+
+def the_accelerator_of(action: Action) -> str | None:
+    """The card a pin held its deployment to, or `None` for an action that pins
+    nothing to a card.
+
+    Asked of the action rather than read off its subject, because the subject of
+    a pin is the application: that a deployment was held to a card is half of
+    what was done, and which card is the half a reader checks against the
+    placement recorded at the onset.
+    """
+    match action:
+        case PinToAccelerator():
+            return action.accelerator
+        case (
+            RevertFeatureFlag() | RestartService() | RollBackDeployment() | ScaleOut()
+            | PinAutoscaler() | DiscardCacheEntries()
         ):
             return None
         case _:
@@ -755,7 +831,7 @@ def the_platform_of(action_type: ActionType) -> Platform:
         case "revert-feature-flag":
             return FLAG_PROVIDER
         case "restart-service" | "roll-back-deployment" | "scale-out" \
-                | "pin-autoscaler":
+                | "pin-autoscaler" | "pin-to-accelerator":
             return DEPLOYMENT_PLATFORM
         case "discard-cache-entries":
             return CACHE

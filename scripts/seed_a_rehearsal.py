@@ -1247,6 +1247,160 @@ def _a_fix_of_the_categoriser(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+# The two cards, as the shop's `accelerators.py` names them and a node advertises
+# its GPU: the one the fleet was bought with, and the one the scheduler moved a
+# replica onto.
+THE_FLEETS_CARD: Final = "Tesla-V100-SXM2-16GB"
+THE_CARD_THAT_ROUNDS: Final = "NVIDIA-A100-SXM4-40GB"
+
+# The module the fix is of and its test, read from the shop's checkout for the
+# categoriser's reason: the repository double carries neither.
+THE_SCORER: Final = "src/io_shop/fraud_scoring.py"
+THE_TEST_OF_THE_SCORER: Final = "tests/io_shop/test_fraud_scoring.py"
+TF32_ALLOWED: Final = "ALLOW_TF32 = True\n"
+TF32_REFUSED: Final = (
+    "# Off: the model's two largest weights cancel only in full precision, so a\n"
+    "# card that rounds them answers a different question from the one it was\n"
+    "# trained on.\n"
+    "ALLOW_TF32 = False\n"
+)
+THE_TEST_OF_THE_REFUSAL: Final = f'''
+
+def test_a_card_that_could_round_holds_what_the_fleets_card_holds() -> None:
+    for price in range(500, 9_000, 7):
+        assert held_for_review(price, "{THE_CARD_THAT_ROUNDS}") == held_for_review(
+            price, ON_A_V100
+        )
+'''
+
+
+def _a_replica_on_a_card_that_rounds(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer`, replaced by a conclusion about the card a
+    replica was moved onto.
+
+    Borrowed from the categoriser upgrade, which is the one world shaped like this
+    one: every request as quick and as successful as it was, the departure in the
+    rule's own series alone, and a fix after the mitigation. The difference is what
+    changed at the onset - a revision there, or a replica placed on another card
+    with nothing deployed - and the mode is the whole of that difference.
+
+    One hypothesis, for the reason the rewrites above give.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            block = {
+                **block,
+                "input": {
+                    "hypotheses": [
+                        {
+                            "confidence": 0.82,
+                            "failure_mode": "accelerator-heterogeneity",
+                            "faulting_service": None,
+                            "from_state": THE_FLEETS_CARD,
+                            "subject": (
+                                f"the io-shop replica placed on {THE_CARD_THAT_ROUNDS}"
+                            ),
+                            "summary": (
+                                f"One of io-shop's pods started at the onset on a "
+                                f"node carrying {THE_CARD_THAT_ROUNDS}, where every "
+                                f"pod before it ran on {THE_FLEETS_CARD}, and from "
+                                f"that minute the share of purchases held for "
+                                f"review rises from about one in twenty to nearly "
+                                f"one in five while the error rate, every latency "
+                                f"quantile, memory and CPU hold where they were. "
+                                f"Nothing was deployed. The fraud scorer allows "
+                                f"TF32, which the A100 runs its arithmetic in, so "
+                                f"the replica on it answers differently. Holding "
+                                f"the deployment to {THE_FLEETS_CARD} puts every "
+                                f"replica back where the scorer answers as it did."
+                            ),
+                            "supporting_evidence": [
+                                {
+                                    "at": None,
+                                    "claim": (
+                                        f"a pod started at the onset on "
+                                        f"{THE_CARD_THAT_ROUNDS}"
+                                    )
+                                },
+                                {
+                                    "at": None,
+                                    "claim": "no deploy in the window"
+                                }
+                            ],
+                            "to_state": THE_CARD_THAT_ROUNDS
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to "
+            f"rewrite, so it records an investigation that never concluded"
+        )
+
+    return {**was, "content": content}
+
+
+def _a_fix_of_the_scorer(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `submit_fix`, replaced by TF32 refused in the scorer, and a
+    test that a card which could round holds what the fleet's card holds.
+
+    The envelope kept as recorded, for the reason every rewrite here keeps it.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_SUBMITS_A_FIX:
+            block = {
+                **block,
+                "input": {
+                    "summary": "Refuse TF32 in the fraud scorer",
+                    "explanation": (
+                        "The scorer's two largest weights are of opposite sign and "
+                        "almost cancel, so its whole opinion of a purchase is in "
+                        "the small difference between them. TF32 rounds both to "
+                        "about three significant digits, which leaves a logit that "
+                        "is mostly rounding error on any card that runs it. The "
+                        "scorer now refuses TF32, so it answers the same on every "
+                        "card and the deployment need not be held to one."
+                    ),
+                    "files": [
+                        {
+                            "path": THE_SCORER,
+                            "content": _the_shops_own(THE_SCORER, TF32_ALLOWED).replace(
+                                TF32_ALLOWED, TF32_REFUSED, 1
+                            )
+                        },
+                        {
+                            "path": THE_TEST_OF_THE_SCORER,
+                            "content": _the_shops_own(
+                                THE_TEST_OF_THE_SCORER, "def test_"
+                            ) + THE_TEST_OF_THE_REFUSAL
+                        }
+                    ]
+                }
+            }
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_SUBMITS_A_FIX}] answer to "
+            f"rewrite, so its Code-Fix proposed nothing"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answers have to be rewritten, by the set being fabricated, and which tool
 # call marks each. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -1308,6 +1462,13 @@ _THE_ANSWERS_THAT_HAVE_TO_DIFFER: Final[
     "both-categoriser-model-upgraded": (
         (THE_TOOL_THAT_ANSWERS, _a_model_upgrade_that_files_worse),
         (THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_categoriser)
+    ),
+    # `both` alone, as the case that replays it is collected. Borrowed from the
+    # categoriser upgrade, so the same two answers differ: the mode the
+    # investigation names, and the fix that walk submitted to the categoriser.
+    "both-scorer-replica-rescheduled": (
+        (THE_TOOL_THAT_ANSWERS, _a_replica_on_a_card_that_rounds),
+        (THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_scorer)
     )
 }
 

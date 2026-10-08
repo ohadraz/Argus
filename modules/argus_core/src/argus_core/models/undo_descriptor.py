@@ -14,6 +14,7 @@ SET_FEATURE_FLAG_TOOL: Final = "set_feature_flag"
 ROLL_BACK_DEPLOYMENT_TOOL: Final = "roll_back_deployment"
 SCALE_OUT_TOOL: Final = "scale_out"
 PIN_AUTOSCALER_TOOL: Final = "pin_autoscaler"
+PIN_TO_ACCELERATOR_TOOL: Final = "pin_to_accelerator"
 
 
 class FlagUndo(BaseModel):
@@ -177,11 +178,41 @@ class AutoscalerUndo(BaseModel):
     written_at: datetime | None = None
 
 
-# Four members, and the tag is what chooses between them. Everything that
+class AcceleratorPinUndo(BaseModel):
+    """The record of a deployment held to one card, in the shape that lets it go.
+
+    Two pieces of prior state, as the autoscaler's pin has and for its reason: a
+    platform reconciling the application re-applies the declared pod template at
+    its next sync, selector included, so the action suspended that first, and an
+    undo putting back only the selector would leave the deployment silently
+    receiving nothing anybody ships to it.
+
+    `was_pinned_to` is the card the live deployment was already held to, or
+    `None` where it was held to none - and it is required, with no default.
+    "There was no selector" and "nobody wrote down what there was" are different
+    facts, and an undo that read the second as the first would strip a pin
+    somebody else had set.
+
+    `pinned_to` is the card this pin asked for, which is what lets a withdrawal
+    hours later find out whether anybody has moved the deployment since Argus
+    did.
+    """
+
+    kind: Literal["accelerator-pin"] = "accelerator-pin"
+    application: str
+    was_pinned_to: str | None
+    pinned_to: str
+    was_syncing_itself: bool
+    tool: str = PIN_TO_ACCELERATOR_TOOL
+    written_at: datetime | None = None
+
+
+# Five members, and the tag is what chooses between them. Everything that
 # matches on `kind` carries a branch for each, which is what this was a tagged
 # union for while it still had only one.
 type UndoDescriptor = Annotated[
-    FlagUndo | DeploymentRollbackUndo | ReplicaUndo | AutoscalerUndo,
+    FlagUndo | DeploymentRollbackUndo | ReplicaUndo | AutoscalerUndo
+    | AcceleratorPinUndo,
     Field(discriminator="kind")
 ]
 

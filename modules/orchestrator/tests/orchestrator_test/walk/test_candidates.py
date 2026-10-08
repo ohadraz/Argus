@@ -34,6 +34,7 @@ from argus_core.models import (
     Circumstances,
     FlagChange,
     Hypothesis,
+    RecordedPlacement,
     WhatWouldBeTried,
 )
 from argus_testkit import Assertion, Scenario, all_of
@@ -50,6 +51,7 @@ from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     a_divergence_blamed_on,
     a_leak_blamed_on,
+    a_placement,
     a_random_id,
     an_undetermined_hypothesis,
     discarding,
@@ -296,10 +298,10 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
 
 @pytest.mark.unit
 def test_a_candidate_whose_platform_is_unreachable_is_passed_over() -> None:
-    # The whole of what a platform failure buys. Four of the five generic
+    # The whole of what a platform failure buys. Five of the seven generic
     # mitigations act through the deployment platform, so a platform that is not
-    # answering has taken four candidates away at once - and the walk's right move
-    # is to reach for the one that acts through something else rather than to end.
+    # answering has taken five candidates away at once - and the walk's right move
+    # is to reach for one that acts through something else rather than to end.
     #
     # Passed over rather than refuted: nothing was attempted, so nothing was
     # tested, and a record saying otherwise would have the postmortem report that
@@ -557,7 +559,7 @@ def test_the_circumstances_carry_the_alerts_addresses_beside_the_rounds_historie
             )
         ) \
         .when(lambda: the_circumstances(
-            an_alert_naming_entries, some_flag_changes, some_deployments
+            an_alert_naming_entries, some_flag_changes, some_deployments, None
         )) \
         .then(_the_circumstances_carry(
             service=SOME_SERVICE,
@@ -577,7 +579,7 @@ def test_a_history_nobody_could_read_leaves_no_circumstances() -> None:
             dont_care_alert := Alert(service=SOME_SERVICE,
                                      alert_name=DONT_CARE_ALERT_NAME)
         ) \
-        .when(lambda: the_circumstances(dont_care_alert, None, [a_deployment()])) \
+        .when(lambda: the_circumstances(dont_care_alert, None, [a_deployment()], None)) \
         .then(_there_are_no_circumstances())
 
 
@@ -592,13 +594,69 @@ def test_an_alert_naming_no_entries_and_an_unread_platform_carry_neither() -> No
             an_alert_naming_no_entries := Alert(service=SOME_SERVICE,
                                                 alert_name=DONT_CARE_ALERT_NAME)
         ) \
-        .when(lambda: the_circumstances(an_alert_naming_no_entries, [], None)) \
+        .when(lambda: the_circumstances(an_alert_naming_no_entries, [], None, None)) \
         .then(_the_circumstances_carry(
             service=SOME_SERVICE,
             flag_changes=[],
             stale_entry_keys=(),
             deployments=[]
         ))
+
+
+@pytest.mark.unit
+def test_the_circumstances_carry_the_placement_the_round_recorded() -> None:
+    # The one piece of evidence an action is worked out from that neither
+    # history holds: a replica moved onto another card with nothing deployed.
+    # Carried as the round recorded it, onset and all, because which card to pin
+    # to is decided from which pods started at that onset.
+    Scenario() \
+        .given(
+            the_placement_recorded := a_placement()
+        ) \
+        .when(lambda: the_circumstances(
+            Alert(service=SOME_SERVICE, alert_name=DONT_CARE_ALERT_NAME),
+            [],
+            None,
+            the_placement_recorded
+        )) \
+        .then(_the_circumstances_hold_the_placement(the_placement_recorded))
+
+
+@pytest.mark.unit
+def test_a_placement_nobody_could_read_is_carried_as_none() -> None:
+    # Unlike the deploy history, never as empty. An empty placement says the
+    # service runs on no pod, and a strategy deciding from it finds no replica
+    # that moved - which is an outage read as an all-clear. The flag history is
+    # what decides whether there are circumstances at all, so this leaves them
+    # standing and says only that the placement is unknown.
+    Scenario() \
+        .given(
+            dont_care_alert := Alert(service=SOME_SERVICE,
+                                     alert_name=DONT_CARE_ALERT_NAME)
+        ) \
+        .when(lambda: the_circumstances(dont_care_alert, [], None, None)) \
+        .then(_the_circumstances_hold_the_placement(None))
+
+
+def _the_circumstances_hold_the_placement(
+    expected: RecordedPlacement | None
+) -> Assertion[Circumstances | None]:
+    def assertion(built: Circumstances | None) -> bool:
+        if built is None:
+            raise AssertionError(
+                "Expected circumstances to be built from a readable flag history, "
+                "and there were none."
+            )
+
+        if built.placement != expected:
+            raise AssertionError(
+                f"Expected the circumstances to hold the placement {expected!r}, "
+                f"got {built.placement!r}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_change_to(flag: str) -> FlagChange:

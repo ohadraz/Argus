@@ -22,6 +22,7 @@ from argus_core.mcp_transport import McpClient
 
 from agent_mitigation.tools import (
     MitigationSettings,
+    accelerator_pin_restorer_over,
     autoscaling_restorer_over,
     capacity_restorer_over,
     deployment_restorer_over,
@@ -58,5 +59,6 @@ def an_undo_over(client: McpClient, settings: MitigationSettings) -> UndoChange:
         set_state=flag_setter_over(client),
         restore_deployment=deployment_restorer_over(client),
         restore_capacity=capacity_restorer_over(client),
-        restore_autoscaling=autoscaling_restorer_over(client)
+        restore_autoscaling=autoscaling_restorer_over(client),
+        restore_accelerator_pin=accelerator_pin_restorer_over(client)
     )

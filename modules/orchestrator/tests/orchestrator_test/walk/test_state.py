@@ -476,7 +476,7 @@ def test_a_state_nothing_has_been_found_for_yet_assumes_nothing() -> None:
             )
         ) \
         .then(
-            _nothing_was_assumed_about("hypothesis", "confidence")
+            _nothing_was_assumed_about("hypothesis", "confidence", "placement")
         )
 
 

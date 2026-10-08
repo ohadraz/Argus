@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import RolloutProgress
+from argus_core.models import PodPlacement, RolloutProgress
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -63,6 +63,22 @@ THE_AUTOSCALER_SELECTORS = {
     "version": "v2",
     "kind": "HorizontalPodAutoscaler"
 }
+
+# How the application's own Deployment is addressed on the resource route - read
+# and write alike - when a pin to a card is read or set.
+THE_DEPLOYMENT_SELECTORS = {
+    "resourceName": SOME_APPLICATION,
+    "namespace": SOME_SCALE_NAMESPACE,
+    "group": "apps",
+    "version": "v1",
+    "kind": "Deployment"
+}
+# The node label GPU Feature Discovery publishes a card's product under, which
+# Argo CD reports on a host once it is allow-listed. Spelled out rather than
+# imported, because this file is what pins the wire shape.
+THE_CARD_LABEL = "nvidia.com/gpu.product"
+SOME_CARD = "Tesla-V100-SXM2-16GB"
+SOME_OTHER_CARD = "NVIDIA-A100-SXM4-40GB"
 
 GET = "GET"
 POST = "POST"
@@ -144,6 +160,39 @@ def _a_managed_resource(manifest: dict[str, Any]) -> dict[str, Any]:
 
 def _a_tree_of(*nodes: dict[str, Any]) -> dict[str, Any]:
     return {"nodes": list(nodes)}
+
+
+def _a_placed_tree(nodes: list[dict[str, Any]],
+                   hosts: list[dict[str, Any]]) -> dict[str, Any]:
+    """A tree with the nodes it lists its pods on, as Argo CD reports them."""
+    return {"nodes": nodes, "hosts": hosts}
+
+
+def _a_pod_on(name: str, node: str | None, created_at: str | None) -> dict[str, Any]:
+    """A Pod as the tree lists it: its node said only as an info item."""
+    pod: dict[str, Any] = {"kind": "Pod", "name": name, "namespace": "dont-care"}
+
+    if created_at is not None:
+        pod["createdAt"] = created_at
+
+    if node is not None:
+        pod["info"] = [
+            {"name": "Status Reason", "value": "Running"},
+            {"name": "Node", "value": node}
+        ]
+
+    return pod
+
+
+def _a_host(name: str, card: str | None) -> dict[str, Any]:
+    """A node as the tree's `hosts` lists it, labelled with its card where the
+    platform reports that label."""
+    labels = {"kubernetes.io/hostname": name}
+
+    if card is not None:
+        labels[THE_CARD_LABEL] = card
+
+    return {"name": name, "labels": labels}
 
 
 # ---------------------------------------------------------------------------
@@ -675,6 +724,181 @@ def test_raising_the_floor_merge_patches_the_floor_alone_as_text() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_each_pods_node_and_card_are_read_from_the_tree() -> None:
+    # The node off the pod's own info, and the card off the host of that name:
+    # the tree says the two things in two places, and only together do they say
+    # what a replica is running on.
+    platform = _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_placed_tree(
+        nodes=[
+            {"kind": "Deployment", "name": SOME_APPLICATION, "namespace": "dont-care"},
+            _a_pod_on("io-shop-a", "gpu-1", "2026-10-07T09:00:00Z"),
+            _a_pod_on("io-shop-b", "gpu-2", "2026-10-07T21:40:30Z")
+        ],
+        hosts=[_a_host("gpu-1", SOME_CARD), _a_host("gpu-2", SOME_OTHER_CARD)]
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.placements_of(SOME_APPLICATION)) \
+        .then(all_of(
+            the_answer_was([
+                PodPlacement(
+                    pod="io-shop-a",
+                    node="gpu-1",
+                    accelerator=SOME_CARD,
+                    started_at=datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
+                ),
+                PodPlacement(
+                    pod="io-shop-b",
+                    node="gpu-2",
+                    accelerator=SOME_OTHER_CARD,
+                    started_at=datetime(2026, 10, 7, 21, 40, 30, tzinfo=UTC)
+                )
+            ]),
+            lambda _: _the_last_request_was(platform, GET, THE_RESOURCE_TREE)
+        ))
+
+
+@pytest.mark.unit
+def test_a_node_the_platform_reports_no_card_for_has_none() -> None:
+    # A platform not configured to report the label, or a node carrying no GPU,
+    # says nothing about a card - and nothing is not a guess at one.
+    platform = _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_placed_tree(
+        nodes=[_a_pod_on("io-shop-a", "general-0", "2026-10-07T09:00:00Z")],
+        hosts=[_a_host("general-0", None)]
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: [
+            placement.accelerator
+            for placement in argo_cd.placements_of(SOME_APPLICATION)
+        ]) \
+        .then(the_answer_was([None]))
+
+
+@pytest.mark.unit
+def test_a_tree_listing_no_hosts_reports_no_card_for_any_pod() -> None:
+    platform = _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_tree_of(
+        _a_pod_on("io-shop-a", "gpu-1", "2026-10-07T09:00:00Z")
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: [
+            (placement.node, placement.accelerator)
+            for placement in argo_cd.placements_of(SOME_APPLICATION)
+        ]) \
+        .then(the_answer_was([("gpu-1", None)]))
+
+
+@pytest.mark.unit
+def test_a_pod_not_yet_placed_or_with_no_readable_start_is_passed_over() -> None:
+    # A pod still pending has no node, and one whose start cannot be read cannot
+    # be put either side of an onset - and either, read as something, would be a
+    # replica placed somewhere nobody saw.
+    platform = _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_placed_tree(
+        nodes=[
+            _a_pod_on("pending", None, "2026-10-07T09:00:00Z"),
+            _a_pod_on("unreadable", "gpu-1", "not a moment"),
+            _a_pod_on("undated", "gpu-1", None),
+            _a_pod_on("placed", "gpu-1", "2026-10-07T09:00:00Z")
+        ],
+        hosts=[_a_host("gpu-1", SOME_CARD)]
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: [
+            placement.pod for placement in argo_cd.placements_of(SOME_APPLICATION)
+        ]) \
+        .then(the_answer_was(["placed"]))
+
+
+@pytest.mark.unit
+def test_the_card_a_deployment_is_pinned_to_is_read_off_its_live_selector() -> None:
+    platform = _Platform().answering(GET, THE_RESOURCE, _ok(_a_managed_resource({
+        "spec": {"template": {"spec": {"nodeSelector": {
+            "kubernetes.io/os": "linux",
+            THE_CARD_LABEL: SOME_CARD
+        }}}}
+    })))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.accelerator_pin_of(SOME_APPLICATION)) \
+        .then(all_of(
+            the_answer_was(SOME_CARD),
+            lambda _: _the_last_request_was(
+                platform, GET, THE_RESOURCE, query=THE_DEPLOYMENT_SELECTORS
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_deployment_selecting_no_card_is_pinned_to_none() -> None:
+    # Other selectors are somebody else's and say nothing about a card.
+    platform = _Platform().answering(GET, THE_RESOURCE, _ok(_a_managed_resource({
+        "spec": {"template": {"spec": {"nodeSelector": {"kubernetes.io/os": "linux"}}}}
+    })))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.accelerator_pin_of(SOME_APPLICATION)) \
+        .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_a_deployment_with_no_selector_at_all_is_pinned_to_none() -> None:
+    platform = _Platform().answering(GET, THE_RESOURCE, _ok(_a_managed_resource({
+        "spec": {"replicas": 3}
+    })))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.accelerator_pin_of(SOME_APPLICATION)) \
+        .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_pinning_merge_patches_the_card_label_alone_as_text() -> None:
+    # The template's selector and, of it, only the card. A patch carrying the
+    # whole selector would replace selectors somebody else declared.
+    platform = _Platform().answering(POST, THE_RESOURCE, _ok())
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.pin_to_accelerator(SOME_APPLICATION, SOME_CARD)) \
+        .then(lambda _: _the_last_request_was(
+            platform, POST, THE_RESOURCE,
+            query={
+                **THE_DEPLOYMENT_SELECTORS,
+                "patchType": "application/merge-patch+json"
+            },
+            body=json.dumps({"spec": {"template": {"spec": {"nodeSelector": {
+                THE_CARD_LABEL: SOME_CARD
+            }}}}})
+        ))
+
+
+@pytest.mark.unit
+def test_releasing_a_pin_removes_the_card_label_with_a_null() -> None:
+    # RFC 7386's own way of deleting a key, which is what an undo of a pin onto a
+    # deployment that had none has to send.
+    platform = _Platform().answering(POST, THE_RESOURCE, _ok())
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.pin_to_accelerator(SOME_APPLICATION, None)) \
+        .then(lambda _: _the_last_request_was(
+            platform, POST, THE_RESOURCE,
+            body=json.dumps({"spec": {"template": {"spec": {"nodeSelector": {
+                THE_CARD_LABEL: None
+            }}}}})
+        ))
+
+
 # ---------------------------------------------------------------------------
 # Failures
 # ---------------------------------------------------------------------------
@@ -728,7 +952,7 @@ def test_a_platform_rejecting_the_request_refused_it(status: int) -> None:
 @pytest.mark.unit
 def test_an_answer_that_is_not_json_is_refused_not_unreachable() -> None:
     # A bug of Argus's own reading an answer it did not expect is the failure
-    # worth guarding: read as unreachability it would pass over four actions
+    # worth guarding: read as unreachability it would pass over five actions
     # because a parse went wrong here.
     platform = _Platform().answering(
         GET, THE_APPLICATION, httpx2.Response(200, text="<html>login</html>")

@@ -2,8 +2,8 @@
 
 ## Purpose
 What Argus does when the platform it mitigates *through* is the thing that is
-broken. Four of the five generic mitigations reach the estate through the
-deployment platform and only the flag revert goes elsewhere, so a failure of a
+broken. Five of the seven generic mitigations reach the estate through the
+deployment platform, and the flag revert and the discard go elsewhere, so a failure of a
 platform takes several actions away at once without being anybody's diagnosis.
 This capability holds how that is told apart from an action that failed, which
 platform each kind of action acts through, which candidates an unreachable
@@ -55,10 +55,10 @@ Held as a property of the kind rather than derived at the point of failure. The
 question is asked of candidates that have not been attempted, so it cannot be
 answered by watching one fail.
 
-#### Scenario: The four platform actions share a platform
-- **WHEN** the platform of the restart, the rollback, the scale-out and the pin
-  is asked for
-- **THEN** all four name the same platform
+#### Scenario: The five platform actions share a platform
+- **WHEN** the platform of the restart, the rollback, the scale-out, the
+  autoscaler pin and the pin to a card is asked for
+- **THEN** all five name the same platform
 
 #### Scenario: The flag revert names a different platform
 - **WHEN** the platform of the feature flag revert is asked for

@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from argus_core.models import RolloutProgress
+from argus_core.models import PodPlacement, RolloutProgress
 
 
 @dataclass(frozen=True)
@@ -74,6 +74,14 @@ class DeploymentPlatformReads(Protocol):
         """How far the running Deployment has got towards what it was asked for."""
         ...
 
+    def placements_of(self, application: str, /) -> list[PodPlacement]:
+        """Where each of the application's pods is running, and since when.
+
+        A pod whose node or start the platform does not say is left out, and a
+        node whose card it does not say has none - never a guess at either.
+        """
+        ...
+
 
 class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
     """What changing the platform can ask, beside everything reading can."""
@@ -127,4 +135,14 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
                              floor: int,
                              /) -> None:
         """Raises or lowers the autoscaler's floor, and nothing else about it."""
+        ...
+
+    def accelerator_pin_of(self, application: str, /) -> str | None:
+        """The card the live Deployment's pods are held to, or `None` where they
+        are held to none."""
+        ...
+
+    def pin_to_accelerator(self, application: str, accelerator: str | None, /) -> None:
+        """Holds the Deployment's pods to one card, or releases them where
+        `accelerator` is `None` - and changes nothing else it selects on."""
         ...

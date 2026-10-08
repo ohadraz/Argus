@@ -8,6 +8,8 @@ subject.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import timedelta
 from typing import Any
 from unittest.mock import Mock, call, create_autospec
 
@@ -21,6 +23,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    PlacementFetcher,
     RolloutFetcher,
 )
 from agent_investigator.tools import DEPENDENCIES_TOOL
@@ -33,6 +36,7 @@ from argus_core.events import (
     LogsRetrieved,
     MetricsRetrieved,
     OnsetDetected,
+    PlacementRecorded,
     RetrievalRequested,
     RetrievalUnanswered,
 )
@@ -41,6 +45,7 @@ from argus_core.mcp_transport import McpToolError
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -52,6 +57,8 @@ from argus_core.models import (
     Evidence,
     MetricBucket,
     ModelPolicy,
+    PodPlacement,
+    RecordedPlacement,
     RetrievalChannel,
     RuleReading,
     WorseWhen,
@@ -68,6 +75,7 @@ from agent_investigator_test.framework.builders.configuration import (
     some_thresholds,
 )
 from agent_investigator_test.framework.builders.incident import (
+    A_SERVICE,
     A_STATED_ONSET,
     A_STATED_ONSET_OF_AN_ABSENCE,
     AN_ALERT_TIME,
@@ -140,6 +148,26 @@ THE_RULES_SERIES = "rule_reading"
 # The share of answers given confidently while nothing is wrong - the series a
 # quality rule watches, and one that is worse falling.
 SOME_CALM_SHARE = 0.9
+
+# What the opening message puts on the line of a pod placed at the onset, and
+# what the brief explains it by. Restated for the reason the bounds are: it is
+# the wording the model reads, and the brief has to be talking about the same
+# mark the message makes.
+THE_ONSET_MARK = "started at the onset"
+
+# What an unreadable placement is announced as. Restated because it is what a
+# person reading the timeline sees where the placement would have been.
+THE_PLACEMENT_ASKED_ABOUT = "where the service's replicas run"
+
+# Two pods of one service, one serving since long before the incident and one
+# the platform placed thirty seconds before the first minute that departed -
+# inside the minute's grace, so it counts as having started at the onset.
+A_POD_SERVING_BEFORE = "kuki-5b8c6d-x2kqp"
+A_POD_MOVED_AT_THE_ONSET = "kuki-5b8c6d-r7wzt"
+A_NODE_OF_THE_FLEETS = "gpu-v100-0"
+ANOTHER_NODE = "gpu-a100-0"
+THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
+ANOTHER_CARD = "NVIDIA-A100-SXM4-40GB"
 
 
 @pytest.mark.unit
@@ -1724,6 +1752,327 @@ def test_a_discard_already_tried_is_described_as_copies_thrown_away() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_a_pin_to_a_card_already_tried_is_described_as_a_pin_to_a_card() -> None:
+    # The seventh kind, behind the same `assert_never` as the rest - so a kind
+    # nobody wrote a branch for raises, and the investigation that raises is the
+    # second round of a walk whose pin was refuted. That round is the one this
+    # evidence matters to: the deployment was already held to the card the rest
+    # of the fleet runs on and the answers are still wrong, which argues against
+    # the placement being the cause at all. Not the autoscaler's wording, which
+    # is the other pin and a different claim about the service.
+    some_pinned_application = "io-shop"
+    some_time_it_was_pinned = "2026-10-07T21:45:00Z"
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(),
+                already_refuted=[
+                    Attempt(
+                        identity=ActionIdentity(
+                            action_type=PIN_TO_ACCELERATOR,
+                            subject=some_pinned_application
+                        ),
+                        occurred_at=some_time_it_was_pinned
+                    )
+                ]
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(
+                investigation.model,
+                f"held {some_pinned_application}'s pods to one accelerator card",
+                some_time_it_was_pinned
+            ),
+            _what_was_asked_first_avoids(
+                investigation.model,
+                f"set {some_pinned_application}",
+                f"stopped {some_pinned_application}'s autoscaler"
+            )
+        ))
+
+
+# ---- where the replicas run ----
+
+# Read by the loop after the onset, as the metrics are read before it, and not
+# offered to the model. A pin to a card is decided from this read, and a model
+# that never asked for it would leave nothing to decide from. Read against the
+# onset, because which pods started at it is the whole of what the read is for.
+
+
+@pytest.mark.unit
+def test_where_the_replicas_run_is_read_for_the_alerting_service() -> None:
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert())
+        ) \
+        .then(
+            _the_placement_was_read_for(investigation.placement_fetcher, A_SERVICE)
+        )
+
+
+@pytest.mark.unit
+def test_a_window_with_no_incident_in_it_reads_no_placement() -> None:
+    # After the onset and never instead of one: a placement is read against the
+    # minute the incident began, and a window with no such minute has nothing to
+    # put a pod either side of.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_channel_was_never_read(investigation.placement_fetcher)
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_shown_which_replica_started_at_the_onset() -> None:
+    # Each pod on a line of its own, with its node, its card and when it
+    # started - and the mark on the line of the pod placed at the onset alone.
+    # One line per pod is what makes the mark mean something: said anywhere in a
+    # paragraph, it would be true of whichever pod a reader guessed.
+    #
+    # A node whose card the platform does not report is said to have none
+    # rather than left blank, because blank reads as a card nobody wrote down.
+    some_metrics = a_window_that_starts_calm()
+    began = parse_iso(the_onset_of(some_metrics))
+    a_pod_on_no_card = PodPlacement(
+        pod="kuki-5b8c6d-m4hvn",
+        node="cpu-0",
+        accelerator=None,
+        started_at=began - timedelta(hours=3)
+    )
+    some_pods = [*_pods_either_side_of(the_onset_of(some_metrics)), a_pod_on_no_card]
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics)),
+            calling(investigation.the_platform_placed(some_pods))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(all_of(
+            _the_opening_line_naming(
+                investigation.model,
+                A_POD_MOVED_AT_THE_ONSET,
+                mentions=(
+                    ANOTHER_NODE,
+                    ANOTHER_CARD,
+                    to_iso(some_pods[1].started_at),
+                    THE_ONSET_MARK
+                )
+            ),
+            _the_opening_line_naming(
+                investigation.model,
+                A_POD_SERVING_BEFORE,
+                mentions=(
+                    A_NODE_OF_THE_FLEETS,
+                    THE_FLEETS_CARD,
+                    to_iso(some_pods[0].started_at)
+                ),
+                avoids=(THE_ONSET_MARK,)
+            ),
+            _the_opening_line_naming(
+                investigation.model,
+                a_pod_on_no_card.pod,
+                mentions=(a_pod_on_no_card.node, "no accelerator"),
+                avoids=(THE_ONSET_MARK,)
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_the_brief_says_what_a_replica_placed_at_the_onset_is_evidence_of() -> None:
+    # The mark on a pod's line means nothing to a model never told what it is
+    # evidence of: a replica the platform moved onto a card the others do not
+    # run on, with nothing deployed, answering differently from the rest.
+    Scenario() \
+        .when(
+            lambda: BRIEF
+        ) \
+        .then(
+            _the_brief_mentions(THE_ONSET_MARK, "accelerator")
+        )
+
+
+@pytest.mark.unit
+def test_the_findings_carry_the_placement_the_loop_recorded() -> None:
+    # Carried out rather than read again where it is used. The walk decides a
+    # pin from this, and a placement read when acting is read after whatever the
+    # walk did first has moved the pods - which is reading the remedy as the
+    # cause.
+    some_metrics = a_window_that_starts_calm()
+    some_pods = _pods_either_side_of(the_onset_of(some_metrics))
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics)),
+            calling(investigation.the_platform_placed(some_pods))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_findings_carry_the_placement(RecordedPlacement(
+                onset=parse_iso(the_onset_of(some_metrics)), pods=tuple(some_pods)
+            ))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "an_investigation_naming_no_cause",
+    [
+        lambda: an_investigation(a_model_that_is_always_cut_short()),
+        lambda: an_investigation(a_model_that_says(a_turn_the_model_declined())),
+        lambda: an_investigation(
+            a_model_that_never_stops_reading(), budget=a_budget(tool_calls=1)
+        )
+    ],
+    ids=["cut-short", "declined", "ran-out"]
+)
+def test_an_investigation_that_named_no_cause_still_carries_the_placement(
+    an_investigation_naming_no_cause: Callable[[], Investigation]
+) -> None:
+    # Read before the model was asked anything, so how the conversation ended
+    # does not change what was read. A placement dropped on the endings that
+    # name no cause would be the record saying less than the timeline does.
+    some_metrics = a_window_that_starts_calm()
+    some_pods = _pods_either_side_of(the_onset_of(some_metrics))
+    investigation = an_investigation_naming_no_cause()
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics)),
+            calling(investigation.the_platform_placed(some_pods))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_findings_carry_the_placement(RecordedPlacement(
+                onset=parse_iso(the_onset_of(some_metrics)), pods=tuple(some_pods)
+            ))
+        )
+
+
+def _pods_either_side_of(onset: str) -> list[PodPlacement]:
+    """One pod serving since long before `onset`, and one placed inside its
+    minute's grace on another card."""
+    began = parse_iso(onset)
+
+    return [
+        PodPlacement(
+            pod=A_POD_SERVING_BEFORE,
+            node=A_NODE_OF_THE_FLEETS,
+            accelerator=THE_FLEETS_CARD,
+            started_at=began - timedelta(hours=2)
+        ),
+        PodPlacement(
+            pod=A_POD_MOVED_AT_THE_ONSET,
+            node=ANOTHER_NODE,
+            accelerator=ANOTHER_CARD,
+            started_at=began - timedelta(seconds=30)
+        )
+    ]
+
+
+def _the_placement_was_read_for(reader: Mock, service: str) -> Assertion[Findings]:
+    """Once, about this service.
+
+    Compared against `call_args` rather than through `assert_called_once_with`,
+    which does not survive a spec built from a `Protocol`.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        if reader.call_count != 1 or reader.call_args != call(service):
+            raise AssertionError(
+                f"Expected the placement of [{service}] to be read once, and it "
+                f"was read {reader.call_count} time(s), as {reader.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_opening_line_naming(model: Mock,
+                             pod: str,
+                             *,
+                             mentions: tuple[str, ...],
+                             avoids: tuple[str, ...] = ()) -> Assertion[Findings]:
+    """The one line of the opening message about this pod, and what it says.
+
+    A line rather than the message, because a mark said anywhere in the message
+    passes a check of the whole whichever pod it was put on.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        opening = _the_transcript_of(model, turn=0)[0]
+        if not isinstance(opening, Ask):
+            raise AssertionError(f"Expected the conversation to open with an ask, got [{opening}].")
+
+        lines = [line for line in opening.text.splitlines() if pod in line]
+        if len(lines) != 1:
+            raise AssertionError(
+                f"Expected one line of the opening message to name [{pod}], got {lines}."
+            )
+
+        missing = [mention for mention in mentions if mention not in lines[0]]
+        present = [avoided for avoided in avoids if avoided in lines[0]]
+        if missing or present:
+            raise AssertionError(
+                f"Expected the line naming [{pod}] to say {list(mentions)} and none "
+                f"of {list(avoids)}, got [{lines[0]}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_brief_mentions(*expected: str) -> Assertion[str]:
+    def assertion(brief: str) -> bool:
+        missing = [mention for mention in expected if mention not in brief]
+        if missing:
+            raise AssertionError(f"Expected the brief to mention {missing}, and it does not.")
+
+        return True
+
+    return assertion
+
+
+def _the_findings_carry_the_placement(
+    expected: RecordedPlacement | None
+) -> Assertion[Findings]:
+    def assertion(findings: Findings) -> bool:
+        if findings.placement != expected:
+            raise AssertionError(
+                f"Expected the findings to carry the placement {expected!r}, got "
+                f"{findings.placement!r}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_metrics_were_first_read_for(reader: Mock,
                                      alert_time: str,
                                      rule: str) -> Assertion[Findings]:
@@ -2682,6 +3031,123 @@ def test_an_investigation_nobody_is_listening_to_concludes_the_same_thing() -> N
         )
 
 
+@pytest.mark.unit
+def test_the_placement_is_published_with_the_onset_it_was_read_against() -> None:
+    # The basis of an action, and the one reading nothing else in the record
+    # holds - so it is on the timeline before anything is done, with the minute
+    # that decides which pods are suspects. After the onset, which it is read
+    # against, and before any candidate, which the model formed having seen it.
+    some_metrics = a_window_that_starts_calm()
+    some_pods = _pods_either_side_of(the_onset_of(some_metrics))
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics)),
+            calling(investigation.the_platform_placed(some_pods))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(all_of(
+            _the_placement_published_was(published, RecordedPlacement(
+                onset=parse_iso(the_onset_of(some_metrics)), pods=tuple(some_pods)
+            )),
+            _the_placement_was_published_between_the_onset_and_the_first_candidate(
+                published
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_placement_that_could_not_be_read_is_said_and_carried_as_absent() -> None:
+    # Absent and never empty. An empty placement says the service runs on no
+    # pod, and a strategy deciding from it finds no replica that moved - an
+    # outage read as an all-clear. And the investigation carries on: the
+    # placement is evidence for one mode, and a walk that stopped for want of it
+    # would lose every other.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(investigation.the_placement_could_not_be_read(McpToolError(
+                "MCP tool call [get_placements] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append)
+        ) \
+        .then(all_of(
+            _the_reads_said_to_have_gone_unanswered(published, THE_PLACEMENT_ASKED_ABOUT),
+            _no_placement_was_published(published),
+            _the_findings_carry_the_placement(None),
+            _the_model_was_asked(investigation.model, times=1)
+        ))
+
+
+def _the_placement_published_was(published: list[IncidentEvent],
+                                 expected: RecordedPlacement) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        recorded = [
+            event.placement for event in published if isinstance(event, PlacementRecorded)
+        ]
+
+        if recorded != [expected]:
+            raise AssertionError(
+                f"Expected the placement {expected!r} to be published once, got "
+                f"{recorded!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_placement_was_published_between_the_onset_and_the_first_candidate(
+    published: list[IncidentEvent]
+) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        kinds = [type(event) for event in published]
+
+        if not {OnsetDetected, PlacementRecorded, HypothesisFormed} <= set(kinds):
+            raise AssertionError(
+                f"Expected an onset, a placement and a candidate to be published, "
+                f"got {[kind.__name__ for kind in kinds]}."
+            )
+
+        if not (
+            kinds.index(OnsetDetected)
+            < kinds.index(PlacementRecorded)
+            < kinds.index(HypothesisFormed)
+        ):
+            raise AssertionError(
+                f"Expected the placement after the onset and before the first "
+                f"candidate, got {[kind.__name__ for kind in kinds]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_placement_was_published(published: list[IncidentEvent]) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        recorded = [event for event in published if isinstance(event, PlacementRecorded)]
+
+        if recorded:
+            raise AssertionError(
+                f"Expected no placement to be published for a read that went "
+                f"unanswered, got {recorded!r}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _an_investigation_answering(summary: str) -> Investigation:
     """One incident, arranged twice - so the only difference between the two
     runs is whether anybody is listening."""
@@ -2882,6 +3348,9 @@ SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 # here rather than imported: it is vocabulary the log's readers depend on, and
 # a test that imports the code's spelling agrees with it even when it changes.
 METRICS_TOOL = "get_metrics"
+# The placement's channel, named as the read tier names the tool, for the same
+# reason: it is the vocabulary a reader of the log counts reads by.
+PLACEMENTS_TOOL = "get_placements"
 
 
 @pytest.mark.unit
@@ -2928,8 +3397,34 @@ def test_an_investigation_that_stops_at_the_metrics_still_writes_the_read_down()
         )
 
 
+@pytest.mark.unit
+def test_the_placement_the_loop_reads_for_itself_is_written_down() -> None:
+    # The second read the dispatcher never sees, and the one a pin is decided
+    # from. A walk that held a deployment to one card is re-examined from what
+    # this read said, and without the entry nothing in the log says which pods
+    # it found where.
+    some_buckets = a_window_that_starts_calm()
+    some_pods = _pods_either_side_of(the_onset_of(some_buckets))
+
+    Scenario() \
+        .given(
+            recorded := a_recorder_that_keeps_what_it_is_given()
+        ) \
+        .when(
+            lambda: _an_investigation_recording_to(
+                recorded, saw=some_buckets, placed=some_pods
+            )
+        ) \
+        .then(
+            _a_placement_read_was_recorded_naming(
+                recorded, [pod.pod for pod in some_pods]
+            )
+        )
+
+
 def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
-                                   saw: list[MetricBucket]) -> Any:
+                                   saw: list[MetricBucket],
+                                   placed: list[PodPlacement] | None = None) -> Any:
     """One whole investigation, whose model answers on its first turn.
 
     The model is scripted to answer immediately because what these tests are
@@ -2949,6 +3444,9 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
             DeploymentDiffFetcher, instance=True, return_value=[]
         ),
         fetch_rollout=create_autospec(RolloutFetcher, instance=True, return_value=[]),
+        fetch_placements=create_autospec(
+            PlacementFetcher, instance=True, return_value=placed or []
+        ),
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),
         converse=a_model_that_says(a_turn_answering(an_explanation())),
@@ -2988,6 +3486,33 @@ def _a_metrics_read_was_recorded_for(recorded: Kept[ReplayEntry],
             raise AssertionError(
                 f"Expected it recorded for [{incident_id}], got [{read.incident_id}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _a_placement_read_was_recorded_naming(recorded: Kept[ReplayEntry],
+                                          pods: list[str]) -> Assertion[Any]:
+    """Exactly one, filed as a tool call, carrying every pod it found."""
+    def assertion(_result: Any) -> bool:
+        reads = [entry for entry in recorded.taken if entry.target == PLACEMENTS_TOOL]
+
+        if len(reads) != 1:
+            raise AssertionError(
+                f"Expected exactly one placement read recorded, got {len(reads)} "
+                f"among {[entry.target for entry in recorded.taken]}."
+            )
+
+        if reads[0].call_type is not CallType.MCP:
+            raise AssertionError(
+                f"Expected a [{CallType.MCP}] entry, got [{reads[0].call_type}]."
+            )
+
+        answered = str(reads[0].response)
+        missing = [pod for pod in pods if pod not in answered]
+        if missing:
+            raise AssertionError(f"Expected the entry to carry {missing}, got {answered}.")
 
         return True
 

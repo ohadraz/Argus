@@ -21,6 +21,7 @@ from argus_core.models import (
     IncidentStatus,
     Platform,
     Reading,
+    RecordedPlacement,
     ServiceDependency,
     Verdict,
 )
@@ -92,6 +93,12 @@ class IncidentState(BaseModel):
     # whichever of the two changes sits at its onset, and a history nobody could
     # read must not be taken for one in which nothing was deployed.
     deployments: list[ChangeEvent] | None = None
+    # Where the alerting service's pods were running, as this round's
+    # investigation recorded them against its onset. Carried rather than read
+    # where it is used, because a pin to a card is decided from it and a read
+    # made when acting is made after the walk may already have moved the pods.
+    # `None` where the round could not read it, never an empty placement.
+    placement: RecordedPlacement | None = None
     # What the service register says this service calls, read once at the top of
     # each round beside the flag history. Carried for the same reason: the gate
     # reads it to decide whether the service an action is addressed to is one

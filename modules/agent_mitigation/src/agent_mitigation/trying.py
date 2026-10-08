@@ -37,6 +37,7 @@ from argus_core.mcp_transport import (
     without_the_payload,
 )
 from argus_core.models import (
+    AcceleratorPinUndo,
     ActionType,
     AlertRuleStanding,
     AutoscalerUndo,
@@ -45,6 +46,7 @@ from argus_core.models import (
     FlagUndo,
     MetricBucket,
     PinAutoscaler,
+    PinToAccelerator,
     ReplicaUndo,
     RestartService,
     RevertFeatureFlag,
@@ -247,9 +249,9 @@ def take_action(action: Action,
         # an escalation and this branch never runs.
         #
         # Not `ESCALATED`, because Argus has not run out of moves - it has run
-        # out of *this platform's* moves. Four of the five generic mitigations
+        # out of *this platform's* moves. Five of the seven generic mitigations
         # act through the deployment platform, so a platform that is not
-        # answering has taken four away at once and left the fifth; escalating
+        # answering has taken five away at once and left the other two; escalating
         # here ends a walk whose next candidate is a flag revert on a provider
         # that is still answering.
         #
@@ -258,8 +260,8 @@ def take_action(action: Action,
         # its cap, a floor already at its ceiling - where this says nothing was
         # there to answer. A record carrying it would report a bound that was
         # never reached.
-        # Carries what the action left behind, where it left anything. Two of
-        # the four actions through the deployment platform suspend its
+        # Carries what the action left behind, where it left anything. Four of
+        # the five actions through the deployment platform suspend its
         # reconciliation before doing what they were asked, so a platform lost
         # after that point leaves an application un-reconciled - and the row
         # this outcome writes is the only record of it. `None` on the ordinary
@@ -436,6 +438,20 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
                 ),
                 undo_descriptor=pinned
             )
+        case PinToAccelerator():
+            held = writes.pin_to_accelerator(action.application, action.accelerator)
+
+            return Performed(
+                said=(
+                    # Where the pods were held before, because that is what a
+                    # withdrawal puts back - and "held to the V100" alone reads
+                    # as though they had been held to something else.
+                    f"held [{action.application}]'s pods to [{action.accelerator}], "
+                    f"where they had been held to "
+                    f"{_the_card_in_words(held.was_pinned_to)}"
+                ),
+                undo_descriptor=held
+            )
         case DiscardCacheEntries():
             discarded = writes.discard(action.keys)
 
@@ -484,8 +500,19 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
             )
         case ReplicaUndo():
             return f"to [{undo_descriptor.was_replicas}] replicas"
+        case AcceleratorPinUndo():
+            # Two endings, and a sentence saying "let go" for both would report
+            # a pin somebody else had set as one removed.
+            if undo_descriptor.was_pinned_to is None:
+                return "to letting its pods run on any card"
+
+            return f"to holding its pods to [{undo_descriptor.was_pinned_to}]"
         case _:
             assert_never(undo_descriptor)
+
+
+def _the_card_in_words(card: str | None) -> str:
+    return "no card" if card is None else f"[{card}]"
 
 
 def _what_it_would_have_done(action: Action) -> str:
@@ -507,6 +534,8 @@ def _what_it_would_have_done(action: Action) -> str:
             return f"scale [{action.application}] out"
         case PinAutoscaler():
             return f"stop [{action.application}]'s autoscaler scaling it down"
+        case PinToAccelerator():
+            return f"hold [{action.application}]'s pods to [{action.accelerator}]"
         case DiscardCacheEntries():
             # Figures thrown away, never data deleted or a cache cleared. What
             # goes is a copy and the records behind it are untouched, so a verb

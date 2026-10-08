@@ -127,8 +127,8 @@ class PlatformUnreachable(McpToolError):
     so there is nothing to undo and nothing to judge.
 
     What makes it worth its own type rather than a message is that it is never
-    about one action. Four of the five generic mitigations act through the
-    deployment platform, so a platform that is not answering has taken four
+    about one action. Five of the seven generic mitigations act through the
+    deployment platform, so a platform that is not answering has taken five
     actions away at once - and a caller's right next move is to pass over the
     rest of them and reach for whatever acts through something else, which is a
     different move from either trying again or waking somebody.
@@ -141,7 +141,7 @@ class PlatformUnreachable(McpToolError):
     whoever reads the failure.
 
     It does carry `undo_descriptor`, and that is the one thing a caller cannot
-    derive. Two of the four actions through the deployment platform suspend its
+    derive. Four of the five actions through the deployment platform suspend its
     reconciliation before doing what they were asked, so a platform lost after
     that point has taken every action through it away *and* left an application
     un-reconciled. A caller told only the first would pass over the remaining
@@ -229,7 +229,7 @@ def an_unreachable_platform(platform: str, said: str,
 
     return (
         f"{marked} {LEFT_BEHIND_MARKER}"
-        f"{undo_descriptor.model_dump_json(exclude_none=True)}"
+        f"{undo_descriptor.model_dump_json()}"
     )
 
 

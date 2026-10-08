@@ -10,6 +10,8 @@ from typing import Protocol, assert_never
 from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    AcceleratorPinRestored,
+    AcceleratorPinUndo,
     Action,
     AlertRuleStanding,
     AutoscalerUndo,
@@ -23,6 +25,7 @@ from argus_core.models import (
     FlagChange,
     MetricBucket,
     PinAutoscaler,
+    PinToAccelerator,
     ReplicaUndo,
     RestartedService,
     RestartService,
@@ -41,7 +44,9 @@ from write_mcp_client import (
     discard_cache_entries,
     get_recent_flag_changes,
     pin_autoscaler,
+    pin_to_accelerator,
     restart_service,
+    restore_accelerator_pin,
     restore_autoscaler_floor,
     restore_deployment,
     restore_replica_count,
@@ -290,6 +295,33 @@ class AutoscalingRestorer(Protocol):
     def __call__(self, descriptor: AutoscalerUndo, /) -> AutoscalingRestored: ...
 
 
+class AcceleratorPinner(Protocol):
+    """Holding a deployment's pods to one accelerator card.
+
+    The application and the card. Which card is worked out from where the
+    replicas started before the onset, a reading the tier never saw - so the tier
+    is told it, as it is told nothing about a scale-out's count.
+
+    It answers with the descriptor recording what it changed, and the descriptor
+    records *two* things for the reason the autoscaler pin's does: a platform
+    reconciling the application re-applies the declared pod template, selector
+    included, so suspending that is part of performing this.
+    """
+
+    def __call__(self, application: str, accelerator: str, /) -> AcceleratorPinUndo: ...
+
+
+class AcceleratorPinRestorer(Protocol):
+    """Letting a deployment's pods off the card Argus held them to, as Argus
+    found them.
+
+    Both of the things the pin changed, answered with which it managed, for the
+    reason every restorer here answers that way.
+    """
+
+    def __call__(self, descriptor: AcceleratorPinUndo, /) -> AcceleratorPinRestored: ...
+
+
 class DeploymentRestorer(Protocol):
     """Putting a rolled-back deployment back the way Argus found it.
 
@@ -327,6 +359,7 @@ class PerformingWrites:
     scale_out: DeploymentScaler
     pin: AutoscalerPinner
     discard: CacheEntryDiscarder
+    pin_to_accelerator: AcceleratorPinner
 
 
 Clock = Callable[[], datetime]
@@ -416,20 +449,23 @@ def nothing_to_wait_for(action: Action) -> HasArrived:
 def how_a_change_arrives(action: Action, *, client: McpClient) -> HasArrived:
     """Which arrival this action has to wait for, chosen by what it changes.
 
-    Four of the six kinds have nothing to wait for, and for four reasons that come
-    to the same thing: the target service reads its flags fresh on every request, a
-    restart is answered with the new process's start time so the tier that
-    performed it has already waited, an autoscaler's floor is a field on its own
-    object rather than a state anything converges on, and a discard is answered
+    Five of the seven kinds have nothing to wait for, and for five reasons that
+    come to the same thing: the target service reads its flags fresh on every
+    request, a restart is answered with the new process's start time so the tier
+    that performed it has already waited, an autoscaler's floor is a field on its
+    own object rather than a state anything converges on, a discard is answered
     with how many entries went - the store has already done it by the time it
-    says so, and nothing converges on an absence. Those are
-    `an_action_in_force_at_once`.
+    says so, and nothing converges on an absence - and a pin to a card is in
+    force once the platform holds the selector, with no count of replicas to
+    reach: the pods moving off the card is what the rule that paged is watched
+    for. Those are `an_action_in_force_at_once`.
 
-    The two that change a Deployment wait on different counts - the revision
-    reaching every replica, and the replicas asked for existing - which is why this
-    dispatches rather than handing one check to all six. A single check would
-    either make four actions wait for a rollout nobody started, or let the two
-    that matter be judged on minutes their change was not in force for.
+    The two that change a Deployment's size or revision wait on different counts -
+    the revision reaching every replica, and the replicas asked for existing -
+    which is why this dispatches rather than handing one check to all seven. A
+    single check would either make five actions wait for a rollout nobody
+    started, or let the two that matter be judged on minutes their change was not
+    in force for.
 
     Here rather than at the caller that assembles the walk, because the caller
     holds a bound `take_action` and not the action - the kind is only known at the
@@ -444,7 +480,7 @@ def how_a_change_arrives(action: Action, *, client: McpClient) -> HasArrived:
             return added_capacity_arriving_over(client, action.application)
         case (
             RevertFeatureFlag() | RestartService() | PinAutoscaler()
-            | DiscardCacheEntries()
+            | DiscardCacheEntries() | PinToAccelerator()
         ):
             return an_action_in_force_at_once
         case _:
@@ -572,7 +608,8 @@ def performing_writes_over(client: McpClient) -> PerformingWrites:
         roll_back=deployment_roller_over(client),
         scale_out=deployment_scaler_over(client),
         pin=autoscaler_pinner_over(client),
-        discard=cache_entry_discarder_over(client)
+        discard=cache_entry_discarder_over(client),
+        pin_to_accelerator=accelerator_pinner_over(client)
     )
 
 
@@ -585,6 +622,18 @@ def cache_entry_discarder_over(client: McpClient) -> CacheEntryDiscarder:
     """The sixth write, over one connection - and the only one not aimed at a
     control plane."""
     return partial(discard_the_cache_entries, client=client)
+
+
+def accelerator_pinner_over(client: McpClient) -> AcceleratorPinner:
+    """The seventh write, over one connection."""
+    return partial(pin_a_deployment_to_a_card, client=client)
+
+
+def accelerator_pin_restorer_over(client: McpClient) -> AcceleratorPinRestorer:
+    """Putting the seventh back, which is a tool of its own for the autoscaler
+    pin's reason: two pieces of prior state and a platform that refuses one order
+    of them."""
+    return partial(restore_a_card_pin, client=client)
 
 
 def autoscaling_restorer_over(client: McpClient) -> AutoscalingRestorer:
@@ -880,6 +929,27 @@ def restore_an_autoscaler(descriptor: AutoscalerUndo,
                           client: McpClient) -> AutoscalingRestored:
     """Puts back both of the things a pin changed, reporting which it managed."""
     return restore_autoscaler_floor(descriptor, client=client)
+
+
+def pin_a_deployment_to_a_card(application: str,
+                               accelerator: str,
+                               *,
+                               client: McpClient) -> AcceleratorPinUndo:
+    """Holds a deployment's pods to one card, answering with what that changed.
+
+    A named function rather than the client's own, for the reason
+    `pin_an_autoscaler` is one: a seam is only useful if a test can spec against
+    the shape the caller actually uses.
+    """
+    return pin_to_accelerator(application, accelerator, client=client)
+
+
+def restore_a_card_pin(descriptor: AcceleratorPinUndo,
+                       *,
+                       client: McpClient) -> AcceleratorPinRestored:
+    """Puts back both of the things a pin to a card changed, reporting which it
+    managed."""
+    return restore_accelerator_pin(descriptor, client=client)
 
 
 def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:

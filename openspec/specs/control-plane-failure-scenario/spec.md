@@ -1,7 +1,7 @@
 # control-plane-failure-scenario Specification
 
 ## Purpose
-The staged incident in which the platform four of Argus's five mitigations act
+The staged incident in which the platform five of Argus's seven mitigations act
 through will not act. A cause with candidates on two platforms, the deployment
 rollback ranked above the feature flag revert, and a deployment platform that
 refuses everything that changes state while going on reporting what it holds - so

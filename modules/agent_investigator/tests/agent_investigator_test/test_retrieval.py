@@ -31,6 +31,7 @@ from agent_investigator.retrieval import (
     fetch_change_events,
     logs_over,
     metrics_over,
+    placements_over,
 )
 from argus_core.mcp_transport import McpClient
 from argus_core.models import ChangeEvent, ChangeKind, FlagChange
@@ -47,6 +48,7 @@ METRICS_TOOL = "get_metrics_summary"
 LOGS_TOOL = "get_log_lines"
 CHANGE_EVENTS_TOOL = "get_change_events"
 FLAG_CHANGES_TOOL = "get_recent_flag_changes"
+PLACEMENTS_TOOL = "get_placements"
 
 
 @pytest.mark.unit
@@ -272,6 +274,22 @@ def test_the_log_channel_is_asked_over_the_read_tier() -> None:
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(LOGS_TOOL),
+            _the_write_tier_was_asked_for()
+        ))
+
+
+@pytest.mark.integration
+def test_the_placement_channel_is_asked_over_the_read_tier() -> None:
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: placements_over(read)(A_SERVICE))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(PLACEMENTS_TOOL),
             _the_write_tier_was_asked_for()
         ))
 

@@ -9,16 +9,21 @@ from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from argus_core import get_settings
 from deployment_platform.argocd import (
+    ACCELERATOR_LABEL,
     APPLICATION_MERGE_PATCH,
     AUTOMATED,
     ENABLED,
+    NODE_SELECTOR,
     PATCH_REQUEST_PATCH,
     PATCH_REQUEST_TYPE,
+    RESOURCE_MERGE_PATCH,
     SPEC,
     SYNC_POLICY,
+    TEMPLATE,
 )
 
 FAKE_PLATFORM_PORT = 8184
@@ -97,6 +102,12 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     rollback route refuses while that policy says the platform syncs itself,
     exactly as a real server refuses it.
 
+    It answers the surfaces a pin to a card needs the same way again. The
+    Deployment reports the card its pod template selects, and a merge patch on
+    the resource route is actually applied to that selector - so a pin that sent
+    nothing, or a restore that left the label in place, reads back as exactly
+    that.
+
     One pod's creation time rather than one per application. What a per
     application memory would witness - that the tree read is the one belonging
     to the service restarted - is a property of the adapter, covered where the
@@ -111,6 +122,9 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     rolled_back_to: list[int] = []
     sync_patches_received: list[dict[str, Any]] = []
     replicas: int = THE_COUNT_RUNNING
+    # The card the Deployment's pods are held to, or `None` where its selector
+    # names none - which is how an application nobody has pinned is declared.
+    accelerator_pin: str | None = None
 
     # Whether this platform's API server is serving at all. Off by default: an
     # unavailable platform is something a test stages, and a fake that had to be
@@ -138,7 +152,7 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
         if self.path.endswith("/resource-tree"):
             self._respond_with(self._the_resource_tree())
-        elif self.path.endswith("/resource"):
+        elif urlsplit(self.path).path.endswith("/resource"):
             self._respond_with(self._the_managed_deployment())
         elif self._names_an_application() and self.path.count("/") == 2:
             self._respond_with(self._the_application())
@@ -166,7 +180,10 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
                         "name": self._the_application_named(),
                         "namespace": "production"
                     },
-                    "spec": {"replicas": self.replicas}
+                    "spec": {
+                        "replicas": self.replicas,
+                        TEMPLATE: {SPEC: {NODE_SELECTOR: self._the_node_selector()}}
+                    }
                 }
             )
         }
@@ -212,6 +229,10 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
         if self.path.endswith("/rollback"):
             self._roll_back()
+            return
+
+        if urlsplit(self.path).path.endswith("/resource"):
+            self._patch_the_deployment()
             return
 
         if "/resource/actions" not in self.path:
@@ -280,6 +301,39 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         type(self).rolled_back_to = self.rolled_back_to + [self._the_body()["id"]]
 
         self._respond_with({})
+
+    def _patch_the_deployment(self) -> None:
+        """The resource route's merge patch, applied to the selector the
+        Deployment then reports.
+
+        The write is real for the restart's reason: a fake that accepted the patch
+        and went on reporting the old selector would answer a restore that sent
+        nothing exactly as it answers one that took the pin off. A merge patch
+        only, carried as text the way the vendor carries it, and refused
+        otherwise - the route applies any other type differently or not at all.
+        """
+        patch_types = parse_qs(urlsplit(self.path).query).get(PATCH_REQUEST_TYPE)
+
+        if patch_types != [RESOURCE_MERGE_PATCH]:
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        length = int(self.headers.get("Content-Length", 0))
+        patch = json.loads(json.loads(self.rfile.read(length)))
+        asked_for = (
+            patch.get(SPEC, {}).get(TEMPLATE, {}).get(SPEC, {}).get(NODE_SELECTOR, {})
+        )
+        selector = _merged(self._the_node_selector(), asked_for)
+        type(self).accelerator_pin = selector.get(ACCELERATOR_LABEL)
+
+        self._respond_with({})
+
+    def _the_node_selector(self) -> dict[str, str]:
+        if self.accelerator_pin is None:
+            return {}
+
+        return {ACCELERATOR_LABEL: self.accelerator_pin}
 
     def _names_an_application(self) -> bool:
         return _APPLICATION_IN.match(self.path) is not None
@@ -441,6 +495,7 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
         FakeDeploymentPlatformHandler.rolled_back_to = []
         FakeDeploymentPlatformHandler.sync_patches_received = []
         FakeDeploymentPlatformHandler.replicas = THE_COUNT_RUNNING
+        FakeDeploymentPlatformHandler.accelerator_pin = None
         del os.environ["ARGOCD_BASE_URL"]
         del os.environ["ARGOCD_RESOURCE_ACTION_PATH"]
         del os.environ["ARGOCD_RESOURCE_PATH"]

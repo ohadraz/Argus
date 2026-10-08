@@ -7,6 +7,8 @@ import pytest
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.mcp_transport import McpClient, PlatformUnreachable
 from argus_core.models import (
+    AcceleratorPinRestored,
+    AcceleratorPinUndo,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
@@ -19,7 +21,9 @@ from argus_testkit.scenario import Scenario, attempting, calling
 from deployment_platform.argocd import AUTOMATED, ENABLED
 from write_mcp_client import (
     get_recent_flag_changes,
+    pin_to_accelerator,
     restart_service,
+    restore_accelerator_pin,
     restore_deployment,
     roll_back_deployment,
     set_feature_flag,
@@ -39,6 +43,7 @@ SINCE = "2026-08-20T11:00:00Z"
 INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
 DONT_CARE_ACTOR = "dont-care-actor"
 SOME_APPLICATION = "io-shop"
+SOME_CARD = "Tesla-V100-SXM2-16GB"
 
 
 @pytest.fixture
@@ -274,6 +279,57 @@ def test_an_unreachable_platform_arrives_as_its_own_type_through_the_client(
             )
         ) \
         .then(all_of(_it_came_back_as_an_unreachable_platform()))
+
+
+@pytest.mark.integration
+def test_pinning_to_a_card_reaches_the_platform_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The one action whose subject arrives from the caller: which card to hold
+    # the pods to was worked out from a placement this tier never saw. So what is
+    # asserted is that the card named here is the card the platform now selects,
+    # and that reconciliation was suspended first - a pin left under automated
+    # sync is taken off by the next sync.
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: pin_to_accelerator(
+                SOME_APPLICATION, SOME_CARD, client=client
+            ))
+        ) \
+        .then(all_of(
+            _the_platform_selects(running_write_mcp_over_a_platform, SOME_CARD),
+            the_platform_stopped_reconciling(running_write_mcp_over_a_platform),
+            _the_pin_descriptor_is(AcceleratorPinUndo(
+                application=SOME_APPLICATION,
+                was_pinned_to=None,
+                pinned_to=SOME_CARD,
+                was_syncing_itself=True
+            ))
+        ))
+
+
+@pytest.mark.integration
+def test_restoring_a_pin_reaches_the_platform_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # Driven from a real pin rather than a descriptor written here, for the
+    # rollback's reason. And from a deployment that was held to no card, which
+    # is the case that matters: "there was none" crosses the wire as a null,
+    # and a restore that read it as "nothing recorded" would leave the pin on.
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: restore_accelerator_pin(
+                pin_to_accelerator(SOME_APPLICATION, SOME_CARD, client=client),
+                client=client
+            ))
+        ) \
+        .then(all_of(
+            _both_halves_of_the_pin_were_put_back(),
+            _the_platform_selects(running_write_mcp_over_a_platform, None),
+            the_platform_is_reconciling_itself_again(
+                running_write_mcp_over_a_platform
+            )
+        ))
 
 
 def _it_came_back_as_an_unreachable_platform() -> Assertion[Exception | None]:
@@ -571,6 +627,55 @@ def the_platform_is_reconciling_itself_again(
                 "Expected the platform to be reconciling the application "
                 "itself again, and it is still suspended - so the deployment "
                 "silently receives nothing anybody ships to it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_platform_selects(handler: type[FakeDeploymentPlatformHandler],
+                          card: str | None) -> Assertion[object]:
+    """The card the platform's own Deployment now holds its pods to.
+
+    Read from the platform rather than from what came back, for the reason the
+    other writes are: what Argus says it did and what the world received are
+    the two things worth keeping apart.
+    """
+    def assertion(dont_care_result: object) -> bool:
+        if handler.accelerator_pin != card:
+            raise AssertionError(
+                f"Expected the platform's Deployment to be held to [{card}], and "
+                f"it is held to [{handler.accelerator_pin}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pin_descriptor_is(
+    expected: AcceleratorPinUndo
+) -> Assertion[AcceleratorPinUndo]:
+    def assertion(descriptor: AcceleratorPinUndo) -> bool:
+        if descriptor != expected:
+            raise AssertionError(
+                f"Expected the pin to come back as {expected!r}, and it came back "
+                f"as {descriptor!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _both_halves_of_the_pin_were_put_back() -> Assertion[AcceleratorPinRestored]:
+    def assertion(restored: AcceleratorPinRestored) -> bool:
+        if not (restored.pin_put_back and restored.automated_sync_put_back):
+            raise AssertionError(
+                f"Expected both the pin and the sync policy to be put back, and "
+                f"the tier reported pin_put_back=[{restored.pin_put_back}] "
+                f"automated_sync_put_back=[{restored.automated_sync_put_back}]."
             )
 
         return True

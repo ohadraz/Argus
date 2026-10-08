@@ -18,9 +18,11 @@ that named its own thresholds would be testing an algorithm nobody runs.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from argus_core import get_settings
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import ChangeEvent, MetricBucket, ServiceDependency
+from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, ServiceDependency
 
 # The minute the departure lands in, and so the onset every one of these suites
 # measures from. Named because two of them assert against it.
@@ -30,6 +32,7 @@ A_CALM_MINUTE = "2026-08-29T22:10:00Z"
 A_STEADY_HEAP_BYTES = 440 * 1024**2
 A_STEADY_START_TIME = 1_756_000_000.0
 A_MINUTES_SAMPLE = 200
+LONG_BEFORE_THE_ONSET = datetime(2026, 8, 26, 9, 0, tzinfo=UTC)
 
 
 def metrics_that_show_an_onset(dont_care_window_start: str | None,
@@ -110,6 +113,25 @@ def no_rollout_was_read(dont_care_service: str) -> list[str]:
     stand-in volunteering it would hand the model a finding no case here staged.
     """
     return []
+
+
+def pods_that_never_moved(dont_care_service: str) -> list[PodPlacement]:
+    """Every pod on one card, and every one started long before the onset.
+
+    Where a service runs when nothing about where it runs moved - and not empty,
+    which says the service runs on no pod at all. None of these cases stages a
+    replica on another card, so a placement volunteering one would put a suspect
+    in front of the model that the scenario never staged.
+    """
+    return [
+        PodPlacement(
+            pod=f"io-shop-{replica}",
+            node=f"gpu-v100-{replica}",
+            accelerator="Tesla-V100-SXM2-16GB",
+            started_at=LONG_BEFORE_THE_ONSET
+        )
+        for replica in range(3)
+    ]
 
 
 def the_configured_thresholds() -> AnomalyThresholds:

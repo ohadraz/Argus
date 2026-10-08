@@ -415,6 +415,44 @@ def test_the_two_ways_a_revision_can_make_a_service_worse_say_what_separates_the
         ))
 
 
+@pytest.mark.unit
+def test_a_card_and_a_revision_that_both_change_the_answers_say_what_separates_them() -> None:
+    # The nearest pair in the AI-specific family. Both are a model answering
+    # worse while every request succeeds as fast as before, and both are seen in
+    # the paging rule's series alone - so the series is not what tells them
+    # apart. What does is what changed at the onset: a revision for one, and for
+    # the other no revision at all and a replica placed on a different card.
+    #
+    # Both directions, for the reason the pair above is both: a model reaching
+    # for degraded output first has to be sent to look at where the replicas
+    # run, and one weighing a card has to be told a deployment is the likelier
+    # reading where there was one.
+    Scenario() \
+        .given(the_two_ways := (
+            FailureMode.OUTPUT_QUALITY_DEGRADATION,
+            FailureMode.ACCELERATOR_HETEROGENEITY
+        )) \
+        .when(lambda: the_two_ways) \
+        .then(all_of(
+            _each_of_the_pair_names_the_other(),
+            _the_pair_is_told_apart_by_the_placement()
+        ))
+
+
+@pytest.mark.unit
+def test_a_card_says_when_to_prefer_it_to_a_bad_deployment() -> None:
+    # One direction, as with the first pair in this file. A replica moved to
+    # another card is the cause here, and a model reading the moved replica as a
+    # rollout - a pod replaced at the onset - reaches for a bad deployment unless
+    # the meaning says when not to: there, requests fail or slow; here, none do.
+    Scenario() \
+        .given(the_card := FailureMode.ACCELERATOR_HETEROGENEITY) \
+        .when(lambda: the_card.meaning()) \
+        .then(_the_meaning_of(the_card).says_when_to_prefer_it_to(
+            FailureMode.BAD_DEPLOYMENT
+        ))
+
+
 class _Meaning:
     """The assertions about one mode's meaning, which all need to name it.
 
@@ -1014,6 +1052,35 @@ def _it_says_the_older_date_is_when_the_copy_fell_behind() -> Assertion[str]:
                 "The meaning of [state-divergence] never says the older of its "
                 "two times is when the copy fell behind, so a model is told "
                 "which date not to use and not what that date is evidence of."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_pair_is_told_apart_by_the_placement() -> Assertion[
+    tuple[FailureMode, FailureMode]
+]:
+    """Each meaning has to send the model to where the replicas run.
+
+    Naming the other mode is not enough, for the reason it is not enough of any
+    pair above. Both have the rule's series moving with the five flat; what a
+    model has to look at to tell them apart is whether a revision sits at the
+    onset or a replica started there on a card the others do not run on - and
+    the second is said nowhere but in the placement.
+    """
+    def assertion(pair: tuple[FailureMode, FailureMode]) -> bool:
+        vague = [
+            cause.value for cause in pair
+            if "placement" not in cause.meaning()
+        ]
+
+        if vague:
+            raise AssertionError(
+                f"{sorted(vague)} distinguish themselves from their neighbour "
+                f"without naming the placement, the one reading that says a "
+                f"replica moved to a different card with nothing deployed."
             )
 
         return True

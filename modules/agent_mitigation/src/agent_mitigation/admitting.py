@@ -41,6 +41,7 @@ from typing import Final
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -80,7 +81,11 @@ GENERIC_MITIGATIONS: Final[AdmittedMitigations] = frozenset(
         # reaches, the service recomputes each figure from those records the next
         # time anybody asks for it, and what is gone cannot be stale. A
         # responder would do it by hand without pausing.
-        DISCARD_CACHE_ENTRIES
+        DISCARD_CACHE_ENTRIES,
+        # The seventh, and a drain: pods moved off a class of hardware with
+        # nothing deployed changed, which Google SRE's list of generic
+        # mitigations names beside rolling back, restarting and adding capacity.
+        PIN_TO_ACCELERATOR
     }
 )
 

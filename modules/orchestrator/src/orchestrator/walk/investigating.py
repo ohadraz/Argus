@@ -177,7 +177,11 @@ def investigator_node(
     reordered = demoting_what_was_refuted(
         what_each_would_do(
             findings.candidates,
-            the_circumstances(state.alert, flag_changes, deployments)
+            # The placement this round's investigation recorded, not the state's:
+            # the state still holds the last round's until this node returns.
+            the_circumstances(
+                state.alert, flag_changes, deployments, findings.placement
+            )
         ),
         recalled
     )
@@ -235,6 +239,10 @@ def investigator_node(
         # history that happens to be empty.
         flag_changes=flag_changes,
         deployments=deployments,
+        # This round's placement, `None` included: every round re-reads, and a
+        # placement this round could not read must clear the last one rather
+        # than leave pods recorded against an earlier onset standing.
+        placement=findings.placement,
         # Carried on for the gate, which is where it is finally asked a
         # question. Empty where the register would not answer, deliberately
         # indistinguishable from a register that listed nothing: both leave

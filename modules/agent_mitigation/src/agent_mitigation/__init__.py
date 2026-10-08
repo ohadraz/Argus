@@ -39,6 +39,7 @@ from agent_mitigation.admitting import (
 from agent_mitigation.binding import an_undo_over
 from agent_mitigation.strategies import (
     MitigationStrategy,
+    PinToAcceleratorStrategy,
     RestartDependencyStrategy,
     RestartServiceStrategy,
     ScaleOutStrategy,
@@ -79,6 +80,7 @@ __all__ = [
     "MitigationStrategy",
     "Outcome",
     "PerformingWrites",
+    "PinToAcceleratorStrategy",
     "RestartDependencyStrategy",
     "RestartServiceStrategy",
     "RevertFeatureFlag",

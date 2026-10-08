@@ -9,12 +9,14 @@ from argus_core.models import (
     ChangeKind,
     FlagChange,
     MetricBucket,
+    PodPlacement,
     ServiceDependency,
 )
 from read_mcp_client import (
     get_change_events,
     get_log_lines,
     get_metrics_summary,
+    get_placements,
     get_rollout_state,
     get_service_dependencies,
     get_what_a_deployment_changed,
@@ -97,6 +99,21 @@ class RolloutFetcher(Protocol):
     def __call__(self, service: str, /) -> list[str]: ...
 
 
+class PlacementFetcher(Protocol):
+    """One service, asked where each of its replicas runs.
+
+    The rollout's shape, and the one channel here the model never asks for. The
+    loop reads it once, after the onset, because a pin to a card is decided
+    from it and a model that never asked would leave nothing to decide from.
+
+    Answers in Argus's own values rather than in lines, unlike the two beside
+    it: what comes back is read by the walk as well as shown to a model, and
+    which pods started at the onset is a comparison, not a sentence.
+    """
+
+    def __call__(self, service: str, /) -> list[PodPlacement]: ...
+
+
 # The two systems that record a change, as this module reaches them. Named types
 # for the reason the three above are, and told apart by name rather than by
 # position: a deploy history and a flag history are two three-argument callables
@@ -150,6 +167,25 @@ def rollouts_over(client: McpClient) -> RolloutFetcher:
     handed a channel rather than the means to build one.
     """
     return partial(fetch_the_rollout, client=client)
+
+
+def placements_over(client: McpClient) -> PlacementFetcher:
+    """The placement channel, asked over one connection to the read tier.
+
+    Bound where a process starts, as every other channel is, so the loop is
+    handed a channel rather than the means to build one.
+    """
+    return partial(fetch_placements, client=client)
+
+
+def fetch_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
+    """Where each of this service's replicas runs, its card, and since when.
+
+    A named function rather than the client's own passed directly, for the reason
+    `fetch_metrics` is one: what the loop needs is the one calling shape it uses,
+    and a seam is only useful if a test can spec against that.
+    """
+    return get_placements(service, client=client)
 
 
 def fetch_what_a_deployment_changed(service: str,

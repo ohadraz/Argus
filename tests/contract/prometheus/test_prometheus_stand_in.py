@@ -85,10 +85,12 @@ A_MINUTE = timedelta(minutes=1)
 FIGURES_THAT_HOLD_STILL = ("memory_limit_bytes", "cpu_limit_cores", "process_start_time_seconds")
 
 # The expressions the shop's own alert rules evaluate, as Grafana hands them
-# over in a rule's definition: the categoriser's confident share, and the share
-# of its limit the heap is using. Restated rather than imported, because the
-# shop is another repository and these are the words that cross between the two.
+# over in a rule's definition: the categoriser's confident share, the fraud
+# scorer's held share, and the share of its limit the heap is using. Restated
+# rather than imported, because the shop is another repository and these are the
+# words that cross between the two.
 THE_CATEGORISER_RULES_QUERY = "avg(categoriser_confident_ratio)"
+THE_FRAUD_RULES_QUERY = "avg(fraud_held_for_review_ratio)"
 THE_MEMORY_RULES_QUERY = (
     "max(max_over_time(process_resident_memory_bytes[1m]))"
     " / max(container_spec_memory_limit_bytes)"
@@ -137,8 +139,8 @@ def test_a_window_prometheus_watched_reads_as_the_stand_in_reads_it(
 @pytest.mark.contract
 @pytest.mark.parametrize(
     "rules_query",
-    [THE_CATEGORISER_RULES_QUERY, THE_MEMORY_RULES_QUERY],
-    ids=["categoriser", "memory"]
+    [THE_CATEGORISER_RULES_QUERY, THE_FRAUD_RULES_QUERY, THE_MEMORY_RULES_QUERY],
+    ids=["categoriser", "fraud", "memory"]
 )
 def test_a_rules_series_prometheus_watched_reads_as_the_stand_in_reads_it(
     a_window_prometheus_watched: None,

@@ -8,13 +8,14 @@ from typing import NamedTuple
 import pytest
 from argus_core import ReadMcpEndpoint, get_settings, parse_iso
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, MetricBucket, RuleReading
+from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, RuleReading
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import (
     get_change_events,
     get_log_lines,
     get_metrics_summary,
+    get_placements,
     read_mcp,
 )
 from read_mcp_server.alert_rules import (
@@ -197,6 +198,65 @@ def test_the_paging_rules_series_reaches_the_caller_through_the_client(
         .then(
             _every_bucket_carried(RuleReading(value=0.41, worse_when="below"))
         )
+
+
+@pytest.mark.integration
+def test_where_the_replicas_run_reaches_the_caller_through_the_client(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    # A start time crosses the protocol as text and has to come back the moment
+    # it was, zone and all: a placement whose start arrived naive could not be
+    # put either side of an onset, and that comparison is all it is read for.
+    Scenario() \
+        .given(
+            calling(_the_platform_places(running_read_mcp, {
+                "nodes": [{
+                    "kind": "Pod",
+                    "name": "io-shop-a",
+                    "namespace": "production",
+                    "createdAt": "2026-10-07T21:40:30Z",
+                    "info": [{"name": "Node", "value": "gpu-a100-0"}]
+                }],
+                "hosts": [{
+                    "name": "gpu-a100-0",
+                    "labels": {"nvidia.com/gpu.product": "NVIDIA-A100-SXM4-40GB"}
+                }]
+            }))
+        ) \
+        .when(
+            _asking_the_server(lambda client: get_placements(
+                "io-shop", client=client
+            ))
+        ) \
+        .then(
+            _the_placements_are([PodPlacement(
+                pod="io-shop-a",
+                node="gpu-a100-0",
+                accelerator="NVIDIA-A100-SXM4-40GB",
+                started_at=datetime(2026, 10, 7, 21, 40, 30, tzinfo=UTC)
+            )])
+        )
+
+
+def _the_platform_places(handler: type[FakeTargetServiceHandler],
+                         tree: dict[str, object]) -> Callable[[], None]:
+    def step() -> None:
+        handler.tree = tree
+
+    return step
+
+
+def _the_placements_are(expected: list[PodPlacement]) -> Assertion[list[PodPlacement]]:
+    def assertion(placements: list[PodPlacement]) -> bool:
+        if placements != expected:
+            raise AssertionError(
+                f"Expected the placements {expected}, and the caller got "
+                f"{placements}."
+            )
+
+        return True
+
+    return assertion
 
 
 class _ThreeAnswers(NamedTuple):

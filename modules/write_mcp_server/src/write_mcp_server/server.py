@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from argus_core import WriteMcpEndpoint, get_settings
 from argus_core.models import (
+    AcceleratorPinRestored,
+    AcceleratorPinUndo,
     AutoscalerUndo,
     AutoscalingRestored,
     CacheEntriesDiscarded,
@@ -40,6 +42,7 @@ from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from mcp.server.fastmcp import FastMCP
 
 from write_mcp_server import (
+    accelerators,
     branching,
     discarding,
     flag_history,
@@ -64,8 +67,9 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     Three slices and a port. The flag tools speak to the provider, the code tool
     speaks to the repository, and the discard speaks to the store a service keeps
-    its derived copies in. The restart, the rollback, the scale-out and the pin
-    all speak to the deployment platform, and are handed it rather than a slice:
+    its derived copies in. The restart, the rollback, the scale-out, the
+    autoscaler pin and the pin to a card all speak to the deployment platform,
+    and are handed it rather than a slice:
     where it is, under what credential and by which routes is the adapter's,
     built once in `main`. Every credential named belongs to this tier, and none
     of them belongs in another's calls. What keeps the *tiers* apart is what each
@@ -310,6 +314,45 @@ def build_server(endpoint: WriteMcpEndpoint,
         unverifiably, at a moment nothing here chose. The behavior lives in
         `pinning.restore_autoscaler_floor`; this is registration only."""
         return pinning.restore_autoscaler_floor(descriptor, platform)
+
+    @mcp.tool()
+    def pin_to_accelerator(application: str, accelerator: str) -> AcceleratorPinUndo:
+        """Holds a deployment's pods to one accelerator card, and reports the
+        card they were held to before.
+
+        A generic mitigation (§13): a drain, which Google SRE's list of generic
+        mitigations names beside rolling back, restarting and adding capacity.
+        The pods move off a class of hardware and nothing deployed changes.
+
+        Which card is a parameter because it is the one thing the action cannot
+        work out for itself: it comes from where the replicas started before
+        the onset, which the caller read and this tier never saw.
+
+        Mitigates without resolving. The repository still declares a template
+        that lets the pods land on any card, the platform's own reconciliation
+        has been suspended so that nothing re-applies it, and the code that
+        behaves differently on the other card is still there; the first two are
+        recorded in the descriptor returned and are what a withdrawal puts back.
+        The behavior lives in `accelerators.pin_to_accelerator`; this is
+        registration only."""
+        return accelerators.pin_to_accelerator(application, accelerator, platform)
+
+    @mcp.tool()
+    def restore_accelerator_pin(
+        descriptor: AcceleratorPinUndo
+    ) -> AcceleratorPinRestored:
+        """Puts back both of the things a pin to a card changed, and reports
+        which of them it managed.
+
+        The card the pods were held to, or that they were held to none, and the
+        reconciliation that had to be suspended to leave it. Both, or it is not
+        undone. Answers with which halves it managed rather than raising, for the
+        reason the other restores do.
+
+        The pin is put back before reconciliation is re-enabled. The behavior
+        lives in `accelerators.restore_accelerator_pin`; this is registration
+        only."""
+        return accelerators.restore_accelerator_pin(descriptor, platform)
 
     @mcp.tool()
     def get_recent_flag_changes(since: str) -> list[FlagChange]:

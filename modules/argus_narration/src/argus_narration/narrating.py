@@ -47,6 +47,7 @@ from argus_core.events import (
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
+    PlacementRecorded,
     PlatformUnavailable,
     PostmortemWritten,
     RecoveryChecked,
@@ -64,6 +65,8 @@ from argus_core.models import (
     FixOutcome,
     FlagChange,
     IncidentStatus,
+    PodPlacement,
+    RecordedPlacement,
     Refusal,
     RetrievalChannel,
     Undone,
@@ -326,6 +329,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         case OnsetDetected():
             who = _INVESTIGATOR
             text = f"Placed the start of the incident at {a_minute(event.onset)}"
+        case PlacementRecorded():
+            who = _INVESTIGATOR
+            emphasis, text = _where_the_replicas_ran(event.placement)
         case HypothesisFormed():
             who = _INVESTIGATOR
             text = _how_many_candidates(1)
@@ -839,6 +845,11 @@ def _an_action_said(action_type: ActionType) -> str:
             # works it out again. "Deleted" would be the wrong verb for the same
             # reason - it is what one says about the thing itself.
             return "Discarded the stale cached figures of"
+        case "pin-to-accelerator":
+            # Said of the pods rather than of the selector it writes: what a
+            # reader has to take from the line is where the replicas may now
+            # run, and the card itself follows the subject.
+            return "Held the pods of"
 
     assert_never(action_type)
 
@@ -936,6 +947,11 @@ def what_the_action_does(action_type: ActionType, subject: str) -> str:
             # the cache" would read as the whole store going - which is the one
             # thing this action deliberately does not do.
             return f"discarding {subject}'s stale cached figures"
+        case "pin-to-accelerator":
+            # Without the card. Both lines that say an action this way are about
+            # its identity - what memory reorders by and what a platform cost -
+            # and the card is not part of it.
+            return f"holding {subject}'s pods to one accelerator card"
 
     assert_never(action_type)
 
@@ -959,9 +975,52 @@ def _an_action_taken(event: ActionTaken) -> str:
     # responder reads under pressure would carry a sentence explaining the
     # unremarkable.
     whose = f", a dependency of {event.a_dependency_of}" if event.a_dependency_of else ""
+    # The card a pin held the pods to. The subject says only that they were
+    # held somewhere, and which card is what a reader checks against the
+    # placement line above.
+    card = f" to {event.accelerator}" if event.accelerator else ""
 
-    return f"{said}{subject}{whose}" \
+    return f"{said}{subject}{card}{whose}" \
            f"{', moved ' if event.enabled is not None else ''}"
+
+
+def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
+    """Every pod and the card it ran on, and the pods started at the onset set
+    apart as the part worth marking.
+
+    The pods started at the onset are gathered at the end rather than flagged
+    where they fall, so the marked part is one stretch of the sentence however
+    many of them there are. Where none was, the onset goes unmentioned: a clause
+    naming nobody would read as a finding about it.
+
+    A placement of no pods is said as that. It is the platform answering, which
+    is a different thing from a platform that would not, and said as an empty
+    list the line ends on a dash and reads as one that lost what followed it.
+    """
+    if not placement.pods:
+        return "", "Recorded where the service's replicas run - the platform reported no pods"
+
+    before = ", ".join(_a_pod_said(pod) for pod in placement.started_before_the_onset())
+    at_the_onset = ", ".join(_a_pod_said(pod) for pod in placement.started_at_the_onset())
+
+    said = f"Recorded where the service's replicas run - {before}"
+
+    if not at_the_onset:
+        return "", said
+
+    joined = ". Started at the onset: " if before else "started at the onset: "
+
+    return at_the_onset, f"{said}{joined}{at_the_onset}"
+
+
+def _a_pod_said(pod: PodPlacement) -> str:
+    # What the platform reported, said as that. A blank where the card goes
+    # cannot be told from a line that lost it, and a pod with no card is the
+    # one thing that stops a pin.
+    if pod.accelerator is None:
+        return f"{pod.pod}, with no accelerator reported"
+
+    return f"{pod.pod} on {pod.accelerator}"
 
 
 def _a_percentage(confidence: float) -> str:

@@ -35,6 +35,7 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    PinToAccelerator,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -49,11 +50,15 @@ from orchestrator_test.framework.builders import (
     a_deployment,
     a_determined_hypothesis,
     a_divergence_blamed_on,
+    a_placement,
+    an_accelerator_blamed_on,
     an_incident_state,
 )
 
 DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
 SOME_SERVICE = "kuki-service"
+# The card `a_placement` has the fleet running on before the onset.
+THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
 
 
 @pytest.mark.unit
@@ -142,6 +147,30 @@ def test_a_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> No
         ) \
         .when(lambda: mitigation_proposal_node(a_corrupting_incident)) \
         .then(_the_proposed_action_rolls_back(SOME_SERVICE))
+
+
+@pytest.mark.unit
+def test_a_replica_moved_onto_another_card_is_answered_by_holding_the_fleet_to_its_card() -> None:
+    # The node hands on the placement the round recorded, as it hands on the
+    # histories. Without it the pin has no card to name, and an incident Argus
+    # had diagnosed correctly would have nothing proposed for it.
+    some_alert = Alert(service=SOME_SERVICE, alert_name="FraudHoldsHigh")
+    state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
+
+    Scenario() \
+        .given(
+            an_incident_whose_replica_moved := state.model_copy(
+                update={
+                    "hypothesis": an_accelerator_blamed_on(
+                        state.incident_id, "one replica holds far more for review"
+                    ),
+                    "flag_changes": [],
+                    "placement": a_placement()
+                }
+            )
+        ) \
+        .when(lambda: mitigation_proposal_node(an_incident_whose_replica_moved)) \
+        .then(_the_proposed_action_holds_the_fleet_to(SOME_SERVICE, THE_FLEETS_CARD))
 
 
 @pytest.mark.unit
@@ -321,6 +350,21 @@ def _the_proposed_action_rolls_back(application: str) -> Assertion[StateDelta]:
                 or proposed.application != application:
             raise AssertionError(
                 f"Expected a rollback of [{application}], got [{proposed!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_proposed_action_holds_the_fleet_to(application: str,
+                                           card: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        proposed = updates.proposed_action
+        if proposed != PinToAccelerator(application=application, accelerator=card):
+            raise AssertionError(
+                f"Expected [{application}] to be held to [{card}], got "
+                f"[{proposed!r}]."
             )
 
         return True

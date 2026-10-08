@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
 from agent_mitigation.tools import (
+    AcceleratorPinner,
     Arrival,
     AutoscalerPinner,
     CacheEntryDiscarder,
@@ -35,12 +36,14 @@ from argus_core.mcp_transport import (
 )
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
+    AcceleratorPinUndo,
     AlertRuleStanding,
     AutoscalerUndo,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     MetricBucket,
     PinAutoscaler,
+    PinToAccelerator,
     ReplicaUndo,
     RestartedService,
     RollBackDeployment,
@@ -152,6 +155,17 @@ WHAT_THE_ROLLBACK_LEFT = DeploymentRollbackUndo(
 # these are how small it is allowed to become.
 SOME_FLOOR_IT_COULD_FALL_TO = 3
 THE_FLOOR_IT_WAS_HELD_AT = 6
+
+# The card a pin holds the deployment to, and one somebody else had held it to
+# before - the case where letting go is putting a pin back rather than removing
+# one.
+THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
+A_CARD_SOMEBODY_ELSE_CHOSE = "Tesla-T4"
+# The tier's refusal for a deployment already held to the card, in its words.
+THE_DEPLOYMENT_IS_ALREADY_THERE = (
+    f"[{SOME_APPLICATION}] is already held to [{THE_FLEETS_CARD}], so there is "
+    f"nothing here for a pin to move"
+)
 
 # How long the verification waits. Short, because every test here would
 # otherwise sit through it - the clock and the sleeper are injected, so what
@@ -1649,10 +1663,10 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
 @pytest.mark.unit
 def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhausted() -> None:
     # The third thing a write can come back with, and the one that is never about
-    # the action asked for. Four of the five generic mitigations reach the estate
-    # through this platform, so a platform that is not answering has taken four
+    # the action asked for. Five of the seven generic mitigations reach the estate
+    # through this platform, so a platform that is not answering has taken five
     # away at once - and what the walk does about that is pass over the other
-    # three and reach for whatever acts through something else.
+    # four and reach for whatever acts through something else.
     #
     # Not `ESCALATED`, for the reason an exhausted action is not: escalating here
     # ends a walk whose next candidate is a flag revert on a provider that is
@@ -1848,6 +1862,159 @@ def test_a_confirmed_pin_says_which_floor_it_raised_and_to_what() -> None:
             _the_detail_mentions(f"from [{SOME_FLOOR_IT_COULD_FALL_TO}] replicas"),
             _the_detail_mentions(f"to [{THE_FLOOR_IT_WAS_HELD_AT}]"),
             _the_detail_does_not_mention("its ceiling")
+        ))
+
+
+@pytest.mark.unit
+def test_taking_a_pin_to_a_card_asks_the_platform_for_that_card() -> None:
+    # The caller names the card as well as the application. Which card was worked
+    # out from where the replicas started before the onset, which the tier never
+    # saw - so a pin that arrived without it would be the tier guessing.
+    Scenario() \
+        .given(pin_to_accelerator := _a_card_pinner_moving(was_pinned_to=None)) \
+        .when(
+            lambda: take_action(
+                _a_pin_to(THE_FLEETS_CARD),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(pin_to_accelerator=pin_to_accelerator),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            _the_card_pin_asked_for(pin_to_accelerator, SOME_APPLICATION, THE_FLEETS_CARD)
+        )
+
+
+@pytest.mark.unit
+def test_a_confirmed_pin_to_a_card_says_which_card_and_what_it_replaced() -> None:
+    # Both ends, because an account of a pin is a transition. "Held to the V100"
+    # alone reads as though the pods had been held to something else; what it
+    # replaced is what a withdrawal puts back.
+    Scenario() \
+        .given(the_answers_came_back := a_recovered_window()) \
+        .when(
+            lambda: take_action(
+                _a_pin_to(THE_FLEETS_CARD),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    pin_to_accelerator=_a_card_pinner_moving(was_pinned_to=None)
+                ),
+                fetch_metrics=metrics_reading(the_answers_came_back),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_mentions(f"[{SOME_APPLICATION}]'s pods to [{THE_FLEETS_CARD}]"),
+            _the_detail_mentions("no card")
+        ))
+
+
+@pytest.mark.unit
+def test_a_confirmed_pin_over_another_card_names_the_card_it_replaced() -> None:
+    # The other end of the transition, where somebody had already held the pods
+    # to a card. Named rather than said as "a card", because that card is what a
+    # withdrawal holds them to again.
+    Scenario() \
+        .given(the_answers_came_back := a_recovered_window()) \
+        .when(
+            lambda: take_action(
+                _a_pin_to(THE_FLEETS_CARD),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    pin_to_accelerator=_a_card_pinner_moving(
+                        was_pinned_to=A_CARD_SOMEBODY_ELSE_CHOSE
+                    )
+                ),
+                fetch_metrics=metrics_reading(the_answers_came_back),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_mentions(f"[{A_CARD_SOMEBODY_ELSE_CHOSE}]")
+        ))
+
+
+@pytest.mark.unit
+def test_a_deployment_already_held_to_the_card_is_not_attempted_rather_than_escalated() -> None:
+    # Nothing to move, nothing changed, and the walk has other candidates - the
+    # autoscaler pin's case, for the other pin.
+    Scenario() \
+        .given(
+            the_deployment_is_already_there := _a_card_pinner_with_nothing_to_move(
+                THE_DEPLOYMENT_IS_ALREADY_THERE
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_pin_to(THE_FLEETS_CARD),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(pin_to_accelerator=the_deployment_is_already_there),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.NOT_ATTEMPTED),
+            _it_says_nothing_was_measured(),
+            _the_detail_mentions(
+                f"hold [{SOME_APPLICATION}]'s pods to [{THE_FLEETS_CARD}]"
+            ),
+            _the_detail_mentions(THE_DEPLOYMENT_IS_ALREADY_THERE),
+            _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
+            _there_is_nothing_to_put_back()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("was_pinned_to", "put_back_as"),
+    [
+        (None, "any card"),
+        (A_CARD_SOMEBODY_ELSE_CHOSE, f"[{A_CARD_SOMEBODY_ELSE_CHOSE}]")
+    ],
+    ids=["held-to-no-card-before", "held-to-another-card-before"]
+)
+def test_a_refuted_pin_to_a_card_says_what_it_was_put_back_to(
+    was_pinned_to: str | None, put_back_as: str
+) -> None:
+    # Two different endings and both have to be said. A deployment held to no
+    # card before is let go, and its pods may land anywhere again; one somebody
+    # else had held to a card is held to that card again - which a sentence
+    # saying "let go" would misreport as a pin removed.
+    Scenario() \
+        .given(undo := an_undo_that_put_it_back(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_pin_to(THE_FLEETS_CARD),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    pin_to_accelerator=_a_card_pinner_moving(was_pinned_to=was_pinned_to)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions(put_back_as)
         ))
 
 
@@ -3158,6 +3325,50 @@ def _a_pinner_holding_it_at(application: str, floor_asked_for: int) -> MagicMock
     )
 
     return pin
+
+
+def _a_pin_to(card: str) -> PinToAccelerator:
+    return PinToAccelerator(application=SOME_APPLICATION, accelerator=card)
+
+
+def _a_card_pinner_moving(was_pinned_to: str | None) -> MagicMock:
+    """Answers as the tier does when the pin went through, recording the card
+    the pods were held to before - `None` where they were held to none."""
+    pin: MagicMock = create_autospec(AcceleratorPinner, instance=True)
+    pin.return_value = AcceleratorPinUndo(
+        application=SOME_APPLICATION,
+        was_pinned_to=was_pinned_to,
+        pinned_to=THE_FLEETS_CARD,
+        was_syncing_itself=True
+    )
+
+    return pin
+
+
+def _a_card_pinner_with_nothing_to_move(refusal: str) -> MagicMock:
+    """Answers as the tier does when the deployment is already on the card -
+    marked the way the tier marks it, as `_a_pinner_with_no_room_left` is."""
+    pin: MagicMock = create_autospec(AcceleratorPinner, instance=True)
+    pin.side_effect = ActionExhausted(an_exhausted_action(refusal))
+
+    return pin
+
+
+def _the_card_pin_asked_for(pin: MagicMock,
+                            application: str,
+                            card: str) -> Assertion[Outcome]:
+    def assertion(dont_care_outcome: Outcome) -> bool:
+        asked = pin.call_args.args if pin.call_args else ()
+
+        if asked != (application, card):
+            raise AssertionError(
+                f"Expected [{application}] to be held to [{card}], and the tier "
+                f"was asked {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_roller_that_lost_the_platform_mid_action(failure: str) -> MagicMock:

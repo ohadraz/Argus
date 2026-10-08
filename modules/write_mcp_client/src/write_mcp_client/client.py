@@ -6,6 +6,8 @@ from typing import Final
 from argus_core import WriteMcpEndpoint
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    AcceleratorPinRestored,
+    AcceleratorPinUndo,
     AutoscalerUndo,
     AutoscalingRestored,
     CacheEntriesDiscarded,
@@ -38,6 +40,8 @@ _CAPACITY_RESTORED: Final = TypeAdapter(CapacityRestored)
 _CACHE_ENTRIES_DISCARDED: Final = TypeAdapter(CacheEntriesDiscarded)
 
 _AUTOSCALING_RESTORED: Final = TypeAdapter(AutoscalingRestored)
+
+_ACCELERATOR_PIN_RESTORED: Final = TypeAdapter(AcceleratorPinRestored)
 
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
@@ -342,6 +346,68 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
         "restore_autoscaler_floor",
         _AUTOSCALING_RESTORED.validate_python,
         descriptor=descriptor.model_dump(mode="json"),
+    )
+
+
+def pin_to_accelerator(application: str,
+                       accelerator: str,
+                       *,
+                       client: McpClient) -> AcceleratorPinUndo:
+    """Holds a deployment's pods to one accelerator card.
+
+    A generic mitigation of spec §7.3: Mitigation's response to accelerator
+    heterogeneity, and a drain - the pods move off a class of hardware and
+    nothing deployed changes. What admits it is membership of the declared set
+    (§13).
+
+    The caller names the card as well as the application, because the card is
+    the one thing the tier cannot work out: which card is good comes from where
+    the replicas started before the onset, which the caller recorded and the
+    write tier never saw.
+
+    The descriptor records *two* things, as a scale-out's does: the card the
+    deployment was held to before, `None` included, and whether the platform
+    was reconciling the application itself - which a pin has to suspend, because
+    a reconciling platform re-applies the pod template, selector and all.
+
+    Parsed through `parse_undo_descriptor` rather than a local adapter, for the
+    reason every descriptor here is: the union decides which member a stored
+    object is, and that decision has one door.
+    """
+    descriptor = client.call(
+        "pin_to_accelerator",
+        parse_undo_descriptor,
+        application=application,
+        accelerator=accelerator
+    )
+
+    if not isinstance(descriptor, AcceleratorPinUndo):
+        raise ValueError(
+            f"pinning [{application}] to [{accelerator}] answered with a "
+            f"[{descriptor.kind}] descriptor, which is not a record of a "
+            f"deployment being held to a card"
+        )
+
+    return descriptor
+
+
+def restore_accelerator_pin(descriptor: AcceleratorPinUndo,
+                            *,
+                            client: McpClient) -> AcceleratorPinRestored:
+    """Puts back both of the things a pin to a card changed.
+
+    What a withdrawal does to a pin, and what a refuted one does to itself. The
+    descriptor goes back over the wire whole, for the reason every other one
+    does: it is one record of one change, and a caller assembling it from fields
+    could assemble one that never happened.
+
+    Answers with which halves were managed rather than raising, because a
+    restore can half-succeed and the half that fails is the quiet one.
+    """
+    return client.call(
+        "restore_accelerator_pin",
+        _ACCELERATOR_PIN_RESTORED.validate_python,
+        descriptor=descriptor.model_dump(mode="json")
     )
 
 

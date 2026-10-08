@@ -19,6 +19,7 @@ from argus_core.models import (
     Hypothesis,
     MetricBucket,
     Ownership,
+    PodPlacement,
     RetrievalChannel,
     RuleReading,
     ServiceDependency,
@@ -92,6 +93,7 @@ CASE_THE_STOPPED_READINGS = "monitoring-blind-spot-is-told-from-a-bad-deployment
 CASE_A_WINDOW_THAT_STOPS = "a-window-that-stops-is-not-read-as-a-well-service"
 CASE_THE_STALE_CACHE = "state-divergence-is-told-from-silent-data-corruption"
 CASE_THE_DEGRADED_ANSWERS = "output-quality-degradation-is-told-from-a-bad-deployment"
+CASE_THE_MOVED_REPLICA = "accelerator-heterogeneity-is-told-from-output-quality-degradation"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -200,6 +202,11 @@ MUST_NOT_READ_A_STOPPED_WINDOW_AS_WELL = 10  # UNMEASURED - no pooled samples ye
 # deploy readings: a revision that broke the code, and a value that broke the
 # service. Both claim requests failed or slowed, and neither did.
 MUST_IDENTIFY_THE_DEGRADED_ANSWERS = 9  # UNMEASURED - no pooled samples yet
+# The degraded answers' sibling, and unmeasured for its reason. The same flat
+# series and the same departure in the rule's own, and its near miss is that
+# case's answer: what separates the two is what changed at the onset - a revision
+# there, or a replica placed on another card with nothing deployed.
+MUST_IDENTIFY_THE_MOVED_REPLICA = 9  # UNMEASURED - no pooled samples yet
 # How sure a model may sound about a cause the evidence does not carry.
 #
 # The two "nothing explains this" fixtures and the upstream one are a matched
@@ -420,6 +427,21 @@ WHAT_THE_MODEL_UPGRADE_SHIPPED = [
     "  +  model: v2"
 ]
 A_MODEL_LOADED = "INFO checkout: categoriser loaded model v2"
+
+# The paging rule an accelerator incident names, and the share it watches - the
+# purchases the fraud scorer held for review - before and after one replica of
+# three was placed on a card whose arithmetic answers differently. The uid is
+# the shop's own rule's; the shares are the shop's own calm and broken figures.
+THE_FRAUD_RULE = "io-shop-fraud-holds-high"
+CALM_HELD_SHARE = 0.05
+DEGRADED_HELD_SHARE = 0.20
+
+# The two cards, spelled as the platform reports a node's product, and the
+# moment every pod that was serving before the incident had started at: long
+# enough before that no reading of the onset could take one for a reschedule.
+THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
+ANOTHER_CARD = "NVIDIA-A100-SXM4-40GB"
+STARTED_LONG_BEFORE_THE_ONSET = ONSET - timedelta(days=3)
 
 # The deploy that explains nothing, named once so the fixture that stages it and
 # the assertion that refuses it cannot come to mean different deploys.
@@ -1152,6 +1174,38 @@ def test_answers_a_model_upgrade_made_worse_are_told_from_a_deployment_that_brok
         )
 
 
+@pytest.mark.eval
+@needs_the_real_api
+def test_answers_a_replica_on_another_card_made_worse_are_told_from_a_model_upgrade()\
+        -> None:
+    # The degraded answers again, with the cause moved off the change channel.
+    # The series are flat end to end and the rule's own series departs, which is
+    # the shape both modes are named from - so the near miss is the case above's
+    # answer, and what separates them is what changed at the onset. Here nothing
+    # was deployed, and one pod started at the onset on a card none of the pods
+    # before it ran on.
+    some_incident = an_incident_where_a_replica_moved_to_another_card()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_THE_MOVED_REPLICA,
+                MUST_IDENTIFY_THE_MOVED_REPLICA,
+                _a_run_where(
+                    the_cause_was_identified_as(
+                        FailureMode.ACCELERATOR_HETEROGENEITY
+                    )
+                )
+            )
+        )
+
+
 @dataclass(frozen=True)
 class Incident:
     """One pinned incident, as the six retrieval channels would serve it.
@@ -1185,6 +1239,10 @@ class Incident:
     # fleet are one deploy at the onset either way, and only this separates them.
     # Empty for every case where no rollout decides anything.
     rollout: list[str] = field(default_factory=list)
+    # Where the service's pods ran, as the platform would answer. Calm rather
+    # than empty for every case that stages nothing, because production always
+    # reads one - and an empty placement says the service runs on no pod.
+    placement: list[PodPlacement] = field(default_factory=lambda: a_calm_placement())
 
 
 @dataclass(frozen=True)
@@ -1695,6 +1753,32 @@ def an_incident_where_a_model_upgrade_degraded_the_answers() -> Incident:
     )
 
 
+def an_incident_where_a_replica_moved_to_another_card() -> Incident:
+    """A replica placed on another card that made the answers worse, and
+    nothing deployed.
+
+    The rule's series rises at the onset and nothing else moves, as in the
+    model upgrade above. The change channel is empty and the logs are ordinary
+    trade. What moved is in the placement: two pods on the fleet's card since
+    long before, and a third started at the onset on another.
+    """
+    return _an_incident(
+        alert=a_fraud_alert(),
+        buckets=_a_calm_stretch_then_a_rise_in_holds(),
+        log_lines=[
+            a_log_line_at(-1, A_SUCCESS),
+            a_log_line_at(1, A_SUCCESS),
+            a_log_line_at(2, A_SUCCESS)
+        ],
+        changes=[],
+        placement=[
+            a_pod("checkout-0", "gpu-v100-0", THE_FLEETS_CARD, STARTED_LONG_BEFORE_THE_ONSET),
+            a_pod("checkout-1", "gpu-v100-1", THE_FLEETS_CARD, STARTED_LONG_BEFORE_THE_ONSET),
+            a_pod("checkout-2", "gpu-a100-0", ANOTHER_CARD, ONSET + timedelta(seconds=30))
+        ]
+    )
+
+
 def an_incident_underway_before_the_window_opens() -> Incident:
     """Every retrieved minute is inside the incident, and the cause is outside.
 
@@ -1762,7 +1846,8 @@ def a_bucket_at(offset_minutes: int,
                 request_volume: int = CALM_REQUEST_VOLUME,
                 cpu_used_cores: float = CALM_CPU_CORES,
                 cpu_limit_cores: float = CPU_LIMIT_CORES,
-                confident_share: float | None = None) -> MetricBucket:
+                confident_share: float | None = None,
+                held_share: float | None = None) -> MetricBucket:
     """One minute as the metrics channel would serve it.
 
     The traffic and the CPU are parameters rather than fixtures of the shop,
@@ -1775,6 +1860,9 @@ def a_bucket_at(offset_minutes: int,
     `confident_share` is the paging rule's own series, and absent everywhere but
     the one case whose alert names a rule watching it: a window read for no rule
     carries no such reading. Worse below, as the rule that watches it says.
+
+    `held_share` is the other rule's series, for the one case whose alert names
+    the fraud rule, and worse above for the same reason.
     """
     return MetricBucket(
         bucket_id=_minute(offset_minutes),
@@ -1790,13 +1878,29 @@ def a_bucket_at(offset_minutes: int,
         cpu_limit_cores=cpu_limit_cores,
         rule_reading=(
             RuleReading(value=confident_share, worse_when="below")
-            if confident_share is not None else None
+            if confident_share is not None else
+            RuleReading(value=held_share, worse_when="above")
+            if held_share is not None else None
         )
     )
 
 
 def a_log_line_at(offset_minutes: int, message: str) -> str:
     return f"{_minute(offset_minutes)} {message}"
+
+
+def a_calm_placement() -> list[PodPlacement]:
+    """Three pods on the fleet's card, every one started long before the
+    onset - where a service runs when nothing about where it runs moved."""
+    return [
+        a_pod(f"checkout-{replica}", f"gpu-v100-{replica}", THE_FLEETS_CARD,
+              STARTED_LONG_BEFORE_THE_ONSET)
+        for replica in range(3)
+    ]
+
+
+def a_pod(pod: str, node: str, accelerator: str, started_at: datetime) -> PodPlacement:
+    return PodPlacement(pod=pod, node=node, accelerator=accelerator, started_at=started_at)
 
 
 def a_deploy_at(offset_minutes: int, revision: str, summary: str) -> ChangeEvent:
@@ -2034,14 +2138,16 @@ def _an_incident(alert: Alert,
                  changes: list[ChangeEvent],
                  dependencies: list[ServiceDependency] | None = None,
                  what_each_deployment_changed: dict[str, list[str]] | None = None,
-                 rollout: list[str] | None = None
+                 rollout: list[str] | None = None,
+                 placement: list[PodPlacement] | None = None
                  ) -> Incident:
     return Incident(alert=alert, buckets=buckets, log_lines=log_lines,
                     changes=changes, dependencies=dependencies or [],
                     what_each_deployment_changed=(
                         what_each_deployment_changed or {}
                     ),
-                    rollout=rollout or [])
+                    rollout=rollout or [],
+                    placement=placement or a_calm_placement())
 
 
 def _the_register_for(incident: Incident) -> Callable[[str], list[ServiceDependency]]:
@@ -2081,6 +2187,20 @@ def _what_a_deployment_changed_for(incident: Incident
             f"This evaluation records nothing about what the deployment of "
             f"[{revision}] changed, so take it as unread rather than as empty."
         ]
+
+    return fetch
+
+
+def _the_placement_of(incident: Incident) -> Callable[[str], list[PodPlacement]]:
+    """Where the fixture records this incident's pods as running.
+
+    Per incident like the rollout, and evidence for the same kind of reason: a
+    replica placed on another card at the onset is the one finding that
+    separates this mode from a model upgrade, and nothing else in the window
+    holds it.
+    """
+    def fetch(dont_care_service: str) -> list[PodPlacement]:
+        return list(incident.placement)
 
     return fetch
 
@@ -2153,6 +2273,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_dependencies=_the_register_for(incident),
             fetch_what_a_deployment_changed=_what_a_deployment_changed_for(incident),
             fetch_rollout=_the_rollout_of(incident),
+            fetch_placements=_the_placement_of(incident),
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
             converse=speak,
@@ -2590,6 +2711,18 @@ def a_quality_alert() -> Alert:
     )
 
 
+def a_fraud_alert() -> Alert:
+    """The rule that fires on how many purchases the fraud scorer held - the
+    second whose series is not among the five every window carries."""
+    return Alert(
+        service="checkout",
+        alert_name="FraudHoldsHigh",
+        severity="critical",
+        summary="share of purchases held for fraud review above 10% for 5 minutes",
+        rule=THE_FRAUD_RULE
+    )
+
+
 def a_flag_change_at(offset_minutes: int, flag: str) -> ChangeEvent:
     """One flag switched on, as the change channel would serve it.
 
@@ -2660,4 +2793,22 @@ def _a_calm_stretch_then_a_fall_in_confidence() -> list[MetricBucket]:
         ),
         a_bucket_at(1, CALM_ERROR_RATE, confident_share=DEGRADED_CONFIDENT_SHARE),
         a_bucket_at(2, CALM_ERROR_RATE, confident_share=DEGRADED_CONFIDENT_SHARE)
+    ]
+
+
+def _a_calm_stretch_then_a_rise_in_holds() -> list[MetricBucket]:
+    """Three quarters of an hour of calm, then the fraud rule's series rises -
+    onset at offset 1.
+
+    The confidence fixture's shape, turned the other way up: the five fixed
+    series at their calm figures in every minute, and the share the rule watches
+    moving from the shop's calm figure to its broken one, and staying there.
+    """
+    return [
+        *(
+            a_bucket_at(minute, CALM_ERROR_RATE, held_share=CALM_HELD_SHARE)
+            for minute in range(-45, 1)
+        ),
+        a_bucket_at(1, CALM_ERROR_RATE, held_share=DEGRADED_HELD_SHARE),
+        a_bucket_at(2, CALM_ERROR_RATE, held_share=DEGRADED_HELD_SHARE)
     ]

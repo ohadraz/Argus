@@ -33,8 +33,8 @@ from __future__ import annotations
 
 import httpx2
 import pytest
-from argus_core.events import FixAttempted, OnsetDetected
-from argus_core.models import FailureMode, FixOutcome, IncidentStatus
+from argus_core.events import OnsetDetected
+from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
@@ -43,6 +43,7 @@ from tests.e2e.framework.argus import (
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    argus_proposed_a_fix,
     argus_took_a_rollback_of,
     argus_wrote_a_postmortem,
     cause_identified_as,
@@ -95,7 +96,7 @@ def test_a_categoriser_upgrade_that_files_purchases_worse_is_rolled_back() -> No
                     _the_onset_is_where_the_filing_fell(),
                     argus_took_a_rollback_of(THE_SERVICE_NAME),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
-                    _a_fix_was_proposed(),
+                    argus_proposed_a_fix(),
                     argus_wrote_a_postmortem()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
@@ -153,31 +154,6 @@ def _the_onset_is_where_the_filing_fell() -> Assertion[httpx2.Response]:
                 f"Expected the onset within a minute of [{minutes[fell_at][0]}], "
                 f"where the share filed confidently fell past halfway, and it was "
                 f"dated [{onsets[0]}]. The shop's minutes were {minutes}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _a_fix_was_proposed() -> Assertion[httpx2.Response]:
-    """The rollback put the earlier model back; the upgrade is still on the branch.
-
-    So the walk carries on to Code-Fix, and Code-Fix opens something. Any attempt
-    proposed rather than the last, since a later round may ask again.
-    """
-    def assertion(response: httpx2.Response) -> bool:
-        incident_id = incident_id_from(response)
-        attempts = [
-            event for event in the_incidents_events(incident_id)
-            if isinstance(event, FixAttempted)
-        ]
-
-        if not any(attempt.outcome is FixOutcome.PROPOSED for attempt in attempts):
-            raise AssertionError(
-                f"Expected Code-Fix to have proposed a fix for incident "
-                f"[{incident_id}], since the upgrade is still on the branch. It "
-                f"reported {[(attempt.outcome, attempt.detail) for attempt in attempts]}."
             )
 
         return True

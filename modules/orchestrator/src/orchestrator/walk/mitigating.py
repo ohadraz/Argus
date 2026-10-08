@@ -22,6 +22,7 @@ from argus_core.models import (
     AlarmClaim,
     IncidentStatus,
     UnreadVerdict,
+    the_accelerator_of,
     the_actions_through,
     the_direction_of,
     the_platform_of,
@@ -117,7 +118,8 @@ def mitigation_node(
             enabled=the_direction_of(state.proposed_action),
             a_dependency_of=_whose_dependency_was_acted_on(
                 state.proposed_action, state.alert.service
-            )
+            ),
+            accelerator=the_accelerator_of(state.proposed_action)
         ),
         publisher
     )

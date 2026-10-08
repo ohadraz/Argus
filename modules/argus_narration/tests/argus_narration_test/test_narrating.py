@@ -43,6 +43,7 @@ from argus_core.events import (
     MetricsRetrieved,
     MitigationResumed,
     OnsetDetected,
+    PlacementRecorded,
     PlatformUnavailable,
     PostmortemWritten,
     RecoveryChecked,
@@ -58,6 +59,7 @@ from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     FLAG_PROVIDER,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -74,6 +76,8 @@ from argus_core.models import (
     IncidentStatus,
     MetricBucket,
     OpenedPullRequest,
+    PodPlacement,
+    RecordedPlacement,
     Refusal,
     RetrievalChannel,
     Undone,
@@ -88,6 +92,8 @@ _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 SOME_MINUTE = "2026-08-30T10:14:00Z"
 AN_EARLIER_MINUTE = "2026-08-30T10:13:00Z"
 SOME_FLAG = "some-ramped-flag"
+SOME_ONSET = datetime(2026, 8, 30, 10, 13, tzinfo=UTC)
+SOME_TIME_LONG_BEFORE_THE_ONSET = datetime(2026, 8, 30, 8, 0, tzinfo=UTC)
 
 
 @pytest.mark.unit
@@ -557,7 +563,7 @@ def test_an_unavailable_platform_says_which_actions_went_with_it() -> None:
         .then(all_of(
             _the_only_line_marks(DEPLOYMENT_PLATFORM),
             _the_only_line_says(
-                "restarting", "rolling", "scaling", "autoscaler"
+                "restarting", "rolling", "scaling", "autoscaler", "accelerator card"
             ),
             _the_lines_are_credited_to(["Argus"])))
 
@@ -1403,6 +1409,171 @@ def test_an_order_memory_changed_names_a_discard_as_copies_thrown_away() -> None
         ))
 
 
+@pytest.mark.unit
+def test_a_placement_names_each_pods_card_and_marks_the_ones_placed_at_the_onset() -> None:
+    # The one record of a replica that moved to another card with nothing
+    # deployed, so it is said in full: every pod and the card it ran on. The pods
+    # placed at the onset are the ones marked, because a card is a suspect only
+    # by being where those pods landed - and a reader scanning the line is
+    # looking for which of them did.
+    the_card_before_the_onset = "Tesla-V100-SXM2-16GB"
+    the_card_at_the_onset = "Tesla-T4"
+
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(
+                _a_pod("io-shop-a", the_card_before_the_onset,
+                       SOME_TIME_LONG_BEFORE_THE_ONSET),
+                _a_pod("io-shop-b", the_card_before_the_onset,
+                       SOME_TIME_LONG_BEFORE_THE_ONSET),
+                _a_pod("io-shop-c", the_card_at_the_onset, SOME_ONSET)
+            )
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says(
+                f"io-shop-a on {the_card_before_the_onset}",
+                f"io-shop-b on {the_card_before_the_onset}"
+            ),
+            _the_only_line_marks(f"io-shop-c on {the_card_at_the_onset}"),
+            _the_lines_are_credited_to(["Investigator Agent"])
+        ))
+
+
+@pytest.mark.unit
+def test_a_pod_whose_node_reports_no_card_is_said_to_report_none() -> None:
+    # Said as what the platform reported rather than as a card nobody named. A
+    # pod with no card is the one thing that stops a pin, and a reader shown
+    # a blank where the card goes cannot tell that from a line that lost it.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", None, SOME_TIME_LONG_BEFORE_THE_ONSET),)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says("io-shop-a", "no accelerator reported"),
+            _the_only_line_does_not_say("None")
+        ))
+
+
+@pytest.mark.unit
+def test_a_placement_with_no_pod_placed_at_the_onset_says_nothing_about_the_onset() -> None:
+    # The ordinary incident, in which nothing moved. A clause naming an empty
+    # set of pods placed at the onset would read as a finding about the onset,
+    # and there is none to make.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(
+                _a_pod("io-shop-a", "Tesla-V100-SXM2-16GB",
+                       SOME_TIME_LONG_BEFORE_THE_ONSET),
+            )
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(_the_only_line_does_not_say("onset"))
+
+
+@pytest.mark.unit
+def test_a_placement_whose_every_pod_started_at_the_onset_marks_them_all() -> None:
+    # Nothing served before the incident, so there is nothing to list ahead of
+    # the mark - and every pod there is still has to be the marked part.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", "Tesla-T4", SOME_ONSET),)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(_the_only_line_marks("io-shop-a on Tesla-T4"))
+
+
+@pytest.mark.unit
+def test_a_placement_of_no_pods_says_the_platform_reported_none() -> None:
+    # A tree with no pods in it is an answer, and a different one from a
+    # platform that would not answer: said as nothing at all, the line ends on
+    # a dash and reads as one that lost its list.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(onset=SOME_ONSET, pods=())
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says("no pods"),
+            _the_only_line_does_not_say("onset")
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_to_an_accelerator_names_the_card_it_held_the_pods_to() -> None:
+    # The application is marked, as every deployment action marks it, and the
+    # card is said: it is the half a reader checks against the placement line
+    # above, and the subject alone says only that the pods were held somewhere.
+    an_application_held_to_a_card = "io-shop"
+    the_card_it_was_held_to = "Tesla-V100-SXM2-16GB"
+
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type=PIN_TO_ACCELERATOR,
+        subject=an_application_held_to_a_card,
+        accelerator=the_card_it_was_held_to
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(all_of(
+            _the_only_line_marks(an_application_held_to_a_card),
+            _the_only_line_says(the_card_it_was_held_to)
+        ))
+
+
+@pytest.mark.unit
+def test_an_order_memory_changed_names_a_pin_to_an_accelerator_as_pods_held_to_a_card() -> None:
+    # The gerund form, and without the card: the identity memory reorders by is
+    # the kind and the application, so which card an earlier incident held the
+    # pods to is not something this line has to say.
+    the_application_that_was_moved_down = "io-shop"
+
+    what_memory_did = CandidatesReordered(
+        incident_id=new_id(),
+        action_type=PIN_TO_ACCELERATOR,
+        subject=the_application_that_was_moved_down,
+        on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+    )
+
+    Scenario() \
+        .given(what_memory_did) \
+        .when(lambda: build_narration([what_memory_did])) \
+        .then(_the_only_line_marks(
+            f"holding {the_application_that_was_moved_down}'s pods to one accelerator card"
+        ))
+
+
 def _no_line_mentions(absent: str) -> Assertion[list[NarrationLine]]:
     """No line says this, which is what a wrong word looks like here.
 
@@ -1442,6 +1613,13 @@ def _a_bucket(bucket_id: str) -> MetricBucket:
         process_start_time_seconds=1_756_000_000.0,
         cpu_used_cores=0.77,
         cpu_limit_cores=3.0
+    )
+
+
+def _a_pod(pod: str, accelerator: str | None, started_at: datetime) -> PodPlacement:
+    """One pod, on a node nothing here reads."""
+    return PodPlacement(
+        pod=pod, node="dont-care-node", accelerator=accelerator, started_at=started_at
     )
 
 

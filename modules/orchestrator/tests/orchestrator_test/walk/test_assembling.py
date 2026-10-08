@@ -51,6 +51,10 @@ WHAT_A_RULE_READ_IS_GIVEN = frozenset({"rule"})
 # the window ends. The settings and the connection are the binding's.
 WHAT_THE_INVESTIGATION_NODE_ASKS = frozenset({"service", "onset"})
 
+# What the investigation node hands the Investigator positionally: the alert and
+# the incident. Every channel it reads is the binding's.
+WHAT_AN_INVESTIGATION_IS_GIVEN = frozenset({"alert", "incident_id"})
+
 
 @pytest.mark.unit
 def test_assembling_the_collaborators_opens_no_connection() -> None:
@@ -119,6 +123,23 @@ def test_the_deploy_history_is_bound_with_everything_but_the_question() -> None:
                               None)) \
         .then(
             _reading_the_deploy_history_needs_only(WHAT_THE_INVESTIGATION_NODE_ASKS)
+        )
+
+
+@pytest.mark.unit
+def test_the_investigation_is_bound_with_every_channel_it_reads() -> None:
+    # Bound whole for the reason taking an action is. A channel the Investigator
+    # gains and nobody binds here leaves a partial one argument short, well-typed
+    # until the first round calls it - after the alert has paged and before
+    # anything at all was read.
+    Scenario() \
+        .given(no_connections := _connections_that_must_not_be_opened()) \
+        .when(lambda: against(no_connections,
+                              _a_client_that_must_not_be_reached(),
+                              _a_client_that_must_not_be_reached(),
+                              None)) \
+        .then(
+            _investigating_needs_only(WHAT_AN_INVESTIGATION_IS_GIVEN)
         )
 
 
@@ -240,6 +261,19 @@ def _reading_the_deploy_history_needs_only(
             supplied,
             _still_required_of(collaborators.fetch_deployments),
             "read what was deployed"
+        )
+
+        return True
+
+    return assertion
+
+
+def _investigating_needs_only(supplied: frozenset[str]) -> Assertion[Collaborators]:
+    def assertion(collaborators: Collaborators) -> bool:
+        _nothing_beyond(
+            supplied,
+            _still_required_of(collaborators.investigate),
+            "investigate"
         )
 
         return True

@@ -40,6 +40,7 @@ from argus_core.models import (
     IncidentStatus,
     Outcome,
     PinAutoscaler,
+    PinToAccelerator,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -68,6 +69,7 @@ DONT_CARE_FLAG = "dont-care-flag"
 SOME_FLAG_THE_CANDIDATE_BLAMES = "monthly-spend-feature"
 SOME_MOMENT_THE_CLAIM_WAS_WRITTEN = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
 SOME_ONSET_THE_ALERT_STATED = datetime(2026, 9, 4, 21, 48, tzinfo=UTC)
+SOME_ACCELERATOR = "Tesla-V100-SXM2-16GB"
 
 
 @pytest.fixture
@@ -916,9 +918,10 @@ def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
     [
         RollBackDeployment(application="kuki-service"),
         ScaleOut(application="kuki-service"),
-        PinAutoscaler(application="kuki-service")
+        PinAutoscaler(application="kuki-service"),
+        PinToAccelerator(application="kuki-service", accelerator=SOME_ACCELERATOR)
     ],
-    ids=["rollback", "scale-out", "pin"]
+    ids=["rollback", "scale-out", "autoscaler-pin", "card-pin"]
 )
 def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_about_it(
     some_deployment_action: Action,
@@ -1098,6 +1101,41 @@ def test_the_graph_says_which_way_it_moved_the_flag(
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_announced_action_moved_the_flag(the_action.enabled, published))
+
+
+@pytest.mark.unit
+def test_the_graph_says_which_card_it_held_the_deployment_to(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # "The deployment was held to a card" is the half a reader cannot check.
+    # Which card is the half they hold against the placement recorded at the
+    # onset, and the action is the only thing that knows it.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            a_pinning_incident := _a_mitigating_incident(
+                proposing=PinToAccelerator(
+                    application="kuki-service", accelerator=SOME_ACCELERATOR
+                )
+            )
+        ) \
+        .when(lambda: mitigation_node(a_pinning_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_announced_action_held_it_to(SOME_ACCELERATOR, published))
 
 
 @pytest.mark.unit
@@ -1771,6 +1809,23 @@ def _the_announced_action_moved_the_flag(expected: bool,
         if moved_to != [expected]:
             raise AssertionError(
                 f"Expected the flag to be announced as [{expected}], got {moved_to}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_announced_action_held_it_to(expected: str,
+                                     published: list[IncidentEvent]
+                                     ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        held_to = [event.accelerator for event in published
+                   if isinstance(event, ActionTaken)]
+        if held_to != [expected]:
+            raise AssertionError(
+                f"Expected one action announced as holding the deployment to "
+                f"[{expected}], got {held_to}."
             )
 
         return True

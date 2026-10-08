@@ -23,6 +23,7 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     Platform,
+    RecordedPlacement,
     WhatWouldBeTried,
     the_identity_of,
     the_platform_of,
@@ -31,7 +32,8 @@ from argus_core.models import (
 
 def the_circumstances(alert: Alert,
                       flag_changes: Sequence[FlagChange] | None,
-                      deployments: Sequence[ChangeEvent] | None
+                      deployments: Sequence[ChangeEvent] | None,
+                      placement: RecordedPlacement | None
                       ) -> Circumstances | None:
     """What every candidate in a round is answered from, or `None` where the
     flag history could not be read.
@@ -59,6 +61,10 @@ def the_circumstances(alert: Alert,
     claiming none is stale, and the one mode that reads deployments proposes a
     rollback only where one was recorded - so neither absence has anything to
     tell a strategy that an empty sequence does not.
+
+    The placement is the exception, carried as `None` rather than as empty. An
+    empty placement would say the service runs on no pod, and the strategy that
+    reads it would find no replica that moved - an outage read as an all-clear.
     """
     if flag_changes is None:
         return None
@@ -67,7 +73,8 @@ def the_circumstances(alert: Alert,
         service=alert.service,
         flag_changes=flag_changes,
         stale_entry_keys=alert.stale_entry_keys or (),
-        deployments=deployments or ()
+        deployments=deployments or (),
+        placement=placement
     )
 
 
@@ -145,7 +152,7 @@ def the_next_worth_trying(
 
     A third thing disqualifies one, and it is the only one that is not about the
     candidate at all: the platform its action would act through is not answering.
-    Four of the five generic mitigations reach the estate through the deployment
+    Five of the seven generic mitigations reach the estate through the deployment
     platform, so a platform that failed one of them has failed every candidate
     that needs it - and trying the next of them buys a second failure and a
     verification window. What it does not do is end the walk: the flag revert

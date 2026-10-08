@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import random
 import string
+from datetime import UTC, datetime, timedelta
 
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -17,6 +19,8 @@ from argus_core.models import (
     FailureMode,
     Hypothesis,
     IncidentStatus,
+    PodPlacement,
+    RecordedPlacement,
 )
 from argus_incidents.withdrawal import IsStillWanted
 from orchestrator.walk.state import IncidentState
@@ -100,6 +104,16 @@ def rolling_back(application: str) -> ActionIdentity:
     neither.
     """
     return an_identity(ROLL_BACK_DEPLOYMENT, application)
+
+
+def holding_to_a_card(application: str) -> ActionIdentity:
+    """Holding a deployment's pods to one card, as the walk identifies it.
+
+    Addressed to the application and never to the card, which is what the
+    kernel's own subject says: a pin to one card refuted and a pin to another is
+    the same experiment on the same fleet.
+    """
+    return an_identity(PIN_TO_ACCELERATOR, application)
 
 
 def discarding(service: str) -> ActionIdentity:
@@ -199,6 +213,24 @@ def a_corruption_blamed_on(incident_id: str, prose: str) -> Hypothesis:
                       subject=prose)
 
 
+def an_accelerator_blamed_on(incident_id: str, prose: str) -> Hypothesis:
+    """An explanation that a replica moved onto another card, in the model's
+    words.
+
+    The card is nowhere in it on purpose. Which card to hold the fleet to is read
+    off the placement the round recorded, so a candidate naming one would let the
+    candidate answer for a case that is about the placement.
+    """
+    some_confidence = 0.75
+
+    return Hypothesis(incident_id=incident_id,
+                      summary="one replica answers differently since it moved",
+                      failure_mode=FailureMode.ACCELERATOR_HETEROGENEITY,
+                      confidence=some_confidence,
+                      supporting_evidence=[Evidence(claim="some log line", at=None)],
+                      subject=prose)
+
+
 def a_deployment() -> ChangeEvent:
     """A revision the platform recorded going out.
 
@@ -210,6 +242,35 @@ def a_deployment() -> ChangeEvent:
         occurred_at="2026-09-27T09:14:00Z",
         reference="26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2",
         summary="dont-care-summary"
+    )
+
+
+def a_placement() -> RecordedPlacement:
+    """Where a service's pods were running, recorded against an onset.
+
+    Two pods on two cards, one serving long before the onset and one placed at
+    it, because that is the shape a placement is read for. Which pods and which
+    cards are nobody's concern where this is used: what reads it there asks only
+    whether the placement arrived.
+    """
+    onset = datetime(2026, 10, 7, 21, 41, tzinfo=UTC)
+
+    return RecordedPlacement(
+        onset=onset,
+        pods=(
+            PodPlacement(
+                pod="io-shop-5b8c6d-x2kqp",
+                node="gpu-v100-0",
+                accelerator="Tesla-V100-SXM2-16GB",
+                started_at=onset - timedelta(hours=2)
+            ),
+            PodPlacement(
+                pod="io-shop-5b8c6d-r7wzt",
+                node="gpu-a100-0",
+                accelerator="NVIDIA-A100-SXM4-40GB",
+                started_at=onset - timedelta(seconds=30)
+            )
+        )
     )
 
 

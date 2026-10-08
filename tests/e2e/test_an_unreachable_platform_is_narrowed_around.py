@@ -2,11 +2,11 @@
 
 Every other case in this suite runs against an estate that answers. This one
 runs against one that will not act: the deployment platform's API server is
-refusing, while it goes on saying what it has deployed. Four of Argus's five
+refusing, while it goes on saying what it has deployed. Five of Argus's seven
 generic mitigations reach the estate through that platform - the rollback, the
-restart, the scale-out and the autoscaler pin - so a single platform failure
-takes four actions away at once, and takes them away for a reason that has
-nothing to do with the incident.
+restart, the scale-out, the autoscaler pin and the pin to a card - so a single
+platform failure takes five actions away at once, and takes them away for a
+reason that has nothing to do with the incident.
 
 The world is staged so that the one thing Argus cannot do is the first thing it
 should want to do. A revision went out and a flag was switched on in the same

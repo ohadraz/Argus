@@ -10,15 +10,17 @@ is the reviewable artefact: a test that asked the module what it contained would
 agree with it whatever it contained, and the day a kind nobody argued for
 appears in it, nothing would go red.
 
-Five kinds are declared, and they are unalike in the way that matters. One
+Seven kinds are declared, and they are unalike in the way that matters. One
 leaves a value behind to put back, one leaves nothing at all, one leaves two
 things behind - a deployment on an earlier revision and a platform no longer
 reconciling it - one restores nothing at all, because what it does is add
-capacity the deployment never had, and one *stops* something rather than adding
-or restoring anything, by taking away an autoscaler's room to scale back down.
-That all five are in the set is the clearest statement that membership, and not
-reversibility, is what is being asked - and the fifth makes it plainest, since
-what it leaves behind is a controller held still rather than a value changed.
+capacity the deployment never had, one *stops* something rather than adding or
+restoring anything, by taking away an autoscaler's room to scale back down, one
+removes copies derived from records it never touches, and one drains, moving
+pods off a class of hardware while nothing deployed changes. That all seven are
+in the set is the clearest statement that membership, and not reversibility, is
+what is being asked - and the autoscaler pin makes it plainest, since what it
+leaves behind is a controller held still rather than a value changed.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from agent_mitigation import (
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -41,6 +44,7 @@ from argus_core.models import (
     DiscardCacheEntries,
     Ownership,
     PinAutoscaler,
+    PinToAccelerator,
     RestartService,
     RollBackDeployment,
     ScaleOut,
@@ -71,6 +75,22 @@ def test_pinning_an_autoscaler_may_be_taken_unasked() -> None:
     # rest: somebody declared it, which is the whole of what the gate asks.
     Scenario() \
         .given(a_pin := PinAutoscaler(application="io-shop")) \
+        .when(lambda: is_a_generic_mitigation(a_pin)) \
+        .then(_it_is_admitted())
+
+
+@pytest.mark.unit
+def test_holding_a_deployment_to_one_card_may_be_taken_unasked() -> None:
+    # The seventh kind, and a drain: Google SRE's list of generic mitigations
+    # names draining beside rolling back, restarting and adding capacity. Pods
+    # move off a class of hardware and nothing deployed changes, and it is
+    # admitted on the ground every other member is - somebody declared it.
+    Scenario() \
+        .given(
+            a_pin := PinToAccelerator(
+                application="io-shop", accelerator="Tesla-V100-SXM2-16GB"
+            )
+        ) \
         .when(lambda: is_a_generic_mitigation(a_pin)) \
         .then(_it_is_admitted())
 
@@ -122,7 +142,8 @@ def test_the_declared_set_is_exactly_what_it_is_written_down_as() -> None:
         ROLL_BACK_DEPLOYMENT,
         SCALE_OUT,
         PIN_AUTOSCALER,
-        DISCARD_CACHE_ENTRIES
+        DISCARD_CACHE_ENTRIES,
+        PIN_TO_ACCELERATOR
     }
 
     Scenario() \
@@ -359,6 +380,26 @@ def test_scaling_out_an_application_the_register_never_named_is_out_of_reach() -
         .when(
             lambda: is_within_reach(
                 ScaleOut(application="io-billing"),
+                alerting_service="io-shop",
+                dependencies=[ours]
+            )
+        ) \
+        .then(_it_is_out_of_reach())
+
+
+@pytest.mark.unit
+def test_holding_an_application_the_register_never_named_to_a_card_is_out_of_reach() -> None:
+    # The address rule over the pin to a card, for the scale-out's reason: it
+    # names an Argo CD application, and the card it carries is no part of where
+    # it is aimed - so a reach question that read the card instead would let a
+    # pin land on any deployment the platform holds.
+    Scenario() \
+        .given(ours := a_dependency("io-pricing", Ownership.INTERNAL)) \
+        .when(
+            lambda: is_within_reach(
+                PinToAccelerator(
+                    application="io-billing", accelerator="Tesla-V100-SXM2-16GB"
+                ),
                 alerting_service="io-shop",
                 dependencies=[ours]
             )

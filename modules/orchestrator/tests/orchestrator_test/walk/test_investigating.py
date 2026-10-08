@@ -51,6 +51,7 @@ from argus_core.models import (
     IncidentStatus,
     Ownership,
     Reading,
+    RecordedPlacement,
     RetrievalChannel,
     ServiceDependency,
     Verdict,
@@ -76,10 +77,13 @@ from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     a_divergence_blamed_on,
     a_leak_blamed_on,
+    a_placement,
+    an_accelerator_blamed_on,
     an_identity,
     an_incident_state,
     an_undetermined_hypothesis,
     discarding,
+    holding_to_a_card,
     putting_back,
     restarting,
     rolling_back,
@@ -1140,6 +1144,72 @@ def test_the_round_carries_the_deploy_history_it_read(
 
 
 @pytest.mark.unit
+def test_the_round_carries_the_placement_the_investigation_recorded(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Carried rather than read again where it is used. A pin to a card is
+    # decided from it, and a placement read when acting is read after whatever
+    # the walk did first has moved the pods - which is reading the remedy as the
+    # cause.
+    an_investigating_incident = _an_investigating_incident()
+    the_placement_recorded = a_placement()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_recorded_the_placement(
+                investigate,
+                the_placement_recorded,
+                a_determined_hypothesis(an_investigating_incident.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            the_result_at("placement", the_placement_recorded)
+        )
+
+
+@pytest.mark.unit
+def test_a_round_that_could_not_read_the_placement_does_not_keep_the_last_one(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Every round re-reads, as the flag history is re-read, and what a round
+    # could not read reaches the state as unread. An earlier round's placement
+    # left standing would be pods recorded against an onset and a fleet this
+    # round no longer has - and a pin decided from it is decided from the past.
+    an_incident_an_earlier_round_placed = _an_investigating_incident().model_copy(
+        update={"placement": a_placement()}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_incident_an_earlier_round_placed.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_incident_an_earlier_round_placed,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            _the_placement_is_sent_on_as_unread()
+        )
+
+
+@pytest.mark.unit
 def test_a_deploy_history_that_could_not_be_read_is_carried_as_unread(
     investigate: MagicMock, record_hypothesis: MagicMock,
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
@@ -1203,6 +1273,40 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
                                       fetch_flag_changes=fetch_flag_changes,
                                       fetch_dependencies=fetch_dependencies,
                                       fetch_deployments=fetch_deployments)
+        ) \
+        .then(the_result_at("nothing_worth_trying", True))
+
+
+@pytest.mark.unit
+def test_a_later_round_does_not_hold_the_fleet_to_a_card_it_already_held_it_to(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The guard once more, for the candidate whose answer is read off the
+    # placement. The round asks each candidate which action would answer it, and
+    # has to ask with the placement its investigation just recorded: asked
+    # without it, a moved replica reads as answered by nothing, which matches
+    # nothing already tried - so the walk would pin the same fleet once per
+    # wording.
+    a_round_after_the_pin = _an_investigating_incident().model_copy(
+        update={"attempts": [_an_attempt_to(holding_to_a_card(SOME_SERVICE))]}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_recorded_the_placement(
+                investigate,
+                a_placement(),
+                an_accelerator_blamed_on(a_round_after_the_pin.incident_id,
+                                         "one replica holds far more for review")))
+        ) \
+        .when(
+            lambda: investigator_node(a_round_after_the_pin,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
         ) \
         .then(the_result_at("nothing_worth_trying", True))
 
@@ -1738,6 +1842,35 @@ def _the_investigation_returned(investigate: MagicMock,
     investigate.return_value = agent_investigator.Findings(
         candidates=list(candidates), already_read=[]
     )
+
+
+def _the_investigation_recorded_the_placement(investigate: MagicMock,
+                                              placement: RecordedPlacement,
+                                              *candidates: Hypothesis) -> None:
+    investigate.return_value = agent_investigator.Findings(
+        candidates=list(candidates), already_read=[], placement=placement
+    )
+
+
+def _the_placement_is_sent_on_as_unread() -> Assertion[StateDelta]:
+    """Sent on as `None`, rather than left out of the update.
+
+    Left out, the state would keep whatever an earlier round put there - which
+    is the failure this asks about, and which `None` read off the delta itself
+    could not tell from a node that never mentioned the field.
+    """
+    def assertion(delta: StateDelta) -> bool:
+        updates = delta.as_updates()
+
+        if "placement" not in updates or updates["placement"] is not None:
+            raise AssertionError(
+                f"Expected the placement to be sent on as unread, and the round "
+                f"sent {updates.get('placement', 'nothing about it')!r}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_investigation_found_the_incident_unread(investigate: MagicMock,

@@ -21,6 +21,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    PlacementFetcher,
     RolloutFetcher,
 )
 from argus_core import new_id
@@ -31,6 +32,7 @@ from argus_core.models import (
     Attempt,
     ChangeEvent,
     MetricBucket,
+    PodPlacement,
     ServiceDependency,
 )
 from argus_testkit import raising, returning
@@ -52,6 +54,7 @@ class Investigation(NamedTuple):
     dependency_fetcher: Mock
     deployment_diff_fetcher: Mock
     rollout_fetcher: Mock
+    placement_fetcher: Mock
     model: Mock
     budget: Budget
 
@@ -82,6 +85,7 @@ class Investigation(NamedTuple):
             fetch_dependencies=self.dependency_fetcher,
             fetch_what_a_deployment_changed=self.deployment_diff_fetcher,
             fetch_rollout=self.rollout_fetcher,
+            fetch_placements=self.placement_fetcher,
             settings=settings or some_investigation_settings(),
             thresholds=some_thresholds(),
             converse=None if conversations is not None else self.model,
@@ -115,6 +119,12 @@ class Investigation(NamedTuple):
     def the_register_failed(self, error: Exception) -> Callable[[], None]:
         return raising(self.dependency_fetcher, error)
 
+    def the_platform_placed(self, pods: list[PodPlacement]) -> Callable[[], None]:
+        return returning(self.placement_fetcher, pods)
+
+    def the_placement_could_not_be_read(self, error: Exception) -> Callable[[], None]:
+        return raising(self.placement_fetcher, error)
+
 
 def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation:
     """The loop, with a scripted model and every channel answering emptily.
@@ -136,6 +146,9 @@ def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation
         ),
         rollout_fetcher=create_autospec(
             RolloutFetcher, instance=True, return_value=[]
+        ),
+        placement_fetcher=create_autospec(
+            PlacementFetcher, instance=True, return_value=[]
         ),
         model=model,
         budget=budget or a_budget()

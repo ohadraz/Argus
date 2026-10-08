@@ -30,6 +30,7 @@ from typing import Protocol
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -43,17 +44,21 @@ from argus_core.models import (
     FlagUndo,
     Hypothesis,
     PinAutoscaler,
+    PinToAccelerator,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
     ScaleOut,
 )
 
+from agent_mitigation.accelerators import the_accelerator_to_pin_to
+
 __all__ = [
     "DEFAULT_STRATEGIES",
     "DiscardCacheEntriesStrategy",
     "MitigationStrategy",
     "PinAutoscalerStrategy",
+    "PinToAcceleratorStrategy",
     "RestartDependencyStrategy",
     "RestartServiceStrategy",
     "RollBackDeploymentStrategy",
@@ -389,8 +394,10 @@ class DiscardCacheEntriesStrategy:
     not, because what it removes was derived from records it never touches.
 
     It is also the one strategy whose action is addressed by something the
-    evidence had to name. The other five are addressed to a flag the provider
-    recorded or to a service the alert named; an entry in a store is addressed by
+    evidence had to name. The other six are addressed to a flag the provider
+    recorded or to a service the alert named - the pin to a card holding that
+    service to a card the recorded placement names; an entry in a store is
+    addressed by
     a key, a key's format belongs to whoever wrote the store, and so there is no
     honest way for Argus to work one out. The check that found the divergence
     built those keys in order to compare the copies, which is why it can hand them
@@ -473,6 +480,46 @@ class UndoTheRecordedChangeStrategy:
             return RollBackDeploymentStrategy().propose(hypothesis, circumstances)
 
         return None
+
+
+class PinToAcceleratorStrategy:
+    """Answering a replica moved onto another card by holding the deployment to
+    the card the fleet ran on.
+
+    The seventh generic mitigation, and a drain: pods move off a class of hardware
+    and nothing deployed changes. Admitted on the ground every member is -
+    somebody declared it - and named beside rolling back, restarting and adding
+    capacity on Google SRE's own list.
+
+    The deployment comes from the alert, as every action addressed to a service's
+    platform does. The card comes from the placement the round recorded against
+    its onset and from nowhere else: not the hypothesis, whose subject is prose,
+    and not a read made now, after the walk may already have moved the pods.
+
+    Which card is decided by `the_accelerator_to_pin_to`, and where it names none
+    this proposes nothing. That reaches the gate as no mitigation proposed, the
+    walk moves on, and an ambiguous placement ends with a person - which is how
+    "the evidence does not say which card" is escalated without a route of its own.
+    """
+
+    action_types: frozenset[ActionType] = frozenset({PIN_TO_ACCELERATOR})
+
+    def propose(self,
+                hypothesis: Hypothesis,
+                circumstances: Circumstances) -> Action | None:
+        """The deployment to hold and the card to hold it to, or `None` where
+        the placement does not name one card unambiguously.
+
+        Neither the hypothesis nor the recorded histories are read. A replica the
+        platform moved is not something a flag or a deployment did, and one that
+        happened to move meanwhile is a coincidence this must not act on.
+        """
+        card = the_accelerator_to_pin_to(circumstances.placement)
+
+        if card is None:
+            return None
+
+        return PinToAccelerator(application=circumstances.service, accelerator=card)
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
@@ -558,7 +605,12 @@ DEFAULT_STRATEGIES: Strategies = {
     # succeeded as fast as before. Returning it puts the answers back, and what
     # confirms that is the rule that paged - whose series is the only one that
     # moved.
-    FailureMode.OUTPUT_QUALITY_DEGRADATION: RollBackDeploymentStrategy()
+    FailureMode.OUTPUT_QUALITY_DEGRADATION: RollBackDeploymentStrategy(),
+    # The seventh mitigation, and the near-miss of the entry above. Both are
+    # answers that got worse while every request still succeeded as fast as
+    # before; what separates them is whether a revision or a placement changed at
+    # the onset, and the two are undone by opposite kinds of action.
+    FailureMode.ACCELERATOR_HETEROGENEITY: PinToAcceleratorStrategy()
 }
 
 

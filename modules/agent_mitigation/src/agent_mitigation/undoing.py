@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import assert_never
 
 from argus_core.models import (
+    AcceleratorPinUndo,
     AutoscalerUndo,
     DeploymentRollbackUndo,
     FlagUndo,
@@ -21,6 +22,7 @@ from argus_core.models import (
 
 from agent_mitigation.actions import UndoAttempt, Undone, state_name
 from agent_mitigation.tools import (
+    AcceleratorPinRestorer,
     AutoscalingRestorer,
     CapacityRestorer,
     ChangedFromOutside,
@@ -36,7 +38,8 @@ def undo_change(undo_descriptor: UndoDescriptor,
                 set_state: FlagSetter,
                 restore_deployment: DeploymentRestorer,
                 restore_capacity: CapacityRestorer,
-                restore_autoscaling: AutoscalingRestorer) -> UndoAttempt:
+                restore_autoscaling: AutoscalingRestorer,
+                restore_accelerator_pin: AcceleratorPinRestorer) -> UndoAttempt:
     """Puts one recorded change back, where it is still Argus's to put back.
 
     The capability, on its own: one change, one answer. Which changes to undo,
@@ -77,6 +80,8 @@ def undo_change(undo_descriptor: UndoDescriptor,
             return _put_a_size_back(undo_descriptor, restore_capacity)
         case AutoscalerUndo():
             return _put_a_floor_back(undo_descriptor, restore_autoscaling)
+        case AcceleratorPinUndo():
+            return _put_a_card_pin_back(undo_descriptor, restore_accelerator_pin)
         case _:
             assert_never(undo_descriptor)
 
@@ -245,6 +250,59 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
     still_changed = ", ".join(
         what for what, put_back in (
             ("the floor its autoscaler was holding", restored.floor_put_back),
+            ("automated sync", restored.automated_sync_put_back)
+        ) if not put_back
+    )
+
+    return UndoAttempt(
+        subject=application,
+        outcome=Undone.NOT_ESTABLISHED,
+        detail=(
+            f"[{application}] was only partly put back - {still_changed} "
+            f"remains as Argus left it"
+        ),
+    )
+
+
+def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
+                         restore: AcceleratorPinRestorer) -> UndoAttempt:
+    """Lets a deployment's pods off the card Argus held them to - back onto the
+    card somebody else had chosen, or onto any card - and restores the
+    reconciliation the pin had to suspend.
+
+    Both, or it is not undone, for the reason every undo under a GitOps
+    controller needs both. No "changed from outside" check, as with the
+    autoscaler's pin: what this writes is one selector through the platform's
+    own patch, and setting it to what Argus found is the restore.
+
+    Letting go moves nothing by itself. The pods stay where the pin put them
+    until something reschedules them, so a withdrawal leaves the shop well rather
+    than returning it to the incident - unlike a withdrawn autoscaler pin.
+    """
+    application = undo_descriptor.application
+
+    try:
+        restored = restore(undo_descriptor)
+    except Exception as error:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.NOT_ESTABLISHED,
+            detail=f"[{application}]'s pods could not be let off their card: {error}",
+        )
+
+    if restored.pin_put_back and restored.automated_sync_put_back:
+        return UndoAttempt(
+            subject=application,
+            outcome=Undone.RESTORED,
+            detail=(
+                f"[{application}]'s pods were let off [{undo_descriptor.pinned_to}], "
+                f"and its automated sync was restored"
+            ),
+        )
+
+    still_changed = ", ".join(
+        what for what, put_back in (
+            ("the card its pods are held to", restored.pin_put_back),
             ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )

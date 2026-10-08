@@ -23,10 +23,11 @@ import pytest
 from agent_mitigation import an_undo_over
 from agent_mitigation.tools import MitigationSettings
 from argus_core.mcp_transport import McpClient
-from argus_core.models import DeploymentRollbackUndo
+from argus_core.models import AcceleratorPinUndo, DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of
 
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
+RESTORE_ACCELERATOR_PIN_TOOL = "restore_accelerator_pin"
 
 SOME_APPLICATION = "io-shop"
 SOME_ARGUS_USER = "Shuki Tuki"
@@ -35,6 +36,13 @@ A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
     application=SOME_APPLICATION,
     was_on_history_id=2,
     was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
+    was_syncing_itself=True
+)
+
+A_PIN_TO_A_CARD_TO_PUT_BACK = AcceleratorPinUndo(
+    application=SOME_APPLICATION,
+    was_pinned_to=None,
+    pinned_to="Tesla-V100-SXM2-16GB",
     was_syncing_itself=True
 )
 
@@ -82,6 +90,27 @@ def test_an_undo_puts_a_rolled_back_deployment_back_over_the_write_tier() -> Non
         .then(all_of(
             _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(RESTORE_CONFIGURATION_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_an_undo_puts_a_pin_to_a_card_back_over_the_write_tier() -> None:
+    # The seventh kind's way back, bound in the one place both callers share. A
+    # binding without it raises the first time a refuted pin or a withdrawn
+    # incident asks for one - with production's pods held to a card.
+    Scenario() \
+        .given(
+            read := _a_session_that_answers_nothing(),
+            write := _a_session_that_answers_nothing()
+        ) \
+        .when(
+            _asking(read, write, lambda: an_undo_over(
+                write, _some_mitigation_settings()
+            )(A_PIN_TO_A_CARD_TO_PUT_BACK))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(RESTORE_ACCELERATOR_PIN_TOOL)
         ))
 
 

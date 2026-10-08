@@ -64,6 +64,7 @@ from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
+    RECORDED_ACCELERATOR_HETEROGENEITY,
     RECORDED_AUTOSCALER_FLAPPING,
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_CACHE_MISCONFIGURED,
@@ -665,6 +666,20 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         RECORDED_OUTPUT_QUALITY_DEGRADATION,
         "categoriser-model-upgraded",
         "CategorisationConfidenceLow",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED, _A_FIX_WAS_PROPOSED)
+    ),
+    # A replica rescheduled onto a card that rounds, and nothing deployed: the
+    # categoriser's shape with the cause moved off the change channel and into
+    # the placement. Captured under `both` alone, like the case that replays it.
+    #
+    # Held to the verdict and the fix for the categoriser's reasons: the pin is
+    # judged by the rule that paged, and the scorer still allows TF32 wherever
+    # it runs once every replica is back on V100.
+    _Recording(
+        RECORDED_ACCELERATOR_HETEROGENEITY,
+        "scorer-replica-rescheduled",
+        "FraudHoldsHigh",
         IncidentStatus.MITIGATED,
         (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED, _A_FIX_WAS_PROPOSED)
     )

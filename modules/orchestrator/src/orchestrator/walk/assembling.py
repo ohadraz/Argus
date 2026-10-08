@@ -26,6 +26,7 @@ from agent_investigator import (
     deployment_diffs_over,
     logs_over,
     metrics_over,
+    placements_over,
     rollouts_over,
 )
 from agent_investigator import investigate as _investigate
@@ -265,7 +266,10 @@ def against(connections: Connections,
             fetch_change_events=changes_over(read, write),
             fetch_dependencies=register,
             fetch_what_a_deployment_changed=deployment_diffs_over(read),
-            fetch_rollout=rollouts_over(read)
+            fetch_rollout=rollouts_over(read),
+            # And the one the loop reads for itself after the onset, which no
+            # model is offered: where each replica runs, over the read tier.
+            fetch_placements=placements_over(read)
         ),
         record_hypothesis=records.hypothesis,
         # The same channel the investigation reads, asked again by the walk -

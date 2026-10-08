@@ -19,6 +19,7 @@ from agent_mitigation.tools import (
     FlagChangesSince,
     MitigationSettings,
     a_rollback_arriving_over,
+    accelerator_pin_restorer_over,
     added_capacity_arriving_over,
     argus_changed_flag_since,
     deployment_restorer_over,
@@ -29,18 +30,21 @@ from agent_mitigation.tools import (
     flag_changes_over,
     flag_setter_over,
     how_a_change_arrives,
+    performing_writes_over,
     recent_metrics_over,
     rules_read_over,
 )
 from argus_core import to_iso
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
+    AcceleratorPinUndo,
     Action,
     ChangeEvent,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     FlagChange,
     PinAutoscaler,
+    PinToAccelerator,
     RollBackDeployment,
     RolloutProgress,
     ScaleOut,
@@ -71,6 +75,8 @@ FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 SET_FLAG_TOOL = "set_feature_flag"
 ROLL_BACK_TOOL = "roll_back_deployment"
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
+PIN_TO_ACCELERATOR_TOOL = "pin_to_accelerator"
+RESTORE_ACCELERATOR_PIN_TOOL = "restore_accelerator_pin"
 
 CHANGE_EVENTS_TOOL = "get_change_events"
 
@@ -79,6 +85,14 @@ A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
     application=SOME_APPLICATION,
     was_on_history_id=2,
     was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
+    was_syncing_itself=True
+)
+
+SOME_CARD = "Tesla-V100-SXM2-16GB"
+A_PIN_TO_PUT_BACK = AcceleratorPinUndo(
+    application=SOME_APPLICATION,
+    was_pinned_to=None,
+    pinned_to=SOME_CARD,
     was_syncing_itself=True
 )
 
@@ -500,17 +514,19 @@ def test_the_rule_that_paged_is_read_over_the_read_tier() -> None:
 
 @pytest.mark.unit
 def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
-    # The dispatch, and the reason there is one. Three of the five actions have
+    # The dispatch, and the reason there is one. Five of the seven actions have
     # nothing to wait for: a flag is in force on the next request because the shop
     # reads it fresh every time, a restart is answered with the new process's start
-    # time so the tier that performed it has already waited, and an autoscaler's
-    # floor is a field on its own object rather than a state anything converges on.
+    # time so the tier that performed it has already waited, an autoscaler's floor
+    # is a field on its own object rather than a state anything converges on, a
+    # discard is answered with how many entries went, and a pin to a card is in
+    # force once the platform holds the selector.
     #
     # The two that do are the two that change a Deployment, and they wait on
     # different counts - a rollback for the revision reaching every replica, a
     # scale-out for the replicas it asked for existing. Asserted together because
-    # the claim is that they *differ*: one check for all five would either make
-    # three actions wait for a rollout that is not happening, or let the two that
+    # the claim is that they *differ*: one check for all seven would either make
+    # five actions wait for a rollout that is not happening, or let the two that
     # matter be judged on minutes their change was not in.
     #
     # The platform here reports a split fleet at the size it was told to be, which
@@ -532,6 +548,9 @@ def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
                 "a flag": an_action_setting(SOME_FLAG, enabled=True),
                 "a restart": an_action_restarting(SOME_APPLICATION),
                 "an autoscaler pin": PinAutoscaler(application=SOME_APPLICATION),
+                "a pin to a card": PinToAccelerator(
+                    application=SOME_APPLICATION, accelerator=SOME_CARD
+                ),
                 "a discard": DiscardCacheEntries(
                     service=SOME_APPLICATION, keys=("io-shop:summary:shopper-1",)
                 )
@@ -543,6 +562,11 @@ def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
             "a flag": Arrival.ARRIVED,
             "a restart": Arrival.ARRIVED,
             "an autoscaler pin": Arrival.ARRIVED,
+            # A selector on the pod template, in force once the platform accepts
+            # it. The pods it moves are rescheduled by the platform afterwards,
+            # and whether that helped is what the verification watches - it is
+            # not a count anything here could wait on.
+            "a pin to a card": Arrival.ARRIVED,
             # The keys are gone when the store says they are gone. Nothing
             # converges on their absence and nothing has to be waited for, which
             # is the same answer the flag gets and for the same reason: the
@@ -860,6 +884,44 @@ def test_putting_a_rolled_back_deployment_back_goes_over_the_write_tier() -> Non
         .then(all_of(
             _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(RESTORE_CONFIGURATION_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_holding_a_deployment_to_a_card_goes_over_the_write_tier() -> None:
+    # Asked of the bundle a walk performs its actions through, so a pin bound to
+    # the read client - or left out of the bundle - fails here rather than at
+    # the moment a walk has decided to move production's pods.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_answers_with(A_PIN_TO_PUT_BACK)
+        ) \
+        .when(
+            _asking(read, write, lambda: performing_writes_over(write).pin_to_accelerator(
+                SOME_APPLICATION, SOME_CARD
+            ))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(PIN_TO_ACCELERATOR_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_letting_a_deployment_off_its_card_goes_over_the_write_tier() -> None:
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write,
+                    lambda: accelerator_pin_restorer_over(write)(A_PIN_TO_PUT_BACK))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(RESTORE_ACCELERATOR_PIN_TOOL)
         ))
 
 

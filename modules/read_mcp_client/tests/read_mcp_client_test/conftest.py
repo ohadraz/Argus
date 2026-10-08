@@ -54,6 +54,9 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     # rows as everything else.
     rules: dict[str, dict[str, object]] = {}
     rule_queries: dict[str, str] = {}
+    # One application's resource tree, in Argo CD's own wire shape: its pods
+    # with the node each runs on, and the nodes with their labels.
+    tree: dict[str, object] = {}
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
@@ -70,6 +73,8 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
+        elif url.path.startswith("/argocd/") and url.path.endswith("/resource-tree"):
+            self._respond_with(self.tree)
         elif url.path.startswith("/argocd/"):
             application = url.path.removeprefix("/argocd/")
             self._respond_with(
@@ -126,8 +131,8 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     and `/argocd/<application>` JSON) plus a real `read_mcp_server` subprocess
     pointed at it - proves `read_mcp_client` reaches a real server without
     Docker or a real Target Service. Yields the handler class so a test can set
-    `.logs`, `.metrics`, `.deploys`, `.rules` and `.rule_queries` before calling
-    through the client."""
+    `.logs`, `.metrics`, `.deploys`, `.rules`, `.rule_queries` and `.tree` before
+    calling through the client."""
     fake_target_service = HTTPServer(
         ("127.0.0.1", FAKE_TARGET_SERVICE_PORT), FakeTargetServiceHandler
     )
@@ -166,6 +171,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
         FakeTargetServiceHandler.deploys = []
         FakeTargetServiceHandler.rules = {}
         FakeTargetServiceHandler.rule_queries = {}
+        FakeTargetServiceHandler.tree = {}
         del os.environ["READ_MCP_HOST"]
         del os.environ["READ_MCP_PORT"]
         get_settings.cache_clear()

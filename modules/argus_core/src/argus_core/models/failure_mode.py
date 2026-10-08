@@ -207,6 +207,20 @@ class FailureMode(StrEnum):
     # What is left to fix afterwards is the model or what it is fed: a training
     # and serving pipeline that disagree, a vocabulary, a prompt.
     OUTPUT_QUALITY_DEGRADATION = "output-quality-degradation"
+    # The same symptom with nothing deployed: a model answers worse on one
+    # replica because that replica was placed on a different kind of
+    # accelerator - a card whose arithmetic rounds differently - while the code,
+    # the configuration and every request-level series are as they were. The
+    # first mode whose cause is where something runs rather than what runs.
+    #
+    # Not one mode with output-quality degradation, though the series that moves
+    # is the same. There a revision sits at the onset and returning it is the
+    # answer; here nothing was deployed, there is nothing to return, and the
+    # answer is holding the deployment to the cards it ran on before.
+    #
+    # What is left to fix afterwards is the model's tolerance of the card, or
+    # where the deployment is allowed to land.
+    ACCELERATOR_HETEROGENEITY = "accelerator-heterogeneity"
 
     def meaning(self) -> str:
         """What this mode is, in the words the model weighing it reads.
@@ -458,6 +472,26 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "revision made requests fail or slow, or left them as they were and "
         "made their answers worse. What is left to fix is the model or what it "
         "is fed - a training and serving pipeline that disagree, a vocabulary, "
-        "a prompt - so returning the deployment mitigates and does not resolve"
+        "a prompt - so returning the deployment mitigates and does not resolve. "
+        "Choose accelerator-heterogeneity instead when no revision sits at the "
+        "onset and the placement shows a replica started there on a card the "
+        "others do not run on"
+    ),
+    FailureMode.ACCELERATOR_HETEROGENEITY: (
+        "a model the service runs is answering worse on one replica because that "
+        "replica was placed on a different kind of accelerator, with nothing "
+        "deployed. Expect what output-quality-degradation shows - the error rate "
+        "and every latency and resource series flat, the departure in "
+        "rule_reading - with no revision at the onset, and a placement in which a "
+        "pod started at the onset on a card none of the pods before it ran on. "
+        "Choose this over output-quality-degradation on what changed at the "
+        "onset: a revision there is that mode, and a replica moved to another "
+        "card with nothing deployed is this one. Choose it over bad-deployment "
+        "too, though a pod was replaced at the onset: there requests fail or "
+        "slow, and here every request succeeds as fast as it did. It is "
+        "answered by holding the "
+        "deployment to the card the earlier replicas ran on; what is left to fix "
+        "is the model's tolerance of the card, or where the deployment may land, "
+        "so the pin mitigates and does not resolve"
     )
 }

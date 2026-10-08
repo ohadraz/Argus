@@ -21,7 +21,7 @@ from typing import Any, Final
 
 import httpx2
 from argus_core import SettingsSlice
-from argus_core.models import RolloutProgress
+from argus_core.models import PodPlacement, RolloutProgress
 
 from deployment_platform.failures import PlatformRefused, PlatformUnreachable
 from deployment_platform.port import Autoscaler, AutoscalerBounds, DeploymentRecord
@@ -100,6 +100,22 @@ _CREATED_AT: Final = "createdAt"
 # What a process is, in the tree. Everything else it reports - the Deployment, the
 # ReplicaSet, the Service - was created when somebody declared it.
 POD_KIND: Final = "Pod"
+# Where the tree says what a pod is running on. The node is one of a Pod's info
+# items, under `Node`; the nodes themselves are listed under `hosts`, each with the
+# labels the platform is configured to report (`application.allowedNodeLabels`).
+INFO: Final = "info"
+INFO_NAME: Final = "name"
+INFO_VALUE: Final = "value"
+NODE_INFO_ITEM: Final = "Node"
+HOSTS: Final = "hosts"
+HOST_NAME: Final = "name"
+HOST_LABELS: Final = "labels"
+# The node label NVIDIA's GPU Feature Discovery publishes a card's product under,
+# and so the label a Deployment is held to one card by.
+ACCELERATOR_LABEL: Final = "nvidia.com/gpu.product"
+# Where a Deployment's pod template keeps its node selector.
+TEMPLATE: Final = "template"
+NODE_SELECTOR: Final = "nodeSelector"
 
 # The built-in resource actions, by the names Argo CD registers them under, and
 # what they are run against: Argo CD dispatches its Lua by group and kind, and both
@@ -108,6 +124,7 @@ RESTART_ACTION: Final = "restart"
 SCALE_ACTION: Final = "scale"
 REPLICAS_PARAMETER: Final = "replicas"
 DEPLOYMENT_GROUP: Final = "apps"
+DEPLOYMENT_VERSION: Final = "v1"
 DEPLOYMENT_KIND: Final = "Deployment"
 
 # What an autoscaler is, for addressing it on the resource route. The name and the
@@ -215,6 +232,49 @@ class ArgoCd:
             )
 
         return _parsed(progress, f"[{application}]'s running Deployment")
+
+    def placements_of(self, application: str, /) -> list[PodPlacement]:
+        """Each pod's node off its own info, and that node's card off the host of
+        the same name.
+
+        The tree says the two things in two places, and only together do they say
+        what a replica runs on. A pod with no `Node` item has not been placed, and
+        one whose `createdAt` cannot be read cannot be put either side of an onset,
+        so both are left out. A tree listing no hosts, or a host without the
+        label, says nothing about a card - a platform not allow-listing the label
+        and a node with no GPU look the same here, and neither is a guess.
+        """
+        tree = self._get(self._settings.argocd_resource_tree_path, application)
+
+        def placements() -> list[PodPlacement]:
+            cards = {
+                str(host[HOST_NAME]): (host.get(HOST_LABELS) or {}).get(ACCELERATOR_LABEL)
+                for host in tree.get(HOSTS) or []
+            }
+            placed = []
+
+            for node in tree.get(_NODES, []):
+                if node.get(_KIND) != POD_KIND:
+                    continue
+
+                on = _the_node_named_in(node)
+                started_at = _when_it_was_created(node.get(_CREATED_AT))
+
+                if on is None or started_at is None:
+                    continue
+
+                placed.append(
+                    PodPlacement(
+                        pod=str(node[_NAME]),
+                        node=on,
+                        accelerator=cards.get(on),
+                        started_at=started_at
+                    )
+                )
+
+            return placed
+
+        return _parsed(placements, f"[{application}]'s resource tree")
 
     def is_syncing_itself(self, application: str, /) -> bool:
         """Read exactly as Argo CD's own `SyncPolicy.IsAutomatedSyncEnabled` reads it.
@@ -356,6 +416,55 @@ class ArgoCd:
             params={**_addressing(autoscaler), PATCH_REQUEST_TYPE: RESOURCE_MERGE_PATCH},
             body=json.dumps({SPEC: {_MIN_REPLICAS: floor}})
         )
+
+    def accelerator_pin_of(self, application: str, /) -> str | None:
+        """The card the live Deployment's pod template selects, read off the
+        resource the platform is running rather than the values file."""
+        manifest = self._manifest(application, self._the_deployment_of(application))
+
+        def pinned_to() -> str | None:
+            template = manifest[SPEC].get(TEMPLATE) or {}
+            selector = (template.get(SPEC) or {}).get(NODE_SELECTOR) or {}
+            card = selector.get(ACCELERATOR_LABEL)
+
+            return None if card is None else str(card)
+
+        return _parsed(pinned_to, f"[{application}]'s node selector")
+
+    def pin_to_accelerator(self, application: str, accelerator: str | None, /) -> None:
+        """A merge patch of the card label alone, on the pod template's selector.
+
+        The label and nothing else, because a merge patch says only what changes:
+        a body carrying the whole selector would replace selectors somebody else
+        declared. A `None` is sent as a null, which RFC 7386 reads as removing the
+        key - how a pin onto a deployment that had none is let go.
+        """
+        self._send(
+            "POST",
+            self._settings.argocd_resource_path,
+            application,
+            params={
+                **self._the_deployment_of(application),
+                PATCH_REQUEST_TYPE: RESOURCE_MERGE_PATCH
+            },
+            body=json.dumps(
+                {SPEC: {TEMPLATE: {SPEC: {NODE_SELECTOR: {ACCELERATOR_LABEL: accelerator}}}}}
+            )
+        )
+
+    def _the_deployment_of(self, application: str) -> dict[str, str]:
+        """The application's own Deployment, as the resource route selects it.
+
+        The scale-out's namespace, because it is the same Deployment a resize is
+        run against.
+        """
+        return {
+            "resourceName": application,
+            _NAMESPACE: self._settings.scale_namespace,
+            "group": DEPLOYMENT_GROUP,
+            "version": DEPLOYMENT_VERSION,
+            _KIND: DEPLOYMENT_KIND
+        }
 
     def _set_sync(self, application: str, reconciling: bool) -> None:
         """A merge patch of the switch alone, on the application route.
@@ -518,13 +627,29 @@ def _when_it_came_up(created_at: str | None) -> float | None:
     reading after are told apart by differing, and a pair of strings would be
     compared by spelling.
     """
+    moment = _when_it_was_created(created_at)
+
+    return None if moment is None else moment.timestamp()
+
+
+def _when_it_was_created(created_at: str | None) -> datetime | None:
+    """One `createdAt` as a moment, or `None` where it is not one."""
     if created_at is None:
         return None
 
     try:
-        return datetime.fromisoformat(created_at).timestamp()
+        return datetime.fromisoformat(created_at)
     except ValueError:
         return None
+
+
+def _the_node_named_in(pod: dict[str, Any]) -> str | None:
+    """The node a pod's info says it runs on, or `None` where it says none."""
+    for item in pod.get(INFO) or []:
+        if item.get(INFO_NAME) == NODE_INFO_ITEM and item.get(INFO_VALUE):
+            return str(item[INFO_VALUE])
+
+    return None
 
 
 def _parsed[T](read: Callable[[], T], what: str) -> T:

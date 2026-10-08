@@ -34,6 +34,7 @@ from argus_core.events import (
     MetricsRetrieved,
     Narrator,
     OnsetDetected,
+    PlacementRecorded,
     Publisher,
     RetrievalRequested,
     RetrievalUnanswered,
@@ -50,6 +51,7 @@ from argus_core.llm import (
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -67,6 +69,7 @@ from argus_core.models import (
     MetricBucket,
     ModelPolicy,
     Reading,
+    RecordedPlacement,
     RetrievalChannel,
     RuleReading,
     ToolCall,
@@ -95,6 +98,7 @@ from agent_investigator.retrieval import (
     DeploymentDiffFetcher,
     LogFetcher,
     MetricsFetcher,
+    PlacementFetcher,
     RolloutFetcher,
 )
 from agent_investigator.tools import (
@@ -146,6 +150,15 @@ two agree on the alert, the latency, the traffic and the change channels alike. 
 So before naming the load outgrowing a resource, or a resource consumed on its \
 own, look at what that series did across the window.
 
+Where the service's replicas run is in front of you too, read once at the \
+onset, and it is the only record of a cause nothing deployed. A platform can \
+move a replica onto another node with nothing changing in the deploy history, \
+the diff or the flags - and where that node carries a different accelerator \
+card, the replica can answer differently from the rest without failing or \
+slowing: it decides differently. So where the service's answers changed with no \
+deployment at the onset, look for a pod marked started at the onset on an \
+accelerator the pods serving before it do not run on.
+
 Judge only from the evidence you actually retrieved. Saying the cause is \
 undetermined is a correct and expected answer, not a failure: every window is \
 bounded, and a cause outside the one you read will not be in it. A \
@@ -189,6 +202,11 @@ that alerted.
 Give every explanation the evidence supports, best first. The one you name \
 first is tried first, and the rest are tried in turn if it does not help.\
 """
+
+# The read tier's name for the placement tool, which is what the replay log
+# files the loop's own read under - the vocabulary a reader of the log counts
+# reads by, whichever caller asked.
+_PLACEMENTS_TOOL: Final = "get_placements"
 
 _MILLISECONDS_PER_SECOND: Final = 1000
 _SECONDS_IN_A_MINUTE: Final = 60
@@ -241,6 +259,7 @@ def investigate(
     fetch_dependencies: DependencyFetcher,
     fetch_what_a_deployment_changed: DeploymentDiffFetcher,
     fetch_rollout: RolloutFetcher,
+    fetch_placements: PlacementFetcher,
     *,
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
@@ -340,8 +359,8 @@ def investigate(
         # the event and the story is told from the event alone.
         stopped_before_the_alert=_where_the_rows_stop(metric_buckets, alert) is not None
     )
-    # The one retrieval the dispatcher never sees, and so the one it cannot
-    # write down. Recorded here and now rather than at the end of the
+    # One of the two retrievals the dispatcher never sees - the placement is the
+    # other - and so one it cannot write down. Recorded here and now rather than at the end of the
     # investigation: an incident whose metrics show nothing returns below
     # without a model ever being asked, and that is exactly the run someone
     # later asks what it actually had in front of it.
@@ -417,6 +436,15 @@ def investigate(
 
     narrator.say(OnsetDetected, onset=onset)
 
+    # Read here, after the onset and before the model is asked anything, for the
+    # reason the metrics are read above: a pin to a card is decided from it, and
+    # what a later node acts on cannot depend on whether the model thought to
+    # ask. Against the onset, because which pods started at it is what makes a
+    # card a suspect.
+    placement = _the_placement_recorded(
+        alert.service, onset, fetch_placements, narrator, replay
+    )
+
     # Whether the window says anything at all about the incident's own minutes.
     # Measured here because here is the only place holding both the onset and the
     # buckets, and carried out on the findings because what reads it - the gate
@@ -479,7 +507,8 @@ def investigate(
             # elevation above is one: the model is told when the alert fired and
             # never what time it is now, so rows that stop early are invisible to
             # it and the gap is Argus's to state.
-            rows_stop_at=_where_the_rows_stop(metric_buckets, alert)
+            rows_stop_at=_where_the_rows_stop(metric_buckets, alert),
+            placement=placement
         ))
     ]
 
@@ -503,12 +532,14 @@ def investigate(
 
             return replace(
                 _cut_short(alert, incident_id, metric_buckets, dispatcher, narrator),
-                readings_cover_the_incident=the_incident_was_read
+                readings_cover_the_incident=the_incident_was_read,
+                placement=placement
             )
         except ModelRefused:
             return replace(
                 _declined(alert, incident_id, metric_buckets, dispatcher, narrator),
-                readings_cover_the_incident=the_incident_was_read
+                readings_cover_the_incident=the_incident_was_read,
+                placement=placement
             )
 
         spend.record(turn)
@@ -524,7 +555,8 @@ def investigate(
             return Findings(
                 candidates=answered,
                 already_read=dispatcher.readings,
-                readings_cover_the_incident=the_incident_was_read
+                readings_cover_the_incident=the_incident_was_read,
+                placement=placement
             )
 
         results = [
@@ -538,10 +570,56 @@ def investigate(
                 _ran_out(
                     alert, incident_id, metric_buckets, reached, dispatcher, narrator
                 ),
-                readings_cover_the_incident=the_incident_was_read
+                readings_cover_the_incident=the_incident_was_read,
+                placement=placement
             )
 
         transcript.append(_what_the_model_is_told_next(results, spend.is_on_its_last_call()))
+
+
+def _the_placement_recorded(service: str,
+                            onset: str,
+                            fetch_placements: PlacementFetcher,
+                            narrator: Narrator,
+                            replay: Replay) -> RecordedPlacement | None:
+    """Where the service's pods are running, recorded against the onset - or
+    `None` where the platform would not say.
+
+    Said either way, and written down where it answered. Published because it is
+    the basis of an action and the one reading nothing else in the record holds;
+    filed on the replay because it is a read the dispatcher never sees, as the
+    metrics read is.
+
+    `None` and never an empty placement where the read failed. An empty one says
+    the service runs on no pod, and a strategy deciding from it finds no replica
+    that moved - an outage read as an all-clear. And the investigation goes on
+    without it: the placement is evidence for one mode, and a walk that stopped
+    for want of it would lose every other.
+    """
+    started_reading_at = time.monotonic()
+
+    try:
+        pods = fetch_placements(service)
+    except Exception as unanswered:
+        narrator.say(
+            RetrievalUnanswered,
+            what_was_asked="where the service's replicas run",
+            because=str(unanswered)
+        )
+
+        return None
+
+    placement = RecordedPlacement(onset=parse_iso(onset), pods=tuple(pods))
+    narrator.say(PlacementRecorded, placement=placement)
+    replay.record(
+        call_type=CallType.MCP,
+        target=_PLACEMENTS_TOOL,
+        request={"arguments": {"service": service}},
+        response={"pods": [pod.model_dump(mode="json") for pod in pods]},
+        latency_ms=int((time.monotonic() - started_reading_at) * _MILLISECONDS_PER_SECOND)
+    )
+
+    return placement
 
 
 def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResult | None:
@@ -993,7 +1071,8 @@ def _the_opening_message(alert: Alert,
                          already_read: Sequence[Reading],
                          opened_already_elevated: bool,
                          how_the_minute_is_known: HowTheMinuteIsKnown,
-                         rows_stop_at: str | None = None) -> str:
+                         rows_stop_at: str | None = None,
+                         placement: RecordedPlacement | None = None) -> str:
     """Everything about *this incident* the model is told before it decides.
 
     This incident, and nothing standing. What the Investigator is and what its
@@ -1070,6 +1149,9 @@ def _the_opening_message(alert: Alert,
 
     said.append(_the_minutes_as_rows(metric_buckets))
 
+    if placement is not None:
+        said.extend(["", "## Where the replicas run", *_the_placement_as_lines(placement)])
+
     if already_refuted:
         said.extend([
             "",
@@ -1094,6 +1176,34 @@ def _the_opening_message(alert: Alert,
         ])
 
     return "\n".join(said)
+
+
+def _the_placement_as_lines(placement: RecordedPlacement) -> list[str]:
+    """Each pod on a line of its own, marked where it started at the onset.
+
+    One line per pod because the mark is a claim about one pod: said anywhere in
+    a paragraph, it would be true of whichever pod a reader guessed. The rule
+    deciding which pods carry it is `RecordedPlacement`'s, so the message marks
+    the pods the timeline and the strategy mark.
+
+    A node whose card the platform does not report is said to have none rather
+    than left blank, because blank reads as a card nobody wrote down.
+    """
+    at_the_onset = placement.started_at_the_onset()
+
+    return [
+        "Each of the service's pods as the platform placed it, read at the onset: "
+        "the node it runs on, the accelerator card that node carries, and when the "
+        "pod started. A pod marked started at the onset was placed within a minute "
+        "of the incident beginning, or since, and has only ever served during it.",
+        *(
+            f"- {pod.pod} on {pod.node} "
+            f"({pod.accelerator or 'no accelerator reported'}), "
+            f"started {to_iso(pod.started_at)}"
+            f"{' - started at the onset' if pod in at_the_onset else ''}"
+            for pod in placement.pods
+        )
+    ]
 
 
 def _where_the_rows_stop(metric_buckets: list[MetricBucket],
@@ -1356,5 +1466,8 @@ def _what_was_done_in(attempt: Attempt) -> str:
         # argues: stale copies already discarded, and the figures still
         # disagreeing, is evidence against a divergence being the cause.
         return f"discarded {subject}'s stale cached figures"
+
+    if kind == PIN_TO_ACCELERATOR:
+        return f"held {subject}'s pods to one accelerator card"
 
     assert_never(kind)

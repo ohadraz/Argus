@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, create_autospec
 
 from agent_mitigation import Action, Outcome, RevertFeatureFlag, UndoAttempt, Verdict
 from agent_mitigation.tools import (
+    AcceleratorPinner,
+    AcceleratorPinRestorer,
     AutoscalerPinner,
     AutoscalingRestorer,
     CacheEntryDiscarder,
@@ -463,12 +465,25 @@ def an_autoscaling_restorer_nobody_calls() -> MagicMock:
     return restore
 
 
+def an_accelerator_pin_restorer_nobody_calls() -> MagicMock:
+    """The way back from a pin to a card, wired but not exercised.
+
+    Required for the reason the autoscaling restorer is: an undo that could be
+    built without a way back from every kind of change Argus makes is one that
+    finds out at the worst moment, with a refuted change waiting to be put back.
+    """
+    restore: MagicMock = create_autospec(AcceleratorPinRestorer, instance=True)
+
+    return restore
+
+
 def the_writes(set_state: FlagSetter | None = None,
                restart: ServiceRestarter | None = None,
                roll_back: DeploymentRoller | None = None,
                scale_out: DeploymentScaler | None = None,
                pin: AutoscalerPinner | None = None,
-               discard: CacheEntryDiscarder | None = None) -> PerformingWrites:
+               discard: CacheEntryDiscarder | None = None,
+               pin_to_accelerator: AcceleratorPinner | None = None) -> PerformingWrites:
     """The writes that perform a mitigation, with stand-ins for the unnamed ones.
 
     Every member is required of the real bundle, because an agent that could be
@@ -496,7 +511,9 @@ def the_writes(set_state: FlagSetter | None = None,
         ),
         discard=discard if discard is not None else create_autospec(
             CacheEntryDiscarder, instance=True
-        )
+        ),
+        pin_to_accelerator=pin_to_accelerator if pin_to_accelerator is not None
+        else create_autospec(AcceleratorPinner, instance=True)
     )
 
 
@@ -571,5 +588,6 @@ def an_undo_putting_flags_back(
         set_state=set_state,
         restore_deployment=a_restorer_nobody_calls(),
         restore_capacity=a_capacity_restorer_nobody_calls(),
-        restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+        restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+        restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
     )

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.flag_change import FlagChange
+from argus_core.models.placement import RecordedPlacement
 
 
 @dataclass(frozen=True)
@@ -49,3 +50,8 @@ class Circumstances:
     # Empty by default for the same reason: one mode reads them, and that mode
     # proposes a rollback only where a deployment was recorded.
     deployments: Sequence[ChangeEvent] = ()
+    # Where the alerting service's pods were running, as the round recorded it
+    # against its onset. `None` where it was not read or could not be, and never
+    # an empty placement in its place: that would claim the service runs on no
+    # pod, and a strategy deciding from it would find no replica that moved.
+    placement: RecordedPlacement | None = None

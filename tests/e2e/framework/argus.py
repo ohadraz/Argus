@@ -24,8 +24,13 @@ from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import get_settings, parse_iso, to_iso
-from argus_core.events import ActionTaken, ChangesRetrieved, StatusChanged
-from argus_core.models import ROLL_BACK_DEPLOYMENT, FailureMode, IncidentStatus
+from argus_core.events import ActionTaken, ChangesRetrieved, FixAttempted, StatusChanged
+from argus_core.models import (
+    ROLL_BACK_DEPLOYMENT,
+    FailureMode,
+    FixOutcome,
+    IncidentStatus,
+)
 from argus_core.replay import CallType
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
 from argus_testkit import Assertion, all_of
@@ -100,6 +105,7 @@ RECORDED_UNDATED_STATE_DIVERGENCE = "cache-failed-over-undated"
 RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
 RECORDED_FLAG_REVERT_LEAVES_A_FLAP = "flag-revert-leaves-a-flap"
 RECORDED_OUTPUT_QUALITY_DEGRADATION = "categoriser-model-upgraded"
+RECORDED_ACCELERATOR_HETEROGENEITY = "scorer-replica-rescheduled"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,
@@ -117,7 +123,8 @@ THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
     RECORDED_RESOURCE_LEAK,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_LARGE_CODE_FIX,
-    RECORDED_OUTPUT_QUALITY_DEGRADATION
+    RECORDED_OUTPUT_QUALITY_DEGRADATION,
+    RECORDED_ACCELERATOR_HETEROGENEITY
 })
 
 # Not arbitrary! the Target Service names itself in its own log
@@ -404,6 +411,32 @@ def argus_took_a_rollback_of(application: str) -> Assertion[httpx2.Response]:
                 f"Expected a rollback to carry no direction, and it reported "
                 f"[{rollbacks[-1].enabled}] - which tells a later round a "
                 f"switch was thrown."
+            )
+
+        return True
+
+    return assertion
+
+
+def argus_proposed_a_fix() -> Assertion[httpx2.Response]:
+    """Code-Fix opened something, on any attempt rather than the last.
+
+    For the cases a mitigation ends without resolving: the action bought the
+    service back and the cause is still in the code, so the walk carries on to
+    Code-Fix. Any attempt rather than the last, since a later round may ask again.
+    """
+    def assertion(response: httpx2.Response) -> bool:
+        incident_id = incident_id_from(response)
+        attempts = [
+            event for event in _the_incidents_events(incident_id)
+            if isinstance(event, FixAttempted)
+        ]
+
+        if not any(attempt.outcome is FixOutcome.PROPOSED for attempt in attempts):
+            raise AssertionError(
+                f"Expected Code-Fix to have proposed a fix for incident "
+                f"[{incident_id}], since the cause is still in the code. It "
+                f"reported {[(attempt.outcome, attempt.detail) for attempt in attempts]}."
             )
 
         return True

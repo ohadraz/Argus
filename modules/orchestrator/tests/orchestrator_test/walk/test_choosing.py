@@ -35,6 +35,7 @@ from argus_core.models import (
     FlagUndo,
     Hypothesis,
     IncidentStatus,
+    PinToAccelerator,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -58,7 +59,9 @@ from orchestrator_test.framework.builders import (
     a_deployment,
     a_determined_hypothesis,
     a_divergence_blamed_on,
+    a_placement,
     a_random_id,
+    an_accelerator_blamed_on,
     an_undetermined_hypothesis,
 )
 
@@ -418,6 +421,32 @@ def test_a_corruption_answered_by_a_rollback_already_taken_is_skipped() -> None:
             the_updates_carry("candidate_index", 2)))
 
 
+@pytest.mark.unit
+def test_a_moved_replica_answered_by_a_pin_already_taken_is_skipped() -> None:
+    # The guard once more, for the candidate whose answer is read off the
+    # placement. Two wordings of one moved replica are both answered by holding
+    # the fleet to its card - which this node knows only while it still hands the
+    # placement down. Stop handing it and the second wording reads as answered by
+    # nothing, which the guard cannot match against the pin already taken.
+    incident_id = a_random_id()
+    a_candidate_blaming_a_flag = a_candidate_blaming(incident_id, ANOTHER_FLAG)
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_that_held_the_fleet_to_its_card(
+                incident_id,
+                [an_accelerator_blamed_on(incident_id, "one replica holds more"),
+                 an_accelerator_blamed_on(incident_id, "the A100 replica differs"),
+                 a_candidate_blaming_a_flag],
+                index=0
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            the_updates_carry("hypothesis", a_candidate_blaming_a_flag),
+            the_updates_carry("candidate_index", 2)))
+
+
 def _every_round() -> int:
     return SOME_ROUND_BUDGET
 
@@ -535,6 +564,35 @@ def _a_walk_that_rolled_back(incident_id: str,
             ],
             "deployments": [a_deployment()],
             "proposed_action": RollBackDeployment(application=DONT_CARE_ALERT.service)
+        }
+    )
+
+
+def _a_walk_that_held_the_fleet_to_its_card(incident_id: str,
+                                            candidates: list[Hypothesis],
+                                            index: int) -> IncidentState:
+    """The same walk, after holding the fleet to the card it ran on.
+
+    The placement is carried with it, because a moved replica is answered by a
+    pin only where the round recorded one - so whether a second wording of it is
+    the same experiment can only be known while this node is still handing that
+    placement down. The flag history holds the flag candidates' flags alone, for
+    `_a_walk_that_rolled_back`'s reason.
+    """
+    return _a_walk_at(incident_id, candidates, index).model_copy(
+        update={
+            "flag_changes": [
+                FlagChange(flag=candidate.subject, enabled=True,
+                           occurred_at=DONT_CARE_MOMENT)
+                for candidate in candidates
+                if candidate.failure_mode is FailureMode.FEATURE_FLAG_TOGGLE
+                and candidate.subject is not None
+            ],
+            "placement": a_placement(),
+            "proposed_action": PinToAccelerator(
+                application=DONT_CARE_ALERT.service,
+                accelerator="Tesla-V100-SXM2-16GB"
+            )
         }
     )
 

@@ -26,8 +26,10 @@ from argus_core.mcp_transport import (
     McpToolError,
     McpUnreachable,
     PlatformUnreachable,
+    an_unreachable_platform,
+    what_was_left_behind,
 )
-from argus_core.models import DeploymentRollbackUndo, UndoDescriptor
+from argus_core.models import AcceleratorPinUndo, DeploymentRollbackUndo, UndoDescriptor
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from pydantic import TypeAdapter
@@ -216,9 +218,9 @@ def test_a_server_that_cannot_be_reached_is_reported_as_unreachable() -> None:
 def test_a_refusal_the_server_marked_as_an_unreachable_platform_says_so() -> None:
     """A tool that could not reach the platform it acts through is its own answer.
 
-    The distinction the walk narrows itself on. Four of the five generic
+    The distinction the walk narrows itself on. Five of the seven generic
     mitigations act through one deployment platform, so a platform that is not
-    answering has taken four actions away at once - and a caller that read that
+    answering has taken five actions away at once - and a caller that read that
     as this one action failing would escalate while a flag it could revert in
     seconds sat untried. The marker crosses the wire and arrives as a type, for
     the reason an exhausted action does: the alternative is matching on the words
@@ -298,7 +300,7 @@ def test_a_server_that_could_not_be_reached_names_no_platform() -> None:
 def test_a_platform_lost_after_something_landed_carries_what_it_left_behind() -> None:
     """The failure that is both: the platform is gone and the estate changed.
 
-    Two of the four actions through this platform change something before the
+    Four of the five actions through this platform change something before the
     thing they were asked for - they suspend its reconciliation first, because it
     refuses otherwise. A platform that stops answering after that point has taken
     every action through it away *and* left an application un-reconciled, and a
@@ -340,6 +342,28 @@ def test_a_platform_lost_before_anything_landed_carries_nothing_to_put_back() ->
                 _what_was_raised_was(PlatformUnreachable),
                 _it_left_nothing_behind()
             ))
+
+
+@pytest.mark.unit
+def test_a_descriptor_recording_that_there_was_nothing_before_survives_the_crossing(
+) -> None:
+    # "There was no pin" is a fact a descriptor records, in a field with no
+    # default. Encoded as though it were absent, the descriptor stops parsing on
+    # the far side, and a suspension it records arrives as nothing left behind -
+    # an application sitting un-reconciled that no withdrawal will put back.
+    left_behind = AcceleratorPinUndo(
+        application="some-application",
+        was_pinned_to=None,
+        pinned_to="some-card",
+        was_syncing_itself=True
+    )
+
+    Scenario() \
+        .given(left_behind) \
+        .when(lambda: what_was_left_behind(
+            an_unreachable_platform(PLATFORM, WHAT_THE_TIER_SAID, left_behind)
+        )) \
+        .then(_it_came_back_as(left_behind))
 
 
 @pytest.mark.component
@@ -709,6 +733,21 @@ def _it_left_nothing_behind() -> Assertion[_Attempt]:
             raise AssertionError(
                 f"Expected the failure to carry nothing to put back, it carries "
                 f"{carried!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_came_back_as(
+    expected: UndoDescriptor
+) -> Assertion[UndoDescriptor | None]:
+    def assertion(read_back: UndoDescriptor | None) -> bool:
+        if read_back != expected:
+            raise AssertionError(
+                f"Expected {expected!r} to be read back as itself, and it was read "
+                f"back as {read_back!r}."
             )
 
         return True

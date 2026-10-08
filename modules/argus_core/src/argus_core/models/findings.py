@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from argus_core.models.disproof import Disproof
 from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.placement import RecordedPlacement
 from argus_core.models.reading import Reading
 
 
@@ -61,3 +62,14 @@ class Findings:
     # ending needs is the evidence: an alarm reported wrong on no stated grounds
     # is a second unreviewable claim replacing the first.
     disproof: Disproof | None = None
+    # Where the alerting service's pods were running, recorded against the onset
+    # before the model was asked anything.
+    #
+    # Carried out rather than read again where it is used, because the walk
+    # decides a pin to a card from it, and a placement read when acting is read
+    # after whatever the walk did first has moved the pods.
+    #
+    # `None` where nothing was recorded: an investigation that ended before it
+    # had an onset, or a platform that would not say. Never an empty placement in
+    # its place, which would claim the service runs on no pod at all.
+    placement: RecordedPlacement | None = None

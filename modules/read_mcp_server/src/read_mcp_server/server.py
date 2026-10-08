@@ -27,6 +27,7 @@ from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
     MetricBucket,
+    PodPlacement,
     RolloutProgress,
     ServiceDependency,
 )
@@ -42,6 +43,7 @@ from read_mcp_server import (
     deployments,
     flags,
     meaning,
+    placements,
     repository,
     retrieval,
     rollouts,
@@ -433,6 +435,26 @@ def build_server(endpoint: ReadMcpEndpoint,
         rather than answering that. The behavior lives in
         `registry.what_a_service_depends_on`; this is registration only."""
         return what_a_service_depends_on(service, fetch=registered)
+
+    @mcp.tool()
+    def get_placements(service: str) -> list[PodPlacement]:
+        """Returns where each of a service's replicas runs - the pod, its node,
+        the accelerator card that node carries, and when the pod started.
+
+        The channel that reads what no other one holds. A replica the platform
+        moved onto another card, with nothing deployed, is in no deployment
+        history, no diff and no flag log; it is only in where the pods are, and
+        when each began running there.
+
+        Read by the Investigator on every incident, after the onset is found and
+        before its model is asked anything - so not offered to a model. A pod
+        whose node or start the platform does not say is left out, and a node
+        whose card it does not say has none, never a guess at either.
+
+        A platform that could not be reached raises rather than answering that
+        the service runs nowhere. The behavior lives in
+        `placements.where_the_service_runs`; this is registration only."""
+        return placements.where_the_service_runs(service, platform=platform)
 
     # Everything below this line exists only where the deployment keeps an
     # index. Not a tool that answers "no" when asked: a tool that is offered

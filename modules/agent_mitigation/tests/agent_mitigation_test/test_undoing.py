@@ -20,12 +20,15 @@ from agent_mitigation import (
     undo_change,
 )
 from agent_mitigation.tools import (
+    AcceleratorPinRestorer,
     AutoscalingRestorer,
     CapacityRestorer,
     DeploymentRestorer,
     FlagSetter,
 )
 from argus_core.models import (
+    AcceleratorPinRestored,
+    AcceleratorPinUndo,
     AutoscalerUndo,
     AutoscalingRestored,
     CapacityRestored,
@@ -40,6 +43,7 @@ from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
     a_capacity_restorer_nobody_calls,
     a_restorer_nobody_calls,
+    an_accelerator_pin_restorer_nobody_calls,
     an_autoscaling_restorer_nobody_calls,
     an_undo_descriptor_for,
     nobody_can_say,
@@ -60,6 +64,8 @@ THE_FLOOR_IT_WAS_HOLDING = 3
 # And the floor it was raised to, which is the ceiling here and is not always: the
 # tier asks for whichever is smaller of the ceiling and Argus's own cap.
 THE_CEILING_IT_WAS_HELD_AT = 6
+# The card Argus held the deployment's pods to.
+THE_CARD_IT_WAS_HELD_TO = "Tesla-V100-SXM2-16GB"
 
 
 @pytest.mark.unit
@@ -77,7 +83,8 @@ def test_a_flag_nobody_touched_is_put_back() -> None:
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -105,7 +112,8 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
                 changed_from_outside=somebody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -137,7 +145,8 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_not_acted_on() -> No
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -163,7 +172,8 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 changed_from_outside=nobody_can_say(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -192,7 +202,8 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
                 changed_from_outside=asked.record,
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(
@@ -321,7 +332,8 @@ def test_a_rollback_is_put_back_by_the_restorer_rather_than_the_flag_setter() ->
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=restore,
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -345,7 +357,8 @@ def test_a_rollback_put_back_reports_the_application_as_its_subject() -> None:
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=_a_restorer_that_puts_back(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
             .then(
@@ -372,7 +385,8 @@ def test_a_rollback_whose_sync_could_not_be_restored_is_not_counted_as_undone() 
                     revision=True, automated_sync=False
                 ),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -399,7 +413,8 @@ def test_a_restorer_that_raises_leaves_the_rollback_not_established() -> None:
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=_a_restorer_that_cannot(some_failure),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
             .then(all_of(
@@ -429,7 +444,8 @@ def test_a_scale_out_is_put_back_by_the_capacity_restorer_and_nothing_else() -> 
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=restore_deployment,
                 restore_capacity=restore_capacity,
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -451,7 +467,8 @@ def test_a_scale_out_put_back_reports_the_application_as_its_subject() -> None:
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=_a_capacity_restorer_that_puts_back(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(_it_is_about(SOME_APPLICATION))
@@ -475,7 +492,8 @@ def test_a_scale_out_put_back_says_the_count_and_the_reconciliation_both_went() 
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=_a_capacity_restorer_that_puts_back(),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -502,7 +520,8 @@ def test_a_resize_whose_sync_could_not_be_restored_is_not_counted_as_undone() ->
                 restore_capacity=_a_capacity_restorer_that_puts_back(
                     count=True, automated_sync=False
                 ),
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -528,7 +547,8 @@ def test_a_capacity_restorer_that_raises_leaves_the_resize_not_established() -> 
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=restore,
-                restore_autoscaling=an_autoscaling_restorer_nobody_calls()
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -622,7 +642,8 @@ def test_a_pin_is_put_back_by_the_autoscaling_restorer_and_nothing_else() -> Non
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=restore_capacity,
-                restore_autoscaling=_an_autoscaling_restorer_that_puts_back()
+                restore_autoscaling=_an_autoscaling_restorer_that_puts_back(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -646,7 +667,8 @@ def test_a_pin_put_back_reports_the_application_as_its_subject() -> None:
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=_an_autoscaling_restorer_that_puts_back()
+                restore_autoscaling=_an_autoscaling_restorer_that_puts_back(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(
@@ -673,7 +695,8 @@ def test_a_pin_whose_sync_could_not_be_restored_is_not_counted_as_undone() -> No
                 restore_capacity=a_capacity_restorer_nobody_calls(),
                 restore_autoscaling=_an_autoscaling_restorer_that_puts_back(
                     floor=True, automated_sync=False
-                )
+                ),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
@@ -699,10 +722,129 @@ def test_an_autoscaling_restorer_that_raises_leaves_the_pin_not_established() ->
                 changed_from_outside=nobody_changed_it(),
                 restore_deployment=a_restorer_nobody_calls(),
                 restore_capacity=a_capacity_restorer_nobody_calls(),
-                restore_autoscaling=restore
+                restore_autoscaling=restore,
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
         .then(all_of(
             _it_reports(Undone.NOT_ESTABLISHED),
             _it_says_what_is_still_changed(some_failure)
         ))
+
+
+def a_card_pin_descriptor_for(application: str) -> AcceleratorPinUndo:
+    return AcceleratorPinUndo(
+        application=application,
+        was_pinned_to=None,
+        pinned_to=THE_CARD_IT_WAS_HELD_TO,
+        was_syncing_itself=True
+    )
+
+
+def _an_accelerator_pin_restorer_that_puts_back(
+    pin: bool = True,
+    automated_sync: bool = True
+) -> MagicMock:
+    restore: MagicMock = create_autospec(AcceleratorPinRestorer, instance=True)
+    restore.return_value = AcceleratorPinRestored(
+        pin_put_back=pin, automated_sync_put_back=automated_sync
+    )
+
+    return restore
+
+
+@pytest.mark.unit
+def test_a_pin_to_a_card_is_put_back_by_its_own_restorer_and_nothing_else() -> None:
+    # The dispatch, for the fifth kind of change. A pin to a card sent to the
+    # autoscaling restorer would write a floor onto a deployment whose floor
+    # Argus never set: both are pins, and only one of them wrote that field.
+    restore_autoscaling = an_autoscaling_restorer_nobody_calls()
+
+    Scenario() \
+        .given(
+            a_card_pin_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_card_pin_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=restore_autoscaling,
+                restore_accelerator_pin=_an_accelerator_pin_restorer_that_puts_back()
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _it_is_about(SOME_APPLICATION),
+            _the_autoscaling_restorer_was_not_asked(restore_autoscaling)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_to_a_card_whose_sync_could_not_be_restored_is_not_counted_as_undone() -> None:
+    # The same half every action under a GitOps controller can lose. The pods
+    # may land on any card again, and the deployment is silently receiving
+    # nothing anybody ships to it.
+    Scenario() \
+        .given(
+            a_card_pin_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_card_pin_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=_an_accelerator_pin_restorer_that_puts_back(
+                    pin=True, automated_sync=False
+                )
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed("automated sync")
+        ))
+
+
+@pytest.mark.unit
+def test_an_accelerator_pin_restorer_that_raises_leaves_the_pin_not_established() -> None:
+    some_failure = "the platform would not answer"
+    restore: MagicMock = create_autospec(AcceleratorPinRestorer, instance=True)
+    restore.side_effect = RuntimeError(some_failure)
+
+    Scenario() \
+        .given(
+            a_card_pin_descriptor_for(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: undo_change(
+                a_card_pin_descriptor_for(SOME_APPLICATION),
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=a_capacity_restorer_nobody_calls(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=restore
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _it_says_what_is_still_changed(some_failure)
+        ))
+
+
+def _the_autoscaling_restorer_was_not_asked(restore: MagicMock) -> Assertion[UndoAttempt]:
+    def assertion(dont_care_attempt: UndoAttempt) -> bool:
+        if restore.called:
+            raise AssertionError(
+                f"Expected a pin to a card to be put back by its own restorer, and "
+                f"the autoscaling restorer was asked {restore.call_args_list}."
+            )
+
+        return True
+
+    return assertion

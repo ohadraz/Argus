@@ -9,11 +9,13 @@ cannot earn its action a way past the gate by being registered.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from agent_mitigation import (
     Action,
     MitigationStrategy,
+    PinToAcceleratorStrategy,
     RestartDependencyStrategy,
     RestartServiceStrategy,
     ScaleOutStrategy,
@@ -23,6 +25,7 @@ from agent_mitigation import (
 )
 from agent_mitigation.strategies import DEFAULT_STRATEGIES
 from argus_core.models import (
+    PIN_TO_ACCELERATOR,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     ActionType,
@@ -31,6 +34,9 @@ from argus_core.models import (
     FailureMode,
     FlagChange,
     Hypothesis,
+    PinToAccelerator,
+    PodPlacement,
+    RecordedPlacement,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -61,6 +67,10 @@ DONT_CARE_SERVICE = "dont-care-service"
 NO_FLAGS_CHANGED: Sequence[FlagChange] = []
 
 SOME_APPLICATION_THE_ALERT_NAMES = "io-shop"
+
+# The card the fleet ran on before the incident, which is the one a pin holds
+# it to.
+THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
 
 
 @pytest.mark.unit
@@ -721,6 +731,94 @@ def test_a_scale_out_names_no_count_to_scale_to() -> None:
                           flag_changes=NO_FLAGS_CHANGED)
         )) \
         .then(_the_scale_out_carries_nothing_but_the_application())
+
+
+@pytest.mark.unit
+def test_accelerator_heterogeneity_is_answered_by_holding_the_fleet_to_its_card() -> None:
+    # A drain: the replica the platform moved onto another card is moved back,
+    # and nothing deployed changes. Asked of the registry Argus ships, because
+    # the mapping from the mode is half of what is new.
+    Scenario() \
+        .given(
+            a_replica_on_another_card := a_hypothesis_blaming(
+                FailureMode.ACCELERATOR_HETEROGENEITY
+            )
+        ) \
+        .when(
+            lambda: propose_action(
+                a_replica_on_another_card,
+                Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                              flag_changes=NO_FLAGS_CHANGED,
+                              placement=_a_replica_moved_onto_another_card())
+            )
+        ) \
+        .then(_it_pins(SOME_APPLICATION_THE_ALERT_NAMES, THE_FLEETS_CARD))
+
+
+@pytest.mark.unit
+def test_the_card_comes_from_the_placement_and_not_from_the_hypothesis_or_a_flag() -> None:
+    # Which card to hold the fleet to is the placement's to say and nobody
+    # else's: not the hypothesis's, whose subject is prose and here names the
+    # other card, and not a flag that happened to move meanwhile - a replica
+    # the platform moved is not something a flag did.
+    Scenario() \
+        .given(
+            a_hypothesis_naming_the_wrong_card := a_hypothesis_blaming(
+                FailureMode.ACCELERATOR_HETEROGENEITY,
+                subject="NVIDIA-A100-SXM4-40GB"
+            )
+        ) \
+        .when(
+            lambda: PinToAcceleratorStrategy().propose(
+                a_hypothesis_naming_the_wrong_card,
+                Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                              flag_changes=[an_enabling_of(DONT_CARE_FLAG)],
+                              placement=_a_replica_moved_onto_another_card())
+            )
+        ) \
+        .then(_it_pins(SOME_APPLICATION_THE_ALERT_NAMES, THE_FLEETS_CARD))
+
+
+@pytest.mark.unit
+def test_the_strategy_answering_heterogeneity_declares_the_pin_to_a_card() -> None:
+    Scenario() \
+        .given(PinToAcceleratorStrategy()) \
+        .when(lambda: PinToAcceleratorStrategy().action_types) \
+        .then(_the_kinds_declared_are(frozenset({PIN_TO_ACCELERATOR})))
+
+
+def _a_replica_moved_onto_another_card() -> RecordedPlacement:
+    """Two pods on the fleet's card since long before the onset, and one
+    placed half a minute before it on another."""
+    onset = datetime(2026, 10, 7, 21, 41, tzinfo=UTC)
+
+    return RecordedPlacement(
+        onset=onset,
+        pods=(
+            PodPlacement(pod="io-shop-x2kqp", node="gpu-v100-0",
+                         accelerator=THE_FLEETS_CARD,
+                         started_at=onset - timedelta(hours=2)),
+            PodPlacement(pod="io-shop-m4hvn", node="gpu-v100-1",
+                         accelerator=THE_FLEETS_CARD,
+                         started_at=onset - timedelta(hours=2)),
+            PodPlacement(pod="io-shop-r7wzt", node="gpu-a100-0",
+                         accelerator="NVIDIA-A100-SXM4-40GB",
+                         started_at=onset - timedelta(seconds=30))
+        )
+    )
+
+
+def _it_pins(application: str, card: str) -> Assertion[Action | None]:
+    def assertion(action: Action | None) -> bool:
+        if action != PinToAccelerator(application=application, accelerator=card):
+            raise AssertionError(
+                f"Expected [{application}] to be held to [{card}], and the "
+                f"strategy proposed {action!r}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _no_strategies() -> Strategies:

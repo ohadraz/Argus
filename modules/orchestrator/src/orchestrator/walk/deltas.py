@@ -31,6 +31,7 @@ from argus_core.models import (
     IncidentStatus,
     Platform,
     Reading,
+    RecordedPlacement,
     ServiceDependency,
     Verdict,
 )
@@ -104,6 +105,11 @@ class StateDelta(BaseModel):
     # The platform's deploy history, set beside the flag history and `None` in
     # the same circumstance, for the same reason.
     deployments: list[ChangeEvent] | None = None
+    # The round's placement, set by the investigating node every round and
+    # explicitly `None` where it could not be read - so a placement an earlier
+    # round recorded is cleared rather than left standing for a fleet this round
+    # no longer has.
+    placement: RecordedPlacement | None = None
     # What the register says the alerting service calls, read in the same round
     # as the flag history. Optional here for the reason every field above is -
     # a node that did not set it must not overwrite what another node decided -

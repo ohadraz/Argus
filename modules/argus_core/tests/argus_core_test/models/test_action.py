@@ -35,6 +35,7 @@ from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     FLAG_PROVIDER,
     PIN_AUTOSCALER,
+    PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -43,6 +44,7 @@ from argus_core.models import (
     ActionType,
     DiscardCacheEntries,
     FlagUndo,
+    PinToAccelerator,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -52,6 +54,7 @@ from argus_core.models import (
     changes_something_persistent,
     leaves_something_to_put_back,
     reports_what_it_changed,
+    the_accelerator_of,
     the_actions_through,
     the_direction_of,
     the_identity_of,
@@ -64,6 +67,7 @@ from pydantic import ValidationError
 SOME_SPELLING_NO_VERDICT_HAS = "dissolved"
 A_SPELLING_A_VERDICT_HAS = Verdict.CONFIRMED.value
 SOME_APPLICATION = "io-shop"
+SOME_ACCELERATOR = "Tesla-V100-SXM2-16GB"
 
 
 @pytest.mark.unit
@@ -323,18 +327,22 @@ def test_a_scale_out_leaves_something_a_withdrawal_has_to_put_back() -> None:
 
 
 @pytest.mark.unit
-def test_the_four_actions_that_reach_the_estate_through_the_deploy_platform_share_it() -> None:
+def test_the_five_actions_that_reach_the_estate_through_the_deploy_platform_share_it() -> None:
     # The fact the walk narrows itself on. A platform that is not answering has
-    # taken all four away at once, which is a different thing from one action
+    # taken all five away at once, which is a different thing from one action
     # failing - and it is only knowable in advance because the kind says which
     # platform it would act through, without the action having been tried.
     Scenario() \
-        .given([RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER]) \
+        .given([
+            RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER,
+            PIN_TO_ACCELERATOR
+        ]) \
         .when(lambda: [
             the_platform_of(RESTART_SERVICE),
             the_platform_of(ROLL_BACK_DEPLOYMENT),
             the_platform_of(SCALE_OUT),
-            the_platform_of(PIN_AUTOSCALER)
+            the_platform_of(PIN_AUTOSCALER),
+            the_platform_of(PIN_TO_ACCELERATOR)
         ]) \
         .then(_they_all_act_through(DEPLOYMENT_PLATFORM))
 
@@ -355,7 +363,7 @@ def test_a_flag_revert_acts_through_something_else() -> None:
 
 
 @pytest.mark.unit
-def test_the_deployment_platform_carries_four_of_the_five_actions() -> None:
+def test_the_deployment_platform_carries_five_of_the_seven_actions() -> None:
     # What an escalation and a narrated line both have to say: not that a
     # platform is down, but what it took away. A reader told only the platform's
     # name has to go and look up which of Argus's actions went with it, which is
@@ -364,13 +372,14 @@ def test_the_deployment_platform_carries_four_of_the_five_actions() -> None:
         .given(DEPLOYMENT_PLATFORM) \
         .when(lambda: the_actions_through(DEPLOYMENT_PLATFORM)) \
         .then(_they_are([
-            RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER
+            RESTART_SERVICE, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER,
+            PIN_TO_ACCELERATOR
         ]))
 
 
 @pytest.mark.unit
 def test_the_flag_provider_carries_the_one_action_that_survives_it() -> None:
-    # The half that makes the other worth having. Four and one, so a walk that
+    # The half that makes the other worth having. Five and one, so a walk that
     # loses the deployment platform still has somewhere to go - and a reader of
     # the escalation can see that what is left is the flag revert rather than
     # nothing.
@@ -383,7 +392,7 @@ def test_the_flag_provider_carries_the_one_action_that_survives_it() -> None:
 @pytest.mark.unit
 def test_every_kind_is_accounted_for_by_one_of_the_three_platforms() -> None:
     # The claim that keeps the lists above from drifting apart as kinds are
-    # added. A seventh mitigation appearing in none of them would be an action
+    # added. A further mitigation appearing in none of them would be an action
     # nothing says is unavailable when its platform goes down, and nothing here
     # would fail - the lists would simply be quietly incomplete.
     #
@@ -399,7 +408,7 @@ def test_every_kind_is_accounted_for_by_one_of_the_three_platforms() -> None:
         )) \
         .then(_they_are(sorted([
             REVERT_FEATURE_FLAG, RESTART_SERVICE, ROLL_BACK_DEPLOYMENT,
-            SCALE_OUT, PIN_AUTOSCALER, DISCARD_CACHE_ENTRIES
+            SCALE_OUT, PIN_AUTOSCALER, DISCARD_CACHE_ENTRIES, PIN_TO_ACCELERATOR
         ])))
 
 
@@ -436,7 +445,7 @@ def test_a_discard_naming_no_entries_is_refused() -> None:
 
 @pytest.mark.unit
 def test_a_discard_leaves_nothing_to_put_back() -> None:
-    # Like a restart and unlike the three that restore something. Nothing was
+    # Like a restart and unlike those that restore something. Nothing was
     # lost: the entries were a copy of records that never moved, and whatever
     # reads one next works it out again. An undo descriptor here would promise
     # to write the stale figures back, which is a promise to recreate the
@@ -484,11 +493,11 @@ def test_a_discard_has_no_direction_to_report() -> None:
 @pytest.mark.unit
 def test_only_the_discard_answers_with_what_it_changed() -> None:
     # What separates the one action that can be confirmed by its own answer from
-    # the five that cannot. A discard returns how many entries it removed, which
+    # the six that cannot. A discard returns how many entries it removed, which
     # is the store stating they are gone; the others answer that a request was
     # accepted, and what happened next has to be watched for.
     #
-    # Asserted over all six rather than of the discard alone, because the claim
+    # Asserted over all seven rather than of the discard alone, because the claim
     # is that it is the only one. A later action that quietly reported something
     # would otherwise gain a confirmation nobody reasoned about.
     Scenario() \
@@ -515,8 +524,8 @@ def test_every_action_but_the_restart_changes_something_persistent() -> None:
     # and the restart's own case would then read as a change nobody accounted
     # for.
     #
-    # Asserted over all six rather than of the restart alone, because the claim
-    # is that it is the only one. A seventh kind that changed nothing would
+    # Asserted over all seven rather than of the restart alone, because the claim
+    # is that it is the only one. A further kind that changed nothing would
     # otherwise inherit the discard's sentence.
     Scenario() \
         .given(every_kind := get_args(ActionType.__value__)) \
@@ -527,9 +536,72 @@ def test_every_action_but_the_restart_changes_something_persistent() -> None:
             "change something persistent",
             [
                 REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT,
-                PIN_AUTOSCALER, DISCARD_CACHE_ENTRIES
+                PIN_AUTOSCALER, DISCARD_CACHE_ENTRIES, PIN_TO_ACCELERATOR
             ]
         ))
+
+
+@pytest.mark.unit
+def test_the_identity_of_a_pin_to_an_accelerator_is_its_kind_and_its_application() -> None:
+    # The card is deliberately not part of it, for the reason a discard's keys
+    # are not: it is what this attempt was worked out to be, from a placement a
+    # later round reads again - so a card in the identity would let the same
+    # deployment be pinned over and over under the cap, once per card.
+    Scenario() \
+        .given(
+            a_pin := PinToAccelerator(
+                application=SOME_APPLICATION, accelerator="Tesla-V100-SXM2-16GB"
+            )
+        ) \
+        .when(lambda: the_identity_of(a_pin)) \
+        .then(_it_identifies(PIN_TO_ACCELERATOR, SOME_APPLICATION))
+
+
+@pytest.mark.unit
+def test_a_pin_to_an_accelerator_leaves_something_to_put_back() -> None:
+    # The selector the deployment had, or that it had none - and whether the
+    # platform was reconciling it - are what an undo restores.
+    Scenario() \
+        .given(PIN_TO_ACCELERATOR) \
+        .when(lambda: leaves_something_to_put_back(PIN_TO_ACCELERATOR)) \
+        .then(_it_leaves_something_to_put_back(True))
+
+
+@pytest.mark.unit
+def test_a_pin_to_an_accelerator_has_no_direction_to_report() -> None:
+    # The card it was pinned to is what it did; there is no second state it
+    # could have been moved to instead, as a flag has.
+    Scenario() \
+        .given(
+            a_pin := PinToAccelerator(
+                application=SOME_APPLICATION, accelerator="Tesla-V100-SXM2-16GB"
+            )
+        ) \
+        .when(lambda: the_direction_of(a_pin)) \
+        .then(_it_has_no_direction())
+
+
+@pytest.mark.unit
+def test_a_pin_to_an_accelerator_names_the_card_it_pinned_to() -> None:
+    # Said on the account, because the application alone says a deployment was
+    # held to a card and not to which - and which is the half a reader checks
+    # against the placement recorded at the onset.
+    Scenario() \
+        .given(
+            a_pin := PinToAccelerator(
+                application=SOME_APPLICATION, accelerator=SOME_ACCELERATOR
+            )
+        ) \
+        .when(lambda: the_accelerator_of(a_pin)) \
+        .then(_it_names_the_accelerator(SOME_ACCELERATOR))
+
+
+@pytest.mark.unit
+def test_an_action_that_pins_nothing_to_a_card_names_no_accelerator() -> None:
+    Scenario() \
+        .given(a_rollback := _a_rollback_of(SOME_APPLICATION)) \
+        .when(lambda: the_accelerator_of(a_rollback)) \
+        .then(_it_names_the_accelerator(None))
 
 
 def _the_kinds_are(description: str, expected: list[str]) -> Assertion[list[str]]:
@@ -717,6 +789,19 @@ def _it_has_no_direction() -> Assertion[bool | None]:
     return assertion
 
 
+def _it_names_the_accelerator(expected: str | None) -> Assertion[str | None]:
+    def assertion(accelerator: str | None) -> bool:
+        if accelerator != expected:
+            raise AssertionError(
+                f"Expected the action to name the accelerator [{expected}], and "
+                f"it named [{accelerator}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_leaves_something_to_put_back(expected: bool) -> Assertion[bool]:
     def assertion(leaves: bool) -> bool:
         if leaves != expected:
@@ -765,18 +850,18 @@ def _it_does_not_act_through(platform: str) -> Assertion[str]:
 def _they_all_act_through(platform: str) -> Assertion[list[str]]:
     """Every kind named, and named the same.
 
-    One assertion over the four rather than four tests, because what is claimed
+    One assertion over them all rather than a test each, because what is claimed
     is not that each has a platform - it is that they share one. A walk passes
     over the rest of a platform's candidates by comparing what it derives for
-    each against what failed, and four kinds that each named a platform of their
-    own would pass four separate assertions and narrow nothing.
+    each against what failed, and kinds that each named a platform of their own
+    would pass separate assertions and narrow nothing.
     """
     def assertion(named: list[str]) -> bool:
         wrong = sorted({one for one in named if one != platform})
 
         if wrong:
             raise AssertionError(
-                f"Expected all four to act through [{platform}], and "
+                f"Expected all of them to act through [{platform}], and "
                 f"{wrong} was named instead."
             )
 
