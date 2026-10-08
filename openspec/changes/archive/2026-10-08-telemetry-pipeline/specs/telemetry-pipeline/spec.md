@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Every signal is written to disk, always
-Every Argus process SHALL write its traces, metrics and logs to files under a configured telemetry directory. Each signal SHALL go to its own file, as OTLP JSON lines: one export batch per line, encoded per the OTLP/JSON mapping, with trace and span ids in hex. This SHALL happen whether or not any backend is configured. Each process run SHALL write into a directory of its own, named for the service and the run, so that two processes never append to the same file.
+Every Argus process SHALL write its traces, metrics and logs to files under a configured telemetry directory. Each signal SHALL go to its own file, as OTLP JSON lines: one export batch per line, encoded per the OTLP/JSON mapping, with trace and span ids in hex. This SHALL happen whether or not any backend is configured. Each process run SHALL write into a directory of its own, named for the service and the run, so that two processes never append to the same file. The run is named for the real clock's start, whatever the stack's clock reads, because every time inside the files is the real clock's.
 
 #### Scenario: No backend configured
 - **WHEN** a process starts with neither backend configured and then emits a span, a metric point and a log record
@@ -14,6 +14,17 @@ Every Argus process SHALL write its traces, metrics and logs to files under a co
 #### Scenario: Two processes do not share a file
 - **WHEN** two processes run at the same time
 - **THEN** each writes to a run directory of its own
+
+#### Scenario: A stack on a simulated clock
+- **WHEN** a process starts in a stack whose clock runs ahead of the real one
+- **THEN** its run directory is named for the real time it started
+
+### Requirement: A stopped process flushes what it holds
+A process SHALL flush its batched telemetry when it returns from `main` and when it receives a stop signal: SIGTERM, or CTRL_BREAK on Windows. After flushing on a signal, the process SHALL end as the signal's default would have ended it, and nothing else in the process SHALL observe that it was stopped.
+
+#### Scenario: Stopped by its signal
+- **WHEN** a process that has ended a span is sent its stop signal
+- **THEN** that span is in its `traces.jsonl` once the process has exited
 
 ### Requirement: A general OTLP backend receives every signal when configured
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the system SHALL export traces, metrics and logs to it over OTLP/HTTP, in addition to the files. It SHALL send any headers configured in `OTEL_EXPORTER_OTLP_HEADERS`. When the endpoint is empty, nothing SHALL be sent anywhere but the files.
