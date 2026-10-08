@@ -289,6 +289,10 @@ class TransitionIncident(Protocol):
     nobody wrote down is a row a human cannot read the incident from, and the
     two being one argument is what stops them being two writes that can
     disagree.
+
+    Answers whether the incident moved. It does not when a person withdrew it
+    while the node was running, and the walk learns that from here rather than
+    from a second read that could land on either side of the withdrawal.
     """
 
     def __call__(
@@ -296,7 +300,7 @@ class TransitionIncident(Protocol):
         incident_id: str,
         to_status: IncidentStatus,
         narrating: IncidentEvent
-    ) -> None: ...
+    ) -> bool: ...
 
 
 class ProposeFix(Protocol):

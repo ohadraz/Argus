@@ -252,6 +252,32 @@ def test_an_incident_nobody_has_is_not_walked_either(
         )
 
 
+@pytest.mark.unit
+def test_a_node_that_finished_after_a_withdrawal_stops_the_walk(
+    transition_incident: MagicMock
+) -> None:
+    # Withdrawn while the node was running, so asking before it was too early
+    # to know. The row refused the move, and the walk has to hear that refusal
+    # for what it is - or it routes onwards and walks an incident nobody wants.
+    Scenario() \
+        .given(
+            calling(lambda: transition_incident.configure_mock(return_value=False)),
+            an_investigation_that_found_something := _a_node_returning(
+                {"candidates": [a_candidate()], "candidate_index": 0}
+            ),
+            an_incident_being_investigated := _an_incident_being_investigated()
+        ) \
+        .when(lambda: with_status(
+            an_investigation_that_found_something,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
+        ) \
+        .then(
+            the_updates_carry("status", IncidentStatus.WITHDRAWN)
+        )
+
+
 def _there_is_no_such_incident() -> IsStillWanted:
     """The same answer, for the different reason that there is no row at all.
 

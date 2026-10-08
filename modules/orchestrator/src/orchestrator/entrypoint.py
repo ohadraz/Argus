@@ -149,21 +149,29 @@ def run_incident(incident_id: str,
     # Idempotent by way of the status it writes: a resumed run re-announces an
     # investigation that is already under way, which is true again each time it
     # is taken up.
+    #
+    # Not said where the row refused it. A withdrawal can land between the
+    # worker asking and this write, and then the incident stays withdrawn - an
+    # account announcing an investigation of it would contradict the row. The
+    # walk is still invoked, and its first node hears the withdrawal and stops.
     with connections() as conn:
-        incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING)
-        # Beside the status, on the same connection, for the reason every other
-        # transition publishes beside its own: this is the only account there
-        # is, and a walk that started without saying so leaves a reader looking
-        # at an incident that was acknowledged and then simply changed.
-        publish_beside(
-            conn,
-            StatusChanged(
-                incident_id=incident_id,
-                to_status=IncidentStatus.INVESTIGATING,
-                detail="a worker took the incident up"
-            ),
-            events_into_connection(conn)
-        )
+        taken_up = incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING)
+
+        if taken_up:
+            # Beside the status, on the same connection, for the reason every
+            # other transition publishes beside its own: this is the only
+            # account there is, and a walk that started without saying so
+            # leaves a reader looking at an incident that was acknowledged and
+            # then simply changed.
+            publish_beside(
+                conn,
+                StatusChanged(
+                    incident_id=incident_id,
+                    to_status=IncidentStatus.INVESTIGATING,
+                    detail="a worker took the incident up"
+                ),
+                events_into_connection(conn)
+            )
 
     settings = get_settings()
     initial_state = IncidentState(

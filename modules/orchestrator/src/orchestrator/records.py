@@ -74,8 +74,9 @@ class Records:
         incident_id: str,
         to_status: IncidentStatus,
         narrating: IncidentEvent
-    ) -> None:
-        """Moves the incident, and says so, in one write.
+    ) -> bool:
+        """Moves the incident, and says so, in one write - and answers whether
+        it moved.
 
         `narrating` is required rather than optional because there is no such
         thing as a transition nobody accounts for: the account is what the
@@ -90,10 +91,19 @@ class Records:
         One connection for both, so the two commit together - and the account
         written last, inside a savepoint of its own, so it can fail without
         taking the transition with it.
+
+        A move the row refused is not said either. An incident a person withdrew
+        while the node was running stays withdrawn, and a line announcing the
+        status the node would have written is the account contradicting the
+        row it accounts for.
         """
         with self._connections() as conn:
-            incidents.transition(conn, incident_id, to_status)
-            publish_beside(conn, narrating, self._publisher_for(conn))
+            moved = incidents.transition(conn, incident_id, to_status)
+
+            if moved:
+                publish_beside(conn, narrating, self._publisher_for(conn))
+
+        return moved
 
     def claim_action(
         self,

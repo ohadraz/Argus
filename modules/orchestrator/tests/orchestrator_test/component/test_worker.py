@@ -8,9 +8,10 @@ from datetime import timedelta
 import psycopg
 import pytest
 from argus_core import connect_from_env
+from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
-from argus_incidents.repository import incidents, runs
+from argus_incidents.repository import events, incidents, runs
 from argus_incidents.withdrawal import wanted_via
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from opentelemetry import baggage
@@ -406,6 +407,43 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
                 _the_incident_unwound_was(unwound, incident_id),
                 _the_run_is_done(conn, incident_id)
             ))
+
+
+@pytest.mark.component
+def test_a_withdrawn_incident_whose_walk_then_failed_is_not_announced_escalated(
+    a_clean_database: None
+) -> None:
+    # Withdrawn partway, and the walk raised on its way out. The person who
+    # withdrew it has it in hand, so the row stays withdrawn - and the account
+    # must not tell everyone watching that it was escalated to somebody.
+    dont_care_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        def walk_that_is_withdrawn_and_then_fails(withdrawn_id: str) -> None:
+            incidents.withdraw(conn, withdrawn_id)
+            raise RuntimeError("a bug in a node nobody has written yet")
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_is_withdrawn_and_then_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _the_account_never_said_it_was(conn, incident_id, IncidentStatus.ESCALATED)
+            )
 
 
 @pytest.mark.component
@@ -1055,6 +1093,25 @@ def _the_walk_found_no_transaction_open(seen: list[TransactionStatus]) -> Assert
             raise AssertionError(
                 f"Expected the walk to run once with nothing open on the worker's "
                 f"connection, and it found it {[status.name for status in seen]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_account_never_said_it_was(conn: psycopg.Connection,
+                                   incident_id: str,
+                                   status: IncidentStatus) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        moves = [event.to_status
+                 for event in events.get_by_incident(conn, incident_id)
+                 if isinstance(event, StatusChanged)]
+
+        if status in moves:
+            raise AssertionError(
+                f"Expected the account to say nothing about a move to [{status}] "
+                f"the incident never made, got {moves}."
             )
 
         return True

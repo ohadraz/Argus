@@ -49,12 +49,22 @@ def transition(
     conn: psycopg.Connection,
     incident_id: str,
     to_status: IncidentStatus
-) -> None:
-    """Updates `Incident.status` (spec §7.1, §11.1's single-writer rule).
+) -> bool:
+    """Updates `Incident.status` (spec §7.1, §11.1's single-writer rule), and
+    says whether it did.
 
     For a status the incident is actually entering. Work that is worth
     recording and moved nothing is published as the acting node's own event,
     and writes nothing here at all.
+
+    Never over a withdrawal. A person withdraws an incident from outside the
+    walk, so the walk can be halfway through a step when it happens - and the
+    step finishing afterwards would write its own status over that person's
+    decision, leaving an incident nobody wants being walked and nothing ever
+    put back. The guard is in the statement rather than in a read before it,
+    because a read and a write are two moments and a withdrawal can land
+    between them. `False` is how the caller learns the incident was not
+    moved, and that nothing is to be said about a move that did not happen.
 
     The status alone. What moved it, why, and how sure it was are the
     `StatusChanged` its caller publishes on this same connection - one account
@@ -79,9 +89,11 @@ def transition(
         cursor.execute(
             "UPDATE incident "
             "   SET status = %s, ended_at = CASE WHEN %s THEN now() ELSE ended_at END "
-            " WHERE id = %s",
-            (to_status, ends_the_incident, incident_id)
+            " WHERE id = %s AND status <> %s",
+            (to_status, ends_the_incident, incident_id, IncidentStatus.WITHDRAWN)
         )
+
+        return cursor.rowcount == 1
 
 
 def withdraw(conn: psycopg.Connection, incident_id: str) -> bool:

@@ -110,7 +110,7 @@ def with_status(
         # separately they could disagree: a walk that stopped between them would
         # leave a status nothing accounts for, and the incident is read from the
         # account.
-        transition_incident(
+        moved = transition_incident(
             state.incident_id,
             next_status,
             narrating=StatusChanged(
@@ -119,6 +119,15 @@ def with_status(
                 detail=narration.said(),
             ),
         )
+
+        # Withdrawn while the node ran, which the question asked before it was
+        # too early to hear. The row refused the move, so the walk routes out
+        # as it would have had the answer come in time.
+        if not moved:
+            logger.info("withdrawn while a step ran",
+                        extra={"from_status": state.status, "to_status": next_status})
+            return {**updates, "status": IncidentStatus.WITHDRAWN}
+
         logger.info("status changed", extra={"from_status": state.status,
                                              "to_status": next_status,
                                              "reason": narration.said()})

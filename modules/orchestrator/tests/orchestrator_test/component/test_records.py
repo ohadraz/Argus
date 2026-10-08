@@ -105,6 +105,40 @@ def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
 
 
 @pytest.mark.component
+def test_a_withdrawn_incident_is_neither_moved_nor_said_to_have_moved(
+    a_clean_database: None
+) -> None:
+    # The step that finished after a person withdrew the incident. Its status is
+    # not written, and neither is the line about it: a stream saying the
+    # incident went on to be mitigated would be the account disagreeing with
+    # the row it accounts for.
+    some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        incidents.withdraw(conn, incident_id)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: records.transition(
+                incident_id,
+                SOME_STATUS,
+                narrating=_a_status_change_for(incident_id, SOME_STATUS)
+            )
+        ) \
+        .then(all_of(
+            _the_transition_reported(False),
+            _the_incident_is(incident_id, IncidentStatus.WITHDRAWN),
+            _the_stream_never_said(incident_id, SOME_STATUS)
+        ))
+
+
+@pytest.mark.component
 def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
     a_clean_database: None
 ) -> None:
@@ -397,6 +431,41 @@ def _the_narration_reports_the_verdict(incident_id: str,
             raise AssertionError(
                 f"Expected the stream to report the verdict [{outcome}], got "
                 f"{reached}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_transition_reported(expected: bool) -> Assertion[bool]:
+    def assertion(moved: bool) -> bool:
+        if moved != expected:
+            raise AssertionError(
+                f"Expected the transition to report that it "
+                f"{"took effect" if expected else "changed nothing"}, "
+                f"got [{moved!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_stream_never_said(incident_id: str,
+                           status: IncidentStatus) -> Assertion[bool]:
+    def assertion(_result: bool) -> bool:
+        with connect_from_env() as conn:
+            narrated = events.get_by_incident(conn, incident_id)
+
+        told = [event.to_status
+                for event in narrated
+                if isinstance(event, StatusChanged)]
+
+        if status in told:
+            raise AssertionError(
+                f"Expected the stream to say nothing about a move to [{status}] "
+                f"that was never made, got {told}."
             )
 
         return True

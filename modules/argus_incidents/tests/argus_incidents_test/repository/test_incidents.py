@@ -212,6 +212,52 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
 
 
 @pytest.mark.integration
+def test_transition_says_that_it_took_effect() -> None:
+    # The walk publishes a move and carries on only where the row actually
+    # moved, so a transition that wrote nothing must not read the same as one
+    # that did.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .when(
+                lambda: incidents.transition(conn, incident_id, IncidentStatus.MITIGATING)
+            ) \
+            .then(
+                _the_transition_reported(True)
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("to_status", [status for status in IncidentStatus
+                                       if status is not IncidentStatus.WITHDRAWN])
+def test_a_withdrawn_incident_is_not_moved_by_a_transition(to_status: IncidentStatus) -> None:
+    # A person withdrew it while a step of the walk was still running. The step
+    # finishing afterwards must not write over that decision - which is how a
+    # withdrawn incident went back to `mitigating` and was never put back.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_withdrawn_incident_for = partial(_a_withdrawn_incident_for, conn)
+        the_incident_is = partial(_the_incident_is, conn)
+
+        Scenario() \
+            .given(
+                incident_id := a_withdrawn_incident_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.transition(conn, incident_id, to_status)
+            ) \
+            .then(all_of(
+                _the_transition_reported(False),
+                the_incident_is(IncidentStatus.WITHDRAWN, incident_id=incident_id)
+            ))
+
+
+@pytest.mark.integration
 def test_incidents_come_back_newest_first() -> None:
     # The history view opens on what just happened. Oldest-first would put the
     # incident somebody is looking for at the bottom of the page.
@@ -666,6 +712,20 @@ def _it_reported(expected: bool) -> Assertion[bool]:
                 f"Expected the withdrawal to report that it "
                 f"{"took effect" if expected else "changed nothing"}, "
                 f"got [{withdrawn!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_transition_reported(expected: bool) -> Assertion[bool]:
+    def assertion(moved: bool) -> bool:
+        if moved != expected:
+            raise AssertionError(
+                f"Expected the transition to report that it "
+                f"{"took effect" if expected else "changed nothing"}, "
+                f"got [{moved!r}]."
             )
 
         return True

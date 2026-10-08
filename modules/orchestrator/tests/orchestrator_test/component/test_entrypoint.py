@@ -57,6 +57,34 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
 
 
 @pytest.mark.component
+def test_a_walk_withdrawn_before_it_started_announces_no_investigation(
+    a_clean_database: None
+) -> None:
+    # Withdrawn between the worker asking and the walk starting. The row stays
+    # withdrawn, and the account must not say otherwise: a line announcing an
+    # investigation of an incident nobody wants is one a reader would act on.
+    dont_care_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    a_graph = create_autospec(CompiledStateGraph, instance=True)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        incidents.withdraw(conn, incident_id)  # commits, so the walk reads it back
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: entrypoint.run_incident(
+                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                )
+            ) \
+            .then(
+                _the_account_never_says_it_was_taken_up(conn, incident_id)
+            )
+
+
+@pytest.mark.component
 def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: None) -> None:
     # This is what makes the resume above a resume rather than a restart: the
     # thread is the incident, so the checkpointer answers with whatever that
@@ -264,6 +292,23 @@ def _the_incident_is_investigating(conn: psycopg.Connection,
                 f"Expected a claimed run to leave its incident "
                 f"[{IncidentStatus.INVESTIGATING}], got [{incident.status}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_account_never_says_it_was_taken_up(conn: psycopg.Connection,
+                                            incident_id: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        moves = [event.to_status
+                 for event in events.get_by_incident(conn, incident_id)
+                 if isinstance(event, StatusChanged)]
+
+        if IncidentStatus.INVESTIGATING in moves:
+            raise AssertionError(
+                f"Expected the account to announce no investigation of an incident "
+                f"that was withdrawn before its walk started, got {moves}.")
 
         return True
 

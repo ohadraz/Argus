@@ -275,18 +275,27 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
     walk that already failed, and a database that will not take the transition
     would otherwise replace a recorded failure with an unrecorded one. The log
     is the fallback, which is where this sat in its entirety before.
+
+    Not over a withdrawal, and not said about one either. A person who withdrew
+    the incident has it in hand, so the row refuses the move - and a line
+    telling everyone watching that it was escalated would contradict it. The
+    transition goes first for that reason: whether there is anything to say is
+    its answer.
     """
     try:
-        publish(
-            StatusChanged(
-                incident_id=incident_id,
-                to_status=IncidentStatus.ESCALATED,
-                detail=f"the walk stopped without finishing: "
-                       f"{type(failure).__name__}: {failure}"
-            ),
-            events_into_connection(conn)
-        )
-        incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
+        escalated = incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
+
+        if escalated:
+            publish(
+                StatusChanged(
+                    incident_id=incident_id,
+                    to_status=IncidentStatus.ESCALATED,
+                    detail=f"the walk stopped without finishing: "
+                           f"{type(failure).__name__}: {failure}"
+                ),
+                events_into_connection(conn)
+            )
+
         conn.commit()
     except Exception:
         logger.exception("incident could not be marked escalated after its run failed")
