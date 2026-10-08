@@ -131,4 +131,4 @@
 
 - [x] 10.1 lint, typecheck, guard_layering, test_all, integration, contract, full e2e_replay.
 - [x] 10.2 Check comments, docstrings, jargon and docs are aligned, and that no test is missing, redundant or weak.
-- [ ] 10.3 Commit Argus (one line, approved); archive the change, filling the new specs' Purpose before the archive commit.
+- [x] 10.3 Commit Argus (one line, approved); archive the change, filling the new specs' Purpose before the archive commit.
