@@ -27,20 +27,6 @@ def a_recorder_that_keeps_what_it_is_given() -> KeptEntries:
     return KeptEntries()
 
 
-def the_entry_took(recorded: KeptEntries, latency_ms: int) -> Assertion[Any]:
-    def assertion(_result: Any) -> bool:
-        entry = recorded.only()
-
-        if entry.latency_ms != latency_ms:
-            raise AssertionError(
-                f"Expected the call to have taken [{latency_ms}]ms, got [{entry.latency_ms}]."
-            )
-
-        return True
-
-    return assertion
-
-
 def the_entry_was_recorded_for(recorded: KeptEntries, incident_id: str) -> Assertion[Any]:
     def assertion(_result: Any) -> bool:
         entry = recorded.only()

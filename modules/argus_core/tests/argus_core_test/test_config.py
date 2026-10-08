@@ -14,6 +14,7 @@ from argus_core.config import (
     ReadMcpEndpoint,
     Settings,
     SettingsSlice,
+    TelemetrySettings,
 )
 from argus_testkit import (
     Assertion,
@@ -319,6 +320,60 @@ def test_a_slice_naming_a_setting_that_does_not_exist_is_refused() -> None:
         )
 
 
+@pytest.mark.unit
+def test_the_telemetry_slice_carries_where_files_go_and_both_backends() -> None:
+    # What `argus_telemetry` is handed at the top of every process: the
+    # directory every signal is written under, the general OTLP backend, and
+    # Langfuse - and nothing else, so that wiring the exporters names no
+    # credential of any other tier.
+    Scenario() \
+        .given(
+            settings_holding_every_credential := Settings(
+                unleash_admin_token="an-admin-token-telemetry-must-not-name",
+                anthropic_api_key="dont-care-key"
+            )
+        ) \
+        .when(
+            lambda: TelemetrySettings.of(settings_holding_every_credential)
+        ) \
+        .then(
+            _it_carries_exactly({
+                "telemetry_directory",
+                "otel_exporter_otlp_endpoint",
+                "otel_exporter_otlp_headers",
+                "langfuse_base_url",
+                "langfuse_public_key",
+                "langfuse_secret_key"
+            })
+        )
+
+
+@pytest.mark.unit
+def test_telemetry_is_written_under_telemetry_and_sent_nowhere_by_default() -> None:
+    # The configuration a fresh checkout runs with: every signal on disk, in a
+    # directory the repository ignores, and no backend - an empty endpoint is
+    # what switches each one off. Read off the declared defaults rather than off
+    # a `Settings()`, which would read the developer's own `.env` and fail the
+    # day somebody points theirs at a backend.
+    Scenario() \
+        .given(
+            the_declared_defaults := Settings.model_construct()
+        ) \
+        .when(
+            lambda: TelemetrySettings.of(the_declared_defaults)
+        ) \
+        .then(
+            _it_is(TelemetrySettings(
+                telemetry_directory="telemetry",
+                otel_exporter_otlp_endpoint="",
+                otel_exporter_otlp_headers="",
+                langfuse_base_url="",
+                langfuse_public_key="",
+                langfuse_secret_key=""
+            ))
+        )
+
+
 def _it_complained_about(field: str) -> Assertion[Exception | None]:
     """That the refusal named the field the test is about.
 
@@ -391,3 +446,21 @@ def _the_database_url_is(expected: str) -> Assertion[DatabaseSettings]:
         return True
 
     return the_database_url_is
+
+
+def _it_is(expected: TelemetrySettings) -> Assertion[TelemetrySettings]:
+    """That the slice holds exactly these values.
+
+    Compared whole rather than field by field, so that a default nobody meant
+    to change is reported beside the one the test was written about.
+    """
+    def it_is(narrowed: TelemetrySettings) -> bool:
+        if narrowed != expected:
+            raise AssertionError(
+                f"Expected the telemetry settings {expected!r}, "
+                f"and they are {narrowed!r}."
+            )
+
+        return True
+
+    return it_is

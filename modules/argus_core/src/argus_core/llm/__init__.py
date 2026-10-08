@@ -24,6 +24,7 @@ from argus_core.llm.conversing import Conversations, a_conversation_recorded_for
 from argus_core.llm.escapes import with_escapes_resolved
 from argus_core.llm.line_breaks import on_one_line
 from argus_core.llm.recorded_client import RecordedLLMClient
+from argus_core.llm.traced_client import TracedLLMClient
 
 __all__ = [
     "AnswerTruncated",
@@ -34,6 +35,7 @@ __all__ = [
     "ModelDidNotAnswer",
     "ModelRefused",
     "RecordedLLMClient",
+    "TracedLLMClient",
     "TurnPaused",
     "a_conversation_recorded_for",
     "build_llm_client",

@@ -6,6 +6,7 @@ dependencies = [
     "argus-argus_core[llm,mcp]",
     "argus-argus_incidents",
     "argus-argus_narration",
+    "argus-argus_telemetry",
     # With the store, because the walk is what writes a record and the walk
     # is what searches for one - and unconditionally, because whether it does
     # either is read at runtime while this is resolved at install. A worker
@@ -23,6 +24,7 @@ dependencies = [
     "argus-exchange_rate_source",
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres>=2.0",
+    "opentelemetry-api>=1.45",
     "psycopg[binary]>=3.1",
     "pydantic>=2.0",
 ]
@@ -36,6 +38,9 @@ dependencies = [
 dev = [
     "argus-argus_core[migrations]",
     "argus-argus_testkit",
+    # What the walk's spans and measurements are asserted through: an SDK's
+    # in-memory exporter and reader. Never a runtime dependency.
+    "opentelemetry-sdk>=1.45",
 ]
 
 [tool.uv.sources]
@@ -43,6 +48,7 @@ argus-argus_core = { workspace = true }
 argus-incident_memory = { workspace = true }
 argus-argus_incidents = { workspace = true }
 argus-argus_narration = { workspace = true }
+argus-argus_telemetry = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-responder_rate_source = { workspace = true }
 argus-revenue_source = { workspace = true }

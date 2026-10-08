@@ -9,8 +9,7 @@ has to show for itself afterwards.
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 from argus_core.events import Narrator, RetrievalUnanswered, nobody
 from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolResult
@@ -36,13 +35,6 @@ from agent_investigator.tools.logs import LOGS_TOOL, read_logs
 from agent_investigator.tools.metrics import METRICS_TOOL, read_metrics
 from agent_investigator.tools.results import Served, could_not_serve
 from agent_investigator.tools.rollouts import ROLLOUT_TOOL, read_the_rollout
-
-# Reading the clock, so a test can hand over one that does not tick. A
-# `Callable` rather than a Protocol because it takes no arguments: there are no
-# keywords to name and nothing for `create_autospec` to get wrong.
-Clock = Callable[[], float]
-
-_MILLISECONDS_PER_SECOND = 1000
 
 
 class Dispatcher:
@@ -82,10 +74,6 @@ class Dispatcher:
     would be three chances to forget, and a fourth added later would arrive
     silent.
 
-    A monotonic clock, not a wall clock: what is measured is how long a
-    retrieval took, and a wall clock can step sideways mid-call and record a
-    read that finished before it started.
-
     `final_answer` never arrives here. It is the loop's exit and produces no
     evidence, so a call to it that reached this far would be a mistake in the
     loop rather than in the model - and it is reported as a call this cannot
@@ -113,8 +101,7 @@ class Dispatcher:
                  rule: str | None = None,
                  narrator: Narrator | None = None,
                  replay: Replay | None = None,
-                 having_read: Sequence[Reading] = (),
-                 clock: Clock = time.monotonic) -> None:
+                 having_read: Sequence[Reading] = ()) -> None:
         self._service = service
         self._onset = onset
         self._settings = settings
@@ -123,7 +110,6 @@ class Dispatcher:
         self._readings_cover_the_incident = readings_cover_the_incident
         self._narrator = narrator if narrator is not None else Narrator("", nobody)
         self._replay = replay if replay is not None else Replay("")
-        self._clock = clock
         self._fetch_metrics = fetch_metrics
         self._fetch_logs = fetch_logs
         self._fetch_change_events = fetch_change_events
@@ -176,7 +162,6 @@ class Dispatcher:
         is only that the channel did not answer - the loop goes on, because the
         model has been told and may read something else instead.
         """
-        started_at = self._clock()
         answer = self._serve(call)
 
         if answer.unanswered is not None:
@@ -188,16 +173,15 @@ class Dispatcher:
 
         if answer.reading is not None:
             self._readings.append(answer.reading)
-            self._record(call, answer.reading, answer.result, since=started_at)
+            self._record(call, answer.reading, answer.result)
 
         return answer.result
 
     def _record(self,
                 call: ToolCall,
                 reading: Reading,
-                result: ToolResult,
-                since: float) -> None:
-        """Writes down one retrieval, timed from `since` to now.
+                result: ToolResult) -> None:
+        """Writes down one retrieval.
 
         The window recorded is the one that was read, not the one that was
         asked for. They differ whenever a default was supplied or a ceiling
@@ -219,8 +203,7 @@ class Dispatcher:
                 "window_start": reading.window_start,
                 "window_end": reading.window_end
             },
-            response={"content": result.content},
-            latency_ms=int((self._clock() - since) * _MILLISECONDS_PER_SECOND)
+            response={"content": result.content}
         )
 
     def _serve(self, call: ToolCall) -> Served:

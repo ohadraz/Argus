@@ -10,6 +10,7 @@ import urllib.request
 from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from tempfile import mkdtemp
 from threading import Thread
 from typing import Any
 
@@ -101,6 +102,9 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     server_thread.start()
 
     env = os.environ.copy()
+    # Somewhere of its own, so a suite never writes into the repository's
+    # telemetry directory.
+    env["TELEMETRY_DIRECTORY"] = mkdtemp(prefix="argus-telemetry-")
     env["UNLEASH_BASE_URL"] = f"http://127.0.0.1:{FAKE_UNLEASH_PORT}"
     env["UNLEASH_ADMIN_TOKEN"] = DONT_CARE_ADMIN_TOKEN
     env["UNLEASH_FRONTEND_TOKEN"] = DONT_CARE_FRONTEND_TOKEN

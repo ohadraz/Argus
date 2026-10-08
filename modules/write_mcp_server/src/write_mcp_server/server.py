@@ -21,7 +21,11 @@ was in.
 
 from __future__ import annotations
 
-from argus_core import WriteMcpEndpoint, get_settings
+from contextlib import closing
+from typing import Final
+
+from argus_core import TelemetrySettings, WriteMcpEndpoint, get_settings
+from argus_core.mcp_transport import TracedFastMCP
 from argus_core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -37,9 +41,9 @@ from argus_core.models import (
     ReplicaUndo,
     RestartedService,
 )
+from argus_telemetry import start_telemetry
 from deployment_platform import DeploymentPlatformWrites
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
-from mcp.server.fastmcp import FastMCP
 
 from write_mcp_server import (
     accelerators,
@@ -57,12 +61,16 @@ from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.flag_state import FlagWriteSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 
+# What this process is called in its telemetry, and the directory its runs are
+# written under.
+_SERVICE: Final = "argus-write-mcp"
+
 
 def build_server(endpoint: WriteMcpEndpoint,
                  flag_settings: FlagWriteSettings,
                  repository_settings: RepositoryWriteSettings,
                  platform: DeploymentPlatformWrites,
-                 discard_settings: DiscardSettings) -> FastMCP:
+                 discard_settings: DiscardSettings) -> TracedFastMCP:
     """Registers the write tools against one deployment's configuration.
 
     Three slices and a port. The flag tools speak to the provider, the code tool
@@ -79,7 +87,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     The tool bodies stay registration only; the behaviour, and the seams a
     decorated function cannot carry, live in a module per route beside this one.
     """
-    mcp = FastMCP(
+    mcp = TracedFastMCP(
         "argus-write-mcp",
         host=endpoint.write_mcp_host,
         port=endpoint.write_mcp_port,
@@ -429,19 +437,22 @@ def build_server(endpoint: WriteMcpEndpoint,
 def main() -> None:
     """The process: one read of the environment, then serve until killed.
 
-    The only place in this server that calls `get_settings`.
+    The only place in this server that calls `get_settings`, and the one that
+    starts its telemetry - closed on the way out, so what it collected last is
+    on disk.
     """
     settings = get_settings()
 
-    build_server(
-        WriteMcpEndpoint.of(settings),
-        FlagWriteSettings.of(settings),
-        RepositoryWriteSettings.of(settings),
-        # The adapter is built here and nowhere else in this tier, and handed on
-        # as the writes port: no action below names a route.
-        ArgoCd(ArgoCdSettings.of(settings)),
-        DiscardSettings.of(settings)
-    ).run(transport="streamable-http")
+    with closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)):
+        build_server(
+            WriteMcpEndpoint.of(settings),
+            FlagWriteSettings.of(settings),
+            RepositoryWriteSettings.of(settings),
+            # The adapter is built here and nowhere else in this tier, and handed
+            # on as the writes port: no action below names a route.
+            ArgoCd(ArgoCdSettings.of(settings)),
+            DiscardSettings.of(settings)
+        ).run(transport="streamable-http")
 
 
 if __name__ == "__main__":

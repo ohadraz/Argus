@@ -35,6 +35,9 @@ store = [
     # Taken through the kernel's door rather than declared here, because the
     # model is the kernel's: long-term memory embeds with one too.
     "argus-argus_core[embedding]",
+    # For the catch-up loop's `main`, which installs the SDK for its process
+    # and sits on this side of the extra already: it imports the store.
+    "argus-argus_telemetry",
 ]
 
 
@@ -55,6 +58,7 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-argus_telemetry = { workspace = true }
 argus-repository_source = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

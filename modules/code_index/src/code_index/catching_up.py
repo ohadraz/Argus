@@ -31,12 +31,20 @@ from __future__ import annotations
 import logging
 import time
 from argparse import ArgumentParser
+from contextlib import closing
 from functools import partial
-from typing import Protocol
+from typing import Final, Protocol
 
-from argus_core import DatabaseSettings, SettingsSlice, get_settings, open_pool
+from argus_core import (
+    DatabaseSettings,
+    SettingsSlice,
+    TelemetrySettings,
+    get_settings,
+    open_pool,
+)
 from argus_core.models import CodeSearch
 from argus_core.schema import require_schema
+from argus_telemetry import start_telemetry
 from qdrant_client import QdrantClient
 from repository_source import (
     RepositorySourceSettings,
@@ -49,6 +57,10 @@ from code_index.embedding import an_embedder
 from code_index.records import RepositoryIndex, get
 
 logger = logging.getLogger(__name__)
+
+# What this process is called in its telemetry, and the directory its runs are
+# written under.
+_SERVICE: Final = "argus-index"
 
 
 class CatchUpSettings(SettingsSlice):
@@ -234,69 +246,73 @@ def main(argv: list[str] | None = None) -> None:
     index_settings = IndexSettings.of(settings)
     catch_up_settings = CatchUpSettings.of(settings)
 
-    # Before a pool, a store or a model. A deployment searching by grep alone
-    # has no reader for any of this, and an index built for nobody costs a
-    # repository download and an ONNX runtime to sit unread.
-    if catch_up_settings.code_search is CodeSearch.GREP:
-        logger.info("no index is kept here: code search is grep alone")
+    # Started before anything is decided, so that a process which decides to do
+    # nothing says so in this run's logs as well as on the console.
+    with closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)):
+        # Before a pool, a store or a model. A deployment searching by grep
+        # alone has no reader for any of this, and an index built for nobody
+        # costs a repository download and an ONNX runtime to sit unread.
+        if catch_up_settings.code_search is CodeSearch.GREP:
+            logger.info("no index is kept here: code search is grep alone")
 
-        return
+            return
 
-    source_settings = RepositorySourceSettings(
-        github_api_url=index_settings.github_api_url,
-        github_repository=index_settings.github_repository,
-        github_read_token=index_settings.github_read_token
-    )
-    repository = index_settings.github_repository
+        source_settings = RepositorySourceSettings(
+            github_api_url=index_settings.github_api_url,
+            github_repository=index_settings.github_repository,
+            github_read_token=index_settings.github_read_token
+        )
+        repository = index_settings.github_repository
 
-    # The client is closed in a `finally` rather than a `with`: it holds a
-    # session like a pool does, and unlike a pool it is not a context manager.
-    store = QdrantClient(url=catch_up_settings.qdrant_url)
+        # The client is closed in a `finally` rather than a `with`: it holds a
+        # session like a pool does, and unlike a pool it is not a context
+        # manager.
+        store = QdrantClient(url=catch_up_settings.qdrant_url)
 
-    with open_pool(DatabaseSettings.of(settings)) as pool:
-        with pool.connection() as conn:
-            require_schema(conn)
-
-        embed = an_embedder()
-
-        def pass_over() -> str | None:
-            """One pass, with a connection of its own.
-
-            Per pass rather than held for the life of the loop: most passes
-            find nothing to do and end in seconds, and a connection kept open
-            between them is one the pool cannot give to anybody else while
-            this process sleeps.
-            """
+        with open_pool(DatabaseSettings.of(settings)) as pool:
             with pool.connection() as conn:
-                return catch_up(
-                    settings=index_settings,
-                    recorded=partial(get, conn, repository),
-                    head_of=partial(the_head_of, settings=source_settings),
-                    changed_between=partial(
-                        paths_changed_between, settings=source_settings
-                    ),
-                    index=lambda sha, paths: index_repository(
-                        repository,
-                        sha,
+                require_schema(conn)
+
+            embed = an_embedder()
+
+            def pass_over() -> str | None:
+                """One pass, with a connection of its own.
+
+                Per pass rather than held for the life of the loop: most passes
+                find nothing to do and end in seconds, and a connection kept
+                open between them is one the pool cannot give to anybody else
+                while this process sleeps.
+                """
+                with pool.connection() as conn:
+                    return catch_up(
                         settings=index_settings,
-                        conn=conn,
-                        store=store,
-                        embed=embed,
-                        paths=paths
+                        recorded=partial(get, conn, repository),
+                        head_of=partial(the_head_of, settings=source_settings),
+                        changed_between=partial(
+                            paths_changed_between, settings=source_settings
+                        ),
+                        index=lambda sha, paths: index_repository(
+                            repository,
+                            sha,
+                            settings=index_settings,
+                            conn=conn,
+                            store=store,
+                            embed=embed,
+                            paths=paths
+                        )
                     )
-                )
 
-        logger.info("catching the index of %s up", repository)
+            logger.info("catching the index of %s up", repository)
 
-        try:
-            if once:
-                pass_over()
-            else:
-                catch_up_forever(
-                    catch_up_settings.code_index_interval_seconds, pass_over
-                )
-        finally:
-            store.close()
+            try:
+                if once:
+                    pass_over()
+                else:
+                    catch_up_forever(
+                        catch_up_settings.code_index_interval_seconds, pass_over
+                    )
+            finally:
+                store.close()
 
 
 if __name__ == "__main__":

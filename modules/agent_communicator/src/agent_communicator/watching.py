@@ -14,8 +14,17 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import closing
+from typing import Final
 
-from argus_core import Connections, DatabaseSettings, get_settings, open_pool
+from argus_core import (
+    Connections,
+    DatabaseSettings,
+    TelemetrySettings,
+    get_settings,
+    open_pool,
+)
+from argus_telemetry import start_telemetry
 
 from agent_communicator.delivering import a_destination_per_register, a_slack_delivery
 from agent_communicator.following import events_since, place_for
@@ -23,6 +32,10 @@ from agent_communicator.relaying import SLACK_RELAY, Backlog, Delivery, Place, r
 from agent_communicator.slack import SlackSettings, a_slack_client
 
 logger = logging.getLogger(__name__)
+
+# What this process is called in its telemetry, and the directory its runs are
+# written under.
+_SERVICE: Final = "argus-relay"
 
 
 def watch_forever(backlog: Backlog,
@@ -57,43 +70,47 @@ def main() -> None:
     nobody named would be refused by Slack on every pass for as long as the
     process ran, which is a log full of failures saying only that the stack was
     never configured.
+
+    Telemetry is started before that is decided, so the warning saying so is in
+    this run's logs as well as on the console.
     """
     logging.basicConfig(level=logging.INFO)
     settings = get_settings()
 
-    if not settings.slack_war_room_channel:
-        logger.warning("no war-room channel configured, so nothing is relayed to Slack")
-        return
+    with closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)):
+        if not settings.slack_war_room_channel:
+            logger.warning("no war-room channel configured, so nothing is relayed to Slack")
+            return
 
-    with open_pool(DatabaseSettings.of(settings)) as pool:
-        connections: Connections = pool.connection
+        with open_pool(DatabaseSettings.of(settings)) as pool:
+            connections: Connections = pool.connection
 
-        logger.info("relaying to %s", settings.slack_war_room_channel)
+            logger.info("relaying to %s", settings.slack_war_room_channel)
 
-        # Where write-ups go, which is the war room unless a team said
-        # otherwise. Falling back rather than going silent: a postmortem
-        # nobody was told about is the one thing worse than one in the wrong
-        # channel, and leaving the setting empty is not a decision to say
-        # nothing.
-        war_room = settings.slack_war_room_channel
-        archive = settings.slack_postmortem_channel or war_room
-        # One client for the whole relay, built where the process starts.
-        posting = a_slack_client(settings=SlackSettings.of(settings))
+            # Where write-ups go, which is the war room unless a team said
+            # otherwise. Falling back rather than going silent: a postmortem
+            # nobody was told about is the one thing worse than one in the
+            # wrong channel, and leaving the setting empty is not a decision
+            # to say nothing.
+            war_room = settings.slack_war_room_channel
+            archive = settings.slack_postmortem_channel or war_room
+            # One client for the whole relay, built where the process starts.
+            posting = a_slack_client(settings=SlackSettings.of(settings))
 
-        watch_forever(
-            events_since(connections),
-            place_for(connections, SLACK_RELAY),
-            a_destination_per_register(
-                a_slack_delivery(connections, channel=war_room, slack=posting),
-                a_slack_delivery(connections, channel=archive, slack=posting),
-                argus_at=settings.argus_base_url,
-                # Named only where it is somewhere else. Where the two are the
-                # same channel the write-up is simply the next message, and a
-                # line saying where to find it would point at itself.
-                filed_in=archive if archive != war_room else ""
-            ),
-            pause=settings.slack_relay_poll_seconds
-        )
+            watch_forever(
+                events_since(connections),
+                place_for(connections, SLACK_RELAY),
+                a_destination_per_register(
+                    a_slack_delivery(connections, channel=war_room, slack=posting),
+                    a_slack_delivery(connections, channel=archive, slack=posting),
+                    argus_at=settings.argus_base_url,
+                    # Named only where it is somewhere else. Where the two are
+                    # the same channel the write-up is simply the next message,
+                    # and a line saying where to find it would point at itself.
+                    filed_in=archive if archive != war_room else ""
+                ),
+                pause=settings.slack_relay_poll_seconds
+            )
 
 
 if __name__ == "__main__":

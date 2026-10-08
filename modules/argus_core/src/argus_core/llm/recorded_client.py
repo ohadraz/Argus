@@ -20,8 +20,6 @@ invisible to everyone above - `Replay` swallows that, as narration does.
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
 from typing import Any
 
 from argus_core.llm.client import LLMClient, ModelDidNotAnswer
@@ -30,13 +28,6 @@ from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Transcript
 from argus_core.models.turn import Turn
 from argus_core.replay import CallType, Replay
-
-# Reading the clock, so a test can hand over one that does not tick. A
-# `Callable` rather than a Protocol because it takes no arguments: there are no
-# keywords to name and nothing for `create_autospec` to get wrong.
-Clock = Callable[[], float]
-
-_MILLISECONDS_PER_SECOND = 1000
 
 # Which of a turn's fields a failed call's receipt copies. The counts and not
 # the content: a turn that did not answer carries an empty text and no tool
@@ -63,23 +54,17 @@ class RecordedLLMClient:
     default so that a wrapper told nothing records what a client built from
     nothing would use - the one declaration of that figure, referenced rather
     than repeated.
-
-    A monotonic clock by default, not a wall clock: what is being measured is a
-    duration, and a wall clock can step sideways mid-call and record a model
-    that answered before it was asked.
     """
 
     def __init__(self,
                  client: LLMClient,
                  replay: Replay,
                  target: str,
-                 room: int = DEFAULT_MAX_OUTPUT_TOKENS,
-                 clock: Clock = time.monotonic) -> None:
+                 room: int = DEFAULT_MAX_OUTPUT_TOKENS) -> None:
         self._client = client
         self._replay = replay
         self._target = target
         self._room = room
-        self._clock = clock
 
     def converse(self,
                  transcript: Transcript,
@@ -106,7 +91,6 @@ class RecordedLLMClient:
         did not. A null would read as a fact about the call rather than as the
         absence of an opinion about it.
         """
-        started_at = self._clock()
         asked = {
             "transcript": [exchange.model_dump(mode="json") for exchange in transcript],
             "tools": [tool.model_dump(mode="json") for tool in tools],
@@ -116,30 +100,20 @@ class RecordedLLMClient:
         try:
             turn = self._client.converse(transcript, tools, max_tokens)
         except Exception as error:
-            self._record(request=asked, response=_what_went_wrong(error), since=started_at)
+            self._record(request=asked, response=_what_went_wrong(error))
             raise
 
-        self._record(request=asked, response=turn.model_dump(mode="json"), since=started_at)
+        self._record(request=asked, response=turn.model_dump(mode="json"))
 
         return turn
 
-    def _record(self,
-                request: dict[str, Any],
-                response: dict[str, Any],
-                since: float) -> None:
-        """Writes one call down, timed from `since` to now.
-
-        The duration is computed here rather than at each call site so that
-        every entry measures the same span - the whole call, including whatever
-        the adapter did around it, which is what a later reader comparing two
-        runs is entitled to assume.
-        """
+    def _record(self, request: dict[str, Any], response: dict[str, Any]) -> None:
+        """Writes one call down, as a call to the model this client records."""
         self._replay.record(
             call_type=CallType.LLM,
             target=self._target,
             request=request,
-            response=response,
-            latency_ms=int((self._clock() - since) * _MILLISECONDS_PER_SECOND)
+            response=response
         )
 
 

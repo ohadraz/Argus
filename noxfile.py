@@ -1587,7 +1587,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # listening only on `127.0.0.1` is not reachable from there however the
         # container spells the host.
         "argus_web",
-        ["-m", "uvicorn", "argus_web.app:app", "--host", "0.0.0.0", "--port", "8000"],
+        ["-m", "argus_web.serving", "--host", "0.0.0.0", "--port", "8000"],
         "http://localhost:8000/openapi.json"
     ),
     (

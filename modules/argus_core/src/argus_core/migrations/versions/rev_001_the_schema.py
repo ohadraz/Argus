@@ -160,6 +160,9 @@ CREATE TABLE IF NOT EXISTS incident_event (
 -- The token counts are inside `response`, where they are what the model
 -- actually reported, and pricing them is the reader's job at the rate of the
 -- day they ask.
+--
+-- No duration column either. A replay stands in for a call rather than
+-- re-timing it; how long a call took is telemetry, carried by its span.
 CREATE TABLE IF NOT EXISTS replay_log (
     seq BIGSERIAL PRIMARY KEY,
     id UUID NOT NULL UNIQUE,
@@ -168,7 +171,6 @@ CREATE TABLE IF NOT EXISTS replay_log (
     target TEXT NOT NULL,
     request JSONB NOT NULL,
     response JSONB NOT NULL,
-    latency_ms INTEGER NOT NULL,
     at TIMESTAMPTZ NOT NULL
 );
 

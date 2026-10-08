@@ -7,6 +7,7 @@ dependencies = [
     "argus-argus_core",
     "argus-argus_incidents",
     "argus-argus_narration",
+    "argus-argus_telemetry",
     "psycopg[binary]>=3.1",
     "slack-sdk>=3.27",
 ]
@@ -31,6 +32,7 @@ dev = [
 argus-argus_core = { workspace = true }
 argus-argus_incidents = { workspace = true }
 argus-argus_narration = { workspace = true }
+argus-argus_telemetry = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-slack_double = { workspace = true }
 

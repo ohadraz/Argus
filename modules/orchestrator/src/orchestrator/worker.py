@@ -16,7 +16,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import timedelta
 from functools import partial
 from os import getpid
@@ -31,6 +31,7 @@ from argus_core import (
     Connections,
     DatabaseSettings,
     ReadMcpEndpoint,
+    TelemetrySettings,
     WriteMcpEndpoint,
     connect_from_env,
     get_settings,
@@ -47,6 +48,7 @@ from argus_incidents import (
     wanted_via,
 )
 from argus_incidents.repository import incidents, runs
+from argus_telemetry import start_telemetry
 from read_mcp_client import read_mcp
 from write_mcp_client import write_mcp
 
@@ -70,6 +72,10 @@ type Unwind = Callable[[str], None]
 # renewals may be missed - a slow query, a process the operating system paused -
 # before anything else is entitled to take the run for abandoned.
 _RENEWALS_PER_LEASE: Final = 3
+
+# What this process is called in its telemetry, and the directory its runs are
+# written under.
+_SERVICE: Final = "argus-worker"
 
 
 @contextmanager
@@ -318,6 +324,9 @@ def main() -> None:
     mitigation = MitigationSettings.of(settings)
 
     with (
+        # First in and last out, so that closing it - which flushes what is
+        # still batched - comes after everything that could have reported.
+        closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)),
         open_pool(DatabaseSettings.of(settings)) as pool,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
         write_mcp(WriteMcpEndpoint.of(settings)) as write,

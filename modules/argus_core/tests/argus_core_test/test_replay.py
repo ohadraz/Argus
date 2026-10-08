@@ -2,8 +2,8 @@
 
 The incident tables record what Argus concluded and the event stream records
 what it did. This records the calls it made to find out: one row per call to a
-model or a tool server, carrying the request that was sent, the answer that
-came back, and how long it took.
+model or a tool server, carrying the request that was sent and the answer that
+came back.
 
 It exists so a benchmark run does not have to re-spend tokens or re-hit a real
 system to be re-examined - which means the entry has to be complete enough to
@@ -30,14 +30,11 @@ from argus_testkit import Assertion, Scenario
 
 from argus_core_test.framework.replay import (
     a_recorder_that_keeps_what_it_is_given,
-    the_entry_took,
     the_entry_was_recorded_for,
 )
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 SOME_MODEL = "claude-opus-5"
-
-DONT_CARE_LATENCY_MS = 1
 
 
 @pytest.mark.unit
@@ -55,37 +52,11 @@ def test_a_recorded_call_names_the_incident_it_was_made_for() -> None:
                 call_type=CallType.LLM,
                 target=SOME_MODEL,
                 request={"dont": "care"},
-                response={"dont": "care"},
-                latency_ms=DONT_CARE_LATENCY_MS
+                response={"dont": "care"}
             )
         ) \
         .then(
             the_entry_was_recorded_for(recorded, SOME_INCIDENT_ID)
-        )
-
-
-@pytest.mark.unit
-def test_a_recorded_call_carries_how_long_it_took() -> None:
-    # The one thing about a call that only the caller can know. What was asked
-    # and what came back are both in the payloads; how long it took is measured
-    # around them and is gone the moment the call returns.
-    some_latency_ms = 4820
-
-    Scenario() \
-        .given(
-            recorded := a_recorder_that_keeps_what_it_is_given()
-        ) \
-        .when(
-            lambda: Replay(SOME_INCIDENT_ID, recorded.take).record(
-                call_type=CallType.LLM,
-                target=SOME_MODEL,
-                request={"dont": "care"},
-                response={"dont": "care"},
-                latency_ms=some_latency_ms
-            )
-        ) \
-        .then(
-            the_entry_took(recorded, some_latency_ms)
         )
 
 
@@ -104,8 +75,7 @@ def test_a_recorder_that_fails_does_not_fail_the_call_it_was_recording() -> None
                 call_type=CallType.LLM,
                 target=SOME_MODEL,
                 request={"dont": "care"},
-                response={"dont": "care"},
-                latency_ms=DONT_CARE_LATENCY_MS
+                response={"dont": "care"}
             )
         ) \
         .then(

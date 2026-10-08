@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 from typing import Any, Final
 
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
 # holds both.
+from argus_core.models import Actor
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -36,6 +38,7 @@ from orchestrator.walk.routes import (
     WITHDRAWN_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
+from orchestrator.walk.tracing import traced
 from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
 # The names LangGraph knows each node by. Every one is stated twice - once
@@ -93,8 +96,16 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
 
     Every node is wrapped so the status its work implies is derived, written
     and published in one place. The actor is supplied here because which agent
-    a node belongs to is a fact about the graph, not about the node."""
+    a node belongs to is a fact about the graph, not about the node.
+
+    And every node is a step of the walk's trace, registered through `step` so
+    that none can be added without one - the agent named beside it is what the
+    step's span, and every model call made inside it, say they were."""
     graph: StateGraph[IncidentState] = StateGraph(IncidentState)
+
+    def step(name: str, actor: Actor, node: Callable[[IncidentState], Any]) -> None:
+        """Registers a node, traced as a step of the walk that `actor` took."""
+        graph.add_node(name, traced(name, actor, node))
 
     deciding_status = partial(
         with_status,
@@ -103,8 +114,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         still_wanted=collaborators.still_wanted
     )
 
-    graph.add_node(
-        INVESTIGATOR_NODE,
+    step(
+        INVESTIGATOR_NODE, Actor.INVESTIGATOR,
         deciding_status(
             partial(investigator_node,
                     investigate=collaborators.investigate,
@@ -117,12 +128,12 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     recorder=collaborators.recorder)
         )
     )
-    graph.add_node(
-        MITIGATION_PROPOSAL_NODE,
+    step(
+        MITIGATION_PROPOSAL_NODE, Actor.ORCHESTRATOR,
         deciding_status(mitigation_proposal_node)
     )
-    graph.add_node(
-        TIER_GATE_NODE,
+    step(
+        TIER_GATE_NODE, Actor.ORCHESTRATOR,
         deciding_status(
             partial(tier_gate_node,
                     record_outcome=collaborators.record_outcome,
@@ -131,8 +142,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     publisher=collaborators.publisher)
         )
     )
-    graph.add_node(
-        MITIGATION_NODE,
+    step(
+        MITIGATION_NODE, Actor.MITIGATION,
         deciding_status(
             partial(mitigation_node,
                     take=collaborators.take,
@@ -145,16 +156,16 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     publisher=collaborators.publisher)
         )
     )
-    graph.add_node(
-        NEXT_CANDIDATE_NODE,
+    step(
+        NEXT_CANDIDATE_NODE, Actor.ORCHESTRATOR,
         deciding_status(
             partial(next_candidate_node,
                     publisher=collaborators.publisher,
                     max_rounds=collaborators.max_rounds)
         )
     )
-    graph.add_node(
-        CODEFIX_NODE,
+    step(
+        CODEFIX_NODE, Actor.CODEFIX,
         deciding_status(
             partial(codefix_node,
                     propose_fix=collaborators.propose_fix,
@@ -165,15 +176,15 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     # was tried changes nothing about where the incident stands - it is already
     # over - and a status derived again here would be the same status published
     # twice.
-    graph.add_node(
-        REMEMBERING_NODE,
+    step(
+        REMEMBERING_NODE, Actor.ORCHESTRATOR,
         partial(remembering_node,
                 actions_taken=collaborators.actions_taken,
                 remember=collaborators.remember_incident,
                 publisher=collaborators.publisher)
     )
-    graph.add_node(
-        POSTMORTEM_NODE,
+    step(
+        POSTMORTEM_NODE, Actor.POSTMORTEM,
         deciding_status(
             partial(postmortem_node,
                     write=collaborators.write_postmortem,

@@ -6,6 +6,12 @@ tool call and costs two properties a fresh connection had for nothing: that a
 second call works at all, and that a connection lost between calls is somebody
 else's problem. Both are asserted here, against a real MCP server this suite can
 take away and put back.
+
+And it is traced, both halves of it. A call is a span on the side that asked,
+measured, and carrying its context to the far side in the request's `_meta`;
+the server answers inside it. The client's half is watched through an SDK's
+in-memory tracer and meter handed to it; the server's half is reported by the
+double itself, which is the only party that knows which trace it answered in.
 """
 
 from __future__ import annotations
@@ -17,7 +23,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import suppress
 from queue import Empty
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import pytest
 from argus_core.mcp_transport import (
@@ -27,13 +33,23 @@ from argus_core.mcp_transport import (
     McpUnreachable,
     PlatformUnreachable,
     an_unreachable_platform,
+    serving_a_tool_call,
     what_was_left_behind,
 )
 from argus_core.models import AcceleratorPinUndo, DeploymentRollbackUndo, UndoDescriptor
+from argus_core.telemetry import (
+    ERROR_TYPE,
+    GEN_AI_TOOL_NAME,
+    MCP_CLIENT_OPERATION_DURATION,
+    MCP_METHOD_NAME,
+)
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
+from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.trace import SpanContext, SpanKind, StatusCode
 from pydantic import TypeAdapter
 
+from argus_core_test.framework.observing import Observed, attributes_of, observing
 from argus_core_test.framework.transport_double import RunningDouble, a_running_double
 
 # Long enough that the call has certainly reached the server, which takes
@@ -430,6 +446,146 @@ def test_a_call_in_flight_when_the_client_closes_is_failed_rather_than_stranded(
         )
 
 
+@pytest.mark.component
+def test_a_tool_call_is_a_client_span_named_for_the_tool(
+    running_double: RunningDouble
+) -> None:
+    # The MCP conventions' name, `{method} {tool}`, and its kind: a call out of
+    # this process to a server somewhere else.
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            lambda: _asking_while_observed(running_double, observed, DONT_CARE_TOOL)
+        ) \
+        .then(
+            _the_tool_call_span_is(observed,
+                                   named=f"tools/call {DONT_CARE_TOOL}",
+                                   kind=SpanKind.CLIENT,
+                                   carrying={MCP_METHOD_NAME: "tools/call",
+                                             GEN_AI_TOOL_NAME: DONT_CARE_TOOL})
+        )
+
+
+@pytest.mark.component
+def test_a_tool_call_is_made_inside_the_span_that_asked_for_it(
+    running_double: RunningDouble
+) -> None:
+    # Opened on the calling thread rather than on the client's own loop. The
+    # loop's thread has no idea which agent asked, and a span opened there
+    # would start a trace of its own - every tool call an orphan.
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            lambda: _asking_while_observed(running_double, observed, DONT_CARE_TOOL,
+                                           inside="some-agent")
+        ) \
+        .then(
+            _the_tool_call_was_made_under(observed, "some-agent")
+        )
+
+
+@pytest.mark.component
+def test_a_refused_tool_call_is_an_error_span_naming_what_was_raised(
+    running_double: RunningDouble
+) -> None:
+    # The class, not the message: which of the ways a call can fail this was
+    # is what a reader of a trace filters on.
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            attempting(
+                lambda: _asking_while_observed(running_double, observed, "refuse")
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(McpToolError),
+                _the_tool_call_failed_with(observed, "McpToolError")
+            )
+        )
+
+
+@pytest.mark.component
+def test_a_tool_call_is_measured_for_how_long_it_took(
+    running_double: RunningDouble
+) -> None:
+    # On an injected clock, so the duration is exact rather than whatever the
+    # double happened to take.
+    some_seconds_taken = 0.25
+
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            lambda: _asking_while_observed(running_double, observed, DONT_CARE_TOOL,
+                                           clock=_a_clock_reading(0.0, some_seconds_taken))
+        ) \
+        .then(
+            _one_duration_of(observed, some_seconds_taken, for_tool=DONT_CARE_TOOL)
+        )
+
+
+@pytest.mark.component
+def test_the_server_answers_inside_the_callers_trace(
+    running_double: RunningDouble
+) -> None:
+    # The whole reason the context travels in `_meta`. The server's span is a
+    # child of the client's, in the caller's trace - so what a server did, and
+    # every line it logged doing it, is found from the walk that asked.
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            lambda: _asking_while_observed(running_double, observed, "the_trace_i_am_in")
+        ) \
+        .then(
+            _the_server_answered_under_the_client_span(observed)
+        )
+
+
+@pytest.mark.unit
+def test_a_call_arriving_with_a_trace_is_served_inside_it() -> None:
+    some_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    some_parent_span_id = "00f067aa0ba902b7"
+
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            lambda: _served_while_observed(
+                observed, {"traceparent": f"00-{some_trace_id}-{some_parent_span_id}-01"}
+            )
+        ) \
+        .then(
+            _the_server_span_continued(observed, some_trace_id, some_parent_span_id)
+        )
+
+
+@pytest.mark.unit
+def test_a_call_arriving_with_no_trace_is_served_under_one_of_its_own() -> None:
+    # A client that sends no context is still answered. Telemetry decides
+    # nothing about whether a tool runs.
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            lambda: _served_while_observed(observed, None)
+        ) \
+        .then(
+            _the_server_span_started_a_trace(observed)
+        )
+
+
 class _Attempt(NamedTuple):
     """What a call produced - an answer, or what was raised instead.
 
@@ -753,3 +909,201 @@ def _it_came_back_as(
         return True
 
     return assertion
+
+
+def _asking_while_observed(double: RunningDouble,
+                           observed: Observed,
+                           tool: str,
+                           inside: str | None = None,
+                           clock: Any = None) -> object:
+    """One call through a client reporting to `observed`, inside a span if named.
+
+    The client is told the test's tracer and meter, where it would otherwise
+    take the process's own - which here is the API's no-op.
+    """
+    def ask() -> object:
+        with _a_client_reporting_to(double, observed, clock) as client:
+            return client.call(tool, lambda answer: answer)
+
+    if inside is None:
+        return ask()
+
+    with observed.tracer.start_as_current_span(inside):
+        return ask()
+
+
+def _a_client_reporting_to(double: RunningDouble,
+                           observed: Observed,
+                           clock: Any) -> McpClient:
+    if clock is None:
+        return McpClient(double.url, tracer=observed.tracer, meter=observed.meter)
+
+    return McpClient(double.url, tracer=observed.tracer, meter=observed.meter, clock=clock)
+
+
+def _served_while_observed(observed: Observed, meta: dict[str, str] | None) -> None:
+    """The server's half alone: one tool call served under whatever `meta` carried."""
+    with serving_a_tool_call(DONT_CARE_TOOL, meta, tracer=observed.tracer):
+        pass
+
+
+def _a_clock_reading(*seconds: float) -> Any:
+    """A clock that reads each of these in turn, so a duration is exact."""
+    readings = iter(seconds)
+
+    def clock() -> float:
+        return next(readings)
+
+    return clock
+
+
+def _the_tool_call_span(observed: Observed) -> ReadableSpan:
+    """The one span the client made - whichever other span the test opened around it."""
+    calls = [span for span in observed.spans() if span.kind is SpanKind.CLIENT]
+
+    if len(calls) != 1:
+        raise AssertionError(
+            f"Expected one tool-call span, and there were {len(calls)} among "
+            f"{[span.name for span in observed.spans()]}."
+        )
+
+    return calls[0]
+
+
+def _the_tool_call_span_is(observed: Observed,
+                           named: str,
+                           kind: SpanKind,
+                           carrying: dict[str, str]) -> Assertion[object]:
+    def assertion(_answer: object) -> bool:
+        span = _the_tool_call_span(observed)
+        carried = dict(span.attributes or {})
+        wrong = {key: (wanted, carried.get(key))
+                 for key, wanted in carrying.items() if carried.get(key) != wanted}
+
+        if (span.name, span.kind) != (named, kind) or wrong:
+            raise AssertionError(
+                f"Expected a [{kind.name}] span named [{named}] carrying {carrying}, got a "
+                f"[{span.kind.name}] span named [{span.name}] where {wrong} differed "
+                f"(expected, got)."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tool_call_was_made_under(observed: Observed, asked_by: str) -> Assertion[object]:
+    def assertion(_answer: object) -> bool:
+        call = _the_tool_call_span(observed)
+        asking = [span for span in observed.spans() if span.name == asked_by]
+        parent = call.parent.span_id if call.parent is not None else None
+
+        if len(asking) != 1 or parent != _the_context_of(asking[0]).span_id:
+            raise AssertionError(
+                f"Expected the tool call to be a child of [{asked_by}], and its parent "
+                f"was [{parent}] among {[span.name for span in observed.spans()]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tool_call_failed_with(observed: Observed, error_type: str) -> Assertion[Exception | None]:
+    def assertion(_raised: Exception | None) -> bool:
+        span = _the_tool_call_span(observed)
+        said = (span.status.status_code, (span.attributes or {}).get(ERROR_TYPE))
+
+        if said != (StatusCode.ERROR, error_type):
+            raise AssertionError(
+                f"Expected the tool call's span to have failed with [{error_type}], "
+                f"and it said {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _one_duration_of(observed: Observed, seconds: float, for_tool: str) -> Assertion[object]:
+    def assertion(_answer: object) -> bool:
+        points = [
+            point for point in observed.points_of(MCP_CLIENT_OPERATION_DURATION)
+            if attributes_of(point).get(GEN_AI_TOOL_NAME) == for_tool
+        ]
+
+        if [(point.count, point.sum) for point in points] != [(1, seconds)]:
+            raise AssertionError(
+                f"Expected one call to [{for_tool}] measured at [{seconds}]s, and the "
+                f"points were {[(point.count, point.sum) for point in points]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_server_answered_under_the_client_span(observed: Observed) -> Assertion[object]:
+    """That the double's own span sat in the client's trace, as the client span's child."""
+    def assertion(answer: object) -> bool:
+        call = _the_context_of(_the_tool_call_span(observed))
+        expected = {"trace_id": format(call.trace_id, "032x"),
+                    "parent_span_id": format(call.span_id, "016x")}
+
+        if answer != expected:
+            raise AssertionError(
+                f"Expected the server to answer under the client's span {expected}, "
+                f"and it said {answer}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_server_span_continued(observed: Observed,
+                               trace_id: str,
+                               parent_span_id: str) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        span = observed.only_span()
+        parent = span.parent
+        said = (span.kind,
+                format(_the_context_of(span).trace_id, "032x"),
+                format(parent.span_id, "016x") if parent is not None else None)
+
+        if said != (SpanKind.SERVER, trace_id, parent_span_id):
+            raise AssertionError(
+                f"Expected a SERVER span in trace [{trace_id}] under [{parent_span_id}], "
+                f"and it was (kind, trace, parent) {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_server_span_started_a_trace(observed: Observed) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        span = observed.only_span()
+
+        if span.parent is not None:
+            raise AssertionError(
+                f"Expected a call that brought no trace to start one, and its span "
+                f"had a parent [{span.parent.span_id:016x}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_context_of(span: ReadableSpan) -> SpanContext:
+    """A finished span's own context - which the SDK types as optional and never leaves out."""
+    context = span.get_span_context()
+
+    if context is None:
+        raise AssertionError(
+            f"Expected the span [{span.name}] to carry a context, and it had none."
+        )
+
+    return context

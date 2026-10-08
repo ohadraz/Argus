@@ -10,6 +10,11 @@ It is a real MCP server rather than a stub, because what is under test is the
 session: an HTTP transport, an `initialize` handshake, and a server that can be
 taken away underneath one. Nothing smaller can be wrong in the way this exists
 to catch.
+
+It is also a traced one - a `TracedFastMCP`, with an SDK installed in its own
+process - because the other half of the transport is that a call arrives inside
+its caller's trace, and only a server on the far side of a real session can say
+which trace it found itself in.
 """
 
 from __future__ import annotations
@@ -27,9 +32,14 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
-from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
+from argus_core.mcp_transport import (
+    TracedFastMCP,
+    an_exhausted_action,
+    an_unreachable_platform,
+)
 from argus_core.models import DeploymentRollbackUndo
-from mcp.server.fastmcp import FastMCP
+from opentelemetry import trace
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 
 TRANSPORT_DOUBLE_PORT = 8194
 
@@ -43,9 +53,9 @@ POLL_SECONDS = 0.2
 _times_refused = 0
 
 
-def build_double(port: int) -> FastMCP:
+def build_double(port: int) -> TracedFastMCP:
     """The server: one tool that answers, one that refuses, one that counts."""
-    server = FastMCP("transport-double", host="127.0.0.1", port=port)
+    server = TracedFastMCP("transport-double", host="127.0.0.1", port=port)
 
     @server.tool()
     def say_something() -> list[str]:
@@ -118,6 +128,23 @@ def build_double(port: int) -> FastMCP:
         await asyncio.sleep(seconds)
 
         return ["eventually"]
+
+    @server.tool()
+    def the_trace_i_am_in() -> dict[str, str]:
+        """Which trace this call was answered in, and which span it answered under.
+
+        Read off the span current inside the tool, which is the server's own -
+        so its parent is whatever the request said it was called from. Hex, as
+        OTLP spells ids, so a test compares them with the client's own spans
+        without converting either.
+        """
+        span = trace.get_current_span()
+        parent = span.parent if isinstance(span, ReadableSpan) else None
+
+        return {
+            "trace_id": format(span.get_span_context().trace_id, "032x"),
+            "parent_span_id": format(parent.span_id, "016x") if parent is not None else ""
+        }
 
     return server
 
@@ -217,4 +244,7 @@ def _suite_root() -> Path:
 
 
 if __name__ == "__main__":
+    # An SDK of the double's own, exporting nowhere: what makes the server's
+    # span a real one with a parent to report, rather than the API's no-op.
+    trace.set_tracer_provider(TracerProvider())
     build_double(int(sys.argv[1])).run(transport="streamable-http")

@@ -13,6 +13,11 @@ dependencies = [
     "pydantic-settings>=2.0",
     "psycopg[binary]>=3.1",
     "psycopg-pool>=3.2",
+    # The API alone, which is all instrumented code ever names: a span or a
+    # metric through it is a no-op until a process installs an SDK, and only
+    # `argus_telemetry` does. Light and pure Python, which is why it is a
+    # dependency of the kernel rather than an extra.
+    "opentelemetry-api>=1.45",
 ]
 
 # The heavy three, behind the doors they live at, taken by the modules that
@@ -51,6 +56,10 @@ migrations = ["alembic>=1.20.0"]
 dev = [
     "argus-argus_core[embedding,llm,mcp,migrations,vector_store]",
     "argus-argus_testkit",
+    # What an instrumented call is asserted through: an SDK's in-memory
+    # exporter and reader, handed to the code under test as its tracer and
+    # meter. Never a runtime dependency - the kernel carries the API alone.
+    "opentelemetry-sdk>=1.45",
 ]
 
 

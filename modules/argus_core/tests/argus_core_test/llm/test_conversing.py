@@ -236,8 +236,7 @@ def _one_call_recorded_through(asked_for: _AClientAskedFor) -> bool:
         call_type=CallType.LLM,
         target="dont-care-model",
         request={"dont": "care"},
-        response={"dont": "care"},
-        latency_ms=1
+        response={"dont": "care"}
     )
 
     return True

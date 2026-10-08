@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core",
+    "argus-argus_telemetry",
     "argus-code_index[store]",
     "argus-deployment_platform",
     "argus-metrics_source",
@@ -19,6 +20,7 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-argus_telemetry = { workspace = true }
 argus-code_index = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-metrics_source = { workspace = true }

@@ -488,7 +488,6 @@ erDiagram
         text target
         jsonb request
         jsonb response
-        int latency_ms
         timestamp at
     }
     EXCHANGE_RATE {
@@ -1274,6 +1273,47 @@ The Postgres schema (§11.1) is applied by a one-shot job - `argus_core.schema`,
 The schema is Alembic's, versioned in `argus_core/migrations/versions/`. Revision `001` is every table there is; alters arrive as `002` onwards. The job runs `upgrade head`, and until the first alter lands it drops the schema first - a revision that has only ever run against an empty database is one that can still be edited in place, and the drop is what keeps that true. The drop goes the day a database holds something worth keeping, and the job becomes an upgrade like any other.
 
 The chain lives inside the package rather than in a checkout, so a deployment that installed `argus_core` has its migrations. `alembic.ini` at the repository root exists for the command line - writing a revision, reading history - and carries no connection string: `env.py` takes the database from `Settings`, which is where every process takes it from.
+
+### 19.1 Observability
+
+Every Argus process reports traces, metrics and logs through OpenTelemetry. Instrumented code - the model client, the MCP transport, the walk - speaks the OTel API alone, which the kernel carries and which does nothing until a process installs an SDK. The SDK lives in `argus_telemetry` and nowhere else: each process's `main` starts it once, under its own service name (`argus-worker`, `argus-read-mcp`, `argus-write-mcp`, `argus-web`, `argus-relay`, `argus-index`), and closes it on the way out so that what the process collected in its last seconds - what a crash leaves a person wanting - is flushed rather than lost. "On the way out" includes being stopped: a stop signal ends a process past every `finally`, so the SDK's start installs a handler that flushes, then lets the signal end the process exactly as it would have. Nothing else in the process learns it was stopped.
+
+**Every signal goes to disk, always.** Each run of a process writes `<telemetry_directory>/<service>/<UTC start>-<pid>/` holding `traces.jsonl`, `metrics.jsonl` and `logs.jsonl`, in OTLP JSON through OTel's own file exporters. The start is the wall clock's, not the stack's (the simulated time of §18.5): every time inside the files is the wall's, and a directory named otherwise would be named for a moment its contents never mention. A directory that cannot be made costs the files and nothing else: telemetry is evidence about the work, never a participant in it, so the process starts regardless.
+
+**Two backends may receive them as well**, each off while its settings are empty and beside the files rather than instead of them:
+
+- a general OTLP/HTTP collector at `OTEL_EXPORTER_OTLP_ENDPOINT` (with `OTEL_EXPORTER_OTLP_HEADERS`), sent all three signals;
+- Langfuse at `LANGFUSE_BASE_URL`, sent traces alone, to its `/api/public/otel/v1/traces` with Basic auth - and only when the public and secret keys are both set.
+
+Both at once is a supported arrangement: the same trace lands in each.
+
+**One walk is one trace, across every process it touches.**
+
+```mermaid
+flowchart TB
+    WALK["walk<br/>argus.incident.id, argus.incident.outcome"]
+    AGENT["invoke_agent investigator<br/>(one span per step of the walk)"]
+    OWN["tier_gate<br/>(the orchestrator's own steps, named for the step)"]
+    LLM["chat &lt;model&gt;<br/>GenAI conventions, full prompt and response"]
+    TOOL["tools/call &lt;tool&gt;<br/>client span, in the worker"]
+    SERVE["tools/call &lt;tool&gt;<br/>server span, in argus-read-mcp / argus-write-mcp"]
+    WALK --> AGENT
+    WALK --> OWN
+    AGENT --> LLM
+    AGENT --> TOOL
+    TOOL -->|traceparent in the request's _meta| SERVE
+```
+
+- The **walk** span is the root, opened around the graph rather than inside it, so that a failure before the first node is inside it too.
+- Every node of the graph is a **step** span, registered through one wrapper so that no node can be added without one. A step belonging to an agent is the GenAI conventions' `invoke_agent <agent>`; the orchestrator's own steps are named for the step, since several spans all called "the orchestrator" would tell a reader nothing. A step puts its agent's name in the baggage for as long as it runs, which is how a model client built once and handed around still says, on its span and its measurements, which agent made the call.
+- A **model call** follows the GenAI semantic conventions: the model, the token counts (input including cached tokens, with the cached share alongside), the finish reason, and the whole prompt and response.
+- A **tool call** is a client span in the caller and a server span in the MCP server. The caller writes W3C `traceparent` into the request's `_meta`, and the server continues it, so the server's work is a child of the call that asked for it rather than the root of a trace of its own. The servers are built on a `FastMCP` that does this for every tool, so no tool can be registered without it.
+
+**Metrics** are the conventions' own wherever one exists - `gen_ai.client.operation.duration`, `gen_ai.client.token.usage`, `mcp.client.operation.duration` - plus `argus.incident.walks` and `argus.incident.walk.duration`, each told apart by how the incident ended.
+
+**Logs** are the processes' existing `logging` records, bridged into OTel with the trace and span they were written in, so a line in `logs.jsonl` leads to the span it belongs to. Console logging is unchanged. The SDK's own loggers are not exported, so that an exporter reporting its own failure is not handed that report to export.
+
+Telemetry and the replay log (§11.1) answer different questions and hold different things. The replay log is the record a recorded walk is replayed and evaluated from, so it holds what a model was asked and what it answered. How long anything took is telemetry, and lives only there.
 
 ## 20. Repository and Module Structure
 

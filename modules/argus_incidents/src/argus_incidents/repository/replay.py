@@ -23,16 +23,15 @@ def record(conn: psycopg.Connection, entry: ReplayEntry) -> None:
     Every field is a column rather than a payload with an index lifted out of
     it, which is where this parts company with `events.record`. An event is
     read whole by a page and its columns exist to find it by; an entry is read
-    by a harness that aggregates over the columns themselves - latency across a
-    run, calls per incident, one target against another. Only the two payloads
+    by a harness that aggregates over the columns themselves - calls per
+    incident, one target against another. Only the two payloads
     stay opaque, because only they differ in shape from call to call.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO replay_log "
-            "       (id, incident_id, call_type, target, request, response, "
-            "        latency_ms, at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "       (id, incident_id, call_type, target, request, response, at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (
                 entry.id,
                 entry.incident_id,
@@ -40,8 +39,7 @@ def record(conn: psycopg.Connection, entry: ReplayEntry) -> None:
                 entry.target,
                 Jsonb(entry.request),
                 Jsonb(entry.response),
-                entry.latency_ms,
-                entry.at,
+                entry.at
             ),
         )
     conn.commit()
@@ -97,8 +95,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[ReplayEn
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "SELECT id, incident_id, call_type, target, request, response, "
-            "       latency_ms, at "
+            "SELECT id, incident_id, call_type, target, request, response, at "
             "  FROM replay_log "
             " WHERE incident_id = %s "
             "ORDER BY seq",
@@ -113,9 +110,8 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[ReplayEn
                 target=target,
                 request=request,
                 response=response,
-                latency_ms=latency_ms,
-                at=at,
+                at=at
             )
-            for id, incident_id, call_type, target, request, response, latency_ms, at
+            for id, incident_id, call_type, target, request, response, at
             in cursor.fetchall()
         ]

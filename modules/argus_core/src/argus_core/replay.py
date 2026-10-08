@@ -70,6 +70,10 @@ class ReplayEntry(BaseModel):
 
     `at` is taken here rather than accepted, as an event's is: the moment
     belongs to the call, not to whenever a row reached the database.
+
+    How long the call took is not here either. A replay stands in for a call
+    rather than re-timing it, so a duration is nothing a replay can use - it is
+    telemetry, and the call's span carries it.
     """
 
     id: UuidStr = Field(default_factory=new_id)
@@ -78,7 +82,6 @@ class ReplayEntry(BaseModel):
     target: str
     request: dict[str, Any]
     response: dict[str, Any]
-    latency_ms: int
     at: datetime = Field(default_factory=utc_now)
 
 
@@ -147,11 +150,10 @@ class Replay:
                call_type: CallType,
                target: str,
                request: dict[str, Any],
-               response: dict[str, Any],
-               latency_ms: int) -> None:
+               response: dict[str, Any]) -> None:
         """Writes down one call this incident made.
 
-        Keyword arguments by shape rather than convention: five values of which
+        Keyword arguments by shape rather than convention: four values of which
         two are dictionaries is exactly the signature a positional call gets
         subtly wrong, and a request stored as a response is a row that reads
         correctly and replays nothing.
@@ -162,8 +164,7 @@ class Replay:
                 call_type=call_type,
                 target=target,
                 request=request,
-                response=response,
-                latency_ms=latency_ms
+                response=response
             ),
             self._recorder
         )

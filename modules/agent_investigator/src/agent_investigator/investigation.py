@@ -14,7 +14,6 @@ given.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
 from dataclasses import replace
 from enum import StrEnum
@@ -208,7 +207,6 @@ first is tried first, and the rest are tried in turn if it does not help.\
 # reads by, whichever caller asked.
 _PLACEMENTS_TOOL: Final = "get_placements"
 
-_MILLISECONDS_PER_SECOND: Final = 1000
 _SECONDS_IN_A_MINUTE: Final = 60
 
 
@@ -328,7 +326,6 @@ def investigate(
     narrator.say(
         RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time
     )
-    started_reading_at = time.monotonic()
 
     try:
         metric_buckets = fetch_metrics(alert_time, alert.rule)
@@ -378,8 +375,7 @@ def investigate(
         # renders them. Nothing rendered them at this point, and the numbers are
         # what a later reader wants - the prose around them is reconstructible
         # and the measurements are not.
-        response={"buckets": [bucket.model_dump(mode="json") for bucket in metric_buckets]},
-        latency_ms=int((time.monotonic() - started_reading_at) * _MILLISECONDS_PER_SECOND)
+        response={"buckets": [bucket.model_dump(mode="json") for bucket in metric_buckets]}
     )
 
     # Measured first, and preferred wherever there is one. A measured onset is
@@ -596,8 +592,6 @@ def _the_placement_recorded(service: str,
     without it: the placement is evidence for one mode, and a walk that stopped
     for want of it would lose every other.
     """
-    started_reading_at = time.monotonic()
-
     try:
         pods = fetch_placements(service)
     except Exception as unanswered:
@@ -615,8 +609,7 @@ def _the_placement_recorded(service: str,
         call_type=CallType.MCP,
         target=_PLACEMENTS_TOOL,
         request={"arguments": {"service": service}},
-        response={"pods": [pod.model_dump(mode="json") for pod in pods]},
-        latency_ms=int((time.monotonic() - started_reading_at) * _MILLISECONDS_PER_SECOND)
+        response={"pods": [pod.model_dump(mode="json") for pod in pods]}
     )
 
     return placement

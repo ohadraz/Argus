@@ -76,3 +76,12 @@ dist/
 # committed leaves the shares split by test count instead of by time.
 !.test_durations
 .claude/logs/
+
+
+#==============================================================================
+# Telemetry
+#==============================================================================
+# Where every Argus process writes its traces, metrics and logs - local, and as
+# large as the prompts in it. `TELEMETRY_DIRECTORY` moves it; this ignores the
+# default.
+/telemetry/

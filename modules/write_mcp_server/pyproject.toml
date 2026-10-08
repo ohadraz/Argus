@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core",
+    "argus-argus_telemetry",
     "argus-deployment_platform",
     "httpx2",
     "mcp>=1.29.0",
@@ -20,6 +21,7 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-argus_telemetry = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

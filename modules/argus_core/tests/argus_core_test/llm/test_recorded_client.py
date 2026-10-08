@@ -12,9 +12,8 @@ asked and what it answered, and the JSON the SDK happened to send is neither
 more truthful nor more useful for that.
 
 `test_replay.py` holds the seam this uses. Here is only what the wrapper adds:
-the payloads, the timing measured around the call, an answer handed back
-untouched, a call passed on exactly as it was made, and a call that produced no
-answer recorded all the same.
+the payloads, an answer handed back untouched, a call passed on exactly as it
+was made, and a call that produced no answer recorded all the same.
 """
 
 from __future__ import annotations
@@ -40,7 +39,6 @@ from argus_core_test.framework.llm import a_turn_that_said
 from argus_core_test.framework.replay import (
     KeptEntries,
     a_recorder_that_keeps_what_it_is_given,
-    the_entry_took,
     the_entry_was_recorded_for,
 )
 
@@ -128,32 +126,6 @@ def test_what_the_caller_did_not_name_is_not_named_for_them() -> None:
         ) \
         .then(
             _no_room_was_asked_for(a_client)
-        )
-
-
-@pytest.mark.unit
-def test_a_call_is_timed_around_the_client_it_wraps() -> None:
-    # No response carries this: the time a model took is gone the moment it
-    # returns, and it is the one number a later reader cannot recover from the
-    # payloads. Measured from an injected clock rather than a real one, so the
-    # assertion is exact and the test does not take five seconds to say so.
-    some_seconds_taken = 4.82
-    the_seconds_taken_in_ms = int(some_seconds_taken * 1000)
-    a_clock_that_advances = _a_clock_reading(0.0, some_seconds_taken)
-
-    Scenario() \
-        .given(
-            recorded := a_recorder_that_keeps_what_it_is_given()
-        ) \
-        .when(
-            lambda: _a_recorded_client(
-                _a_client_that_answers(a_turn_that_said("dont care what it said")),
-                recorded,
-                clock=a_clock_that_advances
-            ).converse(DONT_CARE_TRANSCRIPT, [_a_tool()])
-        ) \
-        .then(
-            the_entry_took(recorded, the_seconds_taken_in_ms)
         )
 
 
@@ -301,25 +273,8 @@ def _a_client_that_remembers_its_room() -> _AClientThatRemembersItsRoom:
     return _AClientThatRemembersItsRoom()
 
 
-def _a_clock_reading(*seconds: float) -> Any:
-    """A clock that reads each of these in turn, so a duration is exact."""
-    readings = iter(seconds)
-
-    def clock() -> float:
-        return next(readings)
-
-    return clock
-
-
-def _a_recorded_client(client: LLMClient,
-                       recorded: KeptEntries,
-                       clock: Any = None) -> RecordedLLMClient:
-    replay = Replay(SOME_INCIDENT_ID, recorded.take)
-
-    if clock is None:
-        return RecordedLLMClient(client, replay, target=SOME_MODEL)
-
-    return RecordedLLMClient(client, replay, target=SOME_MODEL, clock=clock)
+def _a_recorded_client(client: LLMClient, recorded: KeptEntries) -> RecordedLLMClient:
+    return RecordedLLMClient(client, Replay(SOME_INCIDENT_ID, recorded.take), target=SOME_MODEL)
 
 
 def _a_tool() -> ToolDefinition:

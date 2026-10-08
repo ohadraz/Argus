@@ -10,6 +10,7 @@ import urllib.request
 from collections.abc import Iterator
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from tempfile import mkdtemp
 from threading import Thread
 from urllib.parse import parse_qs, urlsplit
 
@@ -141,6 +142,9 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
 
     fake_target_service_url = f"http://127.0.0.1:{FAKE_TARGET_SERVICE_PORT}"
     env = os.environ.copy()
+    # Somewhere of its own, so a suite never writes into the repository's
+    # telemetry directory.
+    env["TELEMETRY_DIRECTORY"] = mkdtemp(prefix="argus-telemetry-")
     env["TARGET_SERVICE_URL"] = fake_target_service_url
     # The change source and the metrics source are separate settings from the
     # Target Service's own URL - in production they are different systems

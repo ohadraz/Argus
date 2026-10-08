@@ -26,6 +26,14 @@ Both surfaces run over that one session. `call` blocks the calling thread until
 the answer arrives; `acall` awaits it, so a route on a FastAPI loop reaches a
 tool without blocking its loop - and without the `RuntimeError` that opening an
 event loop per call raised the moment a caller already had one.
+
+Every call is traced across the boundary, both halves here because they are two
+halves of one convention. The client makes each call a span and sends that
+span's context in the request's `_meta`, as OTel's MCP conventions and MCP's
+SEP-414 both say to; `TracedFastMCP` is the server that reads it back and
+answers inside the caller's trace. `_meta` rather than an HTTP header because
+the session is held: its headers were fixed when it opened, and `_meta`
+travels with each call.
 """
 
 from __future__ import annotations
@@ -33,17 +41,42 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from types import TracebackType
 from typing import Any, Final, Self
+from urllib.parse import urlsplit
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import CallToolResult, TextContent
+from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult, ContentBlock, TextContent
+from opentelemetry import metrics, propagate, trace
+from opentelemetry.metrics import Meter
+from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
 
 from argus_core.models.undo_descriptor import UndoDescriptor, parse_undo_descriptor
+from argus_core.telemetry import (
+    ERROR_TYPE,
+    GEN_AI_EXECUTE_TOOL_OPERATION,
+    GEN_AI_OPERATION_NAME,
+    GEN_AI_TOOL_NAME,
+    MCP_CLIENT_OPERATION_DURATION,
+    MCP_METHOD_NAME,
+    MCP_TOOLS_CALL_METHOD,
+    SERVER_ADDRESS,
+    SERVER_PORT,
+    UNIT_SECONDS,
+)
+
+# Reading the clock a call's duration is measured on, so a test can hand over
+# one that reads exactly what it says.
+Clock = Callable[[], float]
+
+# The instrumentation scope a call's span and duration are reported under.
+_SCOPE = __name__
 
 # MCP's own vocabulary, not Argus's. A tool answering with something that is not
 # already a JSON object - a list of log lines, a list of buckets - has it wrapped
@@ -303,10 +336,29 @@ class McpClient:
     closes is failed as `McpUnreachable` rather than left waiting, because a
     tool call carries no deadline of its own and a caller stranded on a session
     that is never coming back would wait for the life of the process.
+
+    Each call is a span, opened on the calling thread rather than on the
+    client's loop: the loop's thread has no idea which agent asked, and a span
+    opened there would start a trace of its own. `tracer` and `meter` default to
+    the process's own, which are no-ops until `argus_telemetry` installs an SDK.
     """
 
-    def __init__(self, url: str) -> None:
+    def __init__(self,
+                 url: str,
+                 tracer: Tracer | None = None,
+                 meter: Meter | None = None,
+                 clock: Clock = time.monotonic) -> None:
         self._url = url
+        self._tracer = tracer if tracer is not None else trace.get_tracer(_SCOPE)
+        measured_by = meter if meter is not None else metrics.get_meter(_SCOPE)
+        self._duration = measured_by.create_histogram(
+            MCP_CLIENT_OPERATION_DURATION, unit=UNIT_SECONDS,
+            description="How long a tool call took, refused and failed calls included."
+        )
+        self._clock = clock
+        where = urlsplit(url)
+        self._server_address = where.hostname or ""
+        self._server_port = where.port
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._starting = threading.Lock()
@@ -337,7 +389,10 @@ class McpClient:
         Reading happens on the calling thread, never on the client's loop: that
         loop exists to hold a session, not to validate models.
         """
-        return returns(self._submitted(name, kwargs).result())
+        with self._a_tool_call(name) as meta:
+            answer = self._submitted(name, kwargs, meta).result()
+
+        return returns(answer)
 
     async def acall[T](self,
                        name: str,
@@ -351,7 +406,49 @@ class McpClient:
         waiting to be needed because the alternative it replaces failed loudly
         and this one would fail quietly.
         """
-        return returns(await asyncio.wrap_future(self._submitted(name, kwargs)))
+        with self._a_tool_call(name) as meta:
+            answer = await asyncio.wrap_future(self._submitted(name, kwargs, meta))
+
+        return returns(answer)
+
+    @contextmanager
+    def _a_tool_call(self, name: str) -> Iterator[dict[str, Any]]:
+        """One call's span and duration, and the `_meta` that carries it across.
+
+        Yields the carrier the span's context was injected into, which is what
+        the call sends - so a server reading it answers inside this span. A
+        failure is said on the span and in the measurement, then raised on as
+        it was.
+        """
+        measured: dict[str, str] = {
+            MCP_METHOD_NAME: MCP_TOOLS_CALL_METHOD,
+            GEN_AI_TOOL_NAME: name
+        }
+
+        with self._tracer.start_as_current_span(
+            f"{MCP_TOOLS_CALL_METHOD} {name}",
+            kind=SpanKind.CLIENT,
+            attributes={
+                **measured,
+                GEN_AI_OPERATION_NAME: GEN_AI_EXECUTE_TOOL_OPERATION,
+                SERVER_ADDRESS: self._server_address,
+                **({SERVER_PORT: self._server_port} if self._server_port is not None else {})
+            },
+            set_status_on_exception=False
+        ) as span:
+            carrier: dict[str, Any] = {}
+            propagate.inject(carrier)
+            started_at = self._clock()
+
+            try:
+                yield carrier
+            except Exception as error:
+                _said_on(span, error)
+                self._duration.record(self._clock() - started_at,
+                                      {**measured, ERROR_TYPE: type(error).__name__})
+                raise
+
+            self._duration.record(self._clock() - started_at, measured)
 
     def close(self) -> None:
         """Puts the session down and stops the loop holding it.
@@ -380,10 +477,13 @@ class McpClient:
                  traceback: TracebackType | None) -> None:
         self.close()
 
-    def _submitted(self, name: str, arguments: dict[str, object]) -> Future[object]:
+    def _submitted(self,
+                   name: str,
+                   arguments: dict[str, object],
+                   meta: dict[str, Any]) -> Future[object]:
         """One tool call, handed to the loop that holds the session."""
         return asyncio.run_coroutine_threadsafe(
-            self._call(name, arguments), self._running_loop()
+            self._call(name, arguments, meta), self._running_loop()
         )
 
     def _running_loop(self) -> asyncio.AbstractEventLoop:
@@ -484,7 +584,10 @@ class McpClient:
             self._generation += 1
             self._cycled.notify_all()
 
-    async def _call(self, name: str, arguments: dict[str, object]) -> object:
+    async def _call(self,
+                    name: str,
+                    arguments: dict[str, object],
+                    meta: dict[str, Any]) -> object:
         """One tool call, however it ends - including the client closing under it.
 
         A cancellation here is the client being closed and nothing else: no
@@ -494,7 +597,7 @@ class McpClient:
         a walk would look like the walk being cancelled instead.
         """
         try:
-            return await self._asked_again_if_the_connection_failed(name, arguments)
+            return await self._asked_again_if_the_connection_failed(name, arguments, meta)
         except asyncio.CancelledError:
             if not self._closing:
                 raise
@@ -504,7 +607,7 @@ class McpClient:
             ) from None
 
     async def _asked_again_if_the_connection_failed(
-        self, name: str, arguments: dict[str, object]
+        self, name: str, arguments: dict[str, object], meta: dict[str, Any]
     ) -> object:
         """One tool call, and the one retry a held session needs.
 
@@ -515,14 +618,17 @@ class McpClient:
         is a new session rather than a failed incident.
         """
         try:
-            return await self._ask(name, arguments)
+            return await self._ask(name, arguments, meta)
         except McpToolError:
             raise
         except Exception:
             await self._rebuilt()
-            return await self._ask(name, arguments)
+            return await self._ask(name, arguments, meta)
 
-    async def _ask(self, name: str, arguments: dict[str, object]) -> object:
+    async def _ask(self,
+                   name: str,
+                   arguments: dict[str, object],
+                   meta: dict[str, Any]) -> object:
         """Calls the tool over whatever session is currently published."""
         async with self._cycled:
             await self._cycled.wait_for(
@@ -538,7 +644,7 @@ class McpClient:
         if session is None:
             raise McpUnreachable(f"no session to [{self._url}]") from failure
 
-        return _answered(name, await session.call_tool(name, arguments=arguments))
+        return _answered(name, await session.call_tool(name, arguments=arguments, meta=meta))
 
     async def _rebuilt(self) -> None:
         """Asks the holder for a new session and waits until it has one.
@@ -588,3 +694,69 @@ def _answered(name: str, result: CallToolResult) -> object:
         return None
 
     return structured.get(STRUCTURED_RESULT_KEY, structured)
+
+
+def _said_on(span: Span, error: Exception) -> None:
+    """A failed call, said on its span as the class of what went wrong.
+
+    The class rather than the message, as `error.type` asks: which of the ways
+    a call can fail this was is what a reader of a trace filters on, and the
+    wording belongs to whoever raised it.
+    """
+    span.set_attribute(ERROR_TYPE, type(error).__name__)
+    span.set_status(Status(StatusCode.ERROR, str(error)))
+
+
+@contextmanager
+def serving_a_tool_call(name: str,
+                        meta: Mapping[str, Any] | None,
+                        tracer: Tracer | None = None) -> Iterator[Span]:
+    """The server's half: a span for one tool call, inside the caller's trace.
+
+    `meta` is the request's `_meta`, where the client put its span's context.
+    A request that brought none - a client that does not send it - is served
+    all the same, under a trace of its own; telemetry decides nothing about
+    whether a tool answers. A tool that raises is said on the span and raised
+    on, so FastMCP still turns it into the error result it always did.
+    """
+    callers = propagate.extract(dict(meta) if meta is not None else {})
+    serving = tracer if tracer is not None else trace.get_tracer(_SCOPE)
+
+    with serving.start_as_current_span(
+        f"{MCP_TOOLS_CALL_METHOD} {name}",
+        context=callers,
+        kind=SpanKind.SERVER,
+        attributes={
+            MCP_METHOD_NAME: MCP_TOOLS_CALL_METHOD,
+            GEN_AI_TOOL_NAME: name,
+            GEN_AI_OPERATION_NAME: GEN_AI_EXECUTE_TOOL_OPERATION
+        },
+        set_status_on_exception=False
+    ) as span:
+        try:
+            yield span
+        except Exception as error:
+            _said_on(span, error)
+            raise
+
+
+class TracedFastMCP(FastMCP):
+    """A FastMCP server that answers every tool call inside its caller's trace.
+
+    One override, of FastMCP's own public `call_tool` - the method its
+    low-level server dispatches every tool call to - so a server built from
+    this is traced whole, and a tool added to it tomorrow is traced without
+    anybody remembering to. The tool itself, and every log line it writes, run
+    inside the server span, which is what gives a line in a server's
+    `logs.jsonl` the trace id of the walk that asked.
+    """
+
+    async def call_tool(self,
+                        name: str,
+                        arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
+        """Calls the tool, inside a span continuing whatever trace the request carried."""
+        request = self.get_context().request_context
+        meta = request.meta.model_dump() if request.meta is not None else None
+
+        with serving_a_tool_call(name, meta):
+            return await super().call_tool(name, arguments)

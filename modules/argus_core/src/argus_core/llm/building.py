@@ -25,8 +25,10 @@ from typing import TYPE_CHECKING
 from argus_core.config import LLMSettings, get_settings
 from argus_core.llm.client import LLMClient
 from argus_core.llm.recorded_client import RecordedLLMClient
+from argus_core.llm.traced_client import TracedLLMClient
 from argus_core.models.model_policy import ModelPolicy
 from argus_core.replay import Replay
+from argus_core.telemetry import GEN_AI_PROVIDER_ANTHROPIC
 
 if TYPE_CHECKING:
     import anthropic
@@ -53,9 +55,15 @@ def build_llm_client(replay: Replay | None = None,
     Both come off the policy this client was built with, so the receipt says
     what the call was given rather than what a decorator assumed.
 
-    Without a `Replay` the client is unwrapped rather than wrapped around a
-    recorder that discards: an agent that is not recording should not be paying
-    for a decorator, and the absence should be visible in a stack trace.
+    Without a `Replay` the client is not wrapped in a recorder rather than
+    wrapped around one that discards: an agent that is not recording should not
+    be paying for a decorator, and the absence should be visible in a stack
+    trace.
+
+    Traced always, by contrast, and inside the recorder. A span costs nothing
+    until a process installs an SDK, so there is no absence worth making
+    visible; and inside, so that what the span times is the call to the model
+    and not the recorder's write.
 
     The adapter arrives here rather than with the module, so that importing the
     front door this is exported from does not import a vendor's SDK. Nothing is
@@ -78,8 +86,11 @@ def build_llm_client(replay: Replay | None = None,
     from argus_core.llm.adapters.anthropic_adapter import AnthropicLLMClient
 
     asked_of = policy if policy is not None else ModelPolicy()
-    answering = AnthropicLLMClient(
-        LLMSettings.of(get_settings()), policy=asked_of, client=client
+    answering = TracedLLMClient(
+        AnthropicLLMClient(LLMSettings.of(get_settings()), policy=asked_of, client=client),
+        model=asked_of.model,
+        provider=GEN_AI_PROVIDER_ANTHROPIC,
+        room=asked_of.max_output_tokens
     )
 
     if replay is None:

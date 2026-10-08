@@ -181,7 +181,6 @@ def test_what_an_incident_spent_counts_nothing_for_the_tools_it_called() -> None
     dont_care_tool = "get_log_lines"
     dont_care_request: dict[str, object] = {}
     dont_care_response: dict[str, object] = {"lines": []}
-    dont_care_latency_ms = 12
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
@@ -193,8 +192,7 @@ def test_what_an_incident_spent_counts_nothing_for_the_tools_it_called() -> None
                     call_type=CallType.MCP,
                     target=dont_care_tool,
                     request=dont_care_request,
-                    response=dont_care_response,
-                    latency_ms=dont_care_latency_ms
+                    response=dont_care_response
                 )))
             ) \
             .when(
@@ -284,15 +282,12 @@ def test_a_recorded_call_leaves_no_column_of_its_row_empty() -> None:
 def _an_entry_for(incident_id: str,
                   request: dict[str, Any] | None = None,
                   response: dict[str, Any] | None = None) -> ReplayEntry:
-    dont_care_latency_ms = 4820
-
     return ReplayEntry(
         incident_id=incident_id,
         call_type=CallType.LLM,
         target=SOME_MODEL,
         request=request if request is not None else {"dont": "care"},
-        response=response if response is not None else {"dont": "care"},
-        latency_ms=dont_care_latency_ms
+        response=response if response is not None else {"dont": "care"}
     )
 
 
@@ -334,7 +329,6 @@ def _a_model_call(incident_id: str,
     dont_care_request: dict[str, object] = {"transcript": []}
     dont_care_text = "kukibuki"
     dont_care_tool_calls: list[dict[str, Any]] = []
-    dont_care_latency_ms = 980
 
     return ReplayEntry(
         incident_id=incident_id,
@@ -348,6 +342,5 @@ def _a_model_call(incident_id: str,
             "output_tokens": output_tokens,
             "cache_read_tokens": cache_read_tokens,
             "cache_write_tokens": cache_write_tokens
-        },
-        latency_ms=dont_care_latency_ms
+        }
     )

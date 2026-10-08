@@ -11,7 +11,7 @@ Configuration is exported twice over, and the pair is the point. `Settings` is
 the whole environment, which a process reads once where it starts; a
 `SettingsSlice` is what that process hands onwards, carrying the fields one
 consumer reads and no others. A slice belongs to whoever declares it - only the
-four here are named by two parties, which is what makes them contracts rather
+five here are named by two parties, which is what makes them contracts rather
 than somebody's own.
 
 `events`, `replay`, `schema`, `anomaly` and `mcp_transport` are deliberately not
@@ -28,6 +28,7 @@ from argus_core.config import (
     ReadMcpEndpoint,
     Settings,
     SettingsSlice,
+    TelemetrySettings,
     WriteMcpEndpoint,
     get_settings,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "ReadMcpEndpoint",
     "Settings",
     "SettingsSlice",
+    "TelemetrySettings",
     "UuidStr",
     "WriteMcpEndpoint",
     "connect",

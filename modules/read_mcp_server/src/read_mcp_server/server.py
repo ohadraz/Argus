@@ -13,16 +13,19 @@ in a comment.
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
 from argus_core import (
     Connections,
     DatabaseSettings,
     ReadMcpEndpoint,
+    TelemetrySettings,
     get_settings,
     open_pool,
 )
+from argus_core.mcp_transport import TracedFastMCP
 from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
@@ -31,10 +34,10 @@ from argus_core.models import (
     RolloutProgress,
     ServiceDependency,
 )
+from argus_telemetry import start_telemetry
 from code_index.embedding import an_embedder
 from deployment_platform import DeploymentPlatformReads
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
-from mcp.server.fastmcp import FastMCP
 from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 
@@ -62,6 +65,10 @@ from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.window import RetrievalSettings
 
+# What this process is called in its telemetry, and the directory its runs are
+# written under.
+_SERVICE: Final = "argus-read-mcp"
+
 
 def build_server(endpoint: ReadMcpEndpoint,
                  retrieval_settings: RetrievalSettings,
@@ -73,7 +80,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
                  alert_rule_settings: AlertRuleReadSettings,
-                 connections: Connections) -> FastMCP:
+                 connections: Connections) -> TracedFastMCP:
     """Registers every read tool against one deployment's configuration.
 
     A function rather than module-level code, so that importing this module -
@@ -86,7 +93,7 @@ def build_server(endpoint: ReadMcpEndpoint,
     cannot have - a `Callable`-typed default breaks FastMCP's schema
     generation - is available to a test.
     """
-    mcp = FastMCP(
+    mcp = TracedFastMCP(
         "argus-read-mcp",
         host=endpoint.read_mcp_host,
         port=endpoint.read_mcp_port,
@@ -539,10 +546,16 @@ def main() -> None:
     per question is one a model waits through. It reads one row and writes
     none - a database arriving in the read tier does not make the read tier
     capable of writing (§13).
+
+    Its telemetry is started first and closed last, so what it collected in its
+    final seconds is on disk.
     """
     settings = get_settings()
 
-    with open_pool(DatabaseSettings.of(settings)) as pool:
+    with (
+        closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)),
+        open_pool(DatabaseSettings.of(settings)) as pool,
+    ):
         build_server(
             ReadMcpEndpoint.of(settings),
             RetrievalSettings.of(settings),

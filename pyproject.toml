@@ -127,6 +127,7 @@ root_packages = [
     "argus_core",
     "argus_incidents",
     "argus_narration",
+    "argus_telemetry",
     "argus_web",
     "code_index",
     "deployment_platform",
@@ -166,6 +167,19 @@ ignore_imports = [
 unmatched_ignore_imports_alerting = "warn"
 
 [[tool.importlinter.contracts]]
+name = "argus_telemetry installs the SDK and knows only the kernel"
+type = "forbidden"
+source_modules = ["argus_telemetry"]
+forbidden_modules = ["*"]
+# Every process's `main` reaches this, `argus_web` included, so whatever it
+# imports every process installs. The kernel, for the settings slice it is
+# handed, and nothing else.
+ignore_imports = [
+    "argus_telemetry.** -> argus_core",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
 name = "the kernel is reached through its front doors, not by module path"
 type = "forbidden"
 source_modules = ["*"]
@@ -198,6 +212,10 @@ ignore_imports = [
     "** -> argus_core.replay",
     "** -> argus_core.schema",
     "** -> argus_core.anomaly",
+    # The names telemetry is spelled in. A door for everyone, because every
+    # process opens spans - the walk names the incident on its, the servers
+    # the tool on theirs - and a name spelled twice is a name that drifts.
+    "** -> argus_core.telemetry",
     # What bounds an agent loop, reached by both agents that keep one. A
     # door rather than a shared module by accident: the bounds moved here
     # when Code-Fix came to need the same three, and an agent reaching
@@ -240,6 +258,11 @@ ignore_imports = [
     # declares `mcp` itself, so the narrowness this list exists to enforce is
     # satisfied: the module resolves on its own wherever it is installed.
     "write_mcp_server.** -> argus_core.mcp_transport",
+    # Both servers, for the other half of every call: `TracedFastMCP`, the server
+    # that answers inside the caller's trace. The client injecting the context
+    # and the server reading it back are one convention, kept in one module.
+    # Each declares `mcp` itself, so each resolves on its own.
+    "read_mcp_server.** -> argus_core.mcp_transport",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -286,6 +309,8 @@ ignore_imports = [
     # somebody reaches for the other half, the contract says so instead of
     # this process quietly growing an embedding model to serve a page.
     "argus_web.** -> code_index.records",
+    # The process's `main`, and only it, installs the telemetry SDK.
+    "argus_web.serving -> argus_telemetry",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
