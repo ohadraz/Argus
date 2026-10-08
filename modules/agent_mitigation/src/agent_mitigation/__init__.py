@@ -1,16 +1,20 @@
 """The Mitigation agent: what to do about a cause, and doing it (spec §7.3).
 
-Five modules behind one public name. `strategies.py` says which action answers
-which cause, `admitting.py` says which kinds Argus may take unasked,
-`actions.py` chooses one without touching anything, `trying.py` performs one and
-judges what the service did, and `undoing.py` puts a recorded change back. The
-split follows §13's gate: the Orchestrator has to be able to reach the choice,
-and the question of admission, without reaching the write.
+Five modules carry the agent behind one public name. `strategies.py` says which
+action answers which cause, `admitting.py` says which kinds Argus may take
+unasked, `actions.py` chooses one without touching anything, `trying.py`
+performs one and judges what the service did, and `undoing.py` puts a recorded
+change back. The split follows §13's gate: the Orchestrator has to be able to
+reach the choice, and the question of admission, without reaching the write.
+`accelerators.py`, `attribution.py` and `binding.py` are what those five work
+with - which card a pin holds a deployment to, how Argus tells its own flag
+changes from everybody else's, and where those capabilities are bound to the
+tier they run over.
 
-`tools.py` is behind the same door rather than a sixth module of its own to
-import. What a caller running this agent has to supply - the settings slice it
-behaves by, the flag history it reads, whether the walk is still wanted - is
-named here; how those reach the provider is not, and stays inside.
+`tools.py` is behind the same door rather than a module of its own to import.
+What a caller running this agent has to supply - the settings slice it behaves
+by, the flag history it reads, whether the walk is still wanted - is named here;
+how those reach the provider is not, and stays inside.
 
 Three of those are built from a connection, and the three builders are doors for
 that reason: a caller hands over the client it holds to a tier and gets back the

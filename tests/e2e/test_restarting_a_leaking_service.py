@@ -47,7 +47,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.events import ActionTaken, FixAttempted, OnsetDetected
+from argus_core.events import ActionTaken, OnsetDetected
 from argus_core.models import RESTART_SERVICE, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
@@ -59,6 +59,7 @@ from tests.e2e.framework.argus import (
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    argus_proposed_a_fix,
     incident_id_from,
     the_model_answers_from,
 )
@@ -104,7 +105,7 @@ def test_a_leaking_service_is_restarted_and_still_gets_a_fix_proposed() -> None:
                     _the_action_taken_was_a_restart_of(THE_SERVICE_NAME),
                     _a_new_process_is_serving_the_shop(),
                     _the_heap_climbed_and_then_came_back_down(),
-                    _a_fix_was_proposed()
+                    argus_proposed_a_fix()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
             )
@@ -245,33 +246,6 @@ def _the_heap_climbed_and_then_came_back_down() -> Assertion[httpx2.Response]:
             raise AssertionError(
                 f"Expected the heap to have been reclaimed, and the window's "
                 f"highest minute was [{highest}] bytes against [{now}] now."
-            )
-
-        return True
-
-    return assertion
-
-
-def _a_fix_was_proposed() -> Assertion[httpx2.Response]:
-    """A mitigated leak is not a finished incident.
-
-    The restart bought minutes, and the fault that filled the heap is still in
-    the source - so the walk has to carry on to Code-Fix rather than stop at a
-    verdict it could have called a success. This is the assertion that would
-    fail if a confirmed mitigation were ever routed to `resolved` again.
-    """
-    def assertion(response: httpx2.Response) -> bool:
-        incident_id = incident_id_from(response)
-        attempts = [
-            event for event in the_incidents_events(incident_id)
-            if isinstance(event, FixAttempted)
-        ]
-
-        if not attempts:
-            raise AssertionError(
-                f"Incident [{incident_id}] was mitigated and then stopped: "
-                f"there is no account of Code-Fix having been asked at all, so "
-                f"the leak is still in the code with nobody told."
             )
 
         return True
