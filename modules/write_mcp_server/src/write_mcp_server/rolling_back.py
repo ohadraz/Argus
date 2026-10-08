@@ -34,6 +34,7 @@ ever knew either.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from argus_core.mcp_transport import an_unreachable_platform
@@ -47,6 +48,8 @@ from deployment_platform import (
     DeploymentPlatformWrites,
     PlatformUnreachable,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class NoEarlierRevision(Exception):
@@ -143,12 +146,21 @@ def roll_back_deployment(application: str,
     try:
         platform.roll_back(application, previous.history_id)
     except DeploymentPlatformError as error:
+        logger.warning("rollback refused", extra={
+            "application": application, "sync_suspended": was_syncing_itself
+        })
         raise _refusing(
             f"[{application}] could not be rolled back to history entry "
             f"[{previous.history_id}]: {error}",
             error,
             undo if was_syncing_itself else None
         ) from error
+
+    logger.info("deployment rolled back", extra={
+        "application": application,
+        "from_history_id": running.history_id,
+        "to_history_id": previous.history_id
+    })
 
     return undo
 
@@ -169,32 +181,54 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     before returning to the earlier entry would make the second step
     impossible.
     """
+    application = descriptor.application
+
     revision = _tried(
-        lambda: platform.roll_back(
-            descriptor.application, descriptor.was_on_history_id
-        )
+        application, "revision",
+        lambda: platform.roll_back(application, descriptor.was_on_history_id)
     )
 
     if not descriptor.was_syncing_itself:
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
-        return DeploymentRestored(
-            revision_put_back=revision, automated_sync_put_back=True
+        return _said(
+            DeploymentRestored(revision_put_back=revision, automated_sync_put_back=True),
+            application
         )
 
-    return DeploymentRestored(
-        revision_put_back=revision,
-        automated_sync_put_back=_tried(
-            lambda: platform.resume_sync(descriptor.application)
-        )
+    return _said(
+        DeploymentRestored(
+            revision_put_back=revision,
+            automated_sync_put_back=_tried(
+                application, "automated sync",
+                lambda: platform.resume_sync(application)
+            )
+        ),
+        application
     )
 
 
-def _tried(call: Callable[[], None]) -> bool:
+def _said(restored: DeploymentRestored, application: str) -> DeploymentRestored:
+    """`restored`, once the log has been told how much of it there is."""
+    if restored.revision_put_back and restored.automated_sync_put_back:
+        logger.info("deployment restored", extra={"application": application})
+    else:
+        logger.warning("deployment not fully restored", extra={
+            "application": application,
+            "revision_put_back": restored.revision_put_back,
+            "automated_sync_put_back": restored.automated_sync_put_back
+        })
+
+    return restored
+
+
+def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
     try:
         call()
     except Exception:
+        logger.error("restore step failed", exc_info=True,
+                     extra={"application": application, "step": step})
         return False
 
     return True

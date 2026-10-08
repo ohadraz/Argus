@@ -42,6 +42,7 @@ Both have to be put back by a withdrawal, and only this module ever knew either.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
@@ -58,6 +59,8 @@ from deployment_platform import (
 )
 
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
+
+logger = logging.getLogger(__name__)
 
 
 class AlreadyHeldStill(Exception):
@@ -166,12 +169,19 @@ def pin_autoscaler(application: str,
     try:
         platform.set_autoscaler_floor(application, autoscaler, the_floor_to_ask_for)
     except DeploymentPlatformError as error:
+        logger.warning("autoscaler pin refused", extra={
+            "application": application, "sync_suspended": was_syncing_itself
+        })
         raise _refusing(
             f"[{application}]'s autoscaler floor could not be raised to "
             f"[{the_floor_to_ask_for}]: {error}",
             error,
             undo if was_syncing_itself else None
         ) from error
+
+    logger.info("autoscaler floor raised", extra={
+        "application": application, "from_floor": bounds.floor, "to_floor": the_floor_to_ask_for
+    })
 
     return undo
 
@@ -195,10 +205,13 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
     to answer at the moment it is asked rather than a fact worth keeping a stale
     copy of.
     """
+    application = descriptor.application
+
     floor = _tried(
+        application, "floor",
         lambda: platform.set_autoscaler_floor(
-            descriptor.application,
-            _where_the_autoscaler_is(descriptor.application, platform),
+            application,
+            _where_the_autoscaler_is(application, platform),
             descriptor.was_min_replicas
         )
     )
@@ -207,16 +220,35 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
-        return AutoscalingRestored(
-            floor_put_back=floor, automated_sync_put_back=True
+        return _said(
+            AutoscalingRestored(floor_put_back=floor, automated_sync_put_back=True),
+            application
         )
 
-    return AutoscalingRestored(
-        floor_put_back=floor,
-        automated_sync_put_back=_tried(
-            lambda: platform.resume_sync(descriptor.application)
-        )
+    return _said(
+        AutoscalingRestored(
+            floor_put_back=floor,
+            automated_sync_put_back=_tried(
+                application, "automated sync",
+                lambda: platform.resume_sync(application)
+            )
+        ),
+        application
     )
+
+
+def _said(restored: AutoscalingRestored, application: str) -> AutoscalingRestored:
+    """`restored`, once the log has been told how much of it there is."""
+    if restored.floor_put_back and restored.automated_sync_put_back:
+        logger.info("autoscaler floor restored", extra={"application": application})
+    else:
+        logger.warning("autoscaler floor not fully restored", extra={
+            "application": application,
+            "floor_put_back": restored.floor_put_back,
+            "automated_sync_put_back": restored.automated_sync_put_back
+        })
+
+    return restored
 
 
 def _where_the_autoscaler_is(application: str,
@@ -239,10 +271,12 @@ def _where_the_autoscaler_is(application: str,
     return autoscaler
 
 
-def _tried(call: Callable[[], None]) -> bool:
+def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
     try:
         call()
     except Exception:
+        logger.error("restore step failed", exc_info=True,
+                     extra={"application": application, "step": step})
         return False
 
     return True

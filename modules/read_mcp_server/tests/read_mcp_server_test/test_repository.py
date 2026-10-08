@@ -15,12 +15,14 @@ survives the repository arriving in it.
 from __future__ import annotations
 
 import base64
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
 import httpx2
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from read_mcp_server.repository import (
     RepositoryReadSettings,
@@ -413,6 +415,32 @@ def test_a_deployment_that_scopes_nothing_sees_the_whole_repository() -> None:
         .then(_the_files_listed_are(
             ["src/io_shop/spend_summary.py", "README.md"]
         ))
+
+
+@pytest.mark.unit
+def test_a_listing_the_repository_could_not_finish_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A repository grown past what the API will list, which no retry fixes and
+    # which only somebody reading this tier's log would learn.
+    repository = a_repository_holding("src/io_shop/spend_summary.py")
+    repository.get.return_value = _a_tree_answer(
+        blobs=["src/io_shop/spend_summary.py"], truncated=True
+    )
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: list_repository_files(
+                    ref=DONT_CARE_REF, settings=some_settings(), get=repository.get
+                )
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "read_mcp_server.repository", logging.WARNING,
+                                  "repository listing truncated",
+                                  values={"ref": DONT_CARE_REF})
+        )
 
 
 def _exactly_these_files_matched(paths: list[str]) -> Assertion[list[str]]:

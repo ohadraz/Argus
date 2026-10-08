@@ -30,12 +30,15 @@ branch nobody runs, and that merging is a person's act (§13).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any, Final
 
 import httpx2
 
 from write_mcp_server.pull_requests import RepositoryWriteSettings
+
+logger = logging.getLogger(__name__)
 
 HttpGet = Callable[..., httpx2.Response]
 HttpPost = Callable[..., httpx2.Response]
@@ -115,6 +118,8 @@ def commit_to_new_branch(branch: str,
     commit = _write_commit(tree, base_head, message, settings, post)
 
     _create_branch(branch, commit, settings, post)
+
+    logger.info("branch written", extra={"branch": branch, "commit": commit})
 
     return branch
 

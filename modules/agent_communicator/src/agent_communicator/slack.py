@@ -151,7 +151,7 @@ def post_message(channel: str,
         # Nothing answered at all - the transport's own error, for a workspace
         # never reached. It says nothing about the message, so the message is
         # worth sending again.
-        logger.warning("slack could not be reached for %s: %s", channel, unreachable)
+        logger.warning("slack could not be reached", exc_info=True, extra={"channel": channel})
 
         return Posted(None, refusal=str(unreachable), worth_another_go=True)
 
@@ -178,7 +178,8 @@ def _the_refusal_in(refused: SlackApiError, channel: str) -> Posted:
     status: int = answered.status_code
     said = str(answered.get(_ERROR_FIELD) or f"HTTP {status}")
 
-    logger.warning("slack would not take the message for %s: %s", channel, said)
+    logger.warning("slack refused the message",
+                   extra={"channel": channel, "refusal": said, "status": status})
 
     return Posted(
         None,

@@ -19,6 +19,7 @@ somebody's to go and look at.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast
@@ -35,12 +36,15 @@ from argus_core.models import (
     Undone,
     Verdict,
 )
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator import unwinding
 from orchestrator.unwinding import unwind_incident
 
 _DONT_CARE_INCIDENT_ID = "buki-123"
 _DONT_CARE_VERDICT = Verdict.CONFIRMED
+
+# Where the unwind's own lines are logged from.
+_THE_UNWIND = "orchestrator.unwinding"
 
 
 @pytest.fixture
@@ -223,6 +227,66 @@ def test_withdrawing_an_incident_that_discarded_figures_says_none_was_owed(
             _the_report_names(published, Undone.NO_UNDO_WAS_OWED),
             _the_report_is_about(published, some_shop)
         ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("outcome", [Undone.RESTORED, Undone.LEFT_AS_FOUND])
+def test_a_change_settled_by_the_unwind_is_logged(
+    outcome: Undone, undo: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Put back, or left to whoever changed it since: either way settled, and
+    # what production was left in is on the record.
+    some_flag = "monthly-spend-feature"
+    undo.return_value = UndoAttempt(subject=some_flag, outcome=outcome, detail="dont care")
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            an_incident_that_changed := _an_incident_that_changed(
+                _an_undo_descriptor_for(some_flag))
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_that_changed),
+                undo=undo
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, _THE_UNWIND, logging.INFO, "change put back",
+                                  values={"subject": some_flag, "outcome": outcome})
+        )
+
+
+@pytest.mark.unit
+def test_a_change_the_unwind_could_not_settle_is_logged_as_an_error(
+    undo: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Production may still be the way the incident left it, and nothing else
+    # is coming to put it back: somebody has to go and look.
+    some_flag = "monthly-spend-feature"
+    some_detail = "the provider did not answer"
+    undo.return_value = UndoAttempt(
+        subject=some_flag, outcome=Undone.NOT_ESTABLISHED, detail=some_detail
+    )
+
+    Scenario() \
+        .given(
+            an_incident_that_changed := _an_incident_that_changed(
+                _an_undo_descriptor_for(some_flag))
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_that_changed),
+                undo=undo
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, _THE_UNWIND, logging.ERROR,
+                                  "change could not be put back",
+                                  values={"subject": some_flag, "detail": some_detail})
+        )
 
 
 def _the_changes_put_back(undo: MagicMock,

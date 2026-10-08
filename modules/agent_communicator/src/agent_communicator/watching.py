@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import time
-from contextlib import closing
 from typing import Final
 
 from argus_core import (
@@ -74,18 +73,17 @@ def main() -> None:
     Telemetry is started before that is decided, so the warning saying so is in
     this run's logs as well as on the console.
     """
-    logging.basicConfig(level=logging.INFO)
     settings = get_settings()
 
-    with closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)):
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
         if not settings.slack_war_room_channel:
-            logger.warning("no war-room channel configured, so nothing is relayed to Slack")
+            logger.warning("no war-room channel configured")
             return
 
         with open_pool(DatabaseSettings.of(settings)) as pool:
             connections: Connections = pool.connection
 
-            logger.info("relaying to %s", settings.slack_war_room_channel)
+            logger.info("relay started", extra={"channel": settings.slack_war_room_channel})
 
             # Where write-ups go, which is the war room unless a team said
             # otherwise. Falling back rather than going silent: a postmortem

@@ -164,19 +164,18 @@ def a_slack_delivery(connections: Connections,
             if posted.worth_another_go:
                 return Outcome.NOT_NOW
 
+            logger.error("line will never be delivered",
+                         extra={"channel": channel, "refusal": posted.refusal})
             _write_the_gap_down(connections, incident_id, channel, line, posted.refusal)
 
             return Outcome.NEVER
 
-        # What a demo has to go on. Everything Argus says is said by another
-        # process than the one walking the incident, so without this the only
-        # evidence a message was ever delivered is a row in `slack_thread`.
-        logger.info(
-            "said %s in %s for incident %s",
-            "in the thread" if replying_to else "in the channel",
-            channel,
-            incident_id
-        )
+        # Per message, so DEBUG: what someone tracing one conversation turns on.
+        # Everything Argus says is said by another process than the one walking
+        # the incident, so short of this the evidence a message was delivered
+        # is its row in `slack_thread`.
+        logger.debug("line said",
+                     extra={"channel": channel, "in_thread": replying_to is not None})
 
         if thread is None:
             # Whatever Slack called the first message is this incident's

@@ -17,6 +17,7 @@ platform in at its port.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -27,7 +28,15 @@ from argus_core.mcp_transport import (
     what_was_left_behind,
 )
 from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 from deployment_platform import (
     DeploymentPlatformWrites,
     DeploymentRecord,
@@ -329,6 +338,106 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
         .given(platform) \
         .when(attempting(lambda: _rolling_back(platform))) \
         .then(_it_is_not_reported_as_an_unreachable_platform())
+
+
+@pytest.mark.unit
+def test_a_rollback_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # A change to production, and what it changed.
+    platform = a_platform()
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            platform
+        ) \
+        .when(lambda: _rolling_back(platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.INFO,
+                                  "deployment rolled back",
+                                  values={"application": SOME_APPLICATION,
+                                          "to_history_id": THE_ENTRY_BEFORE_IT})
+        )
+
+
+@pytest.mark.unit
+def test_a_rollback_refused_after_sync_was_suspended_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The refusal leaves reconciliation off on purpose, and the line says so:
+    # an application nobody is reconciling looks healthy until the next deploy
+    # quietly does not arrive.
+    platform = a_platform(syncing_itself=True)
+    platform.roll_back.side_effect = PlatformRefused("400")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.WARNING,
+                                  "rollback refused",
+                                  values={"application": SOME_APPLICATION,
+                                          "sync_suspended": True})
+        )
+
+
+@pytest.mark.unit
+def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # A change to production as much as the action was.
+    platform = a_platform()
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            descriptor := _a_descriptor(was_syncing_itself=True)
+        ) \
+        .when(lambda: restore_deployment(descriptor, platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.INFO,
+                                  "deployment restored",
+                                  values={"application": SOME_APPLICATION})
+        )
+
+
+@pytest.mark.unit
+def test_a_restore_that_only_managed_the_revision_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The quiet half. The application looks put back and is receiving nothing
+    # anybody ships to it, and no other line would say so.
+    platform = a_platform()
+    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_deployment(descriptor, platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.WARNING,
+                                  "deployment not fully restored",
+                                  values={"application": SOME_APPLICATION,
+                                          "revision_put_back": True,
+                                          "automated_sync_put_back": False})
+        )
+
+
+@pytest.mark.unit
+def test_a_restore_step_that_failed_is_logged_as_an_error(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The restore reports which half it lost, never why. The why is here, and
+    # it is what a person putting the other half back by hand needs first.
+    platform = a_platform()
+    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_deployment(descriptor, platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.ERROR,
+                                  "restore step failed",
+                                  values={"application": SOME_APPLICATION,
+                                          "step": "automated sync"},
+                                  failure=PlatformUnreachable)
+        )
 
 
 def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:

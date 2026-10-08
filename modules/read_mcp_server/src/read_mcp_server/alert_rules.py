@@ -23,6 +23,7 @@ say anything about it is the caller's question, and the caller holds the action.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from datetime import datetime
@@ -32,6 +33,8 @@ import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import AlertRuleStanding, WorseWhen
 from metrics_source import RuleSeries
+
+logger = logging.getLogger(__name__)
 
 # Where each of the three reads is asked.
 RULE_DEFINITION_PATH: Final = "/api/v1/provisioning/alert-rules/{rule}"
@@ -180,6 +183,9 @@ def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStand
             # An evaluation that measured nothing says nothing about the
             # service, and Grafana reports it as `inactive` - which, taken for a
             # rule that stopped firing, would confirm whatever was just done.
+            logger.warning("alert rule unhealthy",
+                           extra={"rule": rule, "health": state.get(HEALTH)})
+
             raise AlertRuleUnreadable(
                 f"rule [{rule}]'s last evaluation measured nothing: its health is "
                 f"[{state.get(HEALTH)}]"
@@ -228,6 +234,9 @@ refused by the metrics backend, which answers it with no reading.
     try:
         definition = fetch(RULE_DEFINITION_PATH.format(rule=rule))
     except AlertRuleUnreadable:
+        logger.warning("alert rule definition could not be read", exc_info=True,
+                       extra={"rule": rule})
+
         return None
 
     try:

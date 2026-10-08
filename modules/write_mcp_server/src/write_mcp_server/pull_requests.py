@@ -20,12 +20,15 @@ two things so that neither becomes the other by being nearby (§14, §15.1).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import OpenedPullRequest
+
+logger = logging.getLogger(__name__)
 
 HttpPost = Callable[..., httpx2.Response]
 
@@ -123,7 +126,11 @@ def open_pull_request(head_branch: str,
             f"{_what_the_repository_said(error)}"
         ) from error
 
-    return _as_an_opened_pull_request(response, head_branch, url)
+    opened = _as_an_opened_pull_request(response, head_branch, url)
+
+    logger.info("pull request opened", extra={"pull_request": opened.url})
+
+    return opened
 
 
 def _what_the_repository_said(error: Exception) -> str:

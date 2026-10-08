@@ -12,6 +12,7 @@ four words means "it worked" is a reader that will one day match none of them.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -52,7 +53,8 @@ from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
-from argus_testkit import Assertion, Scenario, all_of, attempting
+from argus_core.telemetry import ARGUS_INCIDENT_ID
+from argus_testkit import Assertion, Scenario, all_of, attempting, one_record_was_logged
 from pydantic import ValidationError
 
 SOME_WINDOW_START = "2026-08-30T10:02:00Z"
@@ -468,6 +470,28 @@ def test_a_fix_attempt_is_read_back_as_what_it_was_published_as() -> None:
         .given(an_attempt) \
         .when(lambda: parse_event(an_attempt.model_dump(mode="json"))) \
         .then(_it_reports(FixOutcome.NOT_WARRANTED))
+
+
+@pytest.mark.unit
+def test_a_publisher_that_fails_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    # Swallowed so the work goes on, and said so the gap in the account is
+    # found from the log rather than by somebody noticing a page with a line
+    # missing. It names the incident itself: an alert being acknowledged is
+    # published before any work on the incident has put it in the baggage.
+    some_incident = new_id()
+
+    Scenario() \
+        .when(attempting(lambda: publish(
+            AgentInvoked(incident_id=some_incident, agent=Actor.INVESTIGATOR),
+            publisher=_a_publisher_having_a_bad_day()
+        ))) \
+        .then(
+            one_record_was_logged(caplog, "argus_core.events", logging.WARNING,
+                                  "event could not be published",
+                                  values={"event": "AgentInvoked",
+                                          ARGUS_INCIDENT_ID: some_incident},
+                                  failure=RuntimeError)
+        )
 
 
 def _a_publisher_having_a_bad_day() -> Publisher:

@@ -19,17 +19,23 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import logging
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import MISSING
 from typing import Any
 
 import psycopg
 import pytest
-from argus_core import Connections
+from argus_core import Connections, get_settings
 from argus_core.mcp_transport import McpClient
-from argus_testkit import Assertion, Scenario, all_of
-from orchestrator.walk.assembling import Collaborators, against
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from orchestrator.walk.assembling import (
+    Collaborators,
+    IncidentMemorySettings,
+    against,
+    the_store_for,
+)
 
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
 
@@ -141,6 +147,32 @@ def test_the_investigation_is_bound_with_every_channel_it_reads() -> None:
         .then(
             _investigating_needs_only(WHAT_AN_INVESTIGATION_IS_GIVEN)
         )
+
+
+@pytest.mark.unit
+def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A real configuration rather than a failure, and the one setting that makes
+    # two otherwise identical runs walk differently - so the log of a run says
+    # which of the two it was.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            settings_keeping_no_memory := IncidentMemorySettings.of(
+                get_settings().model_copy(update={"incident_memory_enabled": False})
+            )
+        ) \
+        .when(lambda: _what_is_held_inside(the_store_for(settings_keeping_no_memory))) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.assembling", logging.INFO,
+                                  "incident memory disabled")
+        )
+
+
+def _what_is_held_inside(held: AbstractContextManager[Any]) -> Any:
+    with held as inside:
+        return inside
 
 
 def _a_client_that_must_not_be_reached() -> McpClient:

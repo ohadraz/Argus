@@ -14,6 +14,7 @@ them.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Protocol
 
@@ -29,6 +30,8 @@ from argus_core.models import (
     the_identity_recorded,
 )
 from argus_incidents.repository import taken_actions
+
+logger = logging.getLogger(__name__)
 
 # Where the incident's own changes are read from. A seam because the process
 # this module is about - every change, in order, each one recorded - is
@@ -134,6 +137,7 @@ def unwind_incident(incident_id: str,
             continue
 
         attempt = undo(taken_action.undo_descriptor)
+        _said_in_the_log(attempt)
         publish(
             ChangeUndone(
                 incident_id=incident_id,
@@ -143,3 +147,15 @@ def unwind_incident(incident_id: str,
             ),
             publisher
         )
+
+
+def _said_in_the_log(attempt: UndoAttempt) -> None:
+    """A change settled is a production change put on the record; one that
+    could not be is production possibly still the way the incident left it,
+    with nothing else coming to put it back - somebody has to go and look."""
+    if attempt.outcome is Undone.NOT_ESTABLISHED:
+        logger.error("change could not be put back",
+                     extra={"subject": attempt.subject, "detail": attempt.detail})
+    else:
+        logger.info("change put back",
+                    extra={"subject": attempt.subject, "outcome": attempt.outcome})

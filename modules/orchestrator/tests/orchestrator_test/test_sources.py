@@ -1,12 +1,15 @@
 """The ports a postmortem reads, each answered by this deployment's provider.
 
-Only the metrics port is asked about here. It is the one answered over a
+The metrics port is asked about here because it is the one answered over a
 connection somebody already holds, so its question can be watched on the way
-to the read tier without anything being reached.
+to the read tier without anything being reached. The on-call and HR ports are
+asked only what they log when they cannot be read, which each says before
+reaching anybody when it holds no credential.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -19,11 +22,13 @@ from agent_postmortem import Sources
 from argus_core import Connections, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, one_record_was_logged
 from orchestrator.sources import the_real_sources
+from responder_rate_source import PayBandsUnavailable
 
 DONT_CARE_START = datetime(2026, 9, 2, 11, 0, tzinfo=UTC)
 DONT_CARE_END = datetime(2026, 9, 2, 12, 30, tzinfo=UTC)
+DONT_CARE_INCIDENT_ID = "kuki-123"
 
 # Unread by the metrics port, but `Sources` carries them and has no default.
 DONT_CARE_THRESHOLDS = AnomalyThresholds(
@@ -53,9 +58,49 @@ def test_the_postmortems_metrics_are_read_for_the_rule_that_paged() -> None:
         )
 
 
+@pytest.mark.unit
+def test_an_on_call_provider_that_cannot_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The document publishes no cost and says so on its own page. This is the
+    # line an operator reads, and it names which source left the gap.
+    Scenario() \
+        .given(sources := _the_sources_holding_no_credential()) \
+        .when(lambda: sources.engagement(DONT_CARE_INCIDENT_ID)) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.sources", logging.WARNING,
+                                  "engagement could not be read")
+        )
+
+
+@pytest.mark.unit
+def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    Scenario() \
+        .given(sources := _the_sources_holding_no_credential()) \
+        .when(lambda: sources.bands()) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.sources", logging.WARNING,
+                                  "pay bands could not be read",
+                                  failure=PayBandsUnavailable)
+        )
+
+
 def _the_sources_over(read: McpClient) -> Sources:
     return the_real_sources(
         get_settings(), _connections_that_must_not_be_opened(), read, DONT_CARE_THRESHOLDS
+    )
+
+
+def _the_sources_holding_no_credential() -> Sources:
+    """Every source configured with nothing to authenticate with, which each one
+    refuses before reaching anybody."""
+    return the_real_sources(
+        get_settings().model_copy(update={"pagerduty_api_key": "", "hr_api_key": ""}),
+        _connections_that_must_not_be_opened(),
+        _a_session_that_remembers_what_it_was_asked(),
+        DONT_CARE_THRESHOLDS
     )
 
 

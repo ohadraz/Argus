@@ -4,16 +4,32 @@ A rule that fires again while Argus is still on its incident is that incident
 going on, not a second one beside it. Everything else is a new incident - a
 rule whose incident ended, a rule firing for another service, and an alert
 naming no rule at all, which has nothing to be joined by.
+
+A new incident keeps the trace its alert arrived in. Every walk of it, every
+unwind and every withdrawal continues that trace, so the incident's whole story
+is one trace, and it starts at the alert.
 """
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from argus_core import connect_from_env
 from argus_core.models import Alert
+from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import events_into_connection, start_incident
 from argus_incidents.repository import incidents
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+
+# Two carriers as a W3C propagator writes them: what the alert arrived in, and
+# what a later alert for the same incident arrived in.
+SOME_TRACE_CONTEXT = {
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+}
+SOME_OTHER_TRACE_CONTEXT = {
+    "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+}
 
 
 @pytest.mark.component
@@ -98,8 +114,100 @@ def test_alerts_naming_no_rule_each_open_their_own_incident() -> None:
         ))
 
 
-def _started(alert: Alert) -> str:
-    return start_incident(alert, connect_from_env, events_into_connection)
+@pytest.mark.component
+def test_an_incident_keeps_the_trace_its_alert_arrived_in() -> None:
+    Scenario() \
+        .given(
+            some_alert := Alert(service="kuki-service", alert_name="HighErrorRate")
+        ) \
+        .when(
+            lambda: _started(some_alert, trace_context=SOME_TRACE_CONTEXT)
+        ) \
+        .then(
+            _its_trace_is(SOME_TRACE_CONTEXT)
+        )
+
+
+@pytest.mark.component
+def test_an_alert_joining_an_open_incident_leaves_its_trace_as_it_was() -> None:
+    # The incident's trace is the first alert's. A later alert for it is a
+    # request of its own, in a trace of its own, and an incident whose trace
+    # moved with every alert would scatter its walk across all of them.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate", rule="some-rule")
+
+    Scenario() \
+        .given(
+            _started(some_alert, trace_context=SOME_TRACE_CONTEXT)
+        ) \
+        .when(
+            lambda: _started(some_alert, trace_context=SOME_OTHER_TRACE_CONTEXT)
+        ) \
+        .then(
+            _its_trace_is(SOME_TRACE_CONTEXT)
+        )
+
+
+@pytest.mark.component
+def test_an_incident_started_outside_any_trace_keeps_none() -> None:
+    # Started by something that traces nothing - a test, a script. Its walks
+    # are then traced from the run that walks it.
+    Scenario() \
+        .given(
+            some_alert := Alert(service="kuki-service", alert_name="HighErrorRate")
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(
+            _its_trace_is({})
+        )
+
+
+@pytest.mark.component
+def test_an_incident_opened_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # Nothing is walking it yet, so there is no walk to say which incident a
+    # line is about - the line names it itself.
+    some_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            some_alert := Alert(service=some_service, alert_name="HighErrorRate")
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(
+            _it_was_logged_naming_it(caplog, "incident opened", service=some_service)
+        )
+
+
+@pytest.mark.component
+def test_an_alert_joining_an_open_incident_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # The alert opened nothing, and somebody asking where it went needs the
+    # incident it went to.
+    some_rule = "some-rule"
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate", rule=some_rule)
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            _started(some_alert)
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(
+            _it_was_logged_naming_it(caplog, "alert joined open incident", rule=some_rule)
+        )
+
+
+def _started(alert: Alert, trace_context: dict[str, str] | None = None) -> str:
+    if trace_context is None:
+        return start_incident(alert, connect_from_env, events_into_connection)
+
+    return start_incident(alert, connect_from_env, events_into_connection,
+                          trace_context=trace_context)
 
 
 def _an_incident_that_ended(alert: Alert) -> str:
@@ -149,6 +257,41 @@ def _incidents_were_opened_for(service: str, count: int) -> Assertion[str]:
         if len(opened) != count:
             raise AssertionError(
                 f"Expected [{count}] incidents for [{service}], got [{len(opened)}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_logged_naming_it(caplog: pytest.LogCaptureFixture,
+                             message: str,
+                             **values: object) -> Assertion[str]:
+    """One line saying `message`, naming the incident the alert landed in.
+
+    Asked of the answer rather than fixed beforehand, because which incident
+    that is is what the case finds out.
+    """
+    def assertion(incident_id: str) -> bool:
+        return one_record_was_logged(
+            caplog, "argus_incidents.intake", logging.INFO, message,
+            values={ARGUS_INCIDENT_ID: incident_id, **values}
+        )(incident_id)
+
+    return assertion
+
+
+def _its_trace_is(expected: dict[str, str]) -> Assertion[str]:
+    def assertion(incident_id: str) -> bool:
+        with connect_from_env() as conn:
+            incident = incidents.get(conn, incident_id)
+
+        actual = incident.trace_context if incident is not None else "no such incident"
+
+        if actual != expected:
+            raise AssertionError(
+                f"Expected the incident [{incident_id}] to keep the trace {expected}, "
+                f"and it kept {actual}."
             )
 
         return True

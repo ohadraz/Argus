@@ -10,7 +10,6 @@ SDK for the whole test process and write a run directory each time it did.
 from __future__ import annotations
 
 from argparse import ArgumentParser
-from contextlib import closing
 from typing import Final
 
 import uvicorn
@@ -29,14 +28,19 @@ def main(argv: list[str] | None = None) -> None:
 
     `--host` and `--port` say where to listen, as they did when uvicorn's own
     command line was the entry point.
+
+    Served without uvicorn's own logging config, which would give its loggers
+    handlers of their own and stop them propagating to the root, where
+    telemetry listens. Without it, uvicorn's records reach the console and
+    `logs.jsonl` like every other record.
     """
     parser = ArgumentParser(description="Serves Argus's dashboard and its webhooks.")
     parser.add_argument("--host", default="127.0.0.1", help="the interface to listen on")
     parser.add_argument("--port", type=int, default=8000, help="the port to listen on")
     listening = parser.parse_args(argv)
 
-    with closing(start_telemetry(TelemetrySettings.of(get_settings()), _SERVICE)):
-        uvicorn.run(app, host=listening.host, port=listening.port)
+    with start_telemetry(TelemetrySettings.of(get_settings()), _SERVICE):
+        uvicorn.run(app, host=listening.host, port=listening.port, log_config=None)
 
 
 if __name__ == "__main__":

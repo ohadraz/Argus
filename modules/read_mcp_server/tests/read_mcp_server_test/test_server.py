@@ -16,12 +16,13 @@ to do with how anybody finds source.
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import create_autospec
 
 import pytest
 from argus_core import Connections, ReadMcpEndpoint
 from argus_core.models import CodeSearch
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from deployment_platform import DeploymentPlatformReads
 from metrics_source import MetricsSettings
 from read_mcp_server.alert_rules import AlertRuleReadSettings
@@ -119,6 +120,27 @@ def test_every_deployment_offers_where_the_replicas_run() -> None:
         )) \
         .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
         .then(_the_tools_include(THE_PLACEMENT))
+
+
+@pytest.mark.unit
+def test_a_deployment_with_no_index_says_so_when_it_starts(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Which of the two read tiers this is decides what Code-Fix is offered, and
+    # is otherwise visible only in a tool list nobody reads.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            a_deployment_that_keeps_no_index := _a_read_tier_searching(
+                SEARCHING_BY_GREP_ALONE
+            )
+        ) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(
+            one_record_was_logged(caplog, "read_mcp_server.server", logging.INFO,
+                                  "search by meaning not offered",
+                                  values={"code_search": SEARCHING_BY_GREP_ALONE})
+        )
 
 
 def _the_tools_offered_by(mode: CodeSearch) -> list[str]:

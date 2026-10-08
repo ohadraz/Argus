@@ -6,11 +6,12 @@ backend receives what `destinations_for` says it should, over OTLP/HTTP, beside
 the files rather than instead of them.
 
 Two halves, for the reason most composition roots have two. `telemetry_for`
-builds the providers and hands them back without touching anything global, so
-it can be built and inspected as often as a test likes. `start_telemetry` is the
-one call a process's `main` makes: it builds, then installs the result as the
-process's own - the global providers the OTel API reports to, and a handler on
-the root logger.
+builds the providers and the log handlers and hands them back without touching
+anything global, so a test can build one and inspect it - and closes it after,
+since the console's writer thread runs until `close()`. `start_telemetry` is
+the one call a process's `main` makes: it builds, then installs the result as
+the process's own - the global providers the OTel API reports to, both handlers
+on the root logger, and the levels.
 
 The logs half of the SDK is still experimental in Python and lives in
 underscore modules (`opentelemetry.sdk._logs`, `..._log_exporter`). They are the
@@ -25,9 +26,11 @@ import os
 import signal
 import sys
 from datetime import UTC, datetime
+from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
-from types import FrameType
-from typing import Final
+from queue import SimpleQueue
+from types import FrameType, TracebackType
+from typing import Final, TextIO
 
 from argus_core import TelemetrySettings
 from opentelemetry import metrics, trace
@@ -47,6 +50,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from argus_telemetry.destinations import Destination, Signal, destinations_for
+from argus_telemetry.levels import apply_levels
+from argus_telemetry.records import ConsoleFormatter, Redacted, StampedFromBaggage
 
 _logger = logging.getLogger(__name__)
 
@@ -65,6 +70,16 @@ LOGS_FILE: Final = "logs.jsonl"
 # exported in turn would be handed straight back to the exporter that failed.
 _THE_SDKS_OWN_LOGGERS: Final = "opentelemetry"
 
+# A process's first and last lines, and the value they name it by.
+_STARTED: Final = "service started"
+_STOPPED: Final = "service stopped"
+_DIED: Final = "service died"
+_SERVICE_KEY: Final = "service"
+
+# What leaves a `main` because somebody asked it to, rather than because it
+# failed: a return is not an exception at all, and these two are the others.
+_STOPPED_ON_PURPOSE: Final = (SystemExit, KeyboardInterrupt)
+
 # What a process is stopped by: SIGTERM, and on Windows - which cannot deliver
 # SIGTERM to another process - the CTRL_BREAK a group is sent instead. A
 # statement rather than an expression, which is the form a type checker reads
@@ -76,31 +91,80 @@ else:
 
 
 class Telemetry:
-    """One process's providers, where they write, and how to put them down.
+    """One process's providers, its two log handlers, and how to put them down.
 
     `run_directory` is `None` when the directory could not be made, which is a
     process writing no files rather than a process that failed to start.
+
+    Two handlers, each carrying the same two filters, so the console and
+    `logs.jsonl` never disagree about what a record said:
+    - `log_handler` hands each record to OTel's log pipeline, on the thread
+      that logged. That thread is the only one that knows the record's span,
+      and the handler already only hands the record to a batch, so it does
+      not block.
+    - `console_handler` formats each line on the thread that logged and
+      queues it. A thread of its own writes it to `console`, so a walk never
+      waits on a pipe nobody is reading.
     """
 
     def __init__(self,
+                 service: str,
                  tracer_provider: TracerProvider,
                  meter_provider: MeterProvider,
                  logger_provider: LoggerProvider,
-                 run_directory: Path | None) -> None:
+                 run_directory: Path | None,
+                 console: TextIO) -> None:
+        self.service = service
         self.tracer_provider = tracer_provider
         self.meter_provider = meter_provider
         self.logger_provider = logger_provider
         self.run_directory = run_directory
+
         self.log_handler = LoggingHandler(logger_provider=logger_provider)
         self.log_handler.addFilter(_not_the_sdks_own)
 
+        lines: SimpleQueue[logging.LogRecord] = SimpleQueue()
+        self.console_handler = QueueHandler(lines)
+        self.console_handler.setFormatter(ConsoleFormatter())
+        self._console_writer = QueueListener(lines, logging.StreamHandler(console))
+        self._console_writer.start()
+
+        for handler in (self.log_handler, self.console_handler):
+            handler.addFilter(Redacted())
+            handler.addFilter(StampedFromBaggage())
+
+    def __enter__(self) -> Telemetry:
+        """What a `main` runs inside: the process's first line is that it started."""
+        _logger.info(_STARTED, extra={_SERVICE_KEY: self.service})
+
+        return self
+
+    def __exit__(self,
+                 kind: type[BaseException] | None,
+                 raised: BaseException | None,
+                 traceback: TracebackType | None) -> None:
+        """The process's last line, then everything written out.
+
+        Stopped on purpose - returning, `sys.exit`, Ctrl+C - is stopping. Any
+        other exception reaching here has reached the top of the process, so
+        it is the CRITICAL every process has at most one of, with its stack
+        trace; it is not suppressed, and the process still dies of it.
+        """
+        if raised is None or isinstance(raised, _STOPPED_ON_PURPOSE):
+            _logger.info(_STOPPED, extra={_SERVICE_KEY: self.service})
+        else:
+            _logger.critical(_DIED, exc_info=raised, extra={_SERVICE_KEY: self.service})
+
+        self.close()
+
     def close(self) -> None:
-        """Flushes everything still batched, then stops every exporter.
+        """Writes out every queued line, flushes everything batched, then stops.
 
         Called on the way out of a process, so what it collected in its last
         seconds - which is exactly what a crash leaves a person wanting - is on
-        disk rather than in a queue that died with it.
+        disk and on the console rather than in a queue that died with it.
         """
+        self._console_writer.stop()
         self.tracer_provider.shutdown()
         self.meter_provider.shutdown()
         self.logger_provider.shutdown()
@@ -109,14 +173,20 @@ class Telemetry:
 def telemetry_for(settings: TelemetrySettings,
                   service: str,
                   started_at: datetime | None = None,
-                  pid: int | None = None) -> Telemetry:
-    """Builds one process's providers, writing to disk and to every backend.
+                  pid: int | None = None,
+                  console: TextIO | None = None) -> Telemetry:
+    """Builds one process's providers and log handlers, writing to disk and to every backend.
 
-    Installs nothing - see `start_telemetry`. `started_at` and `pid` name the
+    Installs nothing global - see `start_telemetry` - but starts the console's
+    writer thread, which `close()` stops. `started_at` and `pid` name the
     run directory and default to now and this process; they are parameters so
     that the name can be asserted. Now by the wall clock, not the stack's: the
     SDK stamps every span from the wall, and a directory named by a simulated
     clock would be named for a moment its own contents never mention.
+
+    `console` is where log lines are written for a person watching, and
+    defaults to standard error; a parameter so that what was written can be
+    read back.
     """
     run_directory = _a_run_directory(
         settings, service,
@@ -127,10 +197,12 @@ def telemetry_for(settings: TelemetrySettings,
     resource = Resource.create({SERVICE_NAME: service})
 
     return Telemetry(
+        service=service,
         tracer_provider=_a_tracer_provider(resource, run_directory, destinations),
         meter_provider=_a_meter_provider(resource, run_directory, destinations),
         logger_provider=_a_logger_provider(resource, run_directory, destinations),
-        run_directory=run_directory
+        run_directory=run_directory,
+        console=console if console is not None else sys.stderr
     )
 
 
@@ -138,13 +210,16 @@ def start_telemetry(settings: TelemetrySettings, service: str) -> Telemetry:
     """Builds this process's telemetry and makes it the process's own.
 
     The global providers are what every instrumented call in the workspace
-    reports to through the OTel API, and the handler on the root logger is
-    what carries each `logging` record into `logs.jsonl` with the trace it was
-    written in. Console logging is left exactly as it was.
+    reports to through the OTel API. The two handlers on the root logger carry
+    each `logging` record to `logs.jsonl`, with the trace it was written in,
+    and to the console. The root's level is the settings' own, and the chatty
+    libraries are held at WARNING (`apply_levels`). Nothing else in a process
+    configures logging.
 
-    Once per process, at the top of `main`, and closed as that `main` ends.
-    OTel refuses to replace a global provider once set, so a second call would
-    build providers nothing reports to.
+    Once per process, at the top of `main`, as the `with` the rest of `main`
+    runs inside - which is what says the process started, stopped or died, and
+    closes it as `main` ends. OTel refuses to replace a global provider once
+    set, so a second call would build providers nothing reports to.
 
     And closed when the process is stopped, which is not `main` ending: a stop
     signal's default ends a process where it stands, past every `finally`. See
@@ -155,7 +230,9 @@ def start_telemetry(settings: TelemetrySettings, service: str) -> Telemetry:
     trace.set_tracer_provider(telemetry.tracer_provider)
     metrics.set_meter_provider(telemetry.meter_provider)
     set_logger_provider(telemetry.logger_provider)
+    apply_levels(settings.log_level)
     logging.getLogger().addHandler(telemetry.log_handler)
+    logging.getLogger().addHandler(telemetry.console_handler)
     _closed_when_stopped(telemetry)
 
     return telemetry
@@ -164,15 +241,17 @@ def start_telemetry(settings: TelemetrySettings, service: str) -> Telemetry:
 def _closed_when_stopped(telemetry: Telemetry) -> None:
     """Flushes on a stop signal, then lets the signal do what it would have.
 
-    Only the flush is added. The process still ends where it stands, exactly
-    as the signal's default would end it - nothing else in it learns it was
-    stopped, so a walk interrupted mid-step is left for its lease to expire,
-    as it always was, rather than unwound by an exception it never expected.
+    Only the "service stopped" line and the flush are added. The process still
+    ends where it stands, exactly as the signal's default would end it -
+    nothing else in it learns it was stopped, so a walk interrupted mid-step is
+    left for its lease to expire, rather than unwound by an exception it never
+    expected.
 
     A server whose framework handles the same signal replaces this while it
     serves, and puts it back when it stops; either way the batch is flushed.
     """
     def flush_then_stop(signal_number: int, _frame: FrameType | None) -> None:
+        _logger.info(_STOPPED, extra={_SERVICE_KEY: telemetry.service})
         telemetry.close()
         signal.signal(signal_number, signal.SIG_DFL)
         signal.raise_signal(signal_number)
@@ -196,9 +275,9 @@ def _a_run_directory(settings: TelemetrySettings,
 
     try:
         run_directory.mkdir(parents=True, exist_ok=True)
-    except OSError as unwritable:
-        _logger.warning("telemetry is not being written to disk: %s could not be "
-                        "made (%s)", run_directory, unwritable)
+    except OSError:
+        _logger.warning("telemetry not written to disk", exc_info=True,
+                        extra={"directory": str(run_directory)})
 
         return None
 

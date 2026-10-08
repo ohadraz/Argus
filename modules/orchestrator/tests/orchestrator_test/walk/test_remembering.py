@@ -14,6 +14,7 @@ here is indistinguishable from an incident that had nothing worth filing.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -25,7 +26,14 @@ from argus_core.models import (
     TakenAction,
     Verdict,
 )
-from argus_testkit import Assertion, Kept, Scenario, all_of
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+)
 from incident_memory.records import RememberedIncident
 from orchestrator.walk.ports import ActionsTaken, RememberIncident
 from orchestrator.walk.remembering import remembering_node
@@ -202,6 +210,58 @@ def test_an_incident_that_filed_nothing_says_nothing() -> None:
                 publisher=published.take)
         ) \
         .then(_nothing_was_published(published))
+
+
+@pytest.mark.unit
+def test_what_was_filed_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # The last thing the walk does before the write-up, and it moves no status,
+    # so no line from the walk's narration says a record was written.
+    the_actions_judged = [
+        _an_action("new-checkout-flow", Verdict.REFUTED),
+        _an_action("legacy-checkout-fallback", Verdict.REFUTED)
+    ]
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            an_incident_that_is_over := _an_incident_in(IncidentStatus.ESCALATED)
+        ) \
+        .when(
+            lambda: remembering_node(
+                an_incident_that_is_over,
+                actions_taken=_actions(*the_actions_judged),
+                remember=_a_store_keeping(Kept()))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.remembering", logging.INFO,
+                                  "incident remembered",
+                                  values={"attempts": len(the_actions_judged)})
+        )
+
+
+@pytest.mark.unit
+def test_a_memory_store_that_is_down_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Swallowed from the walk, so this line and the timeline's are all there is
+    # of a store somebody has to go and bring back.
+    Scenario() \
+        .given(
+            an_incident_that_is_over := _an_incident_in(IncidentStatus.ESCALATED)
+        ) \
+        .when(
+            lambda: remembering_node(
+                an_incident_that_is_over,
+                actions_taken=_actions(
+                    _an_action("new-checkout-flow", Verdict.REFUTED)
+                ),
+                remember=_a_store_that_refuses())
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.remembering", logging.WARNING,
+                                  "incident could not be remembered",
+                                  failure=ConnectionError)
+        )
 
 
 def _an_incident_in(status: IncidentStatus,

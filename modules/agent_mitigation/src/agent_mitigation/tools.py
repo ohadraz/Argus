@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -56,6 +57,8 @@ from write_mcp_client import (
 )
 
 from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
+
+logger = logging.getLogger(__name__)
 
 
 class Arrival(StrEnum):
@@ -785,6 +788,8 @@ def argus_changed_flag_since(
         # mean the same thing to the caller: nobody can say. Narrowing this to
         # the transport's own exception would let a change in the client's
         # vocabulary turn "could not ask" into a crash inside a resumed walk.
+        logger.warning("flag history could not be read", exc_info=True, extra={"flag": flag})
+
         return None
 
     return change_by_actor_to(flag, settings.unleash_actor, changes)
@@ -818,6 +823,8 @@ def somebody_else_changed_flag_since(
     try:
         changes = fetch(since=to_iso(since))
     except Exception:
+        logger.warning("flag history could not be read", exc_info=True, extra={"flag": flag})
+
         return None
 
     return any(

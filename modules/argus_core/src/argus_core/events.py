@@ -42,6 +42,7 @@ from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
+from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_core.timestamps import utc_now
 
 _logger = logging.getLogger(__name__)
@@ -834,8 +835,12 @@ def publish(event: IncidentEvent, publisher: Publisher = nobody) -> None:
     try:
         publisher(event)
     except Exception:
-        _logger.warning("could not publish %s for incident %s",
-                        type(event).__name__, event.incident_id, exc_info=True)
+        # The incident named here as well as stamped: a publish before any work
+        # on the incident has begun - its alert acknowledged - has no baggage to
+        # stamp it from.
+        _logger.warning("event could not be published", exc_info=True, extra={
+            "event": type(event).__name__, ARGUS_INCIDENT_ID: event.incident_id
+        })
 
 
 class Narrator:

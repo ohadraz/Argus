@@ -19,6 +19,7 @@ a null that removes a key - is the adapter's, and pinned in its own suite.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -30,7 +31,15 @@ from argus_core.mcp_transport import (
     what_was_left_behind,
 )
 from argus_core.models import AcceleratorPinRestored, AcceleratorPinUndo
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 from deployment_platform import (
     DeploymentPlatformWrites,
     PlatformRefused,
@@ -292,6 +301,106 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
         .given(platform) \
         .when(lambda: _restoring(_a_descriptor(was_syncing_itself=True), platform)) \
         .then(_it_reports_restored(pin=False, automated_sync=False))
+
+
+@pytest.mark.unit
+def test_a_pin_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # A change to production, and what it changed.
+    platform = a_platform()
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            platform
+        ) \
+        .when(lambda: _pinning(platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.accelerators", logging.INFO,
+                                  "deployment pinned to accelerator",
+                                  values={"application": SOME_APPLICATION,
+                                          "accelerator": THE_FLEETS_CARD})
+        )
+
+
+@pytest.mark.unit
+def test_a_pin_refused_after_sync_was_suspended_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The refusal leaves reconciliation off on purpose, and the line says so:
+    # an application nobody is reconciling looks healthy until the next deploy
+    # quietly does not arrive.
+    platform = a_platform(reconciling_itself=True)
+    platform.pin_to_accelerator.side_effect = PlatformRefused("400")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.accelerators", logging.WARNING,
+                                  "accelerator pin refused",
+                                  values={"application": SOME_APPLICATION,
+                                          "sync_suspended": True})
+        )
+
+
+@pytest.mark.unit
+def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # A change to production as much as the action was.
+    platform = a_platform()
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            descriptor := _a_descriptor(was_syncing_itself=True)
+        ) \
+        .when(lambda: _restoring(descriptor, platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.accelerators", logging.INFO,
+                                  "accelerator pin restored",
+                                  values={"application": SOME_APPLICATION})
+        )
+
+
+@pytest.mark.unit
+def test_a_restore_that_only_managed_the_pin_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The quiet half. The application looks put back and is receiving nothing
+    # anybody ships to it, and no other line would say so.
+    platform = a_platform()
+    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(descriptor, platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.accelerators", logging.WARNING,
+                                  "accelerator pin not fully restored",
+                                  values={"application": SOME_APPLICATION,
+                                          "pin_put_back": True,
+                                          "automated_sync_put_back": False})
+        )
+
+
+@pytest.mark.unit
+def test_a_restore_step_that_failed_is_logged_as_an_error(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The restore reports which half it lost, never why. The why is here, and
+    # it is what a person putting the other half back by hand needs first.
+    platform = a_platform()
+    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(descriptor, platform)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.accelerators", logging.ERROR,
+                                  "restore step failed",
+                                  values={"application": SOME_APPLICATION,
+                                          "step": "automated sync"},
+                                  failure=PlatformUnreachable)
+        )
 
 
 def _a_descriptor(was_pinned_to: str | None = None,

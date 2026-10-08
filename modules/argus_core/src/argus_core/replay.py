@@ -30,6 +30,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from argus_core.ids import UuidStr, new_id
+from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_core.timestamps import utc_now
 
 _logger = logging.getLogger(__name__)
@@ -124,8 +125,11 @@ def record(entry: ReplayEntry, recorder: Recorder = nobody) -> None:
     try:
         recorder(entry)
     except Exception:
-        _logger.warning("could not record the %s call to %s for incident %s",
-                        entry.call_type, entry.target, entry.incident_id, exc_info=True)
+        _logger.warning("call could not be recorded", exc_info=True, extra={
+            "call_type": entry.call_type,
+            "target": entry.target,
+            ARGUS_INCIDENT_ID: entry.incident_id
+        })
 
 
 class Replay:

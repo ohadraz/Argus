@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from functools import partial
 
 from agent_mitigation import Verdict
@@ -46,6 +47,8 @@ from orchestrator.walk.routes import (
     NEXT_CANDIDATE_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
+
+logger = logging.getLogger(__name__)
 
 
 def mitigation_node(
@@ -150,6 +153,11 @@ def mitigation_node(
         )
     )
     outcome = result.verdict
+    logger.info("verdict reached", extra={
+        "verdict": outcome,
+        "action_type": state.proposed_action.action_type,
+        "subject": the_subject_of(state.proposed_action)
+    })
 
     # The verdict and the line reporting it, in that order and in one write.
     # Announced first, as it was, a walk that stopped in between left a verdict

@@ -18,10 +18,11 @@ Line numbers are 1-based and inclusive at both ends, matching what
 
 from __future__ import annotations
 
+import logging
 from math import ceil
 
 import pytest
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from code_index.chunking import Chunk, chunks_of
 
 SOME_PATH = "src/io_shop/spend_summary.py"
@@ -245,6 +246,27 @@ def test_a_file_with_nothing_in_it_yields_nothing() -> None:
             max_lines=DONT_CARE_MAX_LINES, overlap=DONT_CARE_OVERLAP
         )) \
         .then(_exactly_this_many_chunks(0))
+
+
+@pytest.mark.unit
+def test_python_that_will_not_parse_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Indexed all the same, by lines - but a search landing in it lands in a
+    # window rather than a definition, and the file is worth a look on its own.
+    Scenario() \
+        .given(some_source := "def (((\n    not python at all") \
+        .when(
+            lambda: chunks_of(
+                SOME_PATH, some_source,
+                max_lines=DONT_CARE_MAX_LINES, overlap=DONT_CARE_OVERLAP
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "code_index.chunking", logging.WARNING,
+                                  "file did not parse, cut by lines",
+                                  values={"path": SOME_PATH})
+        )
 
 
 def _a_chunk_spanning(first_line: int, last_line: int) -> Assertion[list[Chunk]]:

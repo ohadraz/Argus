@@ -17,13 +17,14 @@ injected collaborators, so these are the decisions and nothing else.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 from agent_postmortem import RateTable
 from argus_core.models import PublishedRates, RatesUnavailable
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from argus_testkit.collecting import Kept
 from orchestrator.rates import HeldRates, Published, todays_rates
 
@@ -166,6 +167,38 @@ def test_an_unreachable_provider_with_nothing_held_answers_no_rates() -> None:
             hold_rates=held.take)) \
         .then(all_of(_no_rates_were_answered(),
                      _nothing_was_kept(held)))
+
+
+@pytest.mark.unit
+def test_an_unreachable_provider_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Degraded rather than lost: the document converts at the day the rates
+    # were published and says which day, and this line is what tells an
+    # operator why that day is not today.
+    some_day = date.today()
+    the_day_held = some_day - timedelta(days=1)
+    held: Kept[PublishedRates] = Kept()
+
+    Scenario() \
+        .given(
+            rates_held_from_before := _rates_on(
+                the_day_held, {SOME_OTHER_CURRENCY: Decimal("0.83")}
+            )
+        ) \
+        .when(lambda: todays_rates(
+            SOME_BASE_CURRENCY,
+            published=_a_provider_that_cannot_be_read(),
+            today=lambda: some_day,
+            held_rates=_rates_already_held(rates_held_from_before),
+            hold_rates=held.take)) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.rates", logging.WARNING,
+                                  "rates could not be fetched",
+                                  values={"base": SOME_BASE_CURRENCY,
+                                          "held_from": the_day_held},
+                                  failure=RatesUnavailable)
+        )
 
 
 def _rates_on(day: date, per_unit: dict[str, Decimal]) -> PublishedRates:

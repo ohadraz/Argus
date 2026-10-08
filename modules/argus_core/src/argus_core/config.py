@@ -708,6 +708,11 @@ class Settings(BaseSettings):
     langfuse_public_key: str = Field(default="")
     langfuse_secret_key: str = Field(default="")
 
+    # The lowest level a process logs at, by the stdlib's own names. INFO is a
+    # production's audit trail; DEBUG is for the incident somebody is chasing,
+    # and is switched on by restarting the process with this lowered.
+    log_level: str = Field(default="INFO")
+
     @property
     def database_url(self) -> str:
         return (
@@ -881,10 +886,11 @@ class LLMSettings(SettingsSlice):
 class TelemetrySettings(SettingsSlice):
     """Where a process's traces, metrics and logs go.
 
-    The directory every signal is written under, and the two backends that may
-    receive them as well. Handed to `argus_telemetry` at the top of each
-    process, which is the only reader: instrumented code speaks the OTel API
-    and never learns where what it emitted ended up.
+    The directory every signal is written under, the two backends that may
+    receive them as well, and the level below which nothing is logged. Handed
+    to `argus_telemetry` at the top of each process, which is the only reader:
+    instrumented code speaks the OTel API and never learns where what it
+    emitted ended up.
     """
 
     telemetry_directory: str
@@ -893,3 +899,4 @@ class TelemetrySettings(SettingsSlice):
     langfuse_base_url: str
     langfuse_public_key: str
     langfuse_secret_key: str
+    log_level: str

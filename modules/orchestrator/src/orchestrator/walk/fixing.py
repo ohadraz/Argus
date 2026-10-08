@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from agent_codefix import FixDeclined, FixNotAnswered
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
 from argus_core.models import FixOutcome, OpenedPullRequest
@@ -10,6 +12,8 @@ from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import ProposeFix
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
+
+logger = logging.getLogger(__name__)
 
 
 def codefix_node(state: IncidentState,
@@ -82,6 +86,8 @@ def codefix_node(state: IncidentState,
         # Swallowed from the walk, not from the reader: what stopped it is the
         # whole value of this branch, and the one outcome somebody can act on
         # before asking again.
+        logger.warning("fix could not be proposed", exc_info=True)
+
         return _said(
             narrator,
             found=False,
@@ -141,6 +147,9 @@ def _said(narrator: Narrator,
     hardest to see, because each would look right on its own.
     """
     narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail)
+    logger.info("fix attempted", extra={
+        "outcome": outcome, "pull_request": proposal.url if proposal is not None else None
+    })
 
     return StateDelta(
         fix_found=found, narration=Narration(action=action, detail=detail)

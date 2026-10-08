@@ -13,7 +13,7 @@ in a comment.
 
 from __future__ import annotations
 
-from contextlib import closing
+import logging
 from datetime import datetime
 from typing import Any, Final
 
@@ -68,6 +68,8 @@ from read_mcp_server.window import RetrievalSettings
 # What this process is called in its telemetry, and the directory its runs are
 # written under.
 _SERVICE: Final = "argus-read-mcp"
+
+logger = logging.getLogger(__name__)
 
 
 def build_server(endpoint: ReadMcpEndpoint,
@@ -469,6 +471,9 @@ def build_server(endpoint: ReadMcpEndpoint,
     # for every description - which a model reads as a fact about the code.
     # Skipping the registration also skips the store client and the model.
     if not index_settings.searches_by_meaning:
+        logger.info("search by meaning not offered",
+                    extra={"code_search": index_settings.code_search})
+
         return mcp
 
     # Bound once, like the fetchers above. The embedder is the odd one: it
@@ -553,7 +558,7 @@ def main() -> None:
     settings = get_settings()
 
     with (
-        closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)),
+        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
         open_pool(DatabaseSettings.of(settings)) as pool,
     ):
         build_server(
@@ -572,7 +577,7 @@ def main() -> None:
             IndexReadSettings.of(settings),
             AlertRuleReadSettings.of(settings),
             pool.connection
-        ).run(transport="streamable-http")
+        ).serve()
 
 
 if __name__ == "__main__":

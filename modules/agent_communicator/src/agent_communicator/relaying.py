@@ -22,6 +22,7 @@ to prevent, so the place only ever moves past a line that landed.
 
 from __future__ import annotations
 
+import logging
 from enum import StrEnum
 from typing import Final, Protocol
 
@@ -39,6 +40,8 @@ SLACK_RELAY: Final = "slack"
 # restart takes a few passes rather than hundreds, small enough that a relay an
 # hour behind does not read an hour of events into memory at once.
 _A_BATCH: Final = 100
+
+logger = logging.getLogger(__name__)
 
 
 class Backlog(Protocol):
@@ -145,6 +148,8 @@ def relay_once(backlog: Backlog,
                               register)
 
             if outcome is Outcome.NOT_NOW:
+                logger.warning("relay paused")
+
                 break
 
             if outcome is Outcome.SAID:

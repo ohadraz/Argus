@@ -180,6 +180,8 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[QdrantClient | 
     context manager, which is the same bargain `code_index`'s catch-up makes.
     """
     if not settings.incident_memory_enabled:
+        _logger.info("incident memory disabled")
+
         yield None
 
         return

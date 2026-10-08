@@ -17,6 +17,7 @@ double itself, which is the only party that knows which trace it answered in.
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 import threading
 import time
@@ -24,30 +25,37 @@ from collections.abc import Callable, Iterator
 from contextlib import suppress
 from queue import Empty
 from typing import Any, NamedTuple
+from unittest.mock import create_autospec
 
 import pytest
+import uvicorn
 from argus_core.mcp_transport import (
     ActionExhausted,
     McpClient,
     McpToolError,
     McpUnreachable,
     PlatformUnreachable,
+    TracedFastMCP,
     an_unreachable_platform,
     serving_a_tool_call,
     what_was_left_behind,
 )
 from argus_core.models import AcceleratorPinUndo, DeploymentRollbackUndo, UndoDescriptor
 from argus_core.telemetry import (
+    ARGUS_INCIDENT_ID,
     ERROR_TYPE,
     GEN_AI_TOOL_NAME,
     MCP_CLIENT_OPERATION_DURATION,
     MCP_METHOD_NAME,
 )
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
+from opentelemetry import baggage
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import SpanContext, SpanKind, StatusCode
 from pydantic import TypeAdapter
+from starlette.applications import Starlette
 
 from argus_core_test.framework.observing import Observed, attributes_of, observing
 from argus_core_test.framework.transport_double import RunningDouble, a_running_double
@@ -586,6 +594,138 @@ def test_a_call_arriving_with_no_trace_is_served_under_one_of_its_own() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_call_arriving_with_baggage_is_served_with_it() -> None:
+    # The incident and the run a walk put in its baggage cross with the call,
+    # so a line the server logs while answering says whose incident it was.
+    some_incident = "4f0c2a1e-5b6d-4c3e-9a8b-7d6e5f4c3b2a"
+
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            lambda: _the_baggage_while_served(observed, {
+                "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                "baggage": f"{ARGUS_INCIDENT_ID}={some_incident}"
+            })
+        ) \
+        .then(
+            _the_server_saw(ARGUS_INCIDENT_ID, some_incident)
+        )
+
+
+@pytest.mark.unit
+def test_a_server_is_served_with_its_logging_left_to_the_root() -> None:
+    # uvicorn's own logging config gives its loggers handlers of their own and
+    # stops them propagating, so nothing it said reached the root - nor, since
+    # the root is where telemetry listens, a server's `logs.jsonl`. Served
+    # without it, its records go wherever every other record goes.
+    Scenario() \
+        .given(
+            a_server := TracedFastMCP("some-server", host="127.0.0.1", port=8123),
+            run := create_autospec(uvicorn.run)
+        ) \
+        .when(
+            lambda: a_server.serve(run=run)
+        ) \
+        .then(
+            _it_was_served_with_its_logging_left_to_the_root(run, "127.0.0.1", 8123)
+        )
+
+
+@pytest.mark.component
+def test_a_session_that_could_not_be_opened_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Every attempt, each naming where it was aimed: a server that is down and
+    # a client pointed at the wrong address look identical from the caller's
+    # side, and the address is what tells them apart.
+    Scenario() \
+        .when(
+            attempting(_asking_a_client_at(NOTHING_IS_LISTENING_HERE))
+        ) \
+        .then(
+            _every_attempt_to_open_a_session_was_logged(caplog, NOTHING_IS_LISTENING_HERE)
+        )
+
+
+@pytest.mark.component
+def test_a_call_asked_again_over_a_new_session_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Recovered from, usually - a restarted server, an idle timeout - and so
+    # never seen by the walk. Which is exactly why it is said here: a server
+    # restarting every few minutes is otherwise invisible.
+    Scenario() \
+        .when(
+            attempting(_asking_a_client_at(NOTHING_IS_LISTENING_HERE))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_core.mcp_transport", logging.WARNING,
+                                  "tool call asked again over a new session",
+                                  values={"tool": DONT_CARE_TOOL},
+                                  failure=McpUnreachable)
+        )
+
+
+@pytest.mark.unit
+def test_a_tool_that_raised_is_logged_as_a_warning_by_the_server(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The one place every failed tool call on both servers passes through, so
+    # a server's log says what it refused without each tool saying it.
+    some_tool = "roll_back_deployment"
+
+    Scenario() \
+        .given(
+            observed := observing()
+        ) \
+        .when(
+            attempting(lambda: _served_raising(observed, some_tool, RuntimeError("refused")))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_core.mcp_transport", logging.WARNING,
+                                  "tool call failed",
+                                  values={"tool": some_tool},
+                                  failure=RuntimeError)
+        )
+
+
+def _served_raising(observed: Observed, tool: str, error: Exception) -> None:
+    """The server's half alone: one tool call that raised while it was served."""
+    with serving_a_tool_call(tool, None, tracer=observed.tracer):
+        raise error
+
+
+def _every_attempt_to_open_a_session_was_logged(caplog: pytest.LogCaptureFixture,
+                                                url: str) -> Assertion[Any]:
+    """At least one attempt said, and every one that was said naming `url`.
+
+    Not exactly one: a call opens a session, finds it failed, and opens another
+    before it gives up - and how many attempts that is belongs to the retry,
+    not to what each attempt says.
+    """
+    def assertion(_raised: Any) -> bool:
+        said = [
+            record for record in caplog.records
+            if record.name == "argus_core.mcp_transport"
+            and record.levelno == logging.WARNING
+            and record.getMessage() == "session could not be opened"
+        ]
+        aimed_at = [getattr(record, "url", None) for record in said]
+
+        if not said or set(aimed_at) != {url}:
+            raise AssertionError(
+                f"Expected every attempt to open a session to be logged as a warning "
+                f"naming [{url}], and the attempts logged named {aimed_at}."
+            )
+
+        return True
+
+    return assertion
+
+
 class _Attempt(NamedTuple):
     """What a call produced - an answer, or what was raised instead.
 
@@ -947,6 +1087,25 @@ def _served_while_observed(observed: Observed, meta: dict[str, str] | None) -> N
         pass
 
 
+def _the_baggage_while_served(observed: Observed, meta: dict[str, str]) -> dict[str, object]:
+    """What the baggage held while one tool call was served under `meta`."""
+    with serving_a_tool_call(DONT_CARE_TOOL, meta, tracer=observed.tracer):
+        return dict(baggage.get_all())
+
+
+def _the_server_saw(key: str, expected: str) -> Assertion[dict[str, object]]:
+    def assertion(held: dict[str, object]) -> bool:
+        if held.get(key) != expected:
+            raise AssertionError(
+                f"Expected the server to hold [{key}] as [{expected}] in its baggage "
+                f"while it served the call, and it held {held}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_clock_reading(*seconds: float) -> Any:
     """A clock that reads each of these in turn, so a duration is exact."""
     readings = iter(seconds)
@@ -1107,3 +1266,25 @@ def _the_context_of(span: ReadableSpan) -> SpanContext:
         )
 
     return context
+
+
+def _it_was_served_with_its_logging_left_to_the_root(run: Any,
+                                                      host: str,
+                                                      port: int) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        served = [
+            call for call in run.call_args_list
+            if len(call.args) == 1 and isinstance(call.args[0], Starlette)
+            and call.kwargs == {"host": host, "port": port, "log_config": None}
+        ]
+
+        if len(run.call_args_list) != 1 or len(served) != 1:
+            raise AssertionError(
+                f"Expected the server's app to be served once on {host}:{port}, with "
+                f"uvicorn's logging config left off, and it was served "
+                f"{run.call_args_list}."
+            )
+
+        return True
+
+    return assertion

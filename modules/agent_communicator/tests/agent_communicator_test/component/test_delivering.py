@@ -14,6 +14,7 @@ joined.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
 
@@ -37,7 +38,13 @@ from argus_core.events import (
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents.repository import events, incidents
 from argus_narration import a_narration_line
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+)
 
 from agent_communicator_test.framework.slack import messages_posted_to
 
@@ -307,6 +314,33 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
                 _the_only_message_in(slack, A_WAR_ROOM, mentions=AN_ARCHIVE),
                 _the_only_message_in(slack, A_WAR_ROOM, mentions=its_page)
             ))
+
+
+@pytest.mark.component
+def test_a_line_refused_for_good_is_logged_as_an_error(
+        slack: str, a_clean_database: None, caplog: pytest.LogCaptureFixture) -> None:
+    # A line of the incident's account that nobody will ever read in Slack, and
+    # a channel or a token somebody has to go and fix before the next one.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        conn.commit()
+
+        Scenario() \
+            .given(
+                deliver := _a_delivery_pointed_at(slack),
+                calling(lambda: _slack_will_refuse(slack))
+            ) \
+            .when(lambda: deliver(incident_id,
+                                  a_narration_line(_the_onset_of(incident_id)),
+                                  Register.ANNOUNCED)) \
+            .then(
+                one_record_was_logged(caplog, "agent_communicator.delivering",
+                                      logging.ERROR, "line will never be delivered",
+                                      values={"channel": A_WAR_ROOM,
+                                              "refusal": "channel_not_found"})
+            )
 
 
 def _a_delivery_pointed_at(base_url: str, channel: str = A_WAR_ROOM) -> Delivery:

@@ -25,6 +25,7 @@ accident.
 
 from __future__ import annotations
 
+import logging
 from typing import Final, Protocol
 
 from argus_core import Connections, SettingsSlice
@@ -37,6 +38,8 @@ from code_index.store import Found, nearest
 from qdrant_client import QdrantClient
 
 from read_mcp_server.repository import RepositoryReadSettings
+
+logger = logging.getLogger(__name__)
 
 # How near a passage has to be to be worth a model's turn. A store always
 # answers its k nearest however far away they are - ask an index of a shop about
@@ -214,6 +217,8 @@ def search_repository_by_meaning(description: str,
 
     if not notice:
         return passages
+
+    logger.warning("index is not current", extra={"ref": ref})
 
     return [f"{NOTICE_PREFIX}{notice}", *passages]
 

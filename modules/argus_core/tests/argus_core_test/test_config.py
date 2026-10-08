@@ -321,11 +321,11 @@ def test_a_slice_naming_a_setting_that_does_not_exist_is_refused() -> None:
 
 
 @pytest.mark.unit
-def test_the_telemetry_slice_carries_where_files_go_and_both_backends() -> None:
+def test_the_telemetry_slice_carries_where_signals_go_and_the_log_level() -> None:
     # What `argus_telemetry` is handed at the top of every process: the
-    # directory every signal is written under, the general OTLP backend, and
-    # Langfuse - and nothing else, so that wiring the exporters names no
-    # credential of any other tier.
+    # directory every signal is written under, the general OTLP backend,
+    # Langfuse and the level below which nothing is logged - and nothing else,
+    # so that wiring the exporters names no credential of any other tier.
     Scenario() \
         .given(
             settings_holding_every_credential := Settings(
@@ -343,7 +343,8 @@ def test_the_telemetry_slice_carries_where_files_go_and_both_backends() -> None:
                 "otel_exporter_otlp_headers",
                 "langfuse_base_url",
                 "langfuse_public_key",
-                "langfuse_secret_key"
+                "langfuse_secret_key",
+                "log_level"
             })
         )
 
@@ -369,7 +370,8 @@ def test_telemetry_is_written_under_telemetry_and_sent_nowhere_by_default() -> N
                 otel_exporter_otlp_headers="",
                 langfuse_base_url="",
                 langfuse_public_key="",
-                langfuse_secret_key=""
+                langfuse_secret_key="",
+                log_level="INFO"
             ))
         )
 

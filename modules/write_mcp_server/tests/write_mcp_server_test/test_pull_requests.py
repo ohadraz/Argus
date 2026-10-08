@@ -9,6 +9,7 @@ make it anything else.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -20,7 +21,8 @@ from argus_testkit.assertions import (
     an_error_was_raised,
     the_error_mentioned,
 )
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.logs import one_record_was_logged
+from argus_testkit.scenario import Scenario, attempting, calling
 from write_mcp_server.pull_requests import (
     PullRequestNotOpened,
     open_pull_request,
@@ -284,6 +286,33 @@ def test_a_repository_answering_without_a_pull_request_is_not_reported_as_one() 
             all_of(
                 an_error_was_raised(PullRequestNotOpened)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_pull_request_opened_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # The proposal a person is now expected to read, and where to read it.
+    some_url = "https://github.invalid/io-shop/argus-target-service/pull/41"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            repository := a_repository_that_opens_pull_requests(url=some_url)
+        ) \
+        .when(
+            lambda: open_pull_request(
+                head_branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                title=DONT_CARE_TITLE,
+                body=DONT_CARE_BODY,
+                settings=some_repository_settings(),
+                post=repository.post
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.pull_requests", logging.INFO,
+                                  "pull request opened",
+                                  values={"pull_request": some_url})
         )
 
 

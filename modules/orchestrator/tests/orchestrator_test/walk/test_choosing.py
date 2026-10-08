@@ -23,6 +23,8 @@ decides, publishes, and knows nothing about who is listening.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
@@ -41,7 +43,7 @@ from argus_core.models import (
     RollBackDeployment,
     the_actions_through,
 )
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.routes import (
@@ -119,6 +121,31 @@ def test_moving_to_the_next_candidate_is_published_rather_than_narrated() -> Non
         .then(all_of(
             _the_candidate_selected_was(the_next_candidate, published),
             _nothing_was_narrated()))
+
+
+@pytest.mark.unit
+def test_the_candidate_chosen_next_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # No move of status goes with it, so no line from the walk's narration
+    # either: this is the only line saying which explanation is now on trial.
+    incident_id = a_random_id()
+    the_next_candidate = a_determined_hypothesis(incident_id)
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            a_walk := _a_walk_at(
+                incident_id,
+                [a_determined_hypothesis(incident_id), the_next_candidate],
+                index=0
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.choosing", logging.INFO,
+                                  "candidate chosen",
+                                  values={"hypothesis": the_next_candidate.summary,
+                                          "confidence": the_next_candidate.confidence})
+        )
 
 
 @pytest.mark.unit

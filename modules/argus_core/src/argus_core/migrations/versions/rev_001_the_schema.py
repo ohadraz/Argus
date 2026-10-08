@@ -32,7 +32,12 @@ CREATE TABLE IF NOT EXISTS incident (
     -- however terminal it reads. How long an incident lasted is reported
     -- rather than derived, because deriving it from the last row written
     -- would make it an accident of what happened to be logged last.
-    ended_at TIMESTAMPTZ
+    ended_at TIMESTAMPTZ,
+    -- The trace the alert arrived in, as the propagator wrote it (W3C
+    -- `traceparent` and its company). Every walk, unwind and withdrawal of
+    -- the incident continues it, so the incident is one trace from the alert
+    -- on. Empty where the incident was started outside any trace.
+    trace_context JSONB NOT NULL DEFAULT '{}'
 );
 
 -- `id` keeps its default for hand-written rows, but the application supplies

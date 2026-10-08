@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -50,7 +51,13 @@ from argus_core.models import (
     ScaleOut,
     UndoDescriptor,
 )
-from argus_testkit import Assertion, Scenario, all_of, dont_care_sleep
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    dont_care_sleep,
+    one_record_was_logged,
+)
 
 from agent_mitigation_test.framework.assertions import the_verdict_is
 from agent_mitigation_test.framework.builders import (
@@ -4146,3 +4153,269 @@ def _the_rule_was_never_read(read_rule: RuleReader) -> Assertion[Outcome]:
         return True
 
     return assertion
+
+
+# ---- what it logs ----
+
+# Where taking an action logs from. The verdict is the Orchestrator's line; these
+# are the things that went wrong on the way to one.
+THE_TRYING = "agent_mitigation.trying"
+
+
+@pytest.mark.unit
+def test_a_platform_that_was_not_there_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Five actions gone at once, which is worth a line to whoever runs the
+    # platform even though the walk carries on to the other two.
+    Scenario() \
+        .given(
+            a_rollback := _a_rollback_of(SOME_APPLICATION)
+        ) \
+        .when(
+            lambda: take_action(
+                a_rollback,
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=_a_roller_that_cannot_reach_the_platform(
+                    THE_PLATFORM_DID_NOT_ANSWER
+                )),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "deployment platform unreachable",
+                                  values={"action_type": a_rollback.action_type})
+        )
+
+
+@pytest.mark.unit
+def test_an_action_that_could_not_be_taken_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The broadest of the three refusals and the one most likely to be reached
+    # by something nobody foresaw, so it carries the traceback.
+    Scenario() \
+        .given(
+            an_action := an_action_setting(DONT_CARE_FLAG, enabled=False)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action,
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=_a_flag_setter_that_cannot_write(
+                    "the provider could not be reached"
+                )),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "action could not be performed",
+                                  values={"action_type": an_action.action_type},
+                                  failure=RuntimeError)
+        )
+
+
+@pytest.mark.unit
+def test_a_read_that_could_not_be_answered_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    Scenario() \
+        .given(
+            reads := _a_read_that_fails_once_then_answers(a_recovered_window())
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=reads,
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "metrics could not be read", failure=McpToolError)
+        )
+
+
+@pytest.mark.unit
+def test_a_wait_that_never_read_the_service_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The change is left where it is with nobody knowing whether it helped,
+    # which is what this line is there to say.
+    Scenario() \
+        .given(
+            reads := _a_read_that_never_answers()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=reads,
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "nothing was measured before the deadline")
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_that_could_not_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    Scenario() \
+        .given(
+            nobody_can_read_the_rule := _a_rule_nobody_can_read()
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                nobody_can_read_the_rule,
+                metrics=a_recovered_window(),
+                clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "alert rule could not be read", failure=McpToolError)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_that_could_never_be_read_is_logged_as_nothing_measured(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The rule's path to the same ending as the metrics' above, and logged the
+    # same way because it is the same fact about the change left in place.
+    Scenario() \
+        .given(
+            nobody_can_read_the_rule := _a_rule_nobody_can_read()
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                nobody_can_read_the_rule,
+                metrics=a_recovered_window(),
+                clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "nothing was measured before the deadline")
+        )
+
+
+@pytest.mark.unit
+def test_a_change_the_platform_stopped_applying_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Something a person can act on today: the platform has given up on a
+    # rollout, and it will not pick it up again by itself.
+    Scenario() \
+        .given(
+            the_platform_gave_up := (lambda _action: _a_platform_that_has_stopped_applying_it())
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                arrivals=the_platform_gave_up,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "change will not arrive")
+        )
+
+
+@pytest.mark.unit
+def test_a_change_that_had_not_arrived_by_the_deadline_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Unlike the one above, this may still converge - which is why it is its
+    # own line rather than that one's.
+    Scenario() \
+        .given(
+            still_arriving := (lambda _action: lambda: Arrival.STILL_ARRIVING)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                arrivals=still_arriving,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "change did not arrive in time")
+        )
+
+
+@pytest.mark.unit
+def test_an_undo_that_failed_is_logged_as_an_error(caplog: pytest.LogCaptureFixture) -> None:
+    # Production left changed for a cause that was not the cause, and somebody
+    # has to go and put it back by hand.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            an_action := an_action_setting(some_flag, enabled=False),
+            set_state := _a_flag_setter_that_cannot_put_it_back(
+                some_flag, "the provider refused the write"
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action,
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.ERROR,
+                                  "change could not be put back",
+                                  values={"action_type": an_action.action_type})
+        )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from agent_mitigation import a_mitigation_answers, is_within_reach
@@ -20,6 +21,7 @@ from argus_core.models import (
     ServiceDependency,
     reports_what_it_changed,
     the_identity_of,
+    the_subject_of,
 )
 
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -30,6 +32,8 @@ from orchestrator.walk.routes import (
     NEXT_CANDIDATE_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
+
+logger = logging.getLogger(__name__)
 
 # What the candidate's own row says stopped it, one sentence per reason. The
 # row is read beside the other candidates rather than on the timeline, so it
@@ -158,6 +162,13 @@ def tier_gate_node(
 
     if refusal is None:
         return StateDelta()
+
+    proposed = state.proposed_action
+    logger.info("action refused", extra={
+        "refusal": refusal,
+        "action_type": proposed.action_type if proposed is not None else None,
+        "subject": the_subject_of(proposed) if proposed is not None else None
+    })
 
     # The candidate's own row says it was never put to the question, and why.
     if state.hypothesis is not None:

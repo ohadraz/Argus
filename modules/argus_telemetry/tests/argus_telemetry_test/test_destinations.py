@@ -168,5 +168,6 @@ def _settings(otel_exporter_otlp_endpoint: str = "",
         otel_exporter_otlp_headers=otel_exporter_otlp_headers,
         langfuse_base_url=langfuse_base_url,
         langfuse_public_key=langfuse_public_key,
-        langfuse_secret_key=langfuse_secret_key
+        langfuse_secret_key=langfuse_secret_key,
+        log_level="INFO"
     )

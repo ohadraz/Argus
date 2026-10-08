@@ -25,6 +25,7 @@ store being reachable at the instant it asked.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
@@ -56,7 +57,14 @@ from argus_core.models import (
     ServiceDependency,
     Verdict,
 )
-from argus_testkit import Assertion, Kept, Scenario, all_of, calling
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+)
 from incident_memory.records import RememberedIncident, WhatWasTried
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -1371,6 +1379,102 @@ def test_a_register_that_could_not_be_read_leaves_nothing_else_within_reach(
                                       fetch_dependencies=fetch_dependencies)
         ) \
         .then(the_result_at("dependencies", []))
+
+
+@pytest.mark.unit
+def test_a_flag_history_that_could_not_be_read_is_logged_as_a_warning(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Degraded rather than lost: the round carries on without it, and no flag
+    # this round blames can be acted on - which is worth a line of its own
+    # before anybody wonders why no flag was reverted.
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_provider_cannot_be_reached(fetch_flag_changes)),
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.investigating", logging.WARNING,
+                                  "flag history could not be read", failure=RuntimeError)
+        )
+
+
+@pytest.mark.unit
+def test_a_deploy_history_that_could_not_be_read_is_logged_as_a_warning(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
+    fetch_deployments: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_platform_cannot_be_reached(fetch_deployments)),
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      fetch_deployments=fetch_deployments)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.investigating", logging.WARNING,
+                                  "deployment history could not be read",
+                                  failure=RuntimeError)
+        )
+
+
+@pytest.mark.unit
+def test_a_register_that_could_not_be_read_is_logged_as_a_warning(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Nothing but the alerting service is within reach for the rest of the
+    # round, which is the line saying why a dependency was never restarted.
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_register_cannot_be_reached(fetch_dependencies)),
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.investigating", logging.WARNING,
+                                  "service register could not be read",
+                                  values={"service": an_investigating_incident.alert.service},
+                                  failure=RuntimeError)
+        )
 
 
 @pytest.mark.unit

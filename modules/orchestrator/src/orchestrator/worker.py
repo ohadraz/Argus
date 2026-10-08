@@ -16,7 +16,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Generator
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from datetime import timedelta
 from functools import partial
 from os import getpid
@@ -41,14 +41,19 @@ from argus_core import (
 from argus_core.events import StatusChanged, publish
 from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
+from argus_core.telemetry import ARGUS_RUN_ID
 from argus_incidents import (
     IsStillWanted,
     events_into,
     events_into_connection,
+    inside_the_incidents_trace,
     wanted_via,
 )
 from argus_incidents.repository import incidents, runs
+from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
 from argus_telemetry import start_telemetry
+from opentelemetry import baggage, context
+from opentelemetry.trace import Tracer
 from read_mcp_client import read_mcp
 from write_mcp_client import write_mcp
 
@@ -72,6 +77,9 @@ type Unwind = Callable[[str], None]
 # renewals may be missed - a slow query, a process the operating system paused -
 # before anything else is entitled to take the run for abandoned.
 _RENEWALS_PER_LEASE: Final = 3
+
+# What the span one claimed run is worked inside is called.
+RUN_SPAN: Final = "run"
 
 # What this process is called in its telemetry, and the directory its runs are
 # written under.
@@ -117,7 +125,10 @@ def _the_claim_kept_alive(run_id: str,
                 with connections() as renewing_conn:
                     runs.renew(renewing_conn, run_id, lease)
             except Exception:
-                logger.exception("the claim on run %s could not be renewed", run_id)
+                # A thread of its own, outside the run's context, so the run is
+                # named here rather than stamped. Not lost work: the walk goes on.
+                logger.warning("claim could not be renewed", exc_info=True,
+                               extra={"run_id": run_id})
                 return
 
     renewing = threading.Thread(
@@ -138,7 +149,8 @@ def take_one_run(conn: psycopg.Connection,
                  walk: Walk,
                  unwind: Unwind,
                  still_wanted: IsStillWanted,
-                 connections: Connections = connect_from_env) -> bool:
+                 connections: Connections = connect_from_env,
+                 tracer: Tracer | None = None) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
 
     Answers `False` for an empty queue rather than blocking on it, so the
@@ -168,29 +180,65 @@ def take_one_run(conn: psycopg.Connection,
     investigating anything: it is what the process does with an incident that
     ended without finishing, and it has to happen for a run that was never
     walked at all.
+
+    The whole run - walk, unwind and settling - is one span continuing the
+    trace the incident kept from its alert, so an incident is one trace however
+    many runs it takes. The run's id is in the baggage beside the incident's,
+    for every log line written anywhere inside it. `tracer` defaults to the
+    process's own.
     """
     claimed = runs.claim(conn, claimed_by, lease)
 
     if claimed is None:
         return False
 
-    try:
-        with _the_claim_kept_alive(claimed.id, lease, connections):
-            if still_wanted(claimed.incident_id):
-                walk(claimed.incident_id)
+    # Read on a connection of its own rather than on `conn`, which is held for
+    # the whole run: a read left uncommitted there is a transaction open across
+    # the walk, and the walk can begin with DDL that waits for every open
+    # transaction to end.
+    with connections() as reading:
+        incident = incidents.get(reading, claimed.incident_id)
 
-            if not still_wanted(claimed.incident_id):
-                unwind(claimed.incident_id)
-    except Exception as failure:
-        logger.exception("run %s for incident %s failed",
-                         claimed.id, claimed.incident_id)
-        _put_back_what_it_changed(unwind, claimed.incident_id)
-        runs.fail(conn, claimed.id, f"{type(failure).__name__}: {failure}")
-        _the_incident_needs_a_person(conn, claimed.incident_id, failure)
-    else:
-        runs.finish(conn, claimed.id)
+    kept = incident.trace_context if incident is not None else NO_TRACE_CONTEXT
+
+    with (
+        inside_the_incidents_trace(claimed.incident_id, kept, RUN_SPAN, tracer=tracer) as span,
+        _the_run_in_the_baggage(claimed.id)
+    ):
+        span.set_attribute(ARGUS_RUN_ID, claimed.id)
+        logger.info("run claimed", extra={"worker": claimed_by})
+
+        try:
+            with _the_claim_kept_alive(claimed.id, lease, connections):
+                walked = still_wanted(claimed.incident_id)
+
+                if walked:
+                    walk(claimed.incident_id)
+
+                if not still_wanted(claimed.incident_id):
+                    logger.info("incident withdrawn, unwinding", extra={"walked": walked})
+                    unwind(claimed.incident_id)
+        except Exception as failure:
+            logger.exception("run failed")
+            _put_back_what_it_changed(unwind, claimed.incident_id)
+            runs.fail(conn, claimed.id, f"{type(failure).__name__}: {failure}")
+            _the_incident_needs_a_person(conn, claimed.incident_id, failure)
+        else:
+            runs.finish(conn, claimed.id)
+            logger.info("run finished")
 
     return True
+
+
+@contextmanager
+def _the_run_in_the_baggage(run_id: str) -> Generator[None]:
+    """The run's id in the baggage for as long as the run is worked, and gone after."""
+    named = context.attach(baggage.set_baggage(ARGUS_RUN_ID, run_id))
+
+    try:
+        yield
+    finally:
+        context.detach(named)
 
 
 def _the_incident_needs_a_person(conn: psycopg.Connection,
@@ -241,10 +289,7 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
         incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
         conn.commit()
     except Exception:
-        logger.exception(
-            "incident %s could not be marked escalated after its run failed, so "
-            "it still reads as work in progress", incident_id
-        )
+        logger.exception("incident could not be marked escalated after its run failed")
 
 
 def _put_back_what_it_changed(unwind: Unwind, incident_id: str) -> None:
@@ -265,10 +310,7 @@ def _put_back_what_it_changed(unwind: Unwind, incident_id: str) -> None:
     try:
         unwind(incident_id)
     except Exception:
-        logger.exception(
-            "putting back the changes of incident %s after a failed run also failed",
-            incident_id
-        )
+        logger.exception("changes could not be put back after a failed run")
 
 
 def work_forever(connections: Connections,
@@ -290,8 +332,6 @@ def work_forever(connections: Connections,
     lease = timedelta(seconds=settings.run_lease_seconds)
     idle_wait = settings.run_poll_interval_seconds
     me = this_worker()
-
-    logger.info("worker %s waiting for runs", me)
 
     with connections() as conn:
         while True:
@@ -318,15 +358,13 @@ def main() -> None:
     both ends of long-term memory, opened here and closed here, or none at all
     where this deployment remembers nothing.
     """
-    logging.basicConfig(level=logging.INFO)
-
     settings = get_settings()
     mitigation = MitigationSettings.of(settings)
 
     with (
         # First in and last out, so that closing it - which flushes what is
         # still batched - comes after everything that could have reported.
-        closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)),
+        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
         open_pool(DatabaseSettings.of(settings)) as pool,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
         write_mcp(WriteMcpEndpoint.of(settings)) as write,

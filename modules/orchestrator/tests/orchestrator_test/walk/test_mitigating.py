@@ -14,6 +14,7 @@ that reached the provider with nothing measured after it, or nothing at all.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
@@ -51,7 +52,7 @@ from argus_core.models import (
     the_actions_through,
 )
 from argus_incidents.withdrawal import IsStillWanted
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
@@ -130,6 +131,43 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                                       already_taken=already_taken,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.CONFIRMED))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("verdict", [Verdict.CONFIRMED, Verdict.REFUTED])
+def test_the_verdict_an_action_reached_is_logged(
+    verdict: Verdict,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # What an experiment on production found. A refuted one moves no status -
+    # the walk goes on to the next candidate - so without this line nothing
+    # says the change was made, measured and found wanting.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            calling(lambda: _the_action_came_back(take, verdict)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.mitigating", logging.INFO,
+                                  "verdict reached", values={"verdict": verdict})
+        )
 
 
 @pytest.mark.unit

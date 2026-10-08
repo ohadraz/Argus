@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Final
 from urllib.parse import urlsplit
 
 from argus_core.models import AlarmClaim, Alert
+
+logger = logging.getLogger(__name__)
 
 # How a list of cache keys is written into a single annotation. Grafana carries
 # annotations as text, so a check reporting many entries renders them as one
@@ -90,10 +93,16 @@ def reports_only_resolutions(raw_payload: dict[str, Any]) -> bool:
 
     Grafana sends one when a rule resolves. It is never the start of an
     incident, and whether a rule has stopped firing is read from the rule.
+
+    One carrying no alerts at all answers the same way - nothing in it is
+    firing - though Grafana never sends one, so it is said.
     """
-    return all(
-        alert.get("status") == _RESOLVED for alert in raw_payload.get("alerts", [])
-    )
+    alerts = raw_payload.get("alerts", [])
+
+    if not alerts:
+        logger.warning("notification carried no alerts")
+
+    return all(alert.get("status") == _RESOLVED for alert in alerts)
 
 
 def _the_rule_linked_from(generator_url: str | None) -> str | None:
@@ -136,6 +145,7 @@ def _the_claim_in(stated: str | None) -> AlarmClaim:
     try:
         return AlarmClaim(stated)
     except ValueError:
+        logger.warning("unknown claim annotation", extra={"claim": stated})
         return AlarmClaim.A_SERIES_CONDITION
 
 

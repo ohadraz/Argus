@@ -20,6 +20,7 @@ the demo on this machine.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Final
@@ -34,6 +35,8 @@ from oncall_source.engagement import (
     OnCallUnavailable,
     ReportedIncident,
 )
+
+logger = logging.getLogger(__name__)
 
 # How a client is built. Injected rather than constructed outright so that a
 # test can assert the case that matters most here - that a deployment holding
@@ -145,6 +148,8 @@ def _title_held_by(responder_id: str, client: RestApiV2Client) -> str | None:
     try:
         user = client.rget(_A_USER.format(responder_id=responder_id))
     except PagerDutyError:
+        logger.warning("job title unreadable", exc_info=True,
+                       extra={"responder_id": responder_id})
         return None
 
     title = user.get(_JOB_TITLE)

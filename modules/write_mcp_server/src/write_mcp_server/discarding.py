@@ -30,12 +30,15 @@ records, and writing the stale figures back would be recreating the incident.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Final, Protocol
 
 from argus_core import SettingsSlice
 from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
 from argus_core.models import CACHE, CacheEntriesDiscarded
+
+logger = logging.getLogger(__name__)
 
 # Redis's own name for removing keys without blocking on the memory, and the one
 # place in Argus that holds it. The vendor's wire vocabulary, named here for the
@@ -185,6 +188,7 @@ def discard_cache_entries(
     has not said what to act on.
     """
     if not keys:
+        logger.warning("no cache entries named")
         raise EntriesNotDiscarded(
             f"no cache entries were named to discard at [{settings.cache_url}], "
             f"so nothing was asked of it"
@@ -209,5 +213,7 @@ def discard_cache_entries(
                 f"here for a discard to remove"
             )
         )
+
+    logger.info("cache entries discarded", extra={"named": len(keys), "discarded": discarded})
 
     return CacheEntriesDiscarded(discarded=discarded)

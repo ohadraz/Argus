@@ -14,6 +14,7 @@ nothing.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import Mock, create_autospec
 
@@ -58,6 +59,7 @@ from argus_core.models import (
 )
 from argus_core.replay import Recorder
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 
 DONT_CARE_INCIDENT = "incident-41"
@@ -2046,3 +2048,141 @@ def some_settings(base_branch: str = "main",
         codefix_max_output_tokens=max_output_tokens
     )
 
+
+# ---- what it logs ----
+
+# The outcome is the Orchestrator's line. These are what went wrong on the way to
+# one, said where the reason is still in hand.
+
+
+@pytest.mark.unit
+def test_a_listing_that_could_not_be_fetched_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Said to nobody in the prompt, deliberately - so this line is the only
+    # place it is said at all.
+    repository = a_repository()
+    repository.list_files.side_effect = ConnectionError("no route to the read tier")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.opening", logging.WARNING,
+                                  "repository could not be listed",
+                                  failure=ConnectionError)
+        )
+
+
+@pytest.mark.unit
+def test_a_tool_call_that_failed_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The model reads the failure and carries on, so nothing above this sees it
+    # - and a channel that fails on every call reads, from outside, as a model
+    # that likes asking twice.
+    repository = a_repository()
+    repository.read_file.side_effect = [FileNotFoundError("no such path"), SOME_SOURCE]
+    model = a_model_that(
+        asks_to_read("src/io_shop/spend_sumary.py"),
+        asks_to_read(SOME_PATH),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.tools", logging.WARNING,
+                                  "tool call failed",
+                                  values={"tool": READ_FILE_TOOL},
+                                  failure=FileNotFoundError)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_cut_short_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    # The most expensive way a fix can fail, billed in full for nothing.
+    repository = a_repository()
+    model = a_model_that_is_cut_short()
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+                                  "answer truncated")
+        )
+
+
+@pytest.mark.unit
+def test_a_patch_whose_content_is_not_source_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Put back and usually corrected, so a turn paid for and thrown away shows
+    # nowhere but here.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_whose_content_is(A_PLACEHOLDER_WHERE_SOURCE_BELONGS),
+        submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+                                  "patch is not source", values={"paths": [SOME_PATH]})
+        )
+
+
+@pytest.mark.unit
+def test_an_empty_patch_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(), submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+                                  "patch was empty")
+        )

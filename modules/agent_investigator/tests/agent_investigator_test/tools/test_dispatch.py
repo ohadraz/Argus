@@ -19,6 +19,7 @@ itself.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import Mock, create_autospec
 
@@ -32,9 +33,17 @@ from agent_investigator.retrieval import (
     RolloutFetcher,
 )
 from agent_investigator.tools import LOGS_TOOL, METRICS_TOOL, Dispatcher
+from argus_core.mcp_transport import McpToolError
 from argus_core.models import ToolResult
 from argus_core.replay import CallType, Replay, ReplayEntry
-from argus_testkit import Assertion, Kept, Scenario, all_of, calling
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+)
 
 from agent_investigator_test.framework.assertions.tool_results import (
     the_result_answers,
@@ -210,6 +219,51 @@ def test_a_window_asked_for_twice_is_written_down_once() -> None:
         ) \
         .then(
             _exactly_one_entry_was_recorded(recorded)
+        )
+
+
+@pytest.mark.unit
+def test_a_channel_that_would_not_answer_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The gap is on the timeline already. This is the line that says it to
+    # whoever is looking after the read tier, which is where it gets repaired.
+    Scenario() \
+        .given(
+            some_dispatcher := a_dispatcher(reads_logs=create_autospec(
+                LogFetcher, instance=True,
+                side_effect=McpToolError("MCP tool call [get_logs] failed: timed out")
+            ))
+        ) \
+        .when(
+            lambda: some_dispatcher.dispatch(a_call_to(LOGS_TOOL))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_investigator.tools.dispatch", logging.WARNING,
+                                  "channel did not answer",
+                                  values={"what_was_asked": "the service's log lines"})
+        )
+
+
+@pytest.mark.unit
+def test_a_tool_the_investigator_does_not_offer_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Corrected on the model's next turn, and so invisible on the timeline -
+    # which is why a tool list the model keeps misreading would go unnoticed.
+    a_tool_that_is_not_offered = "delete_everything"
+
+    Scenario() \
+        .given(
+            some_dispatcher := a_dispatcher()
+        ) \
+        .when(
+            lambda: some_dispatcher.dispatch(a_call_to(a_tool_that_is_not_offered))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_investigator.tools.dispatch", logging.WARNING,
+                                  "unknown tool called",
+                                  values={"tool": a_tool_that_is_not_offered})
         )
 
 

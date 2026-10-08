@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from datetime import timedelta
@@ -8,12 +9,20 @@ import psycopg
 import pytest
 from argus_core import connect_from_env
 from argus_core.models import Alert, IncidentStatus
+from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
 from argus_incidents.repository import incidents, runs
 from argus_incidents.withdrawal import wanted_via
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from opentelemetry import baggage
 from orchestrator import worker
+from psycopg.pq import TransactionStatus
+
+from orchestrator_test.framework.observing import Observed, observing
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
+
+# Where the worker's own lines are logged from.
+THE_WORKER = "orchestrator.worker"
 
 # A lease already over by the time it is written: the state a worker that was
 # killed mid-walk leaves behind, arranged rather than waited for.
@@ -23,6 +32,12 @@ A_LEASE_ALREADY_OVER = timedelta(seconds=-1)
 # renewal the run is taken back part-way through, and the assertion fails for
 # the reason it exists.
 A_LEASE_SHORTER_THAN_THE_WALK = timedelta(milliseconds=500)
+
+# The context an incident kept from the span its alert was received in, as the
+# propagator wrote it: a trace, and the span within it.
+SOME_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
+SOME_SPAN = "00f067aa0ba902b7"
+SOME_TRACE_CONTEXT = {"traceparent": f"00-{SOME_TRACE}-{SOME_SPAN}-01"}
 
 
 @pytest.mark.component
@@ -482,6 +497,267 @@ def test_a_run_still_being_walked_keeps_its_claim(a_clean_database: None) -> Non
             .then(_no_second_worker_took_the_run(taken_from_under_it))
 
 
+@pytest.mark.component
+def test_a_run_is_worked_inside_the_trace_its_incident_kept(a_clean_database: None) -> None:
+    # Which is what makes an incident one trace from its alert: the run's span
+    # is a child of the span the alert was received in, however long after and
+    # in whichever process, and the walk's span hangs from the run's.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    observed = observing()
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, trace_context=SOME_TRACE_CONTEXT)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=lambda dont_care_incident_id: None,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env),
+                    tracer=observed.tracer
+                )
+            ) \
+            .then(
+                _the_run_continued_the_trace_its_incident_kept(observed, conn, incident_id)
+            )
+
+
+@pytest.mark.component
+def test_a_walk_runs_with_its_incident_and_its_run_in_the_baggage(
+    a_clean_database: None
+) -> None:
+    # So every log line written anywhere in the walk - in a node, in an agent,
+    # in a server answering one of its tool calls - says whose incident it was
+    # and which run of it, without anybody passing either down.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    seen: list[dict[str, object]] = []
+
+    def walk_recording_the_baggage(dont_care_incident_id: str) -> None:
+        seen.append(dict(baggage.get_all()))
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_recording_the_baggage,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _the_walk_saw_its_incident_and_run(seen, conn, incident_id)
+            )
+
+
+@pytest.mark.component
+def test_a_run_is_logged_as_it_is_claimed_and_as_it_finishes(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The two ends of a run, and which worker held it - the first thing asked
+    # of a run that is taking too long is where it is.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_worker = "some-host/4242"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: caplog.set_level(logging.INFO)),
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    some_worker,
+                    A_GENEROUS_LEASE,
+                    walk=lambda dont_care_incident_id: None,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                one_record_was_logged(caplog, THE_WORKER, logging.INFO, "run claimed",
+                                      values={"worker": some_worker}),
+                one_record_was_logged(caplog, THE_WORKER, logging.INFO, "run finished")
+            ))
+
+
+@pytest.mark.component
+def test_a_run_whose_walk_failed_is_logged_with_what_failed(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Work lost: the incident stops being worked, and a person has to look.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError("some failure nobody planned for")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(
+                one_record_was_logged(caplog, THE_WORKER, logging.ERROR, "run failed",
+                                      failure=RuntimeError)
+            )
+
+
+@pytest.mark.component
+def test_an_unwind_that_failed_after_a_failed_run_is_logged_with_what_failed(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The worse of the two failures: whatever the walk changed may still be
+    # changed, and nothing else is going to put it back.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError("some failure nobody planned for")
+
+    def unwind_that_fails(dont_care_incident_id: str) -> None:
+        raise ConnectionError("some provider that could not be reached")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=unwind_that_fails,
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(
+                one_record_was_logged(caplog, THE_WORKER, logging.ERROR,
+                                      "changes could not be put back after a failed run",
+                                      failure=ConnectionError)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("walked", [False, True])
+def test_a_withdrawn_incident_is_logged_as_it_is_unwound(
+    walked: bool, a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Withdrawn before the walk, or during it: the same line, saying which,
+    # because "never investigated" and "stopped partway" send a reader to
+    # different places.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        def walk_that_is_withdrawn_partway(withdrawn_id: str) -> None:
+            incidents.withdraw(conn, withdrawn_id)
+
+        if not walked:
+            incidents.withdraw(conn, incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: caplog.set_level(logging.INFO)),
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_is_withdrawn_partway,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(
+                one_record_was_logged(caplog, THE_WORKER, logging.INFO,
+                                      "incident withdrawn, unwinding",
+                                      values={"walked": walked})
+            )
+
+
+@pytest.mark.component
+def test_a_walk_runs_with_no_transaction_left_open_on_the_workers_connection(
+    a_clean_database: None
+) -> None:
+    # The walk can begin with DDL that waits for every open transaction to end -
+    # the checkpointer builds its indexes concurrently on first use - so anything
+    # the worker reads and leaves uncommitted before walking is a walk waiting on
+    # itself, for ever.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    seen: list[TransactionStatus] = []
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, trace_context=SOME_TRACE_CONTEXT)
+        runs.enqueue(conn, incident_id)
+
+        def walk_recording_the_connection(dont_care_incident_id: str) -> None:
+            seen.append(conn.info.transaction_status)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_recording_the_connection,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    still_wanted=wanted_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _the_walk_found_no_transaction_open(seen)
+            )
+
+
 def _no_second_worker_took_the_run(taken: list[str]) -> Assertion[bool]:
     """That nobody could claim the run while its own worker was still walking it.
 
@@ -715,6 +991,70 @@ def _only_one_incident_exists(conn: psycopg.Connection) -> Assertion[bool]:
             raise AssertionError(
                 f"Expected the resumed incident to be the only one, got "
                 f"{row[0] if row else 'no'} incidents."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_run_continued_the_trace_its_incident_kept(observed: Observed,
+                                                    conn: psycopg.Connection,
+                                                    incident_id: str) -> Assertion[bool]:
+    def assertion(dont_care_took_work: bool) -> bool:
+        run = runs.get_run_for_incident(conn, incident_id)
+        worked = [span for span in observed.spans() if span.name == "run"]
+        said = [
+            (
+                (f"{span.parent.trace_id:032x}", f"{span.parent.span_id:016x}")
+                if span.parent is not None else None,
+                (span.attributes or {}).get(ARGUS_INCIDENT_ID),
+                (span.attributes or {}).get(ARGUS_RUN_ID)
+            )
+            for span in worked
+        ]
+        expected = [((SOME_TRACE, SOME_SPAN), incident_id, run.id if run else None)]
+
+        if said != expected:
+            raise AssertionError(
+                f"Expected one [run] span continuing the trace the incident kept, "
+                f"naming the incident and the run, {expected}; the run spans were "
+                f"{said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_walk_saw_its_incident_and_run(seen: list[dict[str, object]],
+                                       conn: psycopg.Connection,
+                                       incident_id: str) -> Assertion[bool]:
+    def assertion(dont_care_took_work: bool) -> bool:
+        run = runs.get_run_for_incident(conn, incident_id)
+        expected = {ARGUS_INCIDENT_ID: incident_id, ARGUS_RUN_ID: run.id if run else None}
+        saw = [
+            {key: carried.get(key) for key in (ARGUS_INCIDENT_ID, ARGUS_RUN_ID)}
+            for carried in seen
+        ]
+
+        if saw != [expected]:
+            raise AssertionError(
+                f"Expected the walk to run once with {expected} in the baggage, "
+                f"and it saw {saw}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_walk_found_no_transaction_open(seen: list[TransactionStatus]) -> Assertion[bool]:
+    def assertion(dont_care_took_work: bool) -> bool:
+        if seen != [TransactionStatus.IDLE]:
+            raise AssertionError(
+                f"Expected the walk to run once with nothing open on the worker's "
+                f"connection, and it found it {[status.name for status in seen]}."
             )
 
         return True

@@ -21,6 +21,7 @@ the error rate stay where it was, and refute a hypothesis that was right.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -30,6 +31,8 @@ from typing import Any, Protocol
 import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import FlagUndo
+
+logger = logging.getLogger(__name__)
 
 
 class FlagWriteSettings(SettingsSlice):
@@ -55,6 +58,10 @@ class FlagWriteSettings(SettingsSlice):
 
 HttpPost = Callable[..., httpx2.Response]
 HttpGet = Callable[..., httpx2.Response]
+
+# How the wait between looks is spent. Injected so that a change which never
+# becomes visible is a case a test can afford, rather than five real seconds.
+Sleeper = Callable[[float], None]
 
 
 class EvaluateFlags(Protocol):
@@ -128,6 +135,7 @@ def set_flag(
     post: HttpPost = httpx2.post,
     *,
     evaluate: EvaluateFlags,
+    sleep: Sleeper = time.sleep
 ) -> FlagUndo:
     """Sets `flag` on or off in the configured environment and waits until it is.
 
@@ -155,17 +163,19 @@ def set_flag(
             f"could not set flag [{flag}] {_state_name(enabled)} at [{url}]: {error}"
         ) from error
 
-    _wait_until_evaluating(flag, enabled, evaluate)
+    _wait_until_evaluating(flag, enabled, evaluate, sleep)
+
+    logger.info("flag set", extra={"flag": flag, "enabled": enabled})
 
     return FlagUndo(
         flag=flag,
         was_enabled=not enabled,
         environment=settings.unleash_environment,
-        written_at=_when_the_provider_recorded(response)
+        written_at=_when_the_provider_recorded(flag, response)
     )
 
 
-def _when_the_provider_recorded(response: httpx2.Response) -> datetime | None:
+def _when_the_provider_recorded(flag: str, response: httpx2.Response) -> datetime | None:
     """The provider's own time for this write, or `None` where it gave none.
 
     Read from the response rather than taken from this process's clock, because
@@ -182,15 +192,20 @@ def _when_the_provider_recorded(response: httpx2.Response) -> datetime | None:
     dated = response.headers.get("Date")
 
     if not dated:
+        logger.warning("provider gave no write time", extra={"flag": flag})
         return None
 
     try:
         return parsedate_to_datetime(dated)
     except Exception:
+        logger.warning("provider gave no write time", extra={"flag": flag, "date": dated})
         return None
 
 
-def _wait_until_evaluating(flag: str, enabled: bool, evaluate: EvaluateFlags) -> None:
+def _wait_until_evaluating(flag: str,
+                           enabled: bool,
+                           evaluate: EvaluateFlags,
+                           sleep: Sleeper) -> None:
     for attempt in range(_EVALUATION_ATTEMPTS):
         try:
             if (flag in evaluate()) == enabled:
@@ -201,7 +216,9 @@ def _wait_until_evaluating(flag: str, enabled: bool, evaluate: EvaluateFlags) ->
             ) from error
 
         if attempt + 1 < _EVALUATION_ATTEMPTS:
-            time.sleep(_SECONDS_BETWEEN_ATTEMPTS)
+            sleep(_SECONDS_BETWEEN_ATTEMPTS)
+
+    logger.warning("flag accepted but not evaluating", extra={"flag": flag, "enabled": enabled})
 
     raise FlagNotSet(
         f"flag [{flag}] was accepted as {_state_name(enabled)} but still evaluates "

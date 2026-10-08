@@ -10,6 +10,7 @@ a run nobody is holding can be picked up by whoever comes next.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Final
@@ -41,6 +42,8 @@ from orchestrator.walk.state import IncidentState
 
 if TYPE_CHECKING:
     from qdrant_client import QdrantClient
+
+logger = logging.getLogger(__name__)
 
 # Where the graph a walk runs on comes from. A parameter rather than a global
 # reached through: the thread a resumed run continues on is the whole of what
@@ -185,6 +188,7 @@ def run_incident(incident_id: str,
         set_status_on_exception=False
     ) as span:
         started_at = clock()
+        logger.info("walk started")
 
         try:
             ended = graph_of().invoke(
@@ -208,8 +212,10 @@ def run_incident(incident_id: str,
             raise
 
         outcome = _how_it_ended(ended)
+        walked = clock() - started_at
         span.set_attribute(ARGUS_INCIDENT_OUTCOME, outcome)
-        _measured(walks, walk_duration, clock() - started_at, outcome)
+        _measured(walks, walk_duration, walked, outcome)
+        logger.info("walk ended", extra={"outcome": outcome, "duration_s": walked})
 
 
 def _how_it_ended(ended: Any) -> str:

@@ -22,13 +22,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
 from argus_core.models import CodeSearch
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.logs import one_record_was_logged
+from argus_testkit.scenario import Scenario, attempting, calling
 from argus_web.pushes import (
     PushSettings,
     PushUnverified,
@@ -268,6 +270,84 @@ def test_a_deployment_that_keeps_no_index_records_nothing() -> None:
                 _nothing_was_recorded(watermark),
                 the_answer_was(None)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_push_recorded_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # The commit the index is now chasing, said where a person looking for why
+    # it is behind will look first.
+    body, signature = a_delivery_signed_with(SOME_SECRET, after=THE_COMMIT_PUSHED)
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO))
+        ) \
+        .when(
+            lambda: receive_push(
+                body,
+                signature,
+                settings=some_settings(secret=SOME_SECRET),
+                record_pushed=a_watermark()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_web.pushes", logging.INFO,
+                                  "push recorded",
+                                  values={"repository": THE_REPOSITORY,
+                                          "sha": THE_COMMIT_PUSHED})
+        )
+
+
+@pytest.mark.unit
+def test_a_delivery_signed_with_the_wrong_secret_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Two very different stories - a secret rotated on one side only, or
+    # somebody who is not GitHub - and whether it was signed at all is the
+    # first thing that tells them apart.
+    body, signature = a_delivery_signed_with("not-the-secret")
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: receive_push(
+                    body,
+                    signature,
+                    settings=some_settings(secret=SOME_SECRET),
+                    record_pushed=a_watermark()
+                )
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_web.pushes", logging.WARNING,
+                                  "push signature rejected",
+                                  values={"signed": True})
+        )
+
+
+@pytest.mark.unit
+def test_a_push_to_a_repository_argus_does_not_index_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Answered as received and recorded nowhere, so a webhook pointed at the
+    # wrong deployment would otherwise look exactly like one that works.
+    some_other_repository = "someone-else/their-service"
+    body, signature = a_delivery_signed_with(SOME_SECRET, repository=some_other_repository)
+
+    Scenario() \
+        .when(
+            lambda: receive_push(
+                body,
+                signature,
+                settings=some_settings(secret=SOME_SECRET),
+                record_pushed=a_watermark()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_web.pushes", logging.WARNING,
+                                  "push for another repository",
+                                  values={"repository": some_other_repository})
         )
 
 

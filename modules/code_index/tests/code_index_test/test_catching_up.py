@@ -21,19 +21,23 @@ reconciler's name.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.logs import one_record_was_logged
+from argus_testkit.scenario import Scenario, attempting, calling
 from code_index.building import IndexSettings
 from code_index.catching_up import (
     BranchHead,
     ChangedPaths,
     Indexer,
     IndexRecord,
+    Pass,
     catch_up,
+    catch_up_forever,
 )
 from code_index.records import RepositoryIndex
 from repository_source import RepositoryUnreadable
@@ -50,6 +54,7 @@ SOME_FILE_THAT_CHANGED = "src/io_shop/spend_summary.py"
 # have to be a pair a `Settings` would accept.
 DONT_CARE_MAX_LINES = 60
 DONT_CARE_OVERLAP = 10
+DONT_CARE_INTERVAL_SECONDS = 300.0
 
 
 @pytest.mark.unit
@@ -222,6 +227,105 @@ def test_a_pass_that_failed_leaves_the_work_where_it_was() -> None:
         .then(an_error_was_raised(RepositoryUnreadable))
 
 
+@pytest.mark.unit
+def test_an_index_brought_up_to_date_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # The pass that did something, which is the rare one - and the commit the
+    # passages now describe is what a search that answered strangely is checked
+    # against first.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO))
+        ) \
+        .when(
+            lambda: catch_up(
+                settings=some_settings(),
+                recorded=an_index_at(WHAT_IS_INDEXED, pushed=WHAT_IS_DEPLOYED),
+                head_of=a_branch_at(WHAT_IS_DEPLOYED),
+                changed_between=a_comparison_naming(SOME_FILE_THAT_CHANGED),
+                index=an_indexer()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "code_index.catching_up", logging.INFO,
+                                  "index brought up to date",
+                                  values={"from_sha": WHAT_IS_INDEXED,
+                                          "to_sha": WHAT_IS_DEPLOYED})
+        )
+
+
+@pytest.mark.unit
+def test_an_index_built_whole_is_logged_before_it_starts(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The slow pass. Said before it starts rather than after, because a process
+    # that goes quiet for minutes reads as one that has hung.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO))
+        ) \
+        .when(
+            lambda: catch_up(
+                settings=some_settings(),
+                recorded=nothing_recorded(),
+                head_of=a_branch_at(WHAT_IS_DEPLOYED),
+                changed_between=a_comparison_naming(SOME_FILE_THAT_CHANGED),
+                index=an_indexer()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "code_index.catching_up", logging.INFO,
+                                  "whole index build started",
+                                  values={"to_sha": WHAT_IS_DEPLOYED})
+        )
+
+
+@pytest.mark.unit
+def test_a_comparison_that_cannot_say_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Recovered from - the whole repository is considered instead - but a pass
+    # expected to take seconds is about to take minutes, and this is why.
+    Scenario() \
+        .when(
+            lambda: catch_up(
+                settings=some_settings(),
+                recorded=an_index_at(WHAT_IS_INDEXED, pushed=WHAT_IS_DEPLOYED),
+                head_of=a_branch_at(WHAT_IS_DEPLOYED),
+                changed_between=a_comparison_that_cannot_say(),
+                index=an_indexer()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "code_index.catching_up", logging.WARNING,
+                                  "comparison incomplete, considering everything",
+                                  values={"from_sha": WHAT_IS_INDEXED,
+                                          "to_sha": WHAT_IS_DEPLOYED})
+        )
+
+
+@pytest.mark.unit
+def test_a_pass_that_failed_is_logged_as_a_warning_and_slept_off(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A warning rather than an error: nobody has to act. The gap is still there
+    # when the loop next wakes, and the next pass is the retry.
+    Scenario() \
+        .when(
+            attempting(
+                lambda: catch_up_forever(
+                    DONT_CARE_INTERVAL_SECONDS,
+                    a_pass_that_fails_with(RepositoryUnreadable("no route to host")),
+                    sleep=a_sleep_that_ends_the_loop()
+                )
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "code_index.catching_up", logging.WARNING,
+                                  "catch-up pass failed",
+                                  failure=RepositoryUnreadable)
+        )
+
+
 def _the_index_was_brought_to(index: Any, sha: str) -> Assertion[Any]:
     """Which commit the passages are being made to describe."""
     def assertion(dont_care_result: Any) -> bool:
@@ -338,6 +442,22 @@ def an_indexer() -> Any:
     what belongs here is which commit it is aimed at and with which paths.
     """
     return create_autospec(Indexer, instance=True)
+
+
+def a_pass_that_fails_with(error: Exception) -> Any:
+    return create_autospec(Pass, instance=True, side_effect=error)
+
+
+class _TheLoopWasEnded(Exception):
+    """Raised from the loop's first sleep, which is the only way out of it."""
+
+
+def a_sleep_that_ends_the_loop() -> Any:
+    """A sleep that never waits, and ends a loop that would otherwise not."""
+    def sleep(_seconds: float) -> None:
+        raise _TheLoopWasEnded()
+
+    return sleep
 
 
 def some_settings(repository: str = THE_REPOSITORY,

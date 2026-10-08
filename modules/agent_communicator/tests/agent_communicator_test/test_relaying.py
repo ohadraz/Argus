@@ -18,6 +18,8 @@ line that landed - or past one nobody was ever going to be told about.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Outcome, relay_once
@@ -29,7 +31,13 @@ from argus_core.events import (
 from argus_core.models import RetrievalChannel
 from argus_incidents.repository import events
 from argus_narration import NarrationLine, a_narration_line
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+)
 
 from agent_communicator_test.framework.assertions import it_delivered
 from agent_communicator_test.framework.builders import three_steps_of
@@ -245,6 +253,26 @@ def test_the_log_is_asked_for_no_more_than_one_batch() -> None:
         ) \
         .when(lambda: the_log.asked_for) \
         .then(_it_asked_for(room_for_two))
+
+
+@pytest.mark.unit
+def test_a_relay_held_where_it_is_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Nothing is lost, but nothing more is said either until Slack answers, so
+    # an account that went quiet mid-incident has this line to explain it.
+    a_relay = _a_relay_that_cannot_say_more_now(1)
+
+    Scenario() \
+        .given(
+            the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
+            the_place := _a_place_at(0)
+        ) \
+        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .then(
+            one_record_was_logged(caplog, "agent_communicator.relaying", logging.WARNING,
+                                  "relay paused")
+        )
 
 
 class _ALog:

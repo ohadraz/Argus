@@ -3,8 +3,9 @@
 What only a real process can show. A process is stopped by a signal, not by
 returning from `main`, and a signal's default is to end the process where it
 stands - past every `finally` that would have flushed what was still batched.
-And the clock a run directory is named by is read once per process, from the
-environment the process was started in.
+The clock a run directory is named by is read once per process, from the
+environment the process was started in. And the level a process logs at is
+the whole process's, set on the root by the one call a `main` makes.
 
 Each case starts a child Python that installs telemetry exactly as a `main`
 does, says where it is writing, and then waits to be stopped. No backend is
@@ -23,36 +24,43 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, all_of
 
 THE_LAST_SPAN = "the-last-span"
+SOME_INFO = "some milestone"
+SOME_DEBUG = "some diagnostic detail"
 
-# The child: telemetry started as a `main` starts it, one span ended, the run
-# directory said on stdout, and then idle until something stops it. Idle in
-# short sleeps rather than one long block, because a signal's Python handler
-# runs only when the interpreter next gets control.
+# The child: telemetry started as a `main` starts it, one span ended, one
+# record logged at INFO and one at DEBUG, the run directory said on stdout, and
+# then idle until something stops it. Idle in short sleeps rather than one long
+# block, because a signal's Python handler runs only when the interpreter next
+# gets control.
 _A_PROCESS = f"""
-import sys, time
+import logging, sys, time
 from argus_core import TelemetrySettings
 from argus_telemetry import start_telemetry
 from opentelemetry import trace
 
-telemetry = start_telemetry(TelemetrySettings(
+with start_telemetry(TelemetrySettings(
     telemetry_directory=sys.argv[1],
     otel_exporter_otlp_endpoint="",
     otel_exporter_otlp_headers="",
     langfuse_base_url="",
     langfuse_public_key="",
-    langfuse_secret_key=""
-), "argus-dont-care")
+    langfuse_secret_key="",
+    log_level="INFO"
+), "argus-dont-care") as telemetry:
+    with trace.get_tracer(__name__).start_as_current_span("{THE_LAST_SPAN}"):
+        pass
 
-with trace.get_tracer(__name__).start_as_current_span("{THE_LAST_SPAN}"):
-    pass
+    logger = logging.getLogger("argus_dont_care.some_module")
+    logger.info("{SOME_INFO}")
+    logger.debug("{SOME_DEBUG}")
 
-print(telemetry.run_directory, flush=True)
+    print(telemetry.run_directory, flush=True)
 
-while True:
-    time.sleep(0.05)
+    while True:
+        time.sleep(0.05)
 """
 
 # A stack clock nowhere near the wall's: twice real time, counted from 1970,
@@ -78,6 +86,43 @@ def test_a_process_stopped_by_its_signal_has_written_what_it_had_batched(
         ) \
         .then(
             _its_traces_hold(THE_LAST_SPAN)
+        )
+
+
+@pytest.mark.component
+def test_a_process_stopped_by_its_signal_says_it_stopped(tmp_path: Path) -> None:
+    # A signal ends a process past every `with`, so the line its telemetry
+    # would have written on the way out of `main` is written on the way out of
+    # the signal instead - or a stopped stack's logs would read as though every
+    # process had been cut off mid-sentence.
+    Scenario() \
+        .given(
+            a_process := _a_process_writing_under(tmp_path)
+        ) \
+        .when(
+            lambda: _stopped_by_its_signal(a_process)
+        ) \
+        .then(
+            _its_logs_say("service stopped")
+        )
+
+
+@pytest.mark.component
+def test_a_process_logs_at_info_and_not_below_by_default(tmp_path: Path) -> None:
+    # INFO is the audit trail a running stack keeps; DEBUG is for the incident
+    # somebody is chasing, and costs a restart with the level lowered.
+    Scenario() \
+        .given(
+            a_process := _a_process_writing_under(tmp_path)
+        ) \
+        .when(
+            lambda: _stopped_by_its_signal(a_process)
+        ) \
+        .then(
+            all_of(
+                _its_logs_say(SOME_INFO),
+                _its_logs_never_say(SOME_DEBUG)
+            )
         )
 
 
@@ -160,6 +205,49 @@ def _its_traces_hold(span_name: str) -> Assertion[Path]:
             raise AssertionError(
                 f"Expected [{traces}] to hold the span [{span_name}] once the process "
                 f"was stopped, and the spans it held were {names}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _messages_in(run_directory: Path) -> list[str]:
+    """Every log record's message in the run's `logs.jsonl`, none where it was never written."""
+    logs = run_directory / "logs.jsonl"
+    lines = logs.read_text(encoding="utf-8").splitlines() if logs.exists() else []
+
+    return [
+        record["body"]["stringValue"]
+        for line in lines
+        for resource in json.loads(line).get("resourceLogs", [])
+        for scope in resource["scopeLogs"]
+        for record in scope["logRecords"]
+    ]
+
+
+def _its_logs_say(message: str) -> Assertion[Path]:
+    def assertion(run_directory: Path) -> bool:
+        messages = _messages_in(run_directory)
+
+        if message not in messages:
+            raise AssertionError(
+                f"Expected the process's logs to say [{message}] once it was stopped, "
+                f"and they said {messages}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _its_logs_never_say(message: str) -> Assertion[Path]:
+    def assertion(run_directory: Path) -> bool:
+        messages = _messages_in(run_directory)
+
+        if message in messages:
+            raise AssertionError(
+                f"Expected the process's logs never to say [{message}], and they said {messages}."
             )
 
         return True

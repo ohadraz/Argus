@@ -13,10 +13,12 @@ the time anybody noticed.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from argus_core import to_iso
 from argus_core.models import AlarmClaim, Alert
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, one_record_was_logged
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 
 from argus_web_test.framework.builders import a_grafana_payload
@@ -368,6 +370,49 @@ def test_a_notification_of_no_alerts_reports_only_resolutions(payload: dict[str,
         ) \
         .then(
             _it_reports_only_resolutions(True)
+        )
+
+
+@pytest.mark.unit
+def test_a_claim_it_does_not_recognise_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Read conservatively rather than refused - and said, because a rule that
+    # meant something by it is being read as meaning something else, and only
+    # whoever wrote the rule can say which.
+    some_unrecognised_claim = "whatever-some-other-tool-writes"
+
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(claim=some_unrecognised_claim)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_web.grafana", logging.WARNING,
+                                  "unknown claim annotation",
+                                  values={"claim": some_unrecognised_claim})
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("payload", [
+    {**a_grafana_payload(), "alerts": []},
+    {key: value for key, value in a_grafana_payload().items() if key != "alerts"}
+], ids=["empty", "absent"])
+def test_a_notification_of_no_alerts_is_logged_as_a_warning(
+    payload: dict[str, object], caplog: pytest.LogCaptureFixture
+) -> None:
+    # Answered as resolutions are, so it opens nothing - but Grafana never
+    # sends one, and whatever did is worth a look.
+    Scenario() \
+        .when(
+            lambda: reports_only_resolutions(payload)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_web.grafana", logging.WARNING,
+                                  "notification carried no alerts")
         )
 
 

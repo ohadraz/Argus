@@ -173,9 +173,11 @@ source_modules = ["argus_telemetry"]
 forbidden_modules = ["*"]
 # Every process's `main` reaches this, `argus_web` included, so whatever it
 # imports every process installs. The kernel, for the settings slice it is
-# handed, and nothing else.
+# handed and the names telemetry is spelled in - the keys a log record is
+# stamped with are the ones the spans carry - and nothing else.
 ignore_imports = [
     "argus_telemetry.** -> argus_core",
+    "argus_telemetry.** -> argus_core.telemetry",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

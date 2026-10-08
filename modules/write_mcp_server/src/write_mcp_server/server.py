@@ -21,7 +21,6 @@ was in.
 
 from __future__ import annotations
 
-from contextlib import closing
 from typing import Final
 
 from argus_core import TelemetrySettings, WriteMcpEndpoint, get_settings
@@ -443,7 +442,7 @@ def main() -> None:
     """
     settings = get_settings()
 
-    with closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)):
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
         build_server(
             WriteMcpEndpoint.of(settings),
             FlagWriteSettings.of(settings),
@@ -452,7 +451,7 @@ def main() -> None:
             # on as the writes port: no action below names a route.
             ArgoCd(ArgoCdSettings.of(settings)),
             DiscardSettings.of(settings)
-        ).run(transport="streamable-http")
+        ).serve()
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ conversation a provider will not accept, or one the model cannot make sense of.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 import pytest
@@ -32,7 +33,7 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
 )
 from argus_core.models import Ask, ToolResults, Transcript, Turn
-from argus_testkit import Assertion, Kept, Scenario, all_of
+from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
 
 from agent_postmortem_test.framework.builders import (
     a_measured_incident,
@@ -275,6 +276,29 @@ def test_a_model_that_answers_completely_is_asked_once() -> None:
                 _was_asked(asks),
                 _found_no_fault()
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_asked_for_again_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Usually corrected on the second attempt, so a second call paid for shows
+    # nowhere but here.
+    Scenario() \
+        .given(
+            a_model_that_forgot_the_root_cause := a_model_answering_in_turn(
+                an_answer_without(ROOT_CAUSE_FIELD),
+                an_answer(root_cause="the checkout fallback was disabled"))
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_that_forgot_the_root_cause,
+                                         an_evidence_bundle(),
+                                         a_measured_incident())
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_postmortem.conversation", logging.WARNING,
+                                  "postmortem answer rejected")
         )
 
 

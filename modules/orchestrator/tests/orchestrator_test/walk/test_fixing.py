@@ -14,13 +14,14 @@ human it was on its way to, and the investigation behind it would be lost.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
 from agent_codefix.proposing import FixDeclined, FixNotAnswered
 from argus_core.events import FixAttempted, IncidentEvent
 from argus_core.models import Alert, FixOutcome, Hypothesis, IncidentStatus, OpenedPullRequest
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.ports import ProposeFix
@@ -389,6 +390,52 @@ def test_an_incident_nothing_could_be_done_for_also_goes_to_the_postmortem() -> 
         .given(an_unfixed_incident := _an_incident_in(IncidentStatus.FIXING)) \
         .when(lambda: route_after_codefix(an_unfixed_incident)) \
         .then(the_route_is(POSTMORTEM_ROUTE))
+
+
+@pytest.mark.unit
+def test_what_code_fix_found_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # The one step that ends with somebody else's turn, and it usually moves no
+    # status - so no line from the walk's narration says it happened, and this
+    # is the line saying where the proposal can be read.
+    some_url = "https://github.invalid/io-shop/target/pull/41"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_with_a_fix := _an_agent_offering(a_pull_request(url=some_url))
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_with_a_fix)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.fixing", logging.INFO,
+                                  "fix attempted",
+                                  values={"outcome": FixOutcome.PROPOSED,
+                                          "pull_request": some_url})
+        )
+
+
+@pytest.mark.unit
+def test_a_proposal_that_could_not_be_made_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The outcome somebody can go and repair, so its line carries the traceback
+    # the timeline's one sentence leaves out.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_could_not := _an_agent_raising(
+                RuntimeError("could not create branch: 403 Forbidden")
+            )
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_that_could_not)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.fixing", logging.WARNING,
+                                  "fix could not be proposed", failure=RuntimeError)
+        )
 
 
 class _AnAgentRememberingWhatItWasAsked:

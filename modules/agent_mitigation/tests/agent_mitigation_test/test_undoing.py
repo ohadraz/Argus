@@ -10,7 +10,9 @@ would be overwritten.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
@@ -36,8 +38,9 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     FlagUndo,
     ReplicaUndo,
+    UndoDescriptor,
 )
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 
 from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
@@ -848,3 +851,169 @@ def _the_autoscaling_restorer_was_not_asked(restore: MagicMock) -> Assertion[Und
         return True
 
     return assertion
+
+
+# ---- what it logs ----
+
+# Where putting a change back logs from.
+THE_UNDOING = "agent_mitigation.undoing"
+
+# Every kind of change, with the collaborator that puts it back and what the
+# answer is about. One case each, because each kind's restore is its own branch.
+EVERY_KIND_OF_RESTORE = [
+    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 DeploymentRestorer, SOME_APPLICATION, id="rollback"),
+    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 CapacityRestorer, SOME_APPLICATION, id="scale-out"),
+    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 AutoscalingRestorer, SOME_APPLICATION, id="autoscaler-pin"),
+    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 AcceleratorPinRestorer, SOME_APPLICATION, id="card-pin"),
+    pytest.param(an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
+                 FlagSetter, SOME_FLAG, id="flag")
+]
+
+# Every kind that restores two things, answering that only the first went back.
+EVERY_HALF_RESTORE = [
+    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 _a_restorer_that_puts_back(revision=True, automated_sync=False),
+                 id="rollback"),
+    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 _a_capacity_restorer_that_puts_back(count=True, automated_sync=False),
+                 id="scale-out"),
+    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 _an_autoscaling_restorer_that_puts_back(floor=True, automated_sync=False),
+                 id="autoscaler-pin"),
+    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 _an_accelerator_pin_restorer_that_puts_back(pin=True, automated_sync=False),
+                 id="card-pin")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborator", "spec", "subject"),
+                         EVERY_KIND_OF_RESTORE)
+def test_a_restore_that_raised_is_logged_as_a_warning(
+    descriptor: UndoDescriptor, collaborator: str, spec: type, subject: str,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The answer says not established and whoever asked escalates on it, and
+    # neither of those carries the traceback - the one thing that says why.
+    Scenario() \
+        .given(
+            the_restore_raises := _a_collaborator_raising(spec)
+        ) \
+        .when(
+            lambda: undo_change(
+                descriptor, **_collaborators_with(**{collaborator: the_restore_raises})
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_UNDOING, logging.WARNING, "restore failed",
+                                  values={"subject": subject}, failure=RuntimeError)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborator", "half_a_restore"),
+                         EVERY_HALF_RESTORE)
+def test_a_change_only_partly_put_back_is_logged_as_a_warning(
+    descriptor: UndoDescriptor, collaborator: str, half_a_restore: MagicMock,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A deployment that looks right and receives nothing anybody ships to it,
+    # which nobody looking at it would notice.
+    Scenario() \
+        .given(
+            collaborators := _collaborators_with(**{collaborator: half_a_restore})
+        ) \
+        .when(
+            lambda: undo_change(descriptor, **collaborators)
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_UNDOING, logging.WARNING,
+                                  "change only partly put back",
+                                  values={"subject": SOME_APPLICATION,
+                                          "still_changed": "automated sync"})
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_change_that_does_not_say_when_argus_wrote_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    Scenario() \
+        .given(
+            a_descriptor_from_before := FlagUndo(
+                flag=SOME_FLAG, was_enabled=True, environment="production"
+            )
+        ) \
+        .when(
+            lambda: undo_change(a_descriptor_from_before, **_collaborators_with())
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_UNDOING, logging.WARNING,
+                                  "flag change carries no write time",
+                                  values={"subject": SOME_FLAG})
+        )
+
+
+@pytest.mark.unit
+def test_a_record_that_cannot_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    Scenario() \
+        .given(
+            collaborators := _collaborators_with(changed_from_outside=nobody_can_say())
+        ) \
+        .when(
+            lambda: undo_change(
+                an_undo_descriptor_for(SOME_FLAG, was_enabled=True), **collaborators
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_UNDOING, logging.WARNING,
+                                  "outside change could not be established",
+                                  values={"subject": SOME_FLAG})
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_left_as_found_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # Nothing was written, so the write server says nothing - and a flag Argus
+    # changed and then deliberately left is the one thing a person should know
+    # before they go looking for it.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            collaborators := _collaborators_with(changed_from_outside=somebody_changed_it())
+        ) \
+        .when(
+            lambda: undo_change(
+                an_undo_descriptor_for(SOME_FLAG, was_enabled=True), **collaborators
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_UNDOING, logging.INFO, "flag left as found",
+                                  values={"subject": SOME_FLAG})
+        )
+
+
+def _collaborators_with(**chosen: Any) -> dict[str, Any]:
+    """Every collaborator an undo is handed, none of them asked, but those named."""
+    return {
+        "changed_from_outside": nobody_changed_it(),
+        "set_state": _a_flag_setter(),
+        "restore_deployment": a_restorer_nobody_calls(),
+        "restore_capacity": a_capacity_restorer_nobody_calls(),
+        "restore_autoscaling": an_autoscaling_restorer_nobody_calls(),
+        "restore_accelerator_pin": an_accelerator_pin_restorer_nobody_calls(),
+        **chosen
+    }
+
+
+def _a_collaborator_raising(spec: type) -> MagicMock:
+    collaborator: MagicMock = create_autospec(spec, instance=True)
+    collaborator.side_effect = RuntimeError("the platform would not answer")
+
+    return collaborator

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from argus_core.ids import UuidStr
 from argus_core.models.incident_status import IncidentStatus
@@ -17,3 +17,6 @@ class Incident(BaseModel):
     # spends most of its life in and `fixing` keeps it in despite reading like
     # an ending.
     ended_at: datetime | None
+    # The trace the alert arrived in, as the propagator wrote it, which every
+    # walk of the incident continues. Empty for one started outside any trace.
+    trace_context: dict[str, str] = Field(default_factory=dict)

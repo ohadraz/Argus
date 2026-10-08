@@ -8,6 +8,7 @@ subject.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
@@ -64,7 +65,15 @@ from argus_core.models import (
     WorseWhen,
 )
 from argus_core.replay import CallType, ReplayEntry
-from argus_testkit import Assertion, Kept, Scenario, all_of, calling, raising
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+    raising,
+)
 
 from agent_investigator_test.framework.builders.budget import (
     a_budget,
@@ -3319,6 +3328,145 @@ def _the_first_candidate_published_moved(published: list[IncidentEvent],
 
     return assertion
 
+
+
+# ---- what it logs ----
+
+# Where the investigation's own lines are logged from. The timeline says what
+# the incident went through; these are what an operator reads about the
+# investigation itself.
+THE_INVESTIGATION = "agent_investigator.investigation"
+
+
+@pytest.mark.unit
+def test_metrics_that_could_not_be_read_are_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(raising(investigation.metrics_fetcher, McpToolError(
+                "MCP tool call [get_metrics_summary] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
+                                  "metrics could not be read", failure=McpToolError)
+        )
+
+
+@pytest.mark.unit
+def test_a_turn_cut_short_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    # Billed in full for nothing, which is a cost somebody watching the spend
+    # needs to see beside the escalation it caused.
+    investigation = an_investigation(a_model_that_is_always_cut_short())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
+                                  "answer truncated")
+        )
+
+
+@pytest.mark.unit
+def test_a_refusal_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    investigation = an_investigation(a_model_that_says(a_turn_the_model_declined()))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
+                                  "model declined to answer")
+        )
+
+
+@pytest.mark.unit
+def test_an_investigation_that_ran_out_is_logged_with_the_bounds_it_reached(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Which bound, because the remedy differs: a bound on calls is widened in
+    # one place and a bound on time in another.
+    some_calls_allowed = 2
+    investigation = an_investigation(
+        a_model_that_never_stops_reading(), budget=a_budget(tool_calls=some_calls_allowed)
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_INVESTIGATION, logging.INFO,
+                                  "investigation ran out of budget",
+                                  values={"bounds": [THE_TOOL_CALL_BOUND]})
+        )
+
+
+@pytest.mark.unit
+def test_a_placement_that_could_not_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(investigation.the_placement_could_not_be_read(McpToolError(
+                "MCP tool call [get_placements] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
+                                  "placement could not be read", failure=McpToolError)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_that_could_not_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The model is asked again and usually corrects itself, so this is the only
+    # place a turn it paid for and threw away is visible.
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_answering(an_explanation(failure_mode=None, confidence=0.8)),
+            a_turn_answering(an_explanation())
+        )
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
+                                  "answer could not be read", failure=ValueError)
+        )
 
 
 # ---- from test_recorded_investigation.py ----

@@ -11,6 +11,7 @@ evaluation came late enough to say anything about an action is the caller's.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import create_autospec
@@ -19,6 +20,7 @@ import httpx2
 import pytest
 from argus_core.models import AlertRuleStanding, WorseWhen
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from metrics_source import RuleSeries
 from read_mcp_server.alert_rules import (
@@ -454,6 +456,47 @@ def test_a_rule_grafana_will_not_define_watches_no_series() -> None:
             )
         ) \
         .then(_no_series_is_followed())
+
+
+@pytest.mark.unit
+def test_a_rule_whose_evaluation_measured_nothing_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A rule whose query is failing is the alerting stack's problem, not the
+    # incident's - and this is the one place that sees its health.
+    Scenario() \
+        .when(
+            attempting(lambda: how_the_rule_stands(
+                SOME_RULE, fetch=a_grafana_holding(state=INACTIVE, health=ERRORED)
+            ))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "read_mcp_server.alert_rules", logging.WARNING,
+                                  "alert rule unhealthy",
+                                  values={"rule": SOME_RULE, "health": ERRORED})
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_grafana_will_not_define_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Answered as no series, which the window survives - and which loses why.
+    an_unreachable_grafana = create_autospec(FetchFromGrafana)
+    an_unreachable_grafana.side_effect = AlertRuleUnreadable("dont-care")
+
+    Scenario() \
+        .when(
+            lambda: the_series_the_rule_watches(
+                SOME_RULE, fetch=cast(FetchFromGrafana, an_unreachable_grafana)
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "read_mcp_server.alert_rules", logging.WARNING,
+                                  "alert rule definition could not be read",
+                                  values={"rule": SOME_RULE},
+                                  failure=AlertRuleUnreadable)
+        )
 
 
 def a_settings(token: str = "") -> AlertRuleReadSettings:

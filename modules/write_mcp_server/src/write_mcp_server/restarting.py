@@ -26,6 +26,7 @@ would report a reading that never moved.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import Final
@@ -37,6 +38,8 @@ from deployment_platform import (
     DeploymentPlatformWrites,
     PlatformUnreachable,
 )
+
+logger = logging.getLogger(__name__)
 
 # How long to keep asking whether the new process is up. A rollout is seconds
 # in practice; this is the bound on "it never came back", not the expected
@@ -120,12 +123,11 @@ def restart_service(service: str,
     except DeploymentPlatformError as error:
         raise _not_restarted(f"could not restart [{service}]: {error}", error) from error
 
-    return RestartedService(
-        service=service,
-        process_start_time_seconds=_wait_until_a_new_process_serves(
-            service, was_started_at, platform, sleep
-        )
-    )
+    started_at = _wait_until_a_new_process_serves(service, was_started_at, platform, sleep)
+
+    logger.info("service restarted", extra={"service": service})
+
+    return RestartedService(service=service, process_start_time_seconds=started_at)
 
 
 def _wait_until_a_new_process_serves(service: str,
@@ -156,6 +158,8 @@ def _wait_until_a_new_process_serves(service: str,
 
         if attempt + 1 < _START_TIME_ATTEMPTS:
             sleep(_SECONDS_BETWEEN_ATTEMPTS)
+
+    logger.warning("restart not confirmed in time", extra={"service": service})
 
     raise ServiceNotRestarted(
         f"[{service}] was accepted for restart but is still served by the "

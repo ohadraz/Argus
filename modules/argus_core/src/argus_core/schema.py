@@ -151,6 +151,11 @@ def main() -> None:
     Says which database it applied to, and not how it reached it: the URL
     carries a password, and a job whose ordinary output is a credential is a job
     whose output nobody can paste into an issue.
+
+    The one `main` that configures logging for itself. Every other process's
+    logging is set up by `argus_telemetry` as its telemetry starts, but the
+    kernel depends on nothing in this workspace, so this job starts no
+    telemetry and has nothing else to give it a console.
     """
     logging.basicConfig(level=logging.INFO)
 

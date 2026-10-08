@@ -1,21 +1,31 @@
 from __future__ import annotations
 
+import logging
+from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import pytest
 from argus_core import connect_from_env
 from argus_core.models import IncidentStatus
+from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents.repository import events, incidents, runs
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from argus_web.app import app
 from fastapi.testclient import TestClient
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
+from argus_web_test.framework.assertions import the_response_was
 from argus_web_test.framework.builders import a_grafana_payload
+from argus_web_test.framework.observing import observing_the_app, the_span_named
 
 # The state a run is in when nothing has picked it up yet. Named from the
 # repository's own vocabulary rather than spelled out here, so a rename moves
 # this with it.
 QUEUED = runs.RunState.QUEUED
+
+# What the span an alert is received in is called.
+RECEIVE_ALERT = "receive alert"
 
 
 @pytest.mark.component
@@ -34,7 +44,7 @@ def test_an_accepted_alert_is_acknowledged_before_anyone_is_on_it() -> None:
             ) \
             .then(all_of(
                 _the_incident_is_acknowledged(),
-                _the_account_says_only_that_the_alert_arrived(),
+                _the_account_says_only_that_the_alert_arrived()
             ))
 
 
@@ -57,7 +67,7 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
                 _the_alert_was_accepted(),
                 _an_incident_was_created_for(some_service),
                 _a_run_is_queued_for_it(),
-                _the_graph_has_not_walked_it(),
+                _the_graph_has_not_walked_it()
             ))
 
 
@@ -78,7 +88,7 @@ def test_a_resolved_alert_opens_no_incident() -> None:
             ) \
             .then(all_of(
                 _it_was_answered_without_an_incident(),
-                _no_incident_is_open_for(some_service),
+                _no_incident_is_open_for(some_service)
             ))
 
 
@@ -100,7 +110,65 @@ def test_a_rule_firing_again_joins_the_incident_it_opened() -> None:
             ) \
             .then(all_of(
                 _it_was_answered_with(first.json()["incident_id"]),
-                _incidents_were_opened_for(some_service, count=1),
+                _incidents_were_opened_for(some_service, count=1)
+            ))
+
+
+@pytest.mark.component
+def test_an_alert_is_received_in_a_span_its_incident_keeps() -> None:
+    # Where the incident's trace begins. The incident keeps this span's
+    # context, and every walk of it continues from there - so a trace read in
+    # a backend starts at the alert, not at whichever worker took the run.
+    some_payload = a_grafana_payload(service="kuki-traced")
+
+    with observing_the_app() as spans, TestClient(app) as client:
+        Scenario() \
+            .when(
+                lambda: client.post("/webhooks/alerts", json=some_payload)
+            ) \
+            .then(all_of(
+                _it_was_received_in_a_span_naming_its_incident(spans),
+                _the_incident_keeps_the_span_it_was_received_in(spans)
+            ))
+
+
+@pytest.mark.component
+def test_a_resolved_alert_is_received_in_a_span_naming_no_incident() -> None:
+    # Received all the same - a request came in, and a trace of it is a trace
+    # of what this process did - but it opened nothing, and says so.
+    a_resolution = a_grafana_payload(
+        service="kuki-resolved-traced", rule_uid="some-rule-that-resolved", status="resolved"
+    )
+
+    with observing_the_app() as spans, TestClient(app) as client:
+        Scenario() \
+            .when(
+                lambda: client.post("/webhooks/alerts", json=a_resolution)
+            ) \
+            .then(
+                _it_was_received_in_a_span_naming_no_incident(spans)
+            )
+
+
+@pytest.mark.component
+def test_an_alert_that_cannot_be_read_is_refused_and_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Bad input rather than a fault in Argus, so a refusal the sender is told
+    # about and a warning rather than an error. Refused rather than failed, too:
+    # Grafana sends a failure again and a refusal once, and a payload that could
+    # not be read the first time reads no better the tenth.
+    some_payload_naming_no_service = {"alerts": [{"status": "firing"}]}
+
+    with TestClient(app) as client:
+        Scenario() \
+            .when(
+                lambda: client.post("/webhooks/alerts", json=some_payload_naming_no_service)
+            ) \
+            .then(all_of(
+                the_response_was(HttpStatus.UNPROCESSABLE_ENTITY),
+                one_record_was_logged(caplog, "argus_web.app", logging.WARNING,
+                                      "alert payload rejected", failure=KeyError)
             ))
 
 
@@ -278,3 +346,65 @@ def _incidents_were_opened_for(service: str, count: int) -> Assertion[Any]:
 
 def _no_incident_is_open_for(service: str) -> Assertion[Any]:
     return _incidents_were_opened_for(service, count=0)
+
+
+def _it_was_received_in_a_span_naming_its_incident(spans: InMemorySpanExporter) -> Assertion[Any]:
+    def assertion(response: Any) -> bool:
+        received = the_span_named(spans, RECEIVE_ALERT)
+        named = (received.attributes or {}).get(ARGUS_INCIDENT_ID)
+        answered = response.json()["incident_id"]
+
+        if received.kind != SpanKind.SERVER or named != answered:
+            raise AssertionError(
+                f"Expected the alert to be received in a server span naming the "
+                f"incident [{answered}], and it was a [{received.kind}] span naming "
+                f"[{named}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_keeps_the_span_it_was_received_in(
+    spans: InMemorySpanExporter
+) -> Assertion[Any]:
+    def assertion(response: Any) -> bool:
+        received = the_span_named(spans, RECEIVE_ALERT).get_span_context()
+
+        with connect_from_env() as conn:
+            incident = incidents.get(conn, response.json()["incident_id"])
+
+        traceparent = incident.trace_context.get("traceparent", "") if incident else ""
+        # Version, trace, span, flags: the trace and the span are what make it
+        # this span's context, and the flags are the propagator's business.
+        kept = traceparent.split("-")[1:3]
+        expected = [f"{received.trace_id:032x}", f"{received.span_id:016x}"] \
+            if received is not None else ["a span with a context"]
+
+        if kept != expected:
+            raise AssertionError(
+                f"Expected the incident to keep the context of the span its alert "
+                f"was received in, [{expected}], and it kept [{kept}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_received_in_a_span_naming_no_incident(
+    spans: InMemorySpanExporter
+) -> Assertion[Any]:
+    def assertion(_response: Any) -> bool:
+        named = (the_span_named(spans, RECEIVE_ALERT).attributes or {}).get(ARGUS_INCIDENT_ID)
+
+        if named is not None:
+            raise AssertionError(
+                f"Expected an alert that opened nothing to name no incident, "
+                f"and its span named [{named}]."
+            )
+
+        return True
+
+    return assertion

@@ -10,6 +10,7 @@ can catch prose that names a different number from the one Argus measured.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from argus_core.llm import LLMClient
@@ -26,6 +27,8 @@ from agent_postmortem.prompting import (
     opening_ask_again,
     rejecting,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def answer_worth_writing(llm: LLMClient,
@@ -50,6 +53,8 @@ def answer_worth_writing(llm: LLMClient,
     _, faults = first
     if not faults:
         return first
+
+    logger.warning("postmortem answer rejected", extra={"faults": faults})
 
     return _reading_of(llm.converse(_asking_again(asked, submitted, faults),
                                     [SUBMIT_POSTMORTEM]),

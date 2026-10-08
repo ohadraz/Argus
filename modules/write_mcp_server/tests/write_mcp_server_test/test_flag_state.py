@@ -17,6 +17,7 @@ this process's, since an undo compares it against the provider's log.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from typing import Any
@@ -25,7 +26,16 @@ from unittest.mock import create_autospec
 import httpx2
 import pytest
 from argus_core.models import FlagUndo
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    dont_care_sleep,
+    one_record_was_logged,
+)
 from write_mcp_server.flag_state import (
     EvaluateFlags,
     FlagNotSet,
@@ -176,7 +186,8 @@ def test_a_flag_that_never_reaches_the_requested_state_is_not_reported_as_set() 
                     enabled=False,
                     settings=some_settings(),
                     post=provider.post,
-                    evaluate=provider.evaluate
+                    evaluate=provider.evaluate,
+                    sleep=dont_care_sleep
                 )
             )
         ) \
@@ -310,6 +321,122 @@ def test_a_provider_that_dates_nothing_leaves_the_moment_absent() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_flag_set_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # A change to production, and the first line a person reading the write
+    # server's log looks for: which flag was switched, and which way.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            provider := a_flag_provider_reporting([])
+        ) \
+        .when(
+            lambda: set_flag(
+                some_flag,
+                enabled=False,
+                settings=some_settings(),
+                post=provider.post,
+                evaluate=provider.evaluate
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.INFO,
+                                  "flag set",
+                                  values={"flag": some_flag, "enabled": False})
+        )
+
+
+@pytest.mark.unit
+def test_a_write_the_provider_did_not_date_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The undo this leaves can only answer that it could not establish the
+    # state, and whoever reads that answer later needs to know why.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            provider := a_flag_provider_reporting([])
+        ) \
+        .when(
+            lambda: set_flag(
+                some_flag,
+                enabled=False,
+                settings=some_settings(),
+                post=provider.post,
+                evaluate=provider.evaluate
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.WARNING,
+                                  "provider gave no write time",
+                                  values={"flag": some_flag})
+        )
+
+
+@pytest.mark.unit
+def test_a_write_the_provider_dated_unreadably_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The same undo, for a different reason - and the header it could not
+    # read is the one thing that says which reason.
+    some_flag = "monthly-spend-feature"
+    some_unreadable_date = "the day before yesterday"
+
+    Scenario() \
+        .given(
+            provider := a_flag_provider_dating_its_write_as(some_unreadable_date)
+        ) \
+        .when(
+            lambda: set_flag(
+                some_flag,
+                enabled=False,
+                settings=some_settings(),
+                post=provider.post,
+                evaluate=provider.evaluate
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.WARNING,
+                                  "provider gave no write time",
+                                  values={"flag": some_flag, "date": some_unreadable_date})
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_that_never_evaluates_as_set_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Not the same failure as a provider that refused: the write was taken,
+    # and should the provider catch up later, production ends up in a state
+    # Argus reported it had not reached.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            provider := a_flag_provider_reporting([some_flag])
+        ) \
+        .when(
+            attempting(
+                lambda: set_flag(
+                    some_flag,
+                    enabled=False,
+                    settings=some_settings(),
+                    post=provider.post,
+                    evaluate=provider.evaluate,
+                    sleep=dont_care_sleep
+                )
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.WARNING,
+                                  "flag accepted but not evaluating",
+                                  values={"flag": some_flag, "enabled": False})
+        )
+
+
 class _FlagProvider:
     def __init__(self) -> None:
         self.post: Any = create_autospec(httpx2.post)
@@ -361,6 +488,19 @@ def a_flag_provider_dating_its_write(moment: datetime) -> _FlagProvider:
         status_code=200,
         json={},
         headers={"Date": format_datetime(moment, usegmt=True)},
+        request=httpx2.Request("POST", dont_care_provider_url)
+    )
+
+    return provider
+
+
+def a_flag_provider_dating_its_write_as(header: str) -> _FlagProvider:
+    dont_care_provider_url = "http://kuki.com/"
+    provider = a_flag_provider_reporting([])
+    provider.post.return_value = httpx2.Response(
+        status_code=200,
+        json={},
+        headers={"Date": header},
         request=httpx2.Request("POST", dont_care_provider_url)
     )
 

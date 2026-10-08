@@ -15,6 +15,7 @@ Argo CD answers differently, and nothing above the port could notice.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -28,6 +29,7 @@ from argus_testkit import (
     all_of,
     an_error_was_raised,
     attempting,
+    one_record_was_logged,
     the_answer_was,
 )
 from deployment_platform import (
@@ -640,6 +642,28 @@ def test_a_pod_whose_start_cannot_be_read_is_passed_over() -> None:
 
 
 @pytest.mark.unit
+def test_a_pod_whose_start_cannot_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Passed over, so a restart can still be confirmed by the pods that can be
+    # read - but a platform reporting a time this cannot read is one that has
+    # changed its format, and every pod after it will be passed over too.
+    platform = _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_tree_of(
+        {"kind": "Pod", "name": "unreadable", "createdAt": "not a moment"},
+        {"kind": "Pod", "name": "readable", "createdAt": "2026-10-07T09:00:00Z"}
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.newest_pod_started_at(SOME_APPLICATION)) \
+        .then(
+            one_record_was_logged(caplog, "deployment_platform.argocd", logging.WARNING,
+                                  "pod start time unreadable",
+                                  values={"application": SOME_APPLICATION, "pod": "unreadable"})
+        )
+
+
+@pytest.mark.unit
 def test_the_autoscaler_is_found_in_the_resource_tree() -> None:
     # Its name is whoever wrote the chart's, so it is read rather than configured.
     platform = _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_tree_of(
@@ -814,6 +838,32 @@ def test_a_pod_not_yet_placed_or_with_no_readable_start_is_passed_over() -> None
             placement.pod for placement in argo_cd.placements_of(SOME_APPLICATION)
         ]) \
         .then(the_answer_was(["placed"]))
+
+
+@pytest.mark.unit
+def test_a_placed_pod_whose_start_cannot_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A pending pod is ordinary and says nothing. A placed one whose start
+    # cannot be read is a replica the onset comparison never sees, and the
+    # answer that comes back is short by it without saying so.
+    platform = _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_placed_tree(
+        nodes=[
+            _a_pod_on("pending", None, "2026-10-07T09:00:00Z"),
+            _a_pod_on("unreadable", "gpu-1", "not a moment"),
+            _a_pod_on("placed", "gpu-1", "2026-10-07T09:00:00Z")
+        ],
+        hosts=[_a_host("gpu-1", SOME_CARD)]
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.placements_of(SOME_APPLICATION)) \
+        .then(
+            one_record_was_logged(caplog, "deployment_platform.argocd", logging.WARNING,
+                                  "pod start time unreadable",
+                                  values={"application": SOME_APPLICATION, "pod": "unreadable"})
+        )
 
 
 @pytest.mark.unit

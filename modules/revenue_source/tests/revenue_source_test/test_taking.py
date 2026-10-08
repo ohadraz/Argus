@@ -10,13 +10,14 @@ adapter answers for them, not here.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from revenue_source import Charge, RevenueUnavailable, taken_between
 
 SOME_CURRENCY = "usd"
@@ -163,6 +164,27 @@ def test_a_window_paid_in_two_currencies_reports_both_and_totals_neither() -> No
                                   in_currency=SOME_OTHER_CURRENCY),
                 _the_currencies_reported_were(SOME_CURRENCY, SOME_OTHER_CURRENCY)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_provider_that_cannot_be_reached_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The postmortem is written without a cost and says so; why it had none is
+    # the provider's error, and this is the only place that still holds it.
+    some_window_start = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
+    some_window_end = some_window_start + timedelta(hours=1)
+
+    Scenario() \
+        .when(
+            lambda: taken_between(some_window_start, some_window_end,
+                                  charges=_a_listing_that_fails())
+        ) \
+        .then(
+            one_record_was_logged(caplog, "revenue_source.takings", logging.WARNING,
+                                  "revenue provider unreadable",
+                                  failure=RevenueUnavailable)
         )
 
 

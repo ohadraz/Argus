@@ -22,11 +22,13 @@ one is `llm/test_recorded_client.py`.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
 from argus_core.replay import CallType, Replay, ReplayEntry
-from argus_testkit import Assertion, Scenario
+from argus_core.telemetry import ARGUS_INCIDENT_ID
+from argus_testkit import Assertion, Scenario, one_record_was_logged
 
 from argus_core_test.framework.replay import (
     a_recorder_that_keeps_what_it_is_given,
@@ -80,6 +82,33 @@ def test_a_recorder_that_fails_does_not_fail_the_call_it_was_recording() -> None
         ) \
         .then(
             _nothing_was_raised()
+        )
+
+
+@pytest.mark.unit
+def test_a_recorder_that_fails_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    # Swallowed so the call goes on, and said so a replay log that has stopped
+    # recording is found before an eval run is planned around rows that are
+    # not there.
+    Scenario() \
+        .given(
+            a_recorder_that_raises := _a_recorder_that_cannot_write()
+        ) \
+        .when(
+            lambda: Replay(SOME_INCIDENT_ID, a_recorder_that_raises.take).record(
+                call_type=CallType.LLM,
+                target=SOME_MODEL,
+                request={"dont": "care"},
+                response={"dont": "care"}
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_core.replay", logging.WARNING,
+                                  "call could not be recorded",
+                                  values={"call_type": CallType.LLM,
+                                          "target": SOME_MODEL,
+                                          ARGUS_INCIDENT_ID: SOME_INCIDENT_ID},
+                                  failure=RuntimeError)
         )
 
 

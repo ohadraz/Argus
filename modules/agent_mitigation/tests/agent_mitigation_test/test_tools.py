@@ -7,6 +7,7 @@ made, and this is the one place Argus asks it that question about itself.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple, cast
@@ -33,6 +34,7 @@ from agent_mitigation.tools import (
     performing_writes_over,
     recent_metrics_over,
     rules_read_over,
+    somebody_else_changed_flag_since,
 )
 from argus_core import to_iso
 from argus_core.mcp_transport import McpClient
@@ -49,7 +51,7 @@ from argus_core.models import (
     RolloutProgress,
     ScaleOut,
 )
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 
 from agent_mitigation_test.framework.builders import (
     a_deployment,
@@ -1204,3 +1206,54 @@ def _it_returned_the_deployments(
         return True
 
     return assertion
+
+
+# ---- what it logs ----
+
+
+@pytest.mark.unit
+def test_a_provider_that_cannot_say_whether_argus_changed_a_flag_is_logged(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Answered as nobody-can-say, which is right, and which loses the reason -
+    # so the reason is logged here, where the exception still is.
+    Scenario() \
+        .given(
+            the_provider_is_down := _a_fetch_that_fails()
+        ) \
+        .when(
+            lambda: argus_changed_flag_since(
+                SOME_FLAG,
+                THE_MOMENT_IT_WAS_CLAIMED,
+                _some_mitigation_settings(),
+                fetch=the_provider_is_down
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_mitigation.tools", logging.WARNING,
+                                  "flag history could not be read",
+                                  values={"flag": SOME_FLAG}, failure=ConnectionError)
+        )
+
+
+@pytest.mark.unit
+def test_a_provider_that_cannot_say_whether_anybody_else_changed_a_flag_is_logged(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    Scenario() \
+        .given(
+            the_provider_is_down := _a_fetch_that_fails()
+        ) \
+        .when(
+            lambda: somebody_else_changed_flag_since(
+                SOME_FLAG,
+                THE_MOMENT_IT_WAS_CLAIMED,
+                _some_mitigation_settings(),
+                fetch=the_provider_is_down
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_mitigation.tools", logging.WARNING,
+                                  "flag history could not be read",
+                                  values={"flag": SOME_FLAG}, failure=ConnectionError)
+        )

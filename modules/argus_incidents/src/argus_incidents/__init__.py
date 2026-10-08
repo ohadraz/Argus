@@ -1,10 +1,11 @@
 """The incident record: the tables, and what is done to an incident that is
 not the walk.
 
-Three operations behind one public name. `intake` takes an alert and makes an
+Four operations behind one public name. `intake` takes an alert and makes an
 incident of it, `withdrawal` stops one and answers whether anybody still wants
-it walked, and `publishing` is the one subscriber the event stream has - where
-an event is written on the connection its decision is written on.
+it walked, `publishing` is the one subscriber the event stream has - where an
+event is written on the connection its decision is written on - and `tracing`
+is how any later work on an incident continues the trace its alert arrived in.
 
 `repository` is deliberately not flattened into this namespace. Its modules are
 named for the tables they own and are meant to be read that way -
@@ -31,6 +32,7 @@ from argus_incidents.publishing import (
     events_into_connection,
     publish_beside,
 )
+from argus_incidents.tracing import inside_the_incidents_trace
 from argus_incidents.withdrawal import IsStillWanted, wanted_via, withdraw_incident
 
 __all__ = [
@@ -40,6 +42,7 @@ __all__ = [
     "calls_into",
     "events_into",
     "events_into_connection",
+    "inside_the_incidents_trace",
     "publish_beside",
     "start_incident",
     "wanted_via",

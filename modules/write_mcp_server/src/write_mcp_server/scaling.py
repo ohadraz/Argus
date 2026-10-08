@@ -51,6 +51,7 @@ back by a withdrawal, and only this module ever knew either.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Final
 
@@ -61,6 +62,8 @@ from deployment_platform import (
     DeploymentPlatformWrites,
     PlatformUnreachable,
 )
+
+logger = logging.getLogger(__name__)
 
 # How far one scale-out may take a deployment. Two doublings past the three
 # replicas this estate's one deployment is declared with, which is the bound on the
@@ -178,12 +181,19 @@ def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUn
     try:
         platform.scale(application, _twice(running))
     except DeploymentPlatformError as error:
+        logger.warning("scale-out refused", extra={
+            "application": application, "sync_suspended": was_syncing_itself
+        })
         raise _refusing(
             f"[{application}] could not be scaled to [{_twice(running)}] "
             f"replicas: {error}",
             error,
             undo if was_syncing_itself else None
         ) from error
+
+    logger.info("deployment scaled out", extra={
+        "application": application, "from_replicas": running, "to_replicas": _twice(running)
+    })
 
     return undo
 
@@ -212,22 +222,45 @@ def restore_replica_count(descriptor: ReplicaUndo,
     whether somebody else's change should stand, which is not its question to
     answer.
     """
+    application = descriptor.application
+
     count = _tried(
-        lambda: platform.scale(descriptor.application, descriptor.was_replicas)
+        application, "count", lambda: platform.scale(application, descriptor.was_replicas)
     )
 
     if not descriptor.was_syncing_itself:
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
-        return CapacityRestored(count_put_back=count, automated_sync_put_back=True)
-
-    return CapacityRestored(
-        count_put_back=count,
-        automated_sync_put_back=_tried(
-            lambda: platform.resume_sync(descriptor.application)
+        return _said(
+            CapacityRestored(count_put_back=count, automated_sync_put_back=True),
+            application
         )
+
+    return _said(
+        CapacityRestored(
+            count_put_back=count,
+            automated_sync_put_back=_tried(
+                application, "automated sync",
+                lambda: platform.resume_sync(application)
+            )
+        ),
+        application
     )
+
+
+def _said(restored: CapacityRestored, application: str) -> CapacityRestored:
+    """`restored`, once the log has been told how much of it there is."""
+    if restored.count_put_back and restored.automated_sync_put_back:
+        logger.info("replica count restored", extra={"application": application})
+    else:
+        logger.warning("replica count not fully restored", extra={
+            "application": application,
+            "count_put_back": restored.count_put_back,
+            "automated_sync_put_back": restored.automated_sync_put_back
+        })
+
+    return restored
 
 
 def _twice(replicas: int) -> int:
@@ -235,10 +268,12 @@ def _twice(replicas: int) -> int:
     return min(replicas * 2, THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
 
 
-def _tried(call: Callable[[], None]) -> bool:
+def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
     try:
         call()
     except Exception:
+        logger.error("restore step failed", exc_info=True,
+                     extra={"application": application, "step": step})
         return False
 
     return True

@@ -275,6 +275,7 @@ llm = [
 ]
 mcp = [
     { name = "mcp" },
+    { name = "uvicorn" },
 ]
 migrations = [
     { name = "alembic" },
@@ -302,6 +303,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "qdrant-client", marker = "extra == 'vector-store'", specifier = ">=1.19,<1.20" },
+    { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
 ]
 provides-extras = ["embedding", "vector-store", "llm", "mcp", "migrations"]
 
@@ -326,6 +328,7 @@ dependencies = [
 dev = [
     { name = "argus-argus-core", extra = ["migrations"] },
     { name = "argus-argus-testkit" },
+    { name = "opentelemetry-sdk" },
 ]
 
 [package.metadata]
@@ -339,6 +342,7 @@ requires-dist = [
 dev = [
     { name = "argus-argus-core", extras = ["migrations"], editable = "modules/argus_core" },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
 [[package]]

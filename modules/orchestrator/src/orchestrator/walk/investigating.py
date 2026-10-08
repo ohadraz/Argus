@@ -294,6 +294,7 @@ def _what_the_provider_recorded(state: IncidentState,
             onset=_where_the_change_window_ends(state, readings_cover_the_incident)
         )
     except Exception as unanswered:
+        _logger.warning("flag history could not be read", exc_info=True)
         # No minute, because there is none to name: this is the window the round
         # asked about rather than a minute being judged, and a field filled in to
         # look complete would put a moment on the page that nothing measured.
@@ -341,6 +342,8 @@ def _what_the_platform_recorded(state: IncidentState,
             onset=_where_the_change_window_ends(state, readings_cover_the_incident)
         )
     except Exception as unanswered:
+        _logger.warning("deployment history could not be read", exc_info=True,
+                        extra={"service": state.alert.service})
         publish(
             RetrievalUnanswered(
                 incident_id=state.incident_id,
@@ -400,11 +403,8 @@ def _what_the_register_lists(state: IncidentState,
     try:
         return fetch_dependencies(state.alert.service)
     except Exception:
-        _logger.warning(
-            "the service register could not be read; nothing but %s is within reach",
-            state.alert.service,
-            exc_info=True
-        )
+        _logger.warning("service register could not be read", exc_info=True,
+                        extra={"service": state.alert.service})
 
         return []
 

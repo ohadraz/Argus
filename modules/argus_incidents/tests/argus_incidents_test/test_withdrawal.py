@@ -12,13 +12,15 @@ leave that page polling an incident that had already ended.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from argus_core import connect_from_env
 from argus_core.events import IncidentEvent, StatusChanged
-from argus_core.models import Alert, IncidentStatus
+from argus_core.models import Actor, Alert, IncidentStatus
 from argus_incidents.repository import incidents
 from argus_incidents.withdrawal import wanted_via, withdraw_incident
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 
 
 @pytest.mark.component
@@ -158,6 +160,31 @@ def test_an_incident_with_no_row_at_all_is_not_wanted(a_clean_database: None) ->
         ) \
         .then(
             _it_reports(False)
+        )
+
+
+@pytest.mark.component
+def test_a_withdrawal_that_took_effect_is_logged(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The response stopped at somebody's say-so, and who said so is the part
+    # of it nothing else in the log records.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO))
+        ) \
+        .when(
+            lambda: withdraw_incident(incident_id, connect_from_env, publisher=_nobody_is_listening)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "argus_incidents.withdrawal", logging.INFO,
+                                  "incident withdrawn",
+                                  values={"actor": Actor.HUMAN})
         )
 
 

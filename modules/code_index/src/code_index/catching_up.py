@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import time
 from argparse import ArgumentParser
-from contextlib import closing
+from collections.abc import Callable
 from functools import partial
 from typing import Final, Protocol
 
@@ -61,6 +61,10 @@ logger = logging.getLogger(__name__)
 # What this process is called in its telemetry, and the directory its runs are
 # written under.
 _SERVICE: Final = "argus-index"
+
+# How the wait between passes is spent. Injected so that a loop which never
+# returns can still be driven by a test, through a sleep that ends it.
+Sleeper = Callable[[float], None]
 
 
 class CatchUpSettings(SettingsSlice):
@@ -151,14 +155,17 @@ def catch_up(*,
     if indexed == deployed:
         return None
 
-    logger.info("bringing the index from %s up to %s", indexed, deployed)
     index(deployed, _what_to_consider(indexed, deployed, changed_between))
+
+    logger.info("index brought up to date", extra={"from_sha": indexed, "to_sha": deployed})
 
     return deployed
 
 
 def catch_up_forever(interval_seconds: float,
-                     pass_over: Pass) -> None:
+                     pass_over: Pass,
+                     *,
+                     sleep: Sleeper = time.sleep) -> None:
     """Catches up for as long as the process lives, waking on its own schedule.
 
     A timer rather than a notification, and that is the property worth
@@ -169,15 +176,17 @@ def catch_up_forever(interval_seconds: float,
     A pass that raised is logged and slept off rather than ending the process.
     The work it did not do is still described by the difference between the
     two commits, so the next wake-up finds it - where a crash loop would have
-    the container restart faster than the provider recovers.
+    the container restart faster than the provider recovers. A warning rather
+    than an error for the same reason: nobody has to act, because the next pass
+    is the retry.
     """
     while True:
         try:
             pass_over()
         except Exception:
-            logger.exception("a catch-up pass failed; the gap is left in place")
+            logger.warning("catch-up pass failed", exc_info=True)
 
-        time.sleep(interval_seconds)
+        sleep(interval_seconds)
 
 
 def _where_the_repository_is(on_record: RepositoryIndex | None,
@@ -208,9 +217,16 @@ def _what_to_consider(indexed: str | None,
     it into the handful that moved.
     """
     if indexed is None:
+        logger.info("whole index build started", extra={"to_sha": deployed})
         return None
 
-    return changed_between(indexed, deployed)
+    changed = changed_between(indexed, deployed)
+
+    if changed is None:
+        logger.warning("comparison incomplete, considering everything",
+                       extra={"from_sha": indexed, "to_sha": deployed})
+
+    return changed
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -232,8 +248,6 @@ def main(argv: list[str] | None = None) -> None:
     spent the whole build and left the index looking as though it had never
     run.
     """
-    logging.basicConfig(level=logging.INFO)
-
     parser = ArgumentParser(description="Keeps the index describing what is deployed.")
     parser.add_argument(
         "--once",
@@ -248,12 +262,12 @@ def main(argv: list[str] | None = None) -> None:
 
     # Started before anything is decided, so that a process which decides to do
     # nothing says so in this run's logs as well as on the console.
-    with closing(start_telemetry(TelemetrySettings.of(settings), _SERVICE)):
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
         # Before a pool, a store or a model. A deployment searching by grep
         # alone has no reader for any of this, and an index built for nobody
         # costs a repository download and an ONNX runtime to sit unread.
         if catch_up_settings.code_search is CodeSearch.GREP:
-            logger.info("no index is kept here: code search is grep alone")
+            logger.info("no index kept", extra={"code_search": catch_up_settings.code_search})
 
             return
 
@@ -302,7 +316,7 @@ def main(argv: list[str] | None = None) -> None:
                         )
                     )
 
-            logger.info("catching the index of %s up", repository)
+            logger.info("index catch-up started", extra={"repository": repository, "once": once})
 
             try:
                 if once:

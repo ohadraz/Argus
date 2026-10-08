@@ -16,11 +16,13 @@ code".
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from code_index.chunking import Chunk
 from code_index.indexing import Embedder
@@ -367,6 +369,35 @@ def test_an_index_that_was_never_built_says_that_rather_than_that_it_is_behind()
             )
         ) \
         .then(_what_was_said_includes("nothing has been indexed"))
+
+
+@pytest.mark.unit
+def test_an_index_behind_the_commit_asked_about_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The model is told, and acts on it or not. Whoever keeps the index is told
+    # here, which is where the catch-up loop that should have moved it is fixed.
+    index = an_index_holding(
+        a_passage(path="src/io_shop/spend_summary.py", first_line=14, last_line=15,
+                  text=_THE_DIVISION)
+    )
+
+    Scenario() \
+        .when(
+            lambda: search_repository_by_meaning(
+                DONT_CARE_DESCRIPTION,
+                ref=THE_COMMIT_DEPLOYED,
+                settings=some_settings(),
+                embed=an_embedder_answering(SOME_VECTOR),
+                find=index,
+                indexed_sha=an_index_describing(AN_EARLIER_COMMIT)
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "read_mcp_server.meaning", logging.WARNING,
+                                  "index is not current",
+                                  values={"ref": THE_COMMIT_DEPLOYED})
+        )
 
 
 def _what_was_said_names(indexed: str, deployed: str) -> Assertion[str]:

@@ -12,6 +12,7 @@ credential - is the adapter's, and pinned in its own suite.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -24,7 +25,9 @@ from argus_testkit import (
     all_of,
     an_error_was_raised,
     attempting,
+    calling,
     dont_care_sleep,
+    one_record_was_logged,
 )
 from deployment_platform import (
     DeploymentPlatformWrites,
@@ -255,6 +258,47 @@ def test_a_process_that_never_changed_is_not_reported_as_unreachable() -> None:
         .given(platform) \
         .when(attempting(lambda: _restarting(platform))) \
         .then(_it_is_not_reported_as_an_unreachable_platform())
+
+
+@pytest.mark.unit
+def test_a_restart_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # A change to production. The process it brought up is in the answer; the
+    # log is where a person finds that it happened at all.
+    some_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            platform := a_platform()
+        ) \
+        .when(lambda: restart_service(some_service, platform, sleep=dont_care_sleep)) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.restarting", logging.INFO,
+                                  "service restarted",
+                                  values={"service": some_service})
+        )
+
+
+@pytest.mark.unit
+def test_a_restart_never_confirmed_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The platform said yes and nothing rolled. Pods may still be on their
+    # way, and nothing in Argus will look again.
+    some_service = "kuki-service"
+
+    Scenario() \
+        .given(
+            platform := a_platform_whose_process_never_changes()
+        ) \
+        .when(
+            attempting(lambda: restart_service(some_service, platform, sleep=dont_care_sleep))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.restarting", logging.WARNING,
+                                  "restart not confirmed in time",
+                                  values={"service": some_service})
+        )
 
 
 def _restarting(platform: Any) -> RestartedService:

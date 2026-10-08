@@ -11,12 +11,15 @@ document that has to disclose it.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from decimal import Decimal
 
 from argus_core import SettingsSlice
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class RevenueSettings(SettingsSlice):
@@ -125,6 +128,7 @@ def taken_between(started_at: datetime,
             kept = charge.amount - charge.refunded
             taken[charge.currency] = taken.get(charge.currency, Decimal(0)) + kept
     except RevenueUnavailable:
+        logger.warning("revenue provider unreadable", exc_info=True)
         return None
 
     return Takings(amounts=taken)

@@ -12,6 +12,7 @@ be a second writer racing the first for the same rows.
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from argus_core import Connections
@@ -19,6 +20,8 @@ from argus_core.events import Publisher, StatusChanged, publish
 from argus_core.models import Actor, IncidentStatus
 
 from argus_incidents.repository import incidents
+
+logger = logging.getLogger(__name__)
 
 
 class IsStillWanted(Protocol):
@@ -98,6 +101,7 @@ def withdraw_incident(incident_id: str,
         withdrawn = incidents.withdraw(conn, incident_id)
 
     if withdrawn:
+        logger.info("incident withdrawn", extra={"actor": actor})
         publish(
             StatusChanged(
                 incident_id=incident_id,

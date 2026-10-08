@@ -20,6 +20,7 @@ partial.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
@@ -33,7 +34,7 @@ from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import EngagedResponder
 from argus_core.models import OpenedPullRequest, PostmortemDocument
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 
 from agent_postmortem_test.framework.assertions import (
     _it_says_what_is_still_owed,
@@ -450,6 +451,35 @@ def test_the_disclosures_are_written_from_what_was_measured_and_configured() -> 
         ) \
         .then(
             _disclosed_from(disclosing, measured, some_working_year)
+        )
+
+
+@pytest.mark.unit
+def test_a_document_written_incomplete_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The page says so on its face; this is the line saying so to whoever is
+    # watching the model rather than reading the document.
+    some_faults = ["the field [root_cause] was missing"]
+
+    Scenario() \
+        .given(
+            an_answer_still_wrong := _asking_that_answers(a_submitted_answer(),
+                                                          faults=some_faults)
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=an_answer_still_wrong,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_postmortem.writing", logging.WARNING,
+                                  "postmortem written incomplete",
+                                  values={"faults": some_faults})
         )
 
 

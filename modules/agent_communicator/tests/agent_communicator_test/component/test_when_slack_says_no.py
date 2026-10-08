@@ -14,12 +14,19 @@ war room would hold a thread reference naming a message that does not exist.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx2
 import pytest
 from agent_communicator.slack import Posted, SlackSettings, a_slack_client, post_message
-from argus_testkit import Assertion, Scenario, all_of, attempting
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    attempting,
+    one_record_was_logged,
+)
 
 # By address rather than by name: `localhost` resolves to IPv6 first and waits
 # out a refusal on each of the two, which doubles what this costs for nothing.
@@ -166,6 +173,59 @@ def test_a_workspace_that_cannot_be_reached_is_worth_another_go(slack: str) -> N
         ) \
         .then(
             _it_is_worth_another_go(True)
+        )
+
+
+@pytest.mark.component
+def test_a_refusal_is_logged_as_a_warning_naming_the_channel(
+    slack: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A renamed channel and a revoked token look the same from inside Argus,
+    # so the line names the channel as well as Slack's word for it.
+    some_channel = "C-renamed-yesterday"
+    some_refusal = "channel_not_found"
+
+    Scenario() \
+        .given(
+            _slack_will_answer(slack, error=some_refusal),
+            a_client_pointed_at_the_double := a_slack_client(
+                base_url=slack,
+                settings=_some_slack_settings()
+            )
+        ) \
+        .when(
+            lambda: post_message(
+                some_channel, "dont care", slack=a_client_pointed_at_the_double
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_communicator.slack", logging.WARNING,
+                                  "slack refused the message",
+                                  values={"channel": some_channel,
+                                          "refusal": some_refusal})
+        )
+
+
+@pytest.mark.component
+def test_a_workspace_that_cannot_be_reached_is_logged_as_a_warning(
+    slack: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    some_channel = "C-war-room"
+
+    Scenario() \
+        .given(
+            a_client_aimed_at_nothing := a_slack_client(
+                base_url=A_PORT_NOTHING_LISTENS_ON, timeout=1,
+                settings=_some_slack_settings()
+            )
+        ) \
+        .when(
+            lambda: post_message(some_channel, "dont care", slack=a_client_aimed_at_nothing)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_communicator.slack", logging.WARNING,
+                                  "slack could not be reached",
+                                  values={"channel": some_channel}, failure=OSError)
         )
 
 

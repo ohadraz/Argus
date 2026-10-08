@@ -17,6 +17,7 @@ on a branch nobody runs, and that a person has to merge it.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import create_autospec
@@ -24,7 +25,8 @@ from unittest.mock import create_autospec
 import httpx2
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.logs import one_record_was_logged
+from argus_testkit.scenario import Scenario, attempting, calling
 from write_mcp_server.branching import (
     BranchNotWritten,
     commit_to_new_branch,
@@ -331,6 +333,36 @@ def test_a_base_whose_commit_cannot_be_read_is_not_reported_as_written() -> None
                 an_error_was_raised(BranchNotWritten),
                 _no_branch_was_created(repository)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_written_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # Not a change to anything running, but the one thing this tier leaves in
+    # somebody else's repository - so where it is, and what it points at.
+    some_branch = "argus/fix-monthly-spend-divisor"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            repository := a_repository_whose_head_is(SOME_BASE_HEAD)
+        ) \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=some_branch,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.branching", logging.INFO,
+                                  "branch written",
+                                  values={"branch": some_branch,
+                                          "commit": SOME_WRITTEN_COMMIT})
         )
 
 

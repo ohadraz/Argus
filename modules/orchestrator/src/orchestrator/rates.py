@@ -21,11 +21,14 @@ names a database.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import date
 
 from agent_postmortem import RateTable
 from argus_core.models import PublishedRates, RatesUnavailable
+
+logger = logging.getLogger(__name__)
 
 # Where a table comes from when one has to be fetched. Injected, and without a
 # default: reaching the provider takes the address it is read from, and this
@@ -66,6 +69,10 @@ def todays_rates(base: str,
     try:
         fetched = published(base)
     except RatesUnavailable:
+        logger.warning("rates could not be fetched", exc_info=True, extra={
+            "base": base, "held_from": held.on if held is not None else None
+        })
+
         return _a_table_of(held) if held is not None else None
 
     hold_rates(fetched)

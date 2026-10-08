@@ -9,6 +9,8 @@ would be the beginning of a second opinion about what an incident is.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import psycopg
 from argus_incidents.repository import (
     events,
@@ -30,6 +32,17 @@ from argus_web.views import (
     build_postmortem_view,
     build_story,
 )
+
+
+def read_trace_context(conn: psycopg.Connection, incident_id: str) -> Mapping[str, str] | None:
+    """The trace the incident's alert arrived in, or `None` where there is no such incident.
+
+    What a request acting on the incident continues, so that what it did is
+    read in the incident's own trace.
+    """
+    incident = incidents.get(conn, incident_id)
+
+    return incident.trace_context if incident is not None else None
 
 
 def read_history(conn: psycopg.Connection) -> list[IncidentSummary]:

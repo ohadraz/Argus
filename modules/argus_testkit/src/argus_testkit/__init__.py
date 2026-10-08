@@ -16,10 +16,12 @@ from argus_testkit.doubles import (
     raising,
     returning,
 )
+from argus_testkit.logs import Captured, one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
 
 __all__ = [
     "Assertion",
+    "Captured",
     "Kept",
     "Scenario",
     "a_factory_that_must_not_be_called",
@@ -31,6 +33,7 @@ __all__ = [
     "dont_care_sleep",
     "eventually",
     "nothing_was_collected",
+    "one_record_was_logged",
     "raising",
     "returning",
     "the_answer_was",

@@ -7,6 +7,7 @@ PromQL, Prometheus's envelope, or its errors.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,8 @@ from argus_core import to_iso
 from argus_core.models import RULE_READING_FIELD, MetricBucket, RuleReading
 
 from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
+
+logger = logging.getLogger(__name__)
 
 # How a request is sent. Injected rather than called outright so that a test
 # can see the question asked and write the answer, without a network and
@@ -156,9 +159,15 @@ def _the_rules_readings(get: Get,
     try:
         answer = _asked(get, url, {_QUERY: rule_series.query, **window})
     except MetricsUnavailable:
+        logger.warning("rule query refused", exc_info=True,
+                       extra={"query": rule_series.query})
         return {}
 
-    if len(answer[_DATA][_RESULT]) > 1:
+    series = len(answer[_DATA][_RESULT])
+
+    if series > 1:
+        logger.warning("rule query matched several series",
+                       extra={"query": rule_series.query, "series": series})
         return {}
 
     return {

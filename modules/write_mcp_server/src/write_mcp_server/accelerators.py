@@ -30,6 +30,7 @@ How Argo CD is asked any of this is the platform port's adapter's.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
@@ -43,6 +44,8 @@ from deployment_platform import (
     DeploymentPlatformWrites,
     PlatformUnreachable,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AlreadyPinned(Exception):
@@ -131,11 +134,18 @@ def pin_to_accelerator(application: str,
     try:
         platform.pin_to_accelerator(application, accelerator)
     except DeploymentPlatformError as error:
+        logger.warning("accelerator pin refused", extra={
+            "application": application, "sync_suspended": was_syncing_itself
+        })
         raise _refusing(
             f"[{application}] could not be held to [{accelerator}]: {error}",
             error,
             undo if was_syncing_itself else None
         ) from error
+
+    logger.info("deployment pinned to accelerator", extra={
+        "application": application, "accelerator": accelerator
+    })
 
     return undo
 
@@ -154,30 +164,54 @@ def restore_accelerator_pin(descriptor: AcceleratorPinUndo,
     one off; the pods already placed stay where they are until something
     reschedules them.
     """
+    application = descriptor.application
+
     pin = _tried(
-        lambda: platform.pin_to_accelerator(
-            descriptor.application, descriptor.was_pinned_to
-        )
+        application, "pin",
+        lambda: platform.pin_to_accelerator(application, descriptor.was_pinned_to)
     )
 
     if not descriptor.was_syncing_itself:
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
-        return AcceleratorPinRestored(pin_put_back=pin, automated_sync_put_back=True)
-
-    return AcceleratorPinRestored(
-        pin_put_back=pin,
-        automated_sync_put_back=_tried(
-            lambda: platform.resume_sync(descriptor.application)
+        return _said(
+            AcceleratorPinRestored(pin_put_back=pin, automated_sync_put_back=True),
+            application
         )
+
+    return _said(
+        AcceleratorPinRestored(
+            pin_put_back=pin,
+            automated_sync_put_back=_tried(
+                application, "automated sync",
+                lambda: platform.resume_sync(application)
+            )
+        ),
+        application
     )
 
 
-def _tried(call: Callable[[], None]) -> bool:
+def _said(restored: AcceleratorPinRestored, application: str) -> AcceleratorPinRestored:
+    """`restored`, once the log has been told how much of it there is."""
+    if restored.pin_put_back and restored.automated_sync_put_back:
+        logger.info("accelerator pin restored", extra={"application": application})
+    else:
+        logger.warning("accelerator pin not fully restored", extra={
+            "application": application,
+            "pin_put_back": restored.pin_put_back,
+            "automated_sync_put_back": restored.automated_sync_put_back
+        })
+
+    return restored
+
+
+def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
     try:
         call()
     except Exception:
+        logger.error("restore step failed", exc_info=True,
+                     extra={"application": application, "step": step})
         return False
 
     return True

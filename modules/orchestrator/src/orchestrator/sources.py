@@ -23,6 +23,7 @@ what reaches it admits the difference.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
@@ -56,6 +57,8 @@ from revenue_source import RevenueSettings, taken_between
 from revenue_source.stripe_adapter import charges_between
 
 from orchestrator.rates import todays_rates
+
+logger = logging.getLogger(__name__)
 
 
 def the_real_sources(settings: Settings,
@@ -166,6 +169,8 @@ def _who_responded(incident_id: str,
     )
 
     if engaged is None:
+        logger.warning("engagement could not be read")
+
         return None
 
     return EngagementAnswer(minutes=engaged.minutes,
@@ -192,6 +197,8 @@ def _what_a_title_is_worth(*,
     try:
         read = pay_bands(settings)
     except PayBandsUnavailable:
+        logger.warning("pay bands could not be read", exc_info=True)
+
         return None
 
     return {title: PayBand(minimum=band.minimum,

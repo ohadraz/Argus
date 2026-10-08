@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -49,11 +50,12 @@ from types import TracebackType
 from typing import Any, Final, Self
 from urllib.parse import urlsplit
 
+import uvicorn
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ContentBlock, TextContent
-from opentelemetry import metrics, propagate, trace
+from opentelemetry import context, metrics, propagate, trace
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
 
@@ -70,6 +72,8 @@ from argus_core.telemetry import (
     SERVER_PORT,
     UNIT_SECONDS,
 )
+
+logger = logging.getLogger(__name__)
 
 # Reading the clock a call's duration is measured on, so a test can hand over
 # one that reads exactly what it says.
@@ -564,6 +568,8 @@ class McpClient:
                     await self._rebuild.wait()
                     self._rebuild.clear()
             except Exception as unreachable:
+                logger.warning("session could not be opened", exc_info=True,
+                               extra={"url": self._url})
                 await self._publish(None, unreachable)
                 await self._rebuild.wait()
                 self._rebuild.clear()
@@ -622,6 +628,8 @@ class McpClient:
         except McpToolError:
             raise
         except Exception:
+            logger.warning("tool call asked again over a new session", exc_info=True,
+                           extra={"tool": name})
             await self._rebuilt()
             return await self._ask(name, arguments, meta)
 
@@ -721,23 +729,30 @@ def serving_a_tool_call(name: str,
     """
     callers = propagate.extract(dict(meta) if meta is not None else {})
     serving = tracer if tracer is not None else trace.get_tracer(_SCOPE)
+    # Attached, not only handed to the span as its parent: the caller's context
+    # carries its baggage too - whose incident, which run - and only an
+    # attached context is one the tool and its log lines can read it from.
+    continued = context.attach(callers)
 
-    with serving.start_as_current_span(
-        f"{MCP_TOOLS_CALL_METHOD} {name}",
-        context=callers,
-        kind=SpanKind.SERVER,
-        attributes={
-            MCP_METHOD_NAME: MCP_TOOLS_CALL_METHOD,
-            GEN_AI_TOOL_NAME: name,
-            GEN_AI_OPERATION_NAME: GEN_AI_EXECUTE_TOOL_OPERATION
-        },
-        set_status_on_exception=False
-    ) as span:
-        try:
-            yield span
-        except Exception as error:
-            _said_on(span, error)
-            raise
+    try:
+        with serving.start_as_current_span(
+            f"{MCP_TOOLS_CALL_METHOD} {name}",
+            kind=SpanKind.SERVER,
+            attributes={
+                MCP_METHOD_NAME: MCP_TOOLS_CALL_METHOD,
+                GEN_AI_TOOL_NAME: name,
+                GEN_AI_OPERATION_NAME: GEN_AI_EXECUTE_TOOL_OPERATION
+            },
+            set_status_on_exception=False
+        ) as span:
+            try:
+                yield span
+            except Exception as error:
+                logger.warning("tool call failed", exc_info=True, extra={"tool": name})
+                _said_on(span, error)
+                raise
+    finally:
+        context.detach(continued)
 
 
 class TracedFastMCP(FastMCP):
@@ -760,3 +775,22 @@ class TracedFastMCP(FastMCP):
 
         with serving_a_tool_call(name, meta):
             return await super().call_tool(name, arguments)
+
+    def serve(self, run: Callable[..., None] = uvicorn.run) -> None:
+        """Serves this server over streamable HTTP until the process is stopped.
+
+        What `run(transport="streamable-http")` does, without uvicorn's own
+        logging config. That config gives uvicorn's loggers handlers of their
+        own and stops them propagating, so nothing uvicorn said reached the
+        root - and the root is where telemetry listens. FastMCP builds its
+        `uvicorn.Config` inside `run`, where nobody can reach it, so the app it
+        would have served is served here instead; the app carries the session
+        manager's lifespan, which is everything `run` added to it.
+
+        `run` defaults to uvicorn's own; a parameter so that what is served,
+        and how, can be asserted without serving it.
+        """
+        run(self.streamable_http_app(),
+            host=self.settings.host,
+            port=self.settings.port,
+            log_config=None)

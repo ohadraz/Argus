@@ -24,6 +24,7 @@ the proposal at the end of it.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from functools import partial
 from typing import Final, Protocol
@@ -79,6 +80,8 @@ from agent_codefix.retrieval import (
     SourceSearcher,
 )
 from agent_codefix.tools import the_answer_to, tools_for
+
+logger = logging.getLogger(__name__)
 
 
 class FixNotAnswered(Exception):
@@ -332,6 +335,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # model's entire output ceiling, so an answer that still did not
             # fit is a fix too large to write as whole files, and neither a
             # wider budget nor another attempt changes that.
+            logger.warning("answer truncated")
+
             raise FixNotAnswered(
                 "the fix did not fit in the room the model had to write it: "
                 f"{cut_short}"
@@ -355,6 +360,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                 # which is a submission to recover from rather than one to
                 # propose. Put back for the reason an empty one is: the model has
                 # decided what to write and is one turn from writing it properly.
+                logger.warning("patch is not source", extra={"paths": not_source})
                 transcript.append(_what_it_is_told_next(
                     [_that_is_not_source(turn, not_source)],
                     one_call_left=spend.is_on_its_last_call()
@@ -377,6 +383,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # that submitted one naming the file and the bound it wanted. A
             # model that keeps sending this runs out instead, and running out
             # is what a reader is told.
+            logger.warning("patch was empty")
             transcript.append(_what_it_is_told_next(
                 [_no_patch_was_attached(turn)],
                 one_call_left=spend.is_on_its_last_call()

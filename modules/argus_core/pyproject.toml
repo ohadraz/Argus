@@ -42,7 +42,7 @@ embedding = ["fastembed>=0.8"]
 # `docker-compose.yml`, as both corpora already pin it.
 vector_store = ["qdrant-client>=1.19,<1.20"]
 llm = ["anthropic>=1.0"]
-mcp = ["mcp>=1.29.0"]
+mcp = ["mcp>=1.29.0", "uvicorn>=0.30"]
 migrations = ["alembic>=1.20.0"]
 
 # `test_module` resolves each module against its own dependencies alone, so a

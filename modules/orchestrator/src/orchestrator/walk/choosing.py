@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from argus_core import to_iso, utc_now
@@ -28,6 +29,8 @@ from orchestrator.walk.routes import (
     MITIGATING_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
+
+logger = logging.getLogger(__name__)
 
 
 def next_candidate_node(state: IncidentState,
@@ -86,6 +89,9 @@ def next_candidate_node(state: IncidentState,
     next_candidate = next_up[1] if next_up is not None else None
 
     if next_candidate is not None:
+        logger.info("candidate chosen", extra={"hypothesis": next_candidate.summary,
+                                               "confidence": next_candidate.confidence})
+
         # Published, and no transition behind it: the incident was mitigating
         # before this and is mitigating after. Moving to the next candidate is
         # progress through a phase, not out of one - so there is no move for the

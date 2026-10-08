@@ -21,7 +21,10 @@ what line 7 means would send the same model to two different places.
 from __future__ import annotations
 
 import ast
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 PYTHON_SUFFIX = ".py"
 
@@ -79,6 +82,8 @@ def chunks_of(path: str,
 
         if definitions is not None:
             return _cut_at(definitions, path, lines)
+
+        logger.warning("file did not parse, cut by lines", extra={"path": path})
 
     return _windows_over(path, lines, max_lines, overlap)
 

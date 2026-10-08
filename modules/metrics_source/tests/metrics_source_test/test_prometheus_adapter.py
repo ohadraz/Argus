@@ -8,6 +8,7 @@ the shape of the question and the reading of the answer.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,6 +23,7 @@ from argus_testkit import (
     all_of,
     an_error_was_raised,
     attempting,
+    one_record_was_logged,
     the_answer_was,
     the_error_mentioned,
 )
@@ -396,6 +398,71 @@ def test_a_rules_query_answered_in_several_series_leaves_every_minute_without_a_
                 _the_buckets_were_for(["2026-10-04T12:00:00Z"]),
                 _every_bucket_carried(None)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_query_prometheus_refuses_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The window survives it, and nothing the walk is told says so. Whoever
+    # wrote the rule is the one person who can fix it, and this line is where
+    # they find out.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "avg(categoriser_confident_ratio)"
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering(
+                _every_fixed_query_answering_for(some_minute),
+                refusing=some_rule_query
+            )
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "metrics_source.prometheus_adapter", logging.WARNING,
+                                  "rule query refused",
+                                  values={"query": some_rule_query},
+                                  failure=MetricsUnavailable)
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_query_answered_in_several_series_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The rule's query wants an aggregation it does not have, and how many
+    # series it matched is what says so.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "categoriser_confident_ratio"
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering(
+                {
+                    **_every_fixed_query_answering_for(some_minute),
+                    some_rule_query: [(_the_end_of(some_minute), "0.41")]
+                },
+                in_two_series=some_rule_query
+            )
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
+        ) \
+        .then(
+            one_record_was_logged(caplog, "metrics_source.prometheus_adapter", logging.WARNING,
+                                  "rule query matched several series",
+                                  values={"query": some_rule_query, "series": 2})
         )
 
 

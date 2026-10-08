@@ -14,12 +14,16 @@ what happens to what it says back.
 
 from __future__ import annotations
 
+import logging
+
 from argus_core.models import CodeSearch, FailureMode, Hypothesis
 
 from agent_codefix.budget import FixSettings
 from agent_codefix.prompting import SUBMIT_TOOL_NAME
 from agent_codefix.retrieval import FileLister, IndexNotice
 from agent_codefix.tools import SEARCH_BY_MEANING_TOOL, SEARCH_TOOL
+
+logger = logging.getLogger(__name__)
 
 
 def what_it_concluded(hypothesis: Hypothesis | None) -> str:
@@ -188,6 +192,8 @@ def _what_the_repository_holds(settings: FixSettings,
     try:
         held = list_files(settings.github_base_branch)
     except Exception:
+        logger.warning("repository could not be listed", exc_info=True)
+
         return []
 
     if not held:

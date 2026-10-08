@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 from collections.abc import Callable
 from typing import Any, Final, Protocol
 
@@ -37,6 +38,8 @@ from repository_source import RepositorySourceSettings, the_source_at
 from repository_source import RepositoryUnreadable as RepositoryUnreadable
 
 HttpGet = Callable[..., httpx2.Response]
+
+logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -138,6 +141,8 @@ def list_repository_files(ref: str,
         ) from error
 
     if answered.get(TRUNCATED_FIELD):
+        logger.warning("repository listing truncated", extra={"ref": ref})
+
         raise RepositoryUnreadable(
             f"[{settings.github_repository}] at [{ref}] is too large to list: the "
             f"listing came back truncated, so what it does not name cannot be "

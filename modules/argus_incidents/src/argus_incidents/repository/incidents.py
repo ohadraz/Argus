@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Final
+
 import psycopg
 from argus_core.models import Alert, Incident, IncidentStatus
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 
+# What an incident started outside any trace keeps: nothing, and nothing a
+# caller could add to by holding on to the default.
+NO_TRACE_CONTEXT: Final[Mapping[str, str]] = MappingProxyType({})
 
-def create(conn: psycopg.Connection, alert: Alert) -> str:
+
+def create(conn: psycopg.Connection,
+           alert: Alert,
+           trace_context: Mapping[str, str] = NO_TRACE_CONTEXT) -> str:
     """Creates the Incident row (spec §7.1's single-writer rule, §11.1).
+
+    `trace_context` is the trace the alert arrived in, as the propagator wrote
+    it, and is what every later walk of the incident continues. Empty where
+    the incident was started outside any trace.
 
     `acknowledged`, not `investigating`: this runs where the alert is received,
     and the walk it queues belongs to a worker that has not taken it yet.
@@ -21,8 +35,10 @@ def create(conn: psycopg.Connection, alert: Alert) -> str:
     begins nowhere."""
     with conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO incident (alert_payload, status) VALUES (%s, %s) RETURNING id",
-            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.ACKNOWLEDGED)
+            "INSERT INTO incident (alert_payload, status, trace_context) "
+            "VALUES (%s, %s, %s) RETURNING id",
+            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.ACKNOWLEDGED,
+             Jsonb(dict(trace_context)))
         )
         row = cursor.fetchone()
         assert row is not None
@@ -116,7 +132,7 @@ def get_recent(conn: psycopg.Connection) -> list[Incident]:
     """
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at "
+            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
             "  FROM incident "
             "ORDER BY created_at DESC"
         )
@@ -145,7 +161,7 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
 
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at "
+            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
             "  FROM incident "
             "ORDER BY status = ANY(%s), created_at DESC "
             " LIMIT 1",
@@ -169,7 +185,7 @@ def get_open_by_rule_and_service(conn: psycopg.Connection,
 
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at "
+            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
             "  FROM incident "
             " WHERE alert_payload->>'rule' = %s "
             "   AND alert_payload->>'service' = %s "
@@ -184,7 +200,7 @@ def get_open_by_rule_and_service(conn: psycopg.Connection,
 def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
     with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at "
+            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
             "  FROM incident "
             " WHERE id = %s",
             (incident_id,)

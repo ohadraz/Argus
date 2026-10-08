@@ -12,6 +12,7 @@ is proven in the e2e stack.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -26,6 +27,7 @@ from argus_testkit import (
     all_of,
     attempting,
     nothing_was_collected,
+    one_record_was_logged,
 )
 from oncall_source import OnCallUnavailable
 from oncall_source.engagement import OnCallSettings
@@ -146,6 +148,38 @@ def test_a_user_the_provider_will_not_answer_for_leaves_the_title_unknown() -> N
                 _the_responder_acknowledged_at(SOME_RESPONDER, some_acknowledged_at),
                 _the_responder_held(SOME_RESPONDER, None)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_user_the_provider_will_not_answer_for_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The reading goes on without the title, and the postmortem prices what it
+    # can - so the one place the gap is said is here, with who it was about.
+    dont_care_began_at = datetime(2026, 9, 4, 2, 0, tzinfo=UTC)
+    dont_care_ended_at = dont_care_began_at + timedelta(hours=1)
+    dont_care_acknowledged_at = dont_care_began_at + timedelta(minutes=12)
+
+    Scenario() \
+        .given(
+            a_provider := _a_provider_holding(
+                incident=_a_reported_incident(
+                    began_at=dont_care_began_at,
+                    ended_at=dont_care_ended_at,
+                    acknowledged_at={SOME_RESPONDER: dont_care_acknowledged_at}),
+                users={})
+        ) \
+        .when(
+            lambda: reported_incident(SOME_INCIDENT,
+                                      settings=_settings_with(api_key="dont care"),
+                                      client_of=a_provider)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "oncall_source.pagerduty_adapter", logging.WARNING,
+                                  "job title unreadable",
+                                  values={"responder_id": SOME_RESPONDER},
+                                  failure=PagerDutyError)
         )
 
 

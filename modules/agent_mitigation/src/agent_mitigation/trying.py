@@ -7,6 +7,7 @@ the change back where the answer refutes the hypothesis it was taken on.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from functools import partial
@@ -85,6 +86,8 @@ __all__ = ["UndoChange", "take_action"]
 # Metrics are aggregated per minute, so a tighter interval only re-reads the
 # same four numbers; a looser one spends the verification budget waiting.
 _SECONDS_BETWEEN_METRIC_READS = 10.0
+
+logger = logging.getLogger(__name__)
 
 
 class Performed(NamedTuple):
@@ -260,6 +263,9 @@ def take_action(action: Action,
         # its cap, a floor already at its ceiling - where this says nothing was
         # there to answer. A record carrying it would report a bound that was
         # never reached.
+        logger.warning("deployment platform unreachable",
+                       extra={"action_type": action.action_type})
+
         # Carries what the action left behind, where it left anything. Four of
         # the five actions through the deployment platform suspend its
         # reconciliation before doing what they were asked, so a platform lost
@@ -280,6 +286,9 @@ def take_action(action: Action,
             measured=False,
         )
     except Exception as error:
+        logger.warning("action could not be performed", exc_info=True,
+                       extra={"action_type": action.action_type})
+
         return Outcome(
             verdict=Verdict.ESCALATED,
             detail=f"could not {_what_it_would_have_done(action)}: {error}",
@@ -739,6 +748,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         try:
             buckets = fetch_metrics()
         except Exception as unanswered:
+            logger.warning("metrics could not be read", exc_info=True)
             buckets = None
 
             if incident_id is not None:
@@ -770,6 +780,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             # that already means no verdict was reached at all, and the one this
             # is: Argus cannot say, so a person is asked.
             if now() >= watch_until:
+                if not anything_was_read:
+                    logger.warning("nothing was measured before the deadline")
+
                 return (
                     _Settled(
                         Verdict.REFUTED,
@@ -824,6 +837,8 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             try:
                 standing = read_the_rule()
             except Exception as unanswered:
+                logger.warning("alert rule could not be read", exc_info=True)
+
                 if incident_id is not None:
                     say(RetrievalUnanswered(
                         incident_id=incident_id,
@@ -836,6 +851,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 # still firing, and refuting puts the change back on a
                 # measurement nobody took.
                 if now() >= watch_until:
+                    if not the_rule_was_read:
+                        logger.warning("nothing was measured before the deadline")
+
                     return (
                         _Settled(
                             Verdict.REFUTED,
@@ -1073,6 +1091,8 @@ def _when_the_change_reached_the_service(has_arrived: HasArrived,
             return moment
 
         if arrival is Arrival.WILL_NOT_ARRIVE:
+            logger.warning("change will not arrive")
+
             return _Settled(
                 Verdict.ESCALATED,
                 "the platform stopped applying the change, so it never applied "
@@ -1083,6 +1103,8 @@ def _when_the_change_reached_the_service(has_arrived: HasArrived,
         # first: a window that has run out must not buy another interval by having
         # been busy.
         if moment >= no_later_than:
+            logger.warning("change did not arrive in time")
+
             return _Settled(
                 Verdict.ESCALATED,
                 "the change had not reached the service before the time "
@@ -1266,6 +1288,10 @@ def _undone(performed: Performed,
     # runs.
     match attempt.outcome:
         case Undone.NOT_ESTABLISHED:
+            logger.error("change could not be put back", extra={
+                "action_type": action_type, "subject": attempt.subject, "detail": attempt.detail
+            })
+
             return Outcome(
                 verdict=Verdict.ESCALATED,
                 detail=f"{taken}, the service did not recover, and {attempt.detail}",

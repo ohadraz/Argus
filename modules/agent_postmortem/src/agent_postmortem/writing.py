@@ -17,6 +17,7 @@ which it is.
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from argus_core.llm import LLMClient
@@ -28,6 +29,8 @@ from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.sources import Sources
+
+logger = logging.getLogger(__name__)
 
 
 class Measure(Protocol):
@@ -71,6 +74,9 @@ def write_postmortem(evidence: IncidentEvidence,
     """
     measured = measure(evidence, sources)
     answer, faults = ask(llm, evidence, measured)
+
+    if faults:
+        logger.warning("postmortem written incomplete", extra={"faults": faults})
 
     return PostmortemDocument(
         # Absent rather than empty where the model never answered: a blank on a

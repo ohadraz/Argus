@@ -17,6 +17,9 @@ dependencies = [
 dev = [
     "argus-argus_core[migrations]",
     "argus-argus_testkit",
+    # What the trace an incident keeps is asserted through: an SDK's in-memory
+    # exporter. Never a runtime dependency.
+    "opentelemetry-sdk>=1.45",
 ]
 
 [tool.uv.sources]

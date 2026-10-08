@@ -22,10 +22,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 from typing import Any, Final, Protocol
 
 from argus_core import SettingsSlice
 from argus_core.models import CodeSearch
+
+logger = logging.getLogger(__name__)
 
 # GitHub's wire vocabulary for a push, named for the fields that carry it.
 # `AFTER_FIELD` is the load-bearing one: it is the commit the branch now
@@ -120,11 +123,16 @@ def receive_push(body: bytes,
     if not _is_the_deployed_branch(str(push.get(REF_FIELD, "")), settings):
         return None
 
-    if _the_repository_of(push) != settings.github_repository:
+    repository = _the_repository_of(push)
+
+    if repository != settings.github_repository:
+        logger.warning("push for another repository", extra={"repository": repository})
         return None
 
     sha = str(push[AFTER_FIELD])
     record_pushed(settings.github_repository, sha)
+
+    logger.info("push recorded", extra={"repository": repository, "sha": sha})
 
     return sha
 
@@ -145,6 +153,7 @@ def _verified(body: bytes,
     ).hexdigest()
 
     if signature is None or not hmac.compare_digest(expected, signature):
+        logger.warning("push signature rejected", extra={"signed": signature is not None})
         raise PushUnverified(
             "the delivery is not signed with this deployment's webhook secret"
         )

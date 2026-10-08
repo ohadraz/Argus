@@ -119,6 +119,10 @@ ERROR_TYPE: Final = "error.type"
 ARGUS_AGENT: Final = "argus.agent"
 ARGUS_INCIDENT_ID: Final = "argus.incident.id"
 
+# Which claimed run of the incident a log record was written in. Two walks of
+# one incident share its trace, so this is what tells their records apart.
+ARGUS_RUN_ID: Final = "argus.run.id"
+
 # Which node of the walk's graph a span is - every step has one, the
 # orchestrator's own included, which have no agent's name to go by.
 ARGUS_WALK_STEP: Final = "argus.walk.step"

@@ -8,6 +8,7 @@ enters it" a property of the graph rather than a rule five nodes must remember.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -18,6 +19,8 @@ from argus_incidents import IsStillWanted
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import TransitionIncident
 from orchestrator.walk.state import IncidentState, status_after
+
+logger = logging.getLogger(__name__)
 
 
 def with_status(
@@ -116,6 +119,9 @@ def with_status(
                 detail=narration.said(),
             ),
         )
+        logger.info("status changed", extra={"from_status": state.status,
+                                             "to_status": next_status,
+                                             "reason": narration.said()})
 
         return {**updates, "status": next_status}
 

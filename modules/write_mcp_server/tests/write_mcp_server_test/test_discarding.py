@@ -20,6 +20,7 @@ one asynchronously.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Any
 from unittest.mock import create_autospec
@@ -27,7 +28,15 @@ from unittest.mock import create_autospec
 import pytest
 from argus_core.mcp_transport import EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER
 from argus_core.models import CACHE, CacheEntriesDiscarded
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 from write_mcp_server.discarding import (
     DiscardEntries,
     DiscardSettings,
@@ -213,6 +222,49 @@ def test_a_discard_naming_no_keys_never_reaches_the_store() -> None:
             an_error_was_raised(EntriesNotDiscarded),
             _it_never_asked(discard)
         ))
+
+
+@pytest.mark.unit
+def test_a_discard_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # A change to production. Both counts, because the gap between what was
+    # named and what went is the part a person reading it afterwards would ask
+    # about.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            discard := _a_store_reporting(len(SOME_KEYS) - 1)
+        ) \
+        .when(
+            lambda: discard_cache_entries(SOME_KEYS, _some_settings(), discard=discard)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.discarding", logging.INFO,
+                                  "cache entries discarded",
+                                  values={"named": len(SOME_KEYS),
+                                          "discarded": len(SOME_KEYS) - 1})
+        )
+
+
+@pytest.mark.unit
+def test_a_discard_naming_no_keys_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A caller that has not said what to act on. Nothing failed, and nothing in
+    # the estate is wrong - but a tool called with nothing is a caller worth
+    # looking at.
+    Scenario() \
+        .given(
+            discard := _a_store_reporting(0)
+        ) \
+        .when(
+            attempting(
+                lambda: discard_cache_entries((), _some_settings(), discard=discard)
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "write_mcp_server.discarding", logging.WARNING,
+                                  "no cache entries named")
+        )
 
 
 def _some_settings(cache_url: str = SOME_CACHE_URL) -> DiscardSettings:

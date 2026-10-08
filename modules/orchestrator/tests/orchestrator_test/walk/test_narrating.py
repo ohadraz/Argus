@@ -15,6 +15,7 @@ return value.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
@@ -23,7 +24,7 @@ import pytest
 from argus_core.events import StatusChanged
 from argus_core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus
 from argus_incidents.withdrawal import IsStillWanted
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.state import IncidentState
@@ -65,6 +66,38 @@ def test_a_node_that_moved_the_incident_transitions_it_once(
                                             transition_incident),
             _the_move_was_narrated_as(IncidentStatus.MITIGATING,
                                       transition_incident)))
+
+
+@pytest.mark.unit
+def test_a_move_is_logged_with_the_reason_it_was_made(
+    transition_incident: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Every move the walk makes passes through here, so this one line is the
+    # walk's whole account of where it went and why - an escalation, another
+    # round, a fix - without a line of its own in each node that decided it.
+    some_narration = Narration(action="the monthly-spend flag looks to blame")
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            an_investigation_that_found_something := _a_node_returning(
+                {"candidates": [a_candidate()], "candidate_index": 0}, some_narration
+            ),
+            an_incident_being_investigated := _an_incident_being_investigated()
+        ) \
+        .when(lambda: with_status(
+            an_investigation_that_found_something,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
+                                  "status changed",
+                                  values={"from_status": IncidentStatus.INVESTIGATING,
+                                          "to_status": IncidentStatus.MITIGATING,
+                                          "reason": some_narration.said()})
+        )
 
 
 @pytest.mark.unit

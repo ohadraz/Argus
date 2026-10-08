@@ -9,6 +9,7 @@ holds the records.
 
 from __future__ import annotations
 
+import logging
 from typing import assert_never
 
 from argus_core.models import (
@@ -31,6 +32,8 @@ from agent_mitigation.tools import (
 )
 
 __all__ = ["undo_change"]
+
+logger = logging.getLogger(__name__)
 
 
 def undo_change(undo_descriptor: UndoDescriptor,
@@ -105,6 +108,8 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        logger.warning("restore failed", exc_info=True, extra={"subject": application})
+
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
@@ -131,6 +136,8 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
             ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )
+    logger.warning("change only partly put back",
+                   extra={"subject": application, "still_changed": still_changed})
 
     return UndoAttempt(
         subject=application,
@@ -162,6 +169,8 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        logger.warning("restore failed", exc_info=True, extra={"subject": application})
+
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
@@ -188,6 +197,8 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
             ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )
+    logger.warning("change only partly put back",
+                   extra={"subject": application, "still_changed": still_changed})
 
     return UndoAttempt(
         subject=application,
@@ -227,6 +238,8 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        logger.warning("restore failed", exc_info=True, extra={"subject": application})
+
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
@@ -253,6 +266,8 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
             ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )
+    logger.warning("change only partly put back",
+                   extra={"subject": application, "still_changed": still_changed})
 
     return UndoAttempt(
         subject=application,
@@ -284,6 +299,8 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        logger.warning("restore failed", exc_info=True, extra={"subject": application})
+
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
@@ -306,6 +323,8 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
             ("automated sync", restored.automated_sync_put_back)
         ) if not put_back
     )
+    logger.warning("change only partly put back",
+                   extra={"subject": application, "still_changed": still_changed})
 
     return UndoAttempt(
         subject=application,
@@ -326,6 +345,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
     written_at = undo_descriptor.written_at
 
     if written_at is None:
+        logger.warning("flag change carries no write time", extra={"subject": flag})
+
         return UndoAttempt(
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
@@ -339,6 +360,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
     changed = changed_from_outside(flag, written_at)
 
     if changed is None:
+        logger.warning("outside change could not be established", extra={"subject": flag})
+
         return UndoAttempt(
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
@@ -349,6 +372,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
         )
 
     if changed:
+        logger.info("flag left as found", extra={"subject": flag})
+
         return UndoAttempt(
             subject=flag,
             outcome=Undone.LEFT_AS_FOUND,
@@ -361,6 +386,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
     try:
         set_state(flag, was_enabled)
     except Exception as error:
+        logger.warning("restore failed", exc_info=True, extra={"subject": flag})
+
         return UndoAttempt(
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,

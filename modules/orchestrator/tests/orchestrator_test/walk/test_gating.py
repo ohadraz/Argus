@@ -22,6 +22,7 @@ follows is decided one node further on, in one place.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -46,7 +47,7 @@ from argus_core.models import (
     RevertFeatureFlag,
     ServiceDependency,
 )
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.gating import route_after_gate, tier_gate_node, what_the_row_says
@@ -116,6 +117,30 @@ def test_the_gate_rejects_an_action_of_a_kind_argus_may_not_take(
                      _nothing_was_narrated(),
                      _the_refusal_was_published(Refusal.NOT_A_GENERIC_MITIGATION,
                                                 published)))
+
+
+@pytest.mark.unit
+def test_an_action_the_gate_refused_is_logged_with_why(
+    record_outcome: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A refusal moves no status - the walk goes on to the next candidate - so
+    # nothing else says that an action was stopped here, or why.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            a_gated_incident := _a_mitigating_incident(
+                proposing=_a_proposed_action()
+            )
+        ) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_not_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.gating", logging.INFO,
+                                  "action refused",
+                                  values={"refusal": Refusal.NOT_A_GENERIC_MITIGATION})
+        )
 
 
 @pytest.mark.unit

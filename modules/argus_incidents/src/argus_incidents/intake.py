@@ -14,16 +14,23 @@ What walks is the worker's, in its own process.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
+
 from argus_core import Connections
 from argus_core.models import Alert
+from argus_core.telemetry import ARGUS_INCIDENT_ID
 
 from argus_incidents.publishing import PublisherFor, acknowledge_alert
 from argus_incidents.repository import incidents, runs
 
+logger = logging.getLogger(__name__)
+
 
 def start_incident(alert: Alert,
                    connections: Connections,
-                   publisher_for: PublisherFor) -> str:
+                   publisher_for: PublisherFor,
+                   trace_context: Mapping[str, str] = incidents.NO_TRACE_CONTEXT) -> str:
     """The Orchestrator's entrypoint (spec §7.1): creates the `Incident` row
     and puts its walk in line - or, for a rule whose incident is still open,
     answers with that incident - called by `argus_web` (§7.9) with a normalized
@@ -38,6 +45,14 @@ def start_incident(alert: Alert,
     holds - a pool, a subscriber writing into it - is that process's to decide,
     and a function that helped itself to either would be one no caller could
     stand in for.
+
+    `trace_context` is the trace the alert arrived in, kept with a new
+    incident so that every walk of it continues that trace. An alert joining
+    an open incident keeps nothing: the incident's trace is the first alert's.
+
+    Its lines name the incident themselves, under the key a walk's lines are
+    stamped with: nothing is walking it yet, so there is no baggage to stamp
+    them from.
     """
     # A rule that fired again for a service while its incident there is still
     # going on is that incident, not a second one. An alert naming no rule has
@@ -49,6 +64,9 @@ def start_incident(alert: Alert,
             )
 
         if already_open is not None:
+            logger.info("alert joined open incident", extra={
+                ARGUS_INCIDENT_ID: str(already_open.id), "rule": alert.rule
+            })
             return str(already_open.id)
 
     # The row and the story's first line, in one transaction. Published from
@@ -56,11 +74,15 @@ def start_incident(alert: Alert,
     # published before the commit because an incident whose account begins
     # nowhere is the failure `publish_beside` exists to prevent.
     with connections() as conn:
-        incident_id = incidents.create(conn, alert)
+        incident_id = incidents.create(conn, alert, trace_context)
         acknowledge_alert(conn, incident_id, alert, publisher_for)
         conn.commit()
 
     with connections() as conn:
         runs.enqueue(conn, incident_id)
+
+    logger.info("incident opened", extra={
+        ARGUS_INCIDENT_ID: incident_id, "service": alert.service, "rule": alert.rule
+    })
 
     return incident_id

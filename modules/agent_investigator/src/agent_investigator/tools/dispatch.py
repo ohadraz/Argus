@@ -9,6 +9,7 @@ has to show for itself afterwards.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from argus_core.events import Narrator, RetrievalUnanswered, nobody
@@ -35,6 +36,8 @@ from agent_investigator.tools.logs import LOGS_TOOL, read_logs
 from agent_investigator.tools.metrics import METRICS_TOOL, read_metrics
 from agent_investigator.tools.results import Served, could_not_serve
 from agent_investigator.tools.rollouts import ROLLOUT_TOOL, read_the_rollout
+
+logger = logging.getLogger(__name__)
 
 
 class Dispatcher:
@@ -165,6 +168,10 @@ class Dispatcher:
         answer = self._serve(call)
 
         if answer.unanswered is not None:
+            logger.warning("channel did not answer", extra={
+                "what_was_asked": answer.unanswered.what_was_asked,
+                "because": answer.unanswered.because
+            })
             self._narrator.say(
                 RetrievalUnanswered,
                 what_was_asked=answer.unanswered.what_was_asked,
@@ -236,6 +243,8 @@ class Dispatcher:
 
         if call.name == ROLLOUT_TOOL:
             return read_the_rollout(call, self._service, self._fetch_rollout)
+
+        logger.warning("unknown tool called", extra={"tool": call.name})
 
         return could_not_serve(
             call,

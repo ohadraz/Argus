@@ -14,6 +14,7 @@ given.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import replace
 from enum import StrEnum
@@ -209,6 +210,8 @@ _PLACEMENTS_TOOL: Final = "get_placements"
 
 _SECONDS_IN_A_MINUTE: Final = 60
 
+logger = logging.getLogger(__name__)
+
 
 class HowTheMinuteIsKnown(StrEnum):
     """Where the minute an investigation works from came from.
@@ -339,6 +342,7 @@ def investigate(
         # Said first, though. Letting it out of here ended the walk with nothing
         # anywhere saying which read failed, and the incident's only account of
         # its own first act was the run's failure row.
+        logger.warning("metrics could not be read", exc_info=True)
         narrator.say(
             RetrievalUnanswered,
             what_was_asked="the service's metrics",
@@ -525,6 +529,7 @@ def investigate(
             # larger bound, a retry becomes a thing with a mechanism behind
             # it and this is where it goes back.
             spend.record(cut_short.billed)
+            logger.warning("answer truncated")
 
             return replace(
                 _cut_short(alert, incident_id, metric_buckets, dispatcher, narrator),
@@ -532,6 +537,8 @@ def investigate(
                 placement=placement
             )
         except ModelRefused:
+            logger.warning("model declined to answer")
+
             return replace(
                 _declined(alert, incident_id, metric_buckets, dispatcher, narrator),
                 readings_cover_the_incident=the_incident_was_read,
@@ -562,6 +569,9 @@ def investigate(
 
         reached = spend.bounds_reached()
         if reached:
+            logger.info("investigation ran out of budget",
+                        extra={"bounds": [bound.value for bound in reached]})
+
             return replace(
                 _ran_out(
                     alert, incident_id, metric_buckets, reached, dispatcher, narrator
@@ -595,6 +605,7 @@ def _the_placement_recorded(service: str,
     try:
         pods = fetch_placements(service)
     except Exception as unanswered:
+        logger.warning("placement could not be read", exc_info=True)
         narrator.say(
             RetrievalUnanswered,
             what_was_asked="where the service's replicas run",
@@ -631,6 +642,8 @@ def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResul
     try:
         return _hypotheses_in(answering, incident_id)
     except (ValidationError, TypeError, AttributeError) as malformed:
+        logger.warning("answer could not be read", exc_info=True)
+
         return ToolResult(
             call_id=answering.id,
             content=(

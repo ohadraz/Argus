@@ -1287,31 +1287,60 @@ Every Argus process reports traces, metrics and logs through OpenTelemetry. Inst
 
 Both at once is a supported arrangement: the same trace lands in each.
 
-**One walk is one trace, across every process it touches.**
+**One incident is one trace, and it starts at the alert.** Every process the incident's work touches - the web process that received it, the worker that walks it, the servers its tools run in - writes into that one trace.
 
 ```mermaid
 flowchart TB
+    RECEIVE["receive alert<br/>server span, in argus-web"]
+    WITHDRAW["withdraw incident<br/>server span, in argus-web"]
+    RUN["run<br/>one per claimed run, in argus-worker"]
     WALK["walk<br/>argus.incident.id, argus.incident.outcome"]
     AGENT["invoke_agent investigator<br/>(one span per step of the walk)"]
     OWN["tier_gate<br/>(the orchestrator's own steps, named for the step)"]
     LLM["chat &lt;model&gt;<br/>GenAI conventions, full prompt and response"]
     TOOL["tools/call &lt;tool&gt;<br/>client span, in the worker"]
     SERVE["tools/call &lt;tool&gt;<br/>server span, in argus-read-mcp / argus-write-mcp"]
+    RECEIVE -->|context kept on the incident| RUN
+    RECEIVE -->|context kept on the incident| WITHDRAW
+    RUN --> WALK
     WALK --> AGENT
     WALK --> OWN
     AGENT --> LLM
     AGENT --> TOOL
-    TOOL -->|traceparent in the request's _meta| SERVE
+    TOOL -->|traceparent and baggage in the request's _meta| SERVE
 ```
 
-- The **walk** span is the root, opened around the graph rather than inside it, so that a failure before the first node is inside it too.
+- The **receive alert** span is the root. The incident keeps its context - the propagator's carrier, `traceparent` and `baggage`, in the incident's `trace_context` - and every later piece of work on the incident continues it: each **run** a worker claims, whether it walks the incident or unwinds it, and a **withdrawal** a person makes from the dashboard. A child can begin hours after its parent ended, which OTel and both backends accept. An alert that joins an incident already open keeps nothing, since the incident's trace is the first alert's; an incident started by something that traces nothing keeps none, and its runs are then traced from the run.
+- The **walk** span is opened around the graph rather than inside it, so that a failure before the first node is inside it too.
 - Every node of the graph is a **step** span, registered through one wrapper so that no node can be added without one. A step belonging to an agent is the GenAI conventions' `invoke_agent <agent>`; the orchestrator's own steps are named for the step, since several spans all called "the orchestrator" would tell a reader nothing. A step puts its agent's name in the baggage for as long as it runs, which is how a model client built once and handed around still says, on its span and its measurements, which agent made the call.
 - A **model call** follows the GenAI semantic conventions: the model, the token counts (input including cached tokens, with the cached share alongside), the finish reason, and the whole prompt and response.
-- A **tool call** is a client span in the caller and a server span in the MCP server. The caller writes W3C `traceparent` into the request's `_meta`, and the server continues it, so the server's work is a child of the call that asked for it rather than the root of a trace of its own. The servers are built on a `FastMCP` that does this for every tool, so no tool can be registered without it.
+- A **tool call** is a client span in the caller and a server span in the MCP server. The caller writes W3C `traceparent` and `baggage` into the request's `_meta`, and the server continues both, so the server's work is a child of the call that asked for it rather than the root of a trace of its own - and knows whose incident it is serving. The servers are built on a `FastMCP` that does this for every tool, so no tool can be registered without it.
 
 **Metrics** are the conventions' own wherever one exists - `gen_ai.client.operation.duration`, `gen_ai.client.token.usage`, `mcp.client.operation.duration` - plus `argus.incident.walks` and `argus.incident.walk.duration`, each told apart by how the incident ended.
 
-**Logs** are the processes' existing `logging` records, bridged into OTel with the trace and span they were written in, so a line in `logs.jsonl` leads to the span it belongs to. Console logging is unchanged. The SDK's own loggers are not exported, so that an exporter reporting its own failure is not handed that report to export.
+**Logs** are stdlib `logging` records, bridged into OTel with the trace and span they were written in, so a line in `logs.jsonl` leads to the span it belongs to. The SDK's own loggers are not exported, so that an exporter reporting its own failure is not handed that report to export.
+
+Logging is configured once per process, by the same start that installs the SDK: the root level comes from `LOG_LEVEL` (`INFO` unless set), the OTel handler sits on the root, and the console is written from a background thread through a queue, so a slow terminal never holds up the thread that logged. The HTTP clients, the MCP SDK and uvicorn's access log are held at WARNING whatever the level, since each would otherwise log every request - the dashboard's polls among them. The servers run uvicorn without uvicorn's own logging configuration, so its records reach the root like everyone else's. The schema job is the one exception: the kernel it lives in depends on nothing else in the workspace, so it starts no telemetry and configures a plain console for itself.
+
+A level means one thing in every process:
+
+| Level | Means | For example |
+|---|---|---|
+| CRITICAL | the process cannot continue | a mandatory setting missing, the schema absent, an exception escaping `main` |
+| ERROR | an operation failed, the process stays up, and a person has to act | a walk that raised, an undo that left production changed, a war-room line that will never be delivered |
+| WARNING | something unexpected the process recovered from or degraded around | a source unreadable with the walk carrying on, a model answer asked for again, a payload rejected |
+| INFO | a lifecycle milestone or a business event | an incident opened, a run claimed, a production change made or put back, a verdict, a pull request opened |
+| DEBUG | diagnostic context, branch decisions included | a candidate skipped, a window clamped |
+
+INFO is never written once per item, per poll or per minute, and one event is one INFO line, written where the event happens - a production change in the write server, the verdict on it in the walk. Bad input is never an ERROR. Payload-level detail is never logged at all; it is span content, and every model call's span already carries its messages.
+
+**A line is a fixed phrase and the values it concerns.** The message names the event the same way every time, so a backend can group by it, and the values go in as record attributes: `"deployment scaled out"` with `from_replicas` and `to_replicas`, never a sentence with the numbers formatted in. The console prints each attribute as `key=value` after the message; `logs.jsonl` carries them as log record attributes.
+
+**A line says whose work it was without being told.** Each record is stamped with whichever of `argus.incident.id`, `argus.run.id` and `argus.agent` the current baggage holds - the same keys the spans use. The incident is put there by everything that works on one (a run, a withdrawal), the run by the worker around each claimed run, and the agent by each step, so a call site never passes any of them. Because the baggage crosses into the MCP servers with the trace context, a line a server writes while serving a walk's tool call carries that walk's incident. A line written before any work on the incident has begun - intake opening it - names the incident itself, under the same key; a line about no incident at all carries none.
+
+A record attribute whose name says it holds a secret - one containing `token`, `secret`, `password`, `api_key` or `authorization` - is replaced by `[redacted]` before any handler sees it, and messages carry no values to scan.
+
+Every process says it started and that it stopped, at INFO, and that it died, at CRITICAL with the stack trace, from the context its telemetry is started in rather than from its `main` - which is also where the last of its signals are flushed.
 
 Telemetry and the replay log (§11.1) answer different questions and hold different things. The replay log is the record a recorded walk is replayed and evaluated from, so it holds what a model was asked and what it answered. How long anything took is telemetry, and lives only there.
 

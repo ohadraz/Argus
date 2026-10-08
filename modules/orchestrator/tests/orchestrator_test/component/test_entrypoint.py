@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -15,8 +16,9 @@ from argus_core.telemetry import (
     ARGUS_INCIDENT_WALKS,
 )
 from argus_incidents.repository import events, incidents
+from argus_testkit import one_record_was_logged
 from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario
+from argus_testkit.scenario import Scenario, calling
 from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import trace
 from orchestrator import entrypoint
@@ -144,6 +146,42 @@ def test_a_walk_is_counted_and_timed_by_how_the_incident_ended(
             .then(all_of(
                 _one_walk_counted(observed, ended="escalated"),
                 _one_walk_timed(observed, ended="escalated", seconds=some_seconds_walked)
+            ))
+
+
+@pytest.mark.component
+def test_a_walk_is_logged_as_it_starts_and_as_it_ends(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # How the incident ended and how long it took, on the line that says so -
+    # the two things asked of every walk afterwards.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph.invoke.side_effect = _a_walk_ending_at(IncidentStatus.ESCALATED)
+    some_seconds_walked = 42.5
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        conn.commit()  # the walk reads it back on a connection of its own
+
+        Scenario() \
+            .given(
+                calling(lambda: caplog.set_level(logging.INFO)),
+                incident_id
+            ) \
+            .when(
+                lambda: entrypoint.run_incident(
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    clock=_a_clock_reading(0.0, some_seconds_walked)
+                )
+            ) \
+            .then(all_of(
+                one_record_was_logged(caplog, "orchestrator.entrypoint", logging.INFO,
+                                      "walk started"),
+                one_record_was_logged(caplog, "orchestrator.entrypoint", logging.INFO,
+                                      "walk ended",
+                                      values={"outcome": "escalated",
+                                              "duration_s": some_seconds_walked})
             ))
 
 

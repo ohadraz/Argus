@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Final
 
 import psycopg
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.events import Publisher
 from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
+from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import (
     events_into,
     events_into_connection,
+    inside_the_incidents_trace,
     start_incident,
     withdraw_incident,
 )
@@ -22,6 +25,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from opentelemetry import propagate, trace
+from opentelemetry.trace import SpanKind, Tracer
 
 from argus_web import reads
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
@@ -33,6 +38,16 @@ from argus_web.pushes import (
     receive_push,
 )
 from argus_web.views import IncidentDetail
+
+logger = logging.getLogger(__name__)
+
+# The instrumentation scope this app's spans are reported under, and the two
+# requests that are spans at all: the one an incident's trace begins in, and a
+# person stopping the response. Every other route renders a page, and the
+# dashboard polls, so a span for each would be noise nobody reads.
+_SCOPE: Final = __name__
+RECEIVE_ALERT_SPAN: Final = "receive alert"
+WITHDRAW_SPAN: Final = "withdraw incident"
 
 
 @asynccontextmanager
@@ -94,9 +109,20 @@ def push_settings_of(request: Request) -> PushSettings:
     return settings
 
 
+def tracer_of() -> Tracer:
+    """What a route makes its spans with: the process's own tracer.
+
+    Looked up per request rather than once at import, so an app built before
+    telemetry was started still reports to it. A dependency for the reason the
+    connections are one: a test hands in a tracer whose spans it can read back.
+    """
+    return trace.get_tracer(_SCOPE)
+
+
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
 type Publishing = Annotated[Publisher, Depends(publisher_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
+type Tracing = Annotated[Tracer, Depends(tracer_of)]
 
 # Argus's own mark and the one script the page needs, both shipped with the
 # module and mounted from a path relative to it, so they resolve the same in
@@ -143,7 +169,8 @@ templates.env.filters["clock"] = _on_the_clock
 @app.post("/webhooks/alerts", status_code=202)
 def receive_alert(payload: dict[str, Any],
                   connections: UsingConnections,
-                  publisher: Publishing) -> dict[str, str | None]:
+                  publisher: Publishing,
+                  tracer: Tracing) -> dict[str, str | None]:
     """`argus_web`'s only incident-domain entrypoint (spec §7.9): validates
     and normalizes the payload into an `Alert` domain object, then calls the
     Orchestrator's entrypoint in-process - never the raw payload.
@@ -154,13 +181,33 @@ def receive_alert(payload: dict[str, Any],
     to answer.
 
     A webhook saying only that rules stopped firing opens nothing, and is
-    answered with no incident."""
-    if reports_only_resolutions(payload):
-        return {"incident_id": None}
+    answered with no incident. One that cannot be read is refused with a `422`.
 
-    alert = parse_grafana_alert(payload)
-    incident_id = start_incident(alert, connections, events_into_connection)
-    return {"incident_id": incident_id}
+    Received inside a span of its own, which is where the incident's trace
+    begins: the incident keeps the span's context, and every walk of it
+    continues from there."""
+    with tracer.start_as_current_span(RECEIVE_ALERT_SPAN, kind=SpanKind.SERVER) as span:
+        if reports_only_resolutions(payload):
+            return {"incident_id": None}
+
+        try:
+            alert = parse_grafana_alert(payload)
+        except (LookupError, TypeError, ValueError) as unreadable:
+            # The sender's input rather than a fault here, so refused rather
+            # than failed: Grafana sends a failure again, and a payload that
+            # could not be read once reads no better the next time.
+            logger.warning("alert payload rejected", exc_info=True)
+            raise HTTPException(
+                status_code=422, detail=f"the alert could not be read: {unreadable!r}"
+            ) from unreadable
+
+        received_in: dict[str, str] = {}
+        propagate.inject(received_in)
+        incident_id = start_incident(alert, connections, events_into_connection,
+                                     trace_context=received_in)
+        span.set_attribute(ARGUS_INCIDENT_ID, incident_id)
+
+        return {"incident_id": incident_id}
 
 
 @app.post("/webhooks/github/push", status_code=202)
@@ -215,7 +262,8 @@ def _the_watermark_kept_by(connections: Connections) -> Watermark:
 @app.post("/incidents/{incident_id}/withdraw")
 def withdraw(incident_id: str,
              connections: UsingConnections,
-             publisher: Publishing) -> dict[str, str]:
+             publisher: Publishing,
+             tracer: Tracing) -> dict[str, str]:
     """Takes an incident back from Argus, at somebody's say-so.
 
     The one thing this application exposes that changes an incident, and it is
@@ -231,11 +279,25 @@ def withdraw(incident_id: str,
     already ended cannot be stopped, and answering as though it had been would
     have somebody believe they had taken back a mitigation that is still
     holding the service up.
+
+    Done inside the incident's own trace, since a person stopping the response
+    is part of the incident's story.
     """
     with connections() as conn:
-        _an_incident_or_404(conn, incident_id)
+        kept = reads.read_trace_context(conn, incident_id)
 
-    if not withdraw_incident(incident_id, connections, publisher):
+    if kept is None:
+        raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
+
+    with inside_the_incidents_trace(incident_id, kept, WITHDRAW_SPAN,
+                                    kind=SpanKind.SERVER, tracer=tracer):
+        withdrawn = withdraw_incident(incident_id, connections, publisher)
+
+        if not withdrawn:
+            # Inside the trace, so the line carries the incident it is about.
+            logger.info("withdrawal refused")
+
+    if not withdrawn:
         raise HTTPException(
             status_code=409, detail=f"incident {incident_id} has already ended"
         )

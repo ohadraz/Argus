@@ -14,6 +14,7 @@ demo's stand-in and a real server are one set of settings with two sets of value
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from functools import partial
@@ -25,6 +26,8 @@ from argus_core.models import PodPlacement, RolloutProgress
 
 from deployment_platform.failures import PlatformRefused, PlatformUnreachable
 from deployment_platform.port import Autoscaler, AutoscalerBounds, DeploymentRecord
+
+logger = logging.getLogger(__name__)
 
 # Argo CD's own wire vocabulary for an application's sync policy. Named once rather
 # than spelled at each lookup: they are another project's field names, and a typo in
@@ -258,9 +261,16 @@ class ArgoCd:
                     continue
 
                 on = _the_node_named_in(node)
+
+                if on is None:
+                    continue
+
                 started_at = _when_it_was_created(node.get(_CREATED_AT))
 
-                if on is None or started_at is None:
+                if started_at is None:
+                    logger.warning("pod start time unreadable", extra={
+                        "application": application, "pod": node.get(_NAME)
+                    })
                     continue
 
                 placed.append(
@@ -351,12 +361,21 @@ class ArgoCd:
         unparseable timestamp would report an unconfirmable restart as a broken
         one.
         """
-        came_up = [
-            _when_it_came_up(node.get(_CREATED_AT))
-            for node in self._nodes_of(service)
-            if node.get(_KIND) == POD_KIND
-        ]
-        readable = [moment for moment in came_up if moment is not None]
+        readable: list[float] = []
+
+        for node in self._nodes_of(service):
+            if node.get(_KIND) != POD_KIND:
+                continue
+
+            came_up = _when_it_came_up(node.get(_CREATED_AT))
+
+            if came_up is None:
+                logger.warning("pod start time unreadable", extra={
+                    "application": service, "pod": node.get(_NAME)
+                })
+                continue
+
+            readable.append(came_up)
 
         return max(readable) if readable else None
 

@@ -15,6 +15,8 @@ incident ends without its write-up.
 
 from __future__ import annotations
 
+import logging
+
 from argus_core.events import IncidentRemembered, Publisher, RememberingFailed, nobody, publish
 from incident_memory.composing import a_memory_of
 from incident_memory.describing import what_it_looked_like
@@ -22,6 +24,8 @@ from incident_memory.describing import what_it_looked_like
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import ActionsTaken, RememberIncident
 from orchestrator.walk.state import IncidentState
+
+logger = logging.getLogger(__name__)
 
 
 def remembering_node(state: IncidentState,
@@ -62,6 +66,7 @@ def remembering_node(state: IncidentState,
         # because none of them is a fact about the incident. Naming a narrower
         # family would be this node claiming to know which failures a store it
         # cannot see is capable of.
+        logger.warning("incident could not be remembered", exc_info=True)
         publish(
             RememberingFailed(incident_id=state.incident_id, refusal=str(refused)),
             publisher
@@ -76,5 +81,6 @@ def remembering_node(state: IncidentState,
         ),
         publisher
     )
+    logger.info("incident remembered", extra={"attempts": len(record.tried)})
 
     return StateDelta()

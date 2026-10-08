@@ -15,6 +15,7 @@ the brief and the schema that reads them back.
 
 from __future__ import annotations
 
+import logging
 from typing import Final
 
 from argus_core.models import CodeSearch, ToolCall, ToolDefinition, ToolResult
@@ -36,6 +37,8 @@ READ_FILE_TOOL: Final = "read_repository_file"
 PATH_ARGUMENT: Final = "path"
 QUERY_ARGUMENT: Final = "query"
 DESCRIPTION_ARGUMENT: Final = "description"
+
+logger = logging.getLogger(__name__)
 
 SEARCH = ToolDefinition(
     name=SEARCH_TOOL,
@@ -174,6 +177,8 @@ def the_answer_to(call: ToolCall,
             )
         )
     except Exception as error:
+        logger.warning("tool call failed", exc_info=True, extra={"tool": call.name})
+
         return ToolResult(
             call_id=call.id,
             content=f"{type(error).__name__}: {error}",
