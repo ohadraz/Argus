@@ -43,11 +43,15 @@ THE_QUIET_MINUTES_ARE_WITHIN = 2.0
 
 
 def a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
-    """Puts the shop into the state a scenario describes, and says whether it took.
+    """Puts the shop into the state a scenario describes, or fails the case.
 
     Returned as a step rather than performed here, so a `Scenario`'s `given`
     reads as the arrangement it is and the seeding happens when the case runs
     rather than when it is assembled.
+
+    Raises rather than answering `False`, because `calling` discards what a step
+    returns: a seed the shop refused went unnoticed, and the case went on to
+    investigate a shop with nothing staged in it.
     """
     def seed_scenario() -> bool:
         response = httpx2.post(
@@ -56,7 +60,13 @@ def a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
             timeout=REQUEST_TIMEOUT_SECONDS
         )
 
-        return response.status_code == HttpStatus.OK
+        if response.status_code != HttpStatus.OK:
+            raise AssertionError(
+                f"Expected the Target Service to stage scenario [{scenario_id}], "
+                f"got [{response.status_code}]: {response.text}."
+            )
+
+        return True
 
     return seed_scenario
 

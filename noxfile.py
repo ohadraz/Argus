@@ -1887,6 +1887,21 @@ def _the_containers_said_this(session: nox.Session) -> None:
             "docker", "compose", "logs", "--no-color", "--tail", "all",
             external=True, success_codes=[0, 1]
         )
+        # How each container ended, which its log cannot say: one killed from
+        # outside stops mid-line, and only its exit code and the kernel's
+        # out-of-memory mark tell a kill apart from a crash.
+        containers = session.run(
+            "docker", "compose", "ps", "--all", "--quiet",
+            external=True, silent=True, success_codes=[0, 1]
+        )
+        if containers:
+            session.run(
+                "docker", "inspect", "--format",
+                "{{.Name}} {{.State.Status}} exit={{.State.ExitCode}} "
+                "oom={{.State.OOMKilled}} restarts={{.RestartCount}}",
+                *containers.split(),
+                external=True, success_codes=[0, 1]
+            )
 
 
 @nox.session
