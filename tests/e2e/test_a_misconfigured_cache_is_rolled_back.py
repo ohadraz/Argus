@@ -65,6 +65,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.deployments import THE_CACHE_PORT_MOVED, the_deployment_was_staged
 from tests.e2e.framework.world import (
     argo_auto_sync_is_disabled,
     the_middle_of,
@@ -102,7 +103,8 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
     Scenario() \
         .given(
             calling(_the_cache_was_moved_out_of_reach()),
-            calling(the_model_answers_from(RECORDED_CACHE_MISCONFIGURED))
+            calling(the_model_answers_from(RECORDED_CACHE_MISCONFIGURED)),
+            calling(the_deployment_was_staged(THE_CACHE_PORT_MOVED))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

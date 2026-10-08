@@ -81,6 +81,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.deployments import THE_MONTH_BOUNDARY_MOVED, the_deployment_was_staged
 from tests.e2e.framework.flags import (
     THE_DEMO_FLAG,
     the_flag_provider_reports,
@@ -111,7 +112,8 @@ def test_a_platform_that_will_not_act_leaves_argus_the_one_action_it_still_has()
     Scenario() \
         .given(
             calling(a_scenario_was_seeded(THE_SCENARIO)),
-            calling(the_model_answers_from(RECORDED_CONTROL_PLANE_UNREACHABLE))
+            calling(the_model_answers_from(RECORDED_CONTROL_PLANE_UNREACHABLE)),
+            calling(the_deployment_was_staged(THE_MONTH_BOUNDARY_MOVED))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

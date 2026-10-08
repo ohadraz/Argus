@@ -51,6 +51,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.deployments import THE_CATEGORISER_UPGRADED, the_deployment_was_staged
 from tests.e2e.framework.world import (
     a_scenario_was_seeded,
     the_incidents_events,
@@ -84,7 +85,8 @@ def test_a_categoriser_upgrade_that_files_purchases_worse_is_rolled_back() -> No
     Scenario() \
         .given(
             calling(a_scenario_was_seeded(RECORDED_OUTPUT_QUALITY_DEGRADATION)),
-            calling(the_model_answers_from(RECORDED_OUTPUT_QUALITY_DEGRADATION))
+            calling(the_model_answers_from(RECORDED_OUTPUT_QUALITY_DEGRADATION)),
+            calling(the_deployment_was_staged(THE_CATEGORISER_UPGRADED))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

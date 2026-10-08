@@ -53,6 +53,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.deployments import THE_AVERAGE_SLOWED, the_deployment_was_staged
 from tests.e2e.framework.world import (
     a_scenario_was_seeded,
     argo_auto_sync_is_disabled,
@@ -77,7 +78,8 @@ def test_a_revision_that_slowed_every_page_is_ended_by_rolling_the_deployment_ba
     Scenario() \
         .given(
             calling(a_scenario_was_seeded(THE_SCENARIO)),
-            calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT))
+            calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT)),
+            calling(the_deployment_was_staged(THE_AVERAGE_SLOWED))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

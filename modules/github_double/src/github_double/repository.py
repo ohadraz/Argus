@@ -13,8 +13,10 @@ which is precisely the failure the real API had.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import io
+import itertools
 import tarfile
 from pathlib import Path
 from typing import Final
@@ -60,6 +62,17 @@ DEFAULT_FILES: Final = {
 # is nobody's name: the only thing that has to be true is that there is one.
 _ARCHIVE_ROOT: Final = "a-repository-at-a-commit"
 
+# GitHub's own words for a file's change in a comparison - the three of its
+# seven a content comparison can tell apart.
+ADDED_STATUS: Final = "added"
+REMOVED_STATUS: Final = "removed"
+MODIFIED_STATUS: Final = "modified"
+
+# GitHub's patch shape: three lines of context around each change, and none of
+# the two file-header lines a unified diff opens with.
+_CONTEXT_LINES: Final = 3
+_FILE_HEADER_LINES: Final = 2
+
 
 class Proposal(BaseModel):
     """One pull request, as the double recorded it being opened.
@@ -76,6 +89,19 @@ class Proposal(BaseModel):
     head: str
     base: str
     draft: bool
+
+
+class ChangedPath(BaseModel):
+    """One path a comparison names: what happened to it, and the change itself.
+
+    The status and the patch are both here because the real API sends both for
+    every text file, and a reader of a deployment's diff branches on neither
+    being missing - a comparison naming paths alone is one GitHub never sends.
+    """
+
+    path: str
+    status: str
+    patch: str
 
 
 class Repository:
@@ -193,7 +219,7 @@ class Repository:
 
         return self._trees[self._commits[commit]]
 
-    def changed_between(self, base: str, head: str) -> list[str]:
+    def changed_between(self, base: str, head: str) -> list[ChangedPath]:
         """Every path that differs between two refs - arrived, gone or edited.
 
         Content compared rather than tree shas, because a differing tree says
@@ -208,7 +234,15 @@ class Repository:
         was = self.files_at(base)
         now = self.files_at(head)
 
-        return sorted(path for path in {*was, *now} if was.get(path) != now.get(path))
+        return [
+            ChangedPath(
+                path=path,
+                status=_status_of(path, was, now),
+                patch=_patch_between(was.get(path, ""), now.get(path, ""))
+            )
+            for path in sorted({*was, *now})
+            if was.get(path) != now.get(path)
+        ]
 
     def written_over(self, base_tree: str, files: dict[str, str]) -> str:
         """A new tree: the base's files, with these written over them.
@@ -283,6 +317,38 @@ def _sha_of(kind: str, of: object) -> str:
     assumptions the code makes about what a sha is.
     """
     return hashlib.sha1(f"{kind}:{of}".encode()).hexdigest()
+
+
+def _status_of(path: str, was: dict[str, str], now: dict[str, str]) -> str:
+    """What GitHub calls this path's change, in GitHub's own words.
+
+    Three of its seven, the three a content comparison can tell apart. A rename
+    is not among them: the real API detects one by similarity, and a double that
+    guessed at it would be guessing differently from GitHub.
+    """
+    if path not in was:
+        return ADDED_STATUS
+
+    if path not in now:
+        return REMOVED_STATUS
+
+    return MODIFIED_STATUS
+
+
+def _patch_between(was: str, now: str) -> str:
+    """The change as GitHub writes it: unified hunks, from the first `@@`.
+
+    GitHub omits the `---`/`+++` file headers a unified diff starts with - the
+    entry already names the file - so they are dropped here. Kept, every walk
+    would read a patch shaped like no patch the real API sends. Dropped by
+    position rather than by prefix, because a removed line whose own text
+    begins `--` starts with `---` too.
+    """
+    diff = difflib.unified_diff(
+        was.splitlines(), now.splitlines(), lineterm="", n=_CONTEXT_LINES
+    )
+
+    return "\n".join(itertools.islice(diff, _FILE_HEADER_LINES, None))
 
 
 repository = Repository()

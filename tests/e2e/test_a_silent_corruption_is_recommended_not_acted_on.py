@@ -48,6 +48,10 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
     the_shop_raises_its_own_alert,
 )
+from tests.e2e.framework.deployments import (
+    THE_MONTH_STOPPED_BEING_CARRIED,
+    the_deployment_was_staged,
+)
 from tests.e2e.framework.flags import THE_DEMO_FLAG, the_flag_provider_reports
 from tests.e2e.framework.world import (
     a_scenario_was_seeded,
@@ -116,7 +120,8 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("monthly-totals-falling-behind")),
-            calling(the_model_answers_from(RECORDED_DEPLOY_CAUSED_CORRUPTION))
+            calling(the_model_answers_from(RECORDED_DEPLOY_CAUSED_CORRUPTION)),
+            calling(the_deployment_was_staged(THE_MONTH_STOPPED_BEING_CARRIED))
         ) \
         .when(
             the_shop_raises_its_own_alert()

@@ -460,23 +460,26 @@ def contract(session: nox.Session) -> None:
     """
     Registers `contract` as a nox session, i.e., runnable via `uv run python -m nox -s contract`.
     Runs the free contract tests: that the Slack double still answers as a real
-    workspace does, and that the Target Service's stand-ins at `/prometheus`,
-    `/stripe` and `/frankfurter` still answer the adapters as a real
-    Prometheus, a Stripe sandbox and Frankfurter itself do. Brings up the Slack
-    double, and the Target Service with a real Prometheus scraping it - one
-    half of each comparison is the stand-in.
+    workspace does, that the GitHub double still compares two commits as GitHub
+    does, and that the Target Service's stand-ins at `/prometheus`, `/stripe`
+    and `/frankfurter` still answer the adapters as a real Prometheus, a Stripe
+    sandbox and Frankfurter itself do. Brings up the Slack and GitHub doubles,
+    and the Target Service with a real Prometheus scraping it - one half of
+    each comparison is the stand-in.
 
     Free, which is the line between this and `paid_contract`. The Slack half
     posts messages somebody can see and skips itself without `SLACK_BOT_TOKEN`
-    and a channel; the Stripe half takes a charge in a sandbox and skips itself
-    without `STRIPE_API_KEY`; the Prometheus half needs nothing but Docker, and
+    and a channel; the GitHub half only reads, and skips itself without
+    `GITHUB_READ_TOKEN` and `GITHUB_REPOSITORY`; the Stripe half takes a charge
+    in a sandbox and skips itself without `STRIPE_API_KEY`; the Prometheus half
+    needs nothing but Docker, and
     waits up to a minute and a half for Prometheus to watch a minute end - a
     rate over a minute needs a minute watched.
     """
     _contract_against(
-        session, _SLACK_DOUBLE,
-        ["tests/contract/slack", "tests/contract/prometheus", "tests/contract/stripe",
-         "tests/contract/frankfurter"],
+        session, [_SLACK_DOUBLE, _GITHUB_DOUBLE],
+        ["tests/contract/slack", "tests/contract/github", "tests/contract/prometheus",
+         "tests/contract/stripe", "tests/contract/frankfurter"],
         compose_services=("target-service", "prometheus")
     )
 
@@ -495,7 +498,7 @@ def paid_contract(session: nox.Session) -> None:
     Apart from `contract` because it spends tokens: a run that wanted the free
     parties checked should not have to pay for the model's.
     """
-    _contract_against(session, _ANTHROPIC_DOUBLE, ["tests/contract/anthropic"])
+    _contract_against(session, [_ANTHROPIC_DOUBLE], ["tests/contract/anthropic"])
 
 
 # Its own compose project, so that its teardown takes only what it started. The
@@ -506,21 +509,21 @@ _CONTRACT_PROJECT: Final = ("-p", "argus-contract")
 
 
 def _contract_against(session: nox.Session,
-                      double: tuple[str, list[str], str],
+                      doubles: list[tuple[str, list[str], str]],
                       tests: list[str],
                       compose_services: tuple[str, ...] = ()) -> None:
-    """Brings a double up, and any containers the real party runs in, then runs
-    the tests that compare the stand-ins with the real thing.
+    """Brings the doubles up, and any containers the real party runs in, then
+    runs the tests that compare the stand-ins with the real thing.
 
     Shared by the two contract sessions so the only difference between them is
     which parties are being checked. `compose_services` is for a real party
     that runs here rather than across the internet. Anything after `--` goes to
     pytest, as everywhere else here.
     """
-    name, module_args, ready_url = double
-    double_process = _start_service(module_args)
+    double_processes = [_start_service(module_args) for _, module_args, _ in doubles]
     try:
-        _wait_for_http(name, ready_url)
+        for name, _, ready_url in doubles:
+            _wait_for_http(name, ready_url)
         if compose_services:
             session.run(
                 "docker", "compose", *_CONTRACT_PROJECT, "up", "-d", "--wait", "--build",
@@ -531,7 +534,8 @@ def _contract_against(session: nox.Session,
             *session.posargs, external=True
         )
     finally:
-        _stop_service(double_process)
+        for double_process in double_processes:
+            _stop_service(double_process)
         if compose_services:
             session.run(
                 "docker", "compose", *_CONTRACT_PROJECT, "down", "-v", external=True

@@ -62,6 +62,8 @@ _NUMBER_FIELD: Final = "number"
 _READABLE_AT_FIELD: Final = "html_url"
 _FILES_FIELD: Final = "files"
 _FILENAME_FIELD: Final = "filename"
+_STATUS_FIELD: Final = "status"
+_PATCH_FIELD: Final = "patch"
 
 # The host a proposal's address points at, which does not resolve. A double
 # answering with a reachable address would put a live link in a postmortem
@@ -210,6 +212,10 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
     A rename arrives as both of its paths, since it is a file that went and a
     file that arrived, which is the same pair the real API reports under
     `previous_filename`.
+
+    Every entry carries its status and its patch, as every text file in a real
+    comparison does. The deployment-diff channel reads both, and an entry
+    naming the path alone failed it - silently, as far as any case could tell.
     """
     base, separator, head = basehead.partition(_BETWEEN)
 
@@ -223,9 +229,16 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
     except NoSuchObject as absent:
         return _not_found(absent)
 
-    return JSONResponse(
-        {_FILES_FIELD: [{_FILENAME_FIELD: path} for path in changed]}
-    )
+    return JSONResponse({
+        _FILES_FIELD: [
+            {
+                _FILENAME_FIELD: each.path,
+                _STATUS_FIELD: each.status,
+                _PATCH_FIELD: each.patch
+            }
+            for each in changed
+        ]
+    })
 
 
 @app.get("/repos/{owner}/{repo}/git/ref/heads/{branch:path}")

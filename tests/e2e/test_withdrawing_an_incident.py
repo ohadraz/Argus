@@ -55,6 +55,11 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.deployments import (
+    THE_AVERAGE_SLOWED,
+    THE_CACHE_ENTRY_RESHAPED,
+    the_deployment_was_staged,
+)
 from tests.e2e.framework.flags import THE_DEMO_FLAG, flags_evaluating_true, switch_flag
 from tests.e2e.framework.world import (
     THE_QUIET_MINUTES_ARE_WITHIN,
@@ -159,7 +164,8 @@ def test_a_withdrawn_rollback_puts_the_deployment_back_and_resumes_reconciliatio
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("bad-deployment")),
-            calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT))
+            calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT)),
+            calling(the_deployment_was_staged(THE_AVERAGE_SLOWED))
         ) \
         .when(
             _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(some_alert)
@@ -269,7 +275,8 @@ def test_a_withdrawn_rollback_splits_the_fleet_again() -> None:
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("half-finished-rollout")),
-            calling(the_model_answers_from(RECORDED_HALF_FINISHED_ROLLOUT))
+            calling(the_model_answers_from(RECORDED_HALF_FINISHED_ROLLOUT)),
+            calling(the_deployment_was_staged(THE_CACHE_ENTRY_RESHAPED))
         ) \
         .when(
             _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(some_alert)
