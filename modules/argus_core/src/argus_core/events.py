@@ -41,6 +41,7 @@ from argus_core.models.placement import RecordedPlacement
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
+from argus_core.models.report import Report
 from argus_core.models.undone import Undone
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_core.timestamps import utc_now
@@ -82,11 +83,21 @@ class AgentInvoked(_Event):
 
 
 class StatusChanged(_Event):
-    """The incident moved, and what moved it said why."""
+    """The incident moved, and what moved it said why.
+
+    `reported` names the person whose report moved it, where a person's did -
+    a withdrawal or a resolution - and is `None` for every move the walk made
+    itself. On the change rather than in a table beside it, because the account
+    is where a reader looks, and a second record of who ended the incident is a
+    second one that can disagree with the first. A row written before anybody
+    could be named reads back with `None`, which is what it was: Argus's own
+    move, or one nobody recorded a name for.
+    """
 
     kind: Literal["status-changed"] = "status-changed"
     to_status: IncidentStatus
     detail: str | None = None
+    reported: Report | None = None
 
 
 class RetrievalRequested(_Event):

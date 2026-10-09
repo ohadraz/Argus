@@ -68,6 +68,7 @@ from argus_core.models import (
     PodPlacement,
     RecordedPlacement,
     Refusal,
+    ReportChannel,
     RetrievalChannel,
     Undone,
 )
@@ -142,6 +143,12 @@ _CHANNELS = {
     RetrievalChannel.METRICS: "the service's per-minute metrics",
     RetrievalChannel.LOGS: "the service's log lines",
     RetrievalChannel.CHANGES: "production change events - deploys and releases on the service"
+}
+
+# Where a person's report reached Argus, said as the place a reader would go to
+# find whoever made it.
+_REPORT_CHANNELS = {
+    ReportChannel.ARGUS_UI: "the Argus UI"
 }
 
 _HYPOTHESIS_FORMED = "hypothesis-formed"
@@ -279,6 +286,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         case AgentInvoked():
             who = _ARGUS
             text = f"Called in the {_an_agent(event.agent)}"
+        case StatusChanged() if event.reported is not None:
+            # The one move Argus did not make, so said in the name of the person
+            # who made it. Their note stands where Argus's reason would: it is
+            # the only account of why there is.
+            who = event.reported.by
+            emphasis = str(event.to_status).upper()
+            text = (f"Moved the incident to {emphasis} from "
+                    f"{where_a_report_came_from(event.reported.channel)}"
+                    f"{f' - {event.reported.note}' if event.reported.note else ''}")
         case StatusChanged():
             who = _ARGUS
             emphasis = str(event.to_status).upper()
@@ -801,6 +817,17 @@ def _why_it_moved(event: StatusChanged) -> str:
         return " to act on the leading candidate"
 
     return f" - {event.detail}" if event.detail else ""
+
+
+def where_a_report_came_from(channel: ReportChannel) -> str:
+    """Where a person's report reached Argus, said as the place a reader would
+    go to find whoever made it.
+
+    Public because the postmortem page says it too, beside the document, and
+    two spellings of one door are two things a reader has to recognise as the
+    same.
+    """
+    return _REPORT_CHANNELS[channel]
 
 
 def _an_agent(agent: Actor) -> str:

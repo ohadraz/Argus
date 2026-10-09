@@ -9,6 +9,16 @@
   <span class="status {{ incident.status }}">{{ incident.status }}</span>
 </p>
 
+{# Who ended the incident, where a person did - above the document, because a
+   postmortem written before the report is not rewritten and would otherwise
+   say nothing of it. #}
+{% if resolution %}
+<p class="resolution" data-resolution="{{ resolution.by }}">
+  Resolved by <strong>{{ resolution.by }}</strong> from {{ resolution.channel }},
+  {{ resolution.at | utc }}{% if resolution.note %} - <q>{{ resolution.note }}</q>{% endif %}
+</p>
+{% endif %}
+
 {# Absence is an answer here, not a failure: most incidents have no postmortem
    for most of their lives, and answering the ordinary case with an error
    teaches a reader to ignore errors. #}

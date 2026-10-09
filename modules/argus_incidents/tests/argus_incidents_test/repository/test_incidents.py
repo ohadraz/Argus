@@ -258,6 +258,33 @@ def test_a_withdrawn_incident_is_not_moved_by_a_transition(to_status: IncidentSt
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("to_status", [status for status in IncidentStatus
+                                       if status is not IncidentStatus.RESOLVED])
+def test_a_resolved_incident_is_not_moved_by_a_transition(to_status: IncidentStatus) -> None:
+    # A person reported it resolved while a step of the walk was still running.
+    # Their report is the fact, so the step finishing afterwards must not write
+    # its own status over it - nor may the worker's `escalated` on a walk that
+    # failed after the report.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_resolved_incident_for = partial(_a_resolved_incident_for, conn)
+        the_incident_is = partial(_the_incident_is, conn)
+
+        Scenario() \
+            .given(
+                incident_id := a_resolved_incident_for(some_alert)
+            ) \
+            .when(
+                lambda: incidents.transition(conn, incident_id, to_status)
+            ) \
+            .then(all_of(
+                _the_transition_reported(False),
+                the_incident_is(IncidentStatus.RESOLVED, incident_id=incident_id)
+            ))
+
+
+@pytest.mark.integration
 def test_incidents_come_back_newest_first() -> None:
     # The history view opens on what just happened. Oldest-first would put the
     # incident somebody is looking for at the bottom of the page.
@@ -379,6 +406,85 @@ def test_withdrawing_twice_changes_nothing_the_second_time() -> None:
                 _it_reported(False),
                 the_incident_is(IncidentStatus.WITHDRAWN, incident_id=incident_id),
                 the_incident_still_ended_at(incident_id, first_ended_at)
+            ))
+
+
+@pytest.mark.integration
+def test_a_running_incident_can_be_resolved() -> None:
+    # A person reported it over. Their report is the fact, so the incident
+    # ends at the moment they said so.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_records_an_end = partial(_the_incident_records_an_end, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .when(
+                lambda: incidents.resolve(conn, incident_id)
+            ) \
+            .then(all_of(
+                _the_resolution_reported(True),
+                the_incident_is(IncidentStatus.RESOLVED, incident_id=incident_id),
+                the_incident_records_an_end(incident_id)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("ending", [IncidentStatus.MITIGATED,
+                                    IncidentStatus.ESCALATED,
+                                    IncidentStatus.RECOMMENDED])
+def test_resolving_an_incident_argus_had_ended_keeps_its_end(ending: IncidentStatus) -> None:
+    # Argus stopped, somebody carried on, and later reported it resolved. The
+    # postmortem was written to the end Argus reached and is not rewritten, so
+    # an end restamped here would put it out of step with its own durations.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_still_ended_at = partial(_the_incident_still_ended_at, conn)
+
+        incident_id = _an_incident_ended_as(conn, some_alert, ending)
+
+        Scenario() \
+            .given(
+                argus_ended_it_at := _when_it_ended(conn, incident_id)
+            ) \
+            .when(
+                lambda: incidents.resolve(conn, incident_id)
+            ) \
+            .then(all_of(
+                _the_resolution_reported(True),
+                the_incident_is(IncidentStatus.RESOLVED, incident_id=incident_id),
+                the_incident_still_ended_at(incident_id, argus_ended_it_at)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("ending", [IncidentStatus.RESOLVED,
+                                    IncidentStatus.WITHDRAWN,
+                                    IncidentStatus.DISPROVEN])
+def test_an_incident_a_resolution_would_contradict_is_not_resolved(ending: IncidentStatus) -> None:
+    # Resolved already is; withdrawn had its changes put back on a person's
+    # say-so; disproven had no incident to resolve.
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        the_incident_is = partial(_the_incident_is, conn)
+
+        Scenario() \
+            .given(
+                incident_id := _an_incident_ended_as(conn, some_alert, ending)
+            ) \
+            .when(
+                lambda: incidents.resolve(conn, incident_id)
+            ) \
+            .then(all_of(
+                _the_resolution_reported(False),
+                the_incident_is(ending, incident_id=incident_id)
             ))
 
 
@@ -696,6 +802,34 @@ def _a_resolved_incident_for(conn: psycopg.Connection, alert: Alert) -> str:
     )
 
     return incident_id
+
+
+def _an_incident_ended_as(conn: psycopg.Connection, alert: Alert, ending: IncidentStatus) -> str:
+    """An incident that reached `ending`, committed.
+
+    Committed so that the end it records is stamped in a transaction of its
+    own: `now()` is transaction time, and a resolution sharing the transaction
+    would stamp the same moment whether or not it kept the end it found.
+    """
+    incident_id = incidents.create(conn, alert)
+    incidents.transition(conn, incident_id, ending)
+    conn.commit()
+
+    return incident_id
+
+
+def _the_resolution_reported(expected: bool) -> Assertion[bool]:
+    def assertion(resolved: bool) -> bool:
+        if resolved != expected:
+            raise AssertionError(
+                f"Expected the resolution to report that it "
+                f"{"took effect" if expected else "changed nothing"}, "
+                f"got [{resolved!r}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_withdrawn_incident_for(conn: psycopg.Connection, alert: Alert) -> str:

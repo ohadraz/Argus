@@ -1,0 +1,24 @@
+{# The other thing a person may tell Argus about an incident: that it is over.
+
+   Beside the withdraw button and shaped like it, and rendered into a slot that
+   always exists so the incident page's poll can swap it out of band. Shown
+   wherever the incident accepts a resolution - which includes the endings
+   Argus reached by stopping, because somebody carried on from there and is
+   exactly who comes back to report it over.
+
+   A form rather than a bare button, for the note: optional, and what it says
+   is the only account of why the incident is over. The answer reloads the
+   page, because an incident Argus had already ended has a page that stopped
+   polling and would otherwise never show what the press did. #}
+<span id="resolve-slot" class="resolve-slot"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if incident.status.accepts_resolution() %}
+  <form class="resolve-form"
+        data-resolve="{{ incident.id }}"
+        hx-post="/incidents/{{ incident.id }}/resolve"
+        hx-swap="none">
+    <input class="resolve-note" type="text" name="note" maxlength="500"
+           placeholder="what ended it (optional)" aria-label="what ended it">
+    <button class="resolve" type="submit">resolved</button>
+  </form>
+  {% endif %}
+</span>

@@ -19,6 +19,7 @@ from typing import Any, Final
 
 import httpx2
 import psycopg
+from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_investigator.tools.windows import WINDOW_END_ARG, WINDOW_START_ARG
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load
@@ -563,7 +564,7 @@ def argus_wrote_a_postmortem() -> Assertion[httpx2.Response]:
     return assertion
 
 
-def the_model_answers_from(recording: str) -> Callable[[], bool]:
+def the_model_answers_from(recording: str, *, less_code_fix: bool = False) -> Callable[[], bool]:
     """A `given` step naming the stored answers the model gives for this case.
 
     The counterpart to seeding the Target Service's scenario: one says what the
@@ -596,6 +597,11 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
     Against `nox -s e2e` this seeds a double nothing is pointed at, and is
     harmlessly ignored - which is what lets one set of cases serve both the
     paid path and the replayed one.
+
+    `less_code_fix` leaves Code-Fix's answers out, for a walk that never reaches
+    Code-Fix because a person resolved the incident first. The double serves in
+    order and never looks at the request, so those answers left in would be
+    handed to the postmortem.
     """
     def step() -> bool:
         stored = stored_as(recording)
@@ -604,7 +610,9 @@ def the_model_answers_from(recording: str) -> Callable[[], bool]:
         with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
 
-            for answered_once in _the_answers_recorded_for(stored, control):
+            answers = _the_answers_recorded_for(stored, control)
+
+            for answered_once in _less_code_fix(answers) if less_code_fix else answers:
                 control.post(
                     "/double-control/seed",
                     json={"recording": answered_once, "repeat": 1}
@@ -764,6 +772,28 @@ def _the_order_it_was_answered_in(name: str) -> int:
     _, _, suffix = name.rpartition("-")
 
     return int(suffix) if suffix.isdigit() else 1
+
+
+def _less_code_fix(answers: list[str]) -> list[str]:
+    """A walk's answers without the ones Code-Fix gave.
+
+    Told apart by what each answer did rather than by position, because where
+    Code-Fix starts differs between recordings and between modes: the
+    investigation ends on its last final answer, and the write-up is the answer
+    that submits the postmortem. Everything between is Code-Fix's.
+    """
+    tools = [_the_tools_called_in(load(name)) for name in answers]
+    the_investigations_end = max(position for position, called in enumerate(tools)
+                                 if ANSWER_TOOL in called)
+    the_write_up = next(position for position, called in enumerate(tools)
+                        if SUBMIT_TOOL_NAME in called)
+
+    return answers[:the_investigations_end + 1] + answers[the_write_up:]
+
+
+def _the_tools_called_in(answer: dict[str, Any]) -> list[str]:
+    return [block["name"] for block in answer.get("content", [])
+            if block.get("type") == TOOL_USE_TYPE]
 
 
 def _tokens_spent_excluding_postmortem(incident_id: str) -> int:

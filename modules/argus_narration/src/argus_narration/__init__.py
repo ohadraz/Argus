@@ -30,6 +30,7 @@ from argus_narration.narrating import (
     a_narration_line,
     build_narration,
     what_the_action_does,
+    where_a_report_came_from,
 )
 from argus_narration.prose import said_plainly
 
@@ -55,5 +56,6 @@ __all__ = [
     "said_as_a_state",
     "said_plainly",
     "the_minutes_logged",
-    "what_the_action_does"
+    "what_the_action_does",
+    "where_a_report_came_from"
 ]

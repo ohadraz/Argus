@@ -14,9 +14,10 @@ from http import HTTPStatus as HttpStatus
 import httpx2
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, IncidentStatus
+from argus_core.events import StatusChanged
+from argus_core.models import Alert, IncidentStatus, Report, ReportChannel
 from argus_core.telemetry import ARGUS_INCIDENT_ID
-from argus_incidents.repository import incidents
+from argus_incidents.repository import events, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from argus_web.app import app
 from fastapi.testclient import TestClient
@@ -51,6 +52,33 @@ def test_withdrawing_a_running_incident_stops_it() -> None:
                 the_response_was(HttpStatus.OK),
                 _the_incident_is(incident_id, IncidentStatus.WITHDRAWN)
             ))
+
+
+@pytest.mark.component
+def test_a_withdrawal_from_the_page_is_recorded_as_the_demo_users() -> None:
+    # Argus has no users yet, so whoever pressed the button is the one person
+    # the demo has. Recorded all the same: the account says a person ended the
+    # incident and which door they came through, and a name arrives with the
+    # day somebody can sign in.
+    some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: client.post(f"/incidents/{incident_id}/withdraw")
+            ) \
+            .then(
+                _the_account_says_it_was_reported_as(
+                    incident_id, IncidentStatus.WITHDRAWN,
+                    Report(by="demo user", channel=ReportChannel.ARGUS_UI)
+                )
+            )
 
 
 @pytest.mark.component
@@ -154,6 +182,27 @@ def _the_incident_is(incident_id: str,
         if incident.status != status:
             raise AssertionError(
                 f"Expected status [{status!r}], got [{incident.status!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_account_says_it_was_reported_as(incident_id: str,
+                                         status: IncidentStatus,
+                                         expected: Report) -> Assertion[httpx2.Response]:
+    def assertion(_response: httpx2.Response) -> bool:
+        with connect_from_env() as conn:
+            recorded = events.get_by_incident(conn, incident_id)
+
+        reported = [event.reported for event in recorded
+                    if isinstance(event, StatusChanged) and event.to_status == status]
+
+        if reported != [expected]:
+            raise AssertionError(
+                f"Expected one move to [{status}] reported as [{expected}], "
+                f"got {reported}."
             )
 
         return True

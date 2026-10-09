@@ -161,6 +161,122 @@ def test_a_disproven_incident_has_nowhere_left_to_go() -> None:
         )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("resolvable", [
+    IncidentStatus.ACKNOWLEDGED,
+    IncidentStatus.INVESTIGATING,
+    IncidentStatus.MITIGATING,
+    IncidentStatus.FIXING,
+    IncidentStatus.MITIGATED,
+    IncidentStatus.ESCALATED,
+    IncidentStatus.RECOMMENDED
+])
+def test_a_person_may_report_the_incident_resolved(resolvable: IncidentStatus) -> None:
+    # The three endings Argus reached by stopping are among them: mitigated,
+    # escalated and recommended each leave something owed, and a person who
+    # then finished the job is reporting exactly that.
+    Scenario() \
+        .given(
+            resolvable
+        ) \
+        .when(
+            lambda: resolvable.accepts_resolution()
+        ) \
+        .then(
+            _a_person_may_resolve_it()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("unresolvable", [
+    IncidentStatus.RESOLVED,
+    IncidentStatus.WITHDRAWN,
+    IncidentStatus.DISPROVEN
+])
+def test_a_person_may_not_report_the_incident_resolved(unresolvable: IncidentStatus) -> None:
+    # Resolved already is; withdrawn was taken back, and resolving it would
+    # rewrite why it ended; disproven had no incident to resolve.
+    Scenario() \
+        .given(
+            unresolvable
+        ) \
+        .when(
+            lambda: unresolvable.accepts_resolution()
+        ) \
+        .then(
+            _nobody_may_resolve_it()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
+def test_a_person_writes_this_ending(ending: IncidentStatus) -> None:
+    # The two endings written from outside the walk. Nothing the walk writes
+    # afterwards may replace either, and the walk stops for both.
+    Scenario() \
+        .given(
+            ending
+        ) \
+        .when(
+            lambda: ending.is_a_persons_ending()
+        ) \
+        .then(
+            _a_person_wrote_it(True)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [status for status in IncidentStatus
+                                    if status not in (IncidentStatus.WITHDRAWN,
+                                                      IncidentStatus.RESOLVED)])
+def test_the_walk_writes_every_other_status(status: IncidentStatus) -> None:
+    # Argus's own endings among them. A mitigated incident read as ended by a
+    # person would have the walk skip the Code-Fix it goes on to.
+    Scenario() \
+        .given(
+            status
+        ) \
+        .when(
+            lambda: status.is_a_persons_ending()
+        ) \
+        .then(
+            _a_person_wrote_it(False)
+        )
+
+
+def _a_person_wrote_it(expected: bool) -> Assertion[bool]:
+    def assertion(written_by_a_person: bool) -> bool:
+        if written_by_a_person is not expected:
+            raise AssertionError(
+                f"Expected a status {"a person" if expected else "the walk"} writes, "
+                f"got [{written_by_a_person!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_person_may_resolve_it() -> Assertion[bool]:
+    def assertion(accepts: bool) -> bool:
+        if accepts is not True:
+            raise AssertionError(f"Expected a status a person may resolve, got [{accepts!r}].")
+
+        return True
+
+    return assertion
+
+
+def _nobody_may_resolve_it() -> Assertion[bool]:
+    def assertion(accepts: bool) -> bool:
+        if accepts is not False:
+            raise AssertionError(f"Expected a status nobody may resolve, got [{accepts!r}].")
+
+        return True
+
+    return assertion
+
+
 def _nothing_more_is_coming() -> Assertion[bool]:
     """That the status is terminal, and says so as a real `bool`.
 

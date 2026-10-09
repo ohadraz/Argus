@@ -6,11 +6,15 @@ what makes "a status is written only when the incident enters it" a property of
 the graph instead of a rule five nodes have to remember - and the rule was
 already being forgotten.
 
-It is also where the walk finds out it is no longer wanted. Every node the graph
-runs passes through here first, so one question asked in one place stops all of
-them - and asked before the node rather than after, because a node that has
-already toggled a flag cannot be stopped by anything this wrapper does with its
-return value.
+It is also where the walk finds out a person has ended the incident. Every node
+the graph runs passes through here first, so one question asked in one place
+stops all of them - and asked before the node rather than after, because a node
+that has already toggled a flag cannot be stopped by anything this wrapper does
+with its return value.
+
+Two endings, and one node that answers to only one of them. A withdrawal stops
+every node; a resolution stops every node but the postmortem, which is what the
+person who reported the incident over is owed.
 """
 
 from __future__ import annotations
@@ -23,15 +27,15 @@ from unittest.mock import MagicMock
 import pytest
 from argus_core.events import StatusChanged
 from argus_core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus
-from argus_incidents.withdrawal import IsStillWanted
+from argus_incidents.ending import EndedByAPerson
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import (
-    the_incident_is_still_wanted,
-    the_incident_was_withdrawn,
+    a_person_ended_the_incident,
+    nobody_ended_the_incident,
 )
 
 type Node = Callable[[IncidentState], StateDelta]
@@ -42,6 +46,8 @@ DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "buki-123"
 DONT_CARE_NARRATION = Narration(action="dont care")
 DONT_CARE_ACTOR = Actor.ORCHESTRATOR
+# What the one node that runs after a resolution stops for.
+ONLY_A_WITHDRAWAL = frozenset({IncidentStatus.WITHDRAWN})
 
 
 @pytest.mark.unit
@@ -59,7 +65,7 @@ def test_a_node_that_moved_the_incident_transitions_it_once(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
+            ended_by_a_person=nobody_ended_the_incident())(an_incident_being_investigated)
         ) \
         .then(all_of(
             _the_incident_was_moved_once_to(IncidentStatus.MITIGATING,
@@ -89,7 +95,7 @@ def test_a_move_is_logged_with_the_reason_it_was_made(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
+            ended_by_a_person=nobody_ended_the_incident())(an_incident_being_investigated)
         ) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
@@ -119,7 +125,7 @@ def test_a_node_that_moved_nothing_writes_no_transition(
             a_gate_refusing_an_action,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_mitigating)
+            ended_by_a_person=nobody_ended_the_incident())(an_incident_mitigating)
         ) \
         .then(_the_incident_was_not_moved(transition_incident))
 
@@ -145,7 +151,7 @@ def test_a_node_that_moved_nothing_writes_nothing_at_all(
             a_gate_refusing_an_action,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_mitigating)
+            ended_by_a_person=nobody_ended_the_incident())(an_incident_mitigating)
         ) \
         .then(_the_incident_was_not_moved(transition_incident))
 
@@ -168,7 +174,7 @@ def test_the_narration_never_reaches_the_graphs_state(
             a_narrating_node,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_mitigating)
+            ended_by_a_person=nobody_ended_the_incident())(an_incident_mitigating)
         ) \
         .then(_the_updates_are({"proposed_action": None}))
 
@@ -190,7 +196,7 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
+            ended_by_a_person=nobody_ended_the_incident())(an_incident_being_investigated)
         ) \
         .then(all_of(
             the_updates_carry("status", IncidentStatus.MITIGATING),
@@ -199,12 +205,14 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
 
 
 @pytest.mark.unit
-def test_a_withdrawn_incident_stops_the_node_before_it_runs(
-    transition_incident: MagicMock
+@pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
+def test_an_incident_a_person_ended_stops_the_node_before_it_runs(
+    transition_incident: MagicMock, ending: IncidentStatus
 ) -> None:
     # Before, not after. A node that has already toggled a flag cannot be
     # stopped by anything done with its return value, so the question is asked
-    # while there is still an answer worth having.
+    # while there is still an answer worth having - and a resolution is as much
+    # a reason not to act as a withdrawal is.
     ran: list[str] = []
 
     Scenario() \
@@ -216,49 +224,24 @@ def test_a_withdrawn_incident_stops_the_node_before_it_runs(
             a_node_that_would_have_acted,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_was_withdrawn())(an_incident_mitigating)
+            ended_by_a_person=a_person_ended_the_incident(ending))(an_incident_mitigating)
         ) \
         .then(all_of(
             _the_node_never_ran(ran),
-            _the_updates_are({"status": IncidentStatus.WITHDRAWN}),
+            _the_updates_are({"status": ending}),
             _the_incident_was_not_moved(transition_incident))
         )
 
 
 @pytest.mark.unit
-def test_an_incident_nobody_has_is_not_walked_either(
-    transition_incident: MagicMock
+@pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
+def test_a_node_that_finished_after_a_person_ended_the_incident_stops_the_walk(
+    transition_incident: MagicMock, ending: IncidentStatus
 ) -> None:
-    # An incident whose row is gone cannot want anything. Reading that as "still
-    # wanted" is how a walk goes on writing rows for an incident that no longer
-    # exists - which is exactly the state a suite leaves behind when it empties
-    # the database between cases.
-    ran: list[str] = []
-
-    Scenario() \
-        .given(
-            a_node_that_would_have_acted := _a_node_that_records_being_run(ran),
-            an_incident_mitigating := _an_incident_mitigating()
-        ) \
-        .when(lambda: with_status(
-            a_node_that_would_have_acted,
-            SOME_MAX_ROUNDS,
-            transition_incident=transition_incident,
-            still_wanted=_there_is_no_such_incident())(an_incident_mitigating)
-        ) \
-        .then(all_of(
-            _the_node_never_ran(ran),
-            _the_incident_was_not_moved(transition_incident))
-        )
-
-
-@pytest.mark.unit
-def test_a_node_that_finished_after_a_withdrawal_stops_the_walk(
-    transition_incident: MagicMock
-) -> None:
-    # Withdrawn while the node was running, so asking before it was too early
-    # to know. The row refused the move, and the walk has to hear that refusal
-    # for what it is - or it routes onwards and walks an incident nobody wants.
+    # Ended while the node was running, so asking before it was too early to
+    # know. The row refused the move, and the walk has to hear that refusal for
+    # what it is - and for which ending it was, because a resolution goes on to
+    # the postmortem and a withdrawal goes nowhere.
     Scenario() \
         .given(
             calling(lambda: transition_incident.configure_mock(return_value=False)),
@@ -271,21 +254,22 @@ def test_a_node_that_finished_after_a_withdrawal_stops_the_walk(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
-        ) \
+            ended_by_a_person=_refused_because_it_was_ended(ending)
+        )(an_incident_being_investigated)) \
         .then(
-            the_updates_carry("status", IncidentStatus.WITHDRAWN)
+            the_updates_carry("status", ending)
         )
 
 
 @pytest.mark.unit
-def test_a_node_that_moved_nothing_while_it_was_withdrawn_stops_the_walk(
-    transition_incident: MagicMock
+@pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
+def test_a_node_that_moved_nothing_while_a_person_ended_the_incident_stops_the_walk(
+    transition_incident: MagicMock, ending: IncidentStatus
 ) -> None:
-    # A step that stopped because nobody wants the incident hands back nothing,
-    # so there is no move for the row to refuse and nothing for the router to
-    # read as a stop. Asked once more after the node, the walk hears the
-    # withdrawal anyway - and writes nothing, because the row already says it.
+    # A step that stopped because a person ended the incident hands back
+    # nothing, so there is no move for the row to refuse and nothing for the
+    # router to read as a stop. Asked once more after the node, the walk hears
+    # the ending anyway - and writes nothing, because the row already says it.
     Scenario() \
         .given(
             a_node_that_stopped := _a_node_returning({}),
@@ -295,20 +279,74 @@ def test_a_node_that_moved_nothing_while_it_was_withdrawn_stops_the_walk(
             a_node_that_stopped,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_withdrawn_while_the_node_ran())(an_incident_being_investigated)
-        ) \
+            ended_by_a_person=_ended_while_the_node_ran(ending)
+        )(an_incident_being_investigated)) \
         .then(all_of(
-            the_updates_carry("status", IncidentStatus.WITHDRAWN),
+            the_updates_carry("status", ending),
             _the_incident_was_not_moved(transition_incident)
         ))
 
 
 @pytest.mark.unit
-def test_a_withdrawal_heard_after_a_step_is_logged(
+def test_the_node_that_runs_after_a_resolution_runs_on_a_resolved_incident(
+    transition_incident: MagicMock
+) -> None:
+    # The postmortem. A person reporting the incident over is owed the write-up,
+    # so a resolution does not stop it - and nothing it returns may move the
+    # incident off the status the person gave it.
+    ran: list[str] = []
+
+    Scenario() \
+        .given(
+            the_write_up := _a_node_that_records_being_run(ran),
+            a_resolved_incident := _an_incident_in(IncidentStatus.RESOLVED)
+        ) \
+        .when(lambda: with_status(
+            the_write_up,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=a_person_ended_the_incident(IncidentStatus.RESOLVED),
+            stops_for=ONLY_A_WITHDRAWAL
+        )(a_resolved_incident)) \
+        .then(all_of(
+            _the_node_ran(ran),
+            _the_updates_are({"proposed_action": None}),
+            _the_incident_was_not_moved(transition_incident)
+        ))
+
+
+@pytest.mark.unit
+def test_the_node_that_runs_after_a_resolution_still_stops_for_a_withdrawal(
+    transition_incident: MagicMock
+) -> None:
+    # The person who took the incident back is not waiting to be told what
+    # Argus made of it.
+    ran: list[str] = []
+
+    Scenario() \
+        .given(
+            the_write_up := _a_node_that_records_being_run(ran),
+            an_incident_mitigating := _an_incident_mitigating()
+        ) \
+        .when(lambda: with_status(
+            the_write_up,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=a_person_ended_the_incident(IncidentStatus.WITHDRAWN),
+            stops_for=ONLY_A_WITHDRAWAL
+        )(an_incident_mitigating)) \
+        .then(all_of(
+            _the_node_never_ran(ran),
+            _the_updates_are({"status": IncidentStatus.WITHDRAWN})
+        ))
+
+
+@pytest.mark.unit
+def test_an_ending_heard_after_a_step_is_logged(
     transition_incident: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Nothing is written for it - the row already says withdrawn - so this line
-    # is the walk's only account of where it was when it heard.
+    # Nothing is written for it - the row already says how it ended - so this
+    # line is the walk's only account of where it was when it heard.
     Scenario() \
         .given(
             calling(lambda: caplog.set_level(logging.INFO)),
@@ -319,12 +357,13 @@ def test_a_withdrawal_heard_after_a_step_is_logged(
             a_node_that_stopped,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=_withdrawn_while_the_node_ran())(an_incident_being_investigated)
-        ) \
+            ended_by_a_person=_ended_while_the_node_ran(IncidentStatus.RESOLVED)
+        )(an_incident_being_investigated)) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
-                                  "withdrawn while a step ran",
-                                  values={"from_status": IncidentStatus.INVESTIGATING})
+                                  "ended by a person while a step ran",
+                                  values={"from_status": IncidentStatus.INVESTIGATING,
+                                          "ending": IncidentStatus.RESOLVED})
         )
 
 
@@ -333,7 +372,7 @@ def test_a_move_the_row_refused_is_logged(
     transition_incident: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
     # The other way the walk hears it: the step moved the incident and the row
-    # refused, because a person had withdrawn it in the meantime.
+    # refused, because a person had ended it in the meantime.
     Scenario() \
         .given(
             calling(lambda: caplog.set_level(logging.INFO)),
@@ -347,37 +386,41 @@ def test_a_move_the_row_refused_is_logged(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
-        ) \
+            ended_by_a_person=_refused_because_it_was_ended(IncidentStatus.WITHDRAWN)
+        )(an_incident_being_investigated)) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
-                                  "withdrawn while a step ran",
+                                  "ended by a person while a step ran",
                                   values={"from_status": IncidentStatus.INVESTIGATING,
-                                          "to_status": IncidentStatus.MITIGATING})
+                                          "to_status": IncidentStatus.MITIGATING,
+                                          "ending": IncidentStatus.WITHDRAWN})
         )
 
 
-def _there_is_no_such_incident() -> IsStillWanted:
-    """The same answer, for the different reason that there is no row at all.
-
-    Two helpers rather than one, because the cases are two: a walk that was
-    stopped, and a walk whose incident was taken out from under it.
-    """
-    def still_wanted(dont_care_incident_id: str) -> bool:
-        return False
-
-    return still_wanted
-
-
-def _withdrawn_while_the_node_ran() -> IsStillWanted:
-    """Wanted when the node began, and withdrawn by the time it returned."""
+def _ended_while_the_node_ran(ending: IncidentStatus) -> EndedByAPerson:
+    """Nobody's when the node began, and `ending` by the time it returned."""
     asked: list[str] = []
 
-    def still_wanted(incident_id: str, /) -> bool:
+    def ended_by_a_person(incident_id: str, /) -> IncidentStatus | None:
         asked.append(incident_id)
-        return len(asked) == 1
+        return None if len(asked) == 1 else ending
 
-    return still_wanted
+    return ended_by_a_person
+
+
+def _refused_because_it_was_ended(ending: IncidentStatus) -> EndedByAPerson:
+    """Nobody's until the row refused a move, and `ending` when asked why.
+
+    Twice nobody's - before the node and after it - because the case is the
+    ending that lands between that second question and the write.
+    """
+    asked: list[str] = []
+
+    def ended_by_a_person(incident_id: str, /) -> IncidentStatus | None:
+        asked.append(incident_id)
+        return None if len(asked) <= 2 else ending
+
+    return ended_by_a_person
 
 
 def _a_node_returning(updates: dict[str, Any],
@@ -410,6 +453,12 @@ def _an_incident_being_investigated() -> IncidentState:
     return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
                          alert=DONT_CARE_ALERT,
                          status=IncidentStatus.INVESTIGATING)
+
+
+def _an_incident_in(status: IncidentStatus) -> IncidentState:
+    return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
+                         alert=DONT_CARE_ALERT,
+                         status=status)
 
 
 def _an_incident_mitigating() -> IncidentState:
@@ -517,6 +566,16 @@ def _the_node_never_ran(ran: list[str]) -> Assertion[NodeResult]:
     def assertion(dont_care_result: NodeResult) -> bool:
         if ran:
             raise AssertionError(f"Expected the node not to run, it ran for {ran}.")
+
+        return True
+
+    return assertion
+
+
+def _the_node_ran(ran: list[str]) -> Assertion[NodeResult]:
+    def assertion(dont_care_result: NodeResult) -> bool:
+        if not ran:
+            raise AssertionError("Expected the node to run, it never did.")
 
         return True
 

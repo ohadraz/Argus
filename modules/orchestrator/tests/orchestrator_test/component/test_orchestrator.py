@@ -42,7 +42,7 @@ from argus_core.models import (
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
-from argus_incidents import IsStillWanted
+from argus_incidents import EndedByAPerson
 from argus_testkit import Assertion, Scenario, all_of
 from langgraph.checkpoint.memory import MemorySaver
 from orchestrator.walk import ports
@@ -64,9 +64,9 @@ from orchestrator.walk.state import IncidentState
 from orchestrator_test.framework.builders import (
     a_corruption_blamed_on,
     a_deployment,
+    a_person_ended_the_incident,
     a_random_id,
-    the_incident_is_still_wanted,
-    the_incident_was_withdrawn,
+    nobody_ended_the_incident,
 )
 
 type Walked = tuple[IncidentState, list[str]]
@@ -114,7 +114,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         transition_incident=transition_incident,
         publisher=nobody,
         recorder=records_nothing,
-        still_wanted=the_incident_is_still_wanted()
+        ended_by_a_person=nobody_ended_the_incident()
     )
 
 
@@ -238,7 +238,8 @@ def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
     Scenario() \
         .given(
             an_incident_withdrawn := replace(
-                collaborators, still_wanted=the_incident_was_withdrawn()
+                collaborators,
+                ended_by_a_person=a_person_ended_the_incident(IncidentStatus.WITHDRAWN)
             )
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), an_incident_withdrawn)) \
@@ -262,7 +263,7 @@ def test_the_investigation_is_handed_the_walks_own_question(
             a_traced_walk := replace(
                 collaborators,
                 investigate=_an_investigation_whose_question_is_traced(asked, reached),
-                still_wanted=_a_question_counting_its_asks(asked)
+                ended_by_a_person=_a_question_counting_its_asks(asked)
             )
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_traced_walk)) \
@@ -283,11 +284,68 @@ def test_code_fix_is_handed_the_walks_own_question(
             a_traced_walk := replace(
                 collaborators,
                 propose_fix=_a_fix_channel_whose_question_is_traced(asked, reached),
-                still_wanted=_a_question_counting_its_asks(asked)
+                ended_by_a_person=_a_question_counting_its_asks(asked)
             )
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_traced_walk)) \
         .then(_the_question_reached_the_walk(reached))
+
+
+@pytest.mark.component
+def test_an_incident_resolved_before_its_walk_is_written_up_and_nothing_else(
+    collaborators: Collaborators,
+    transition_incident: MagicMock
+) -> None:
+    # Resolved while the run was still queued. Nothing is investigated or
+    # tried, and nothing is written over the person's status - but the
+    # incident is remembered and written up, which is what they are owed.
+    recorded: list[str] = []
+
+    Scenario() \
+        .given(
+            an_incident_resolved := replace(
+                collaborators,
+                ended_by_a_person=a_person_ended_the_incident(IncidentStatus.RESOLVED),
+                record_postmortem=lambda incident_id, dont_care_document: recorded.append(
+                    incident_id)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), an_incident_resolved)) \
+        .then(all_of(_the_walk_went(INVESTIGATOR_NODE, REMEMBERING_NODE, POSTMORTEM_NODE),
+                     _the_incident_ended(IncidentStatus.RESOLVED),
+                     _a_postmortem_was_recorded(recorded),
+                     _nothing_was_written(transition_incident)))
+
+
+@pytest.mark.component
+def test_an_incident_resolved_after_an_action_skips_code_fix_and_is_written_up(
+    collaborators: Collaborators
+) -> None:
+    # The person reported it over while Argus's change was being verified. The
+    # walk goes no further with it - no Code-Fix, whatever the action came to -
+    # and on to remembering and the write-up.
+    acted: list[bool] = []
+    recorded: list[str] = []
+
+    Scenario() \
+        .given(
+            resolved_once_it_acted := replace(
+                collaborators,
+                take=_an_action_noting_it_landed(acted, Verdict.CONFIRMED),
+                ended_by_a_person=_resolved_once_it_acted(acted),
+                record_postmortem=lambda incident_id, dont_care_document: recorded.append(
+                    incident_id)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), resolved_once_it_acted)) \
+        .then(all_of(_the_walk_went(INVESTIGATOR_NODE,
+                                    MITIGATION_PROPOSAL_NODE,
+                                    TIER_GATE_NODE,
+                                    MITIGATION_NODE,
+                                    REMEMBERING_NODE,
+                                    POSTMORTEM_NODE),
+                     _the_incident_ended(IncidentStatus.RESOLVED),
+                     _a_postmortem_was_recorded(recorded)))
 
 
 @pytest.mark.component
@@ -654,13 +712,48 @@ def _the_action_recommended_was(flag: str) -> Assertion[Walked]:
     return assertion
 
 
-def _a_question_counting_its_asks(asked: list[str]) -> IsStillWanted:
-    """The walk's own question, always answered yes, keeping who it was asked about."""
-    def still_wanted(incident_id: str, /) -> bool:
+def _a_question_counting_its_asks(asked: list[str]) -> EndedByAPerson:
+    """The walk's own question, answered "nobody", keeping who it was asked about."""
+    def ended_by_a_person(incident_id: str, /) -> IncidentStatus | None:
         asked.append(incident_id)
+        return None
+
+    return ended_by_a_person
+
+
+def _resolved_once_it_acted(acted: list[bool]) -> EndedByAPerson:
+    """Nobody's ending until the action lands, and a resolution after - the
+    person who reported it over pressing the button while Argus's change was
+    being verified."""
+    def ended_by_a_person(dont_care_incident_id: str, /) -> IncidentStatus | None:
+        return IncidentStatus.RESOLVED if acted else None
+
+    return ended_by_a_person
+
+
+def _an_action_noting_it_landed(acted: list[bool], verdict: Verdict) -> ports.TakeAction:
+    """`verdict`, and a note that the action was taken."""
+    take = _an_action_that(verdict)
+
+    def taken(action: Action, /, **keywords: Any) -> Outcome:
+        acted.append(True)
+        return take(action, **keywords)
+
+    return taken
+
+
+def _a_postmortem_was_recorded(recorded: list[str]) -> Assertion[Walked]:
+    """That the write-up was stored, not merely that its node was passed - a
+    node a person's ending stopped is still a step the graph streams."""
+    def assertion(dont_care_walked: Walked) -> bool:
+        if len(recorded) != 1:
+            raise AssertionError(
+                f"Expected one postmortem recorded, got {len(recorded)}."
+            )
+
         return True
 
-    return still_wanted
+    return assertion
 
 
 def _an_investigation_whose_question_is_traced(asked: list[str],

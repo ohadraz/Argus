@@ -12,6 +12,7 @@ from orchestrator.walk.choosing import (
 )
 from orchestrator.walk.closing import postmortem_node
 from orchestrator.walk.deltas import Narration, StateDelta
+from orchestrator.walk.ending import stopping_when_a_person_ended_it
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.graph import build_graph, recursion_limit
@@ -19,7 +20,6 @@ from orchestrator.walk.investigating import investigator_node, route_after_inves
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.proposing import mitigation_proposal_node
-from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
 __all__ = [
     "Narration",
@@ -37,7 +37,7 @@ __all__ = [
     "route_after_investigation",
     "route_after_mitigation",
     "route_after_next_candidate",
-    "stopping_when_withdrawn",
+    "stopping_when_a_person_ended_it",
     "tier_gate_node",
     "with_status"
 ]

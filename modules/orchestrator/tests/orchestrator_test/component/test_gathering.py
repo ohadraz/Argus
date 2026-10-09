@@ -42,21 +42,28 @@ from argus_core.events import (
 )
 from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
+    DISCARD_CACHE_ENTRIES,
+    REVERT_FEATURE_FLAG,
+    ActionType,
     Alert,
     FailureMode,
     FixOutcome,
+    FlagUndo,
     Hypothesis,
     IncidentStatus,
     ModelPolicy,
     OpenedPullRequest,
     PostmortemDocument,
+    Report,
+    ReportChannel,
     ToolCall,
     ToolDefinition,
     Transcript,
     Turn,
+    Verdict,
 )
 from argus_core.replay import Replay
-from argus_incidents.repository import events, hypotheses, incidents
+from argus_incidents.repository import events, hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
@@ -76,6 +83,9 @@ DONT_CARE_THRESHOLDS = AnomalyThresholds(
     persistence_minutes=2,
     recovery_fraction_of_the_rise=0.8
 )
+
+# The flag the actions here act on. Any name does.
+SOME_FLAG = "monthly-spend-feature"
 
 
 @pytest.mark.component
@@ -284,6 +294,144 @@ def test_the_evidence_carries_the_minute_the_recovery_was_recorded_at(
             ) \
             .then(
                 _carries_the_recovery(parse_iso(the_minute_it_came_back))
+            )
+
+
+@pytest.mark.component
+def test_a_persons_resolution_dates_a_recovery_argus_never_recorded(
+        a_clean_database: None) -> None:
+    # A person saying the incident is over is the fact (spec §16), so the
+    # recovery is dated from what they said rather than searched for in a
+    # series - which would be Argus looking for a level falling to corroborate
+    # a report it does not test.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                the_report := StatusChanged(
+                    incident_id=incident_id,
+                    to_status=IncidentStatus.RESOLVED,
+                    reported=Report(by="some person", channel=ReportChannel.ARGUS_UI)
+                )
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, the_report)
+            ) \
+            .then(
+                _carries_the_recovery(the_report.at)
+            )
+
+
+@pytest.mark.component
+def test_a_recovery_argus_confirmed_stands_over_a_later_resolution(
+        a_clean_database: None) -> None:
+    # Not a contradiction of the report: Argus measured the service coming
+    # back, and the person reported the incident over afterwards. The earlier
+    # measurement is the better answer to when it came back.
+    the_minute_it_came_back = "2026-09-02T12:06:00Z"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        events.record(conn, RecoveryChecked(incident_id=incident_id,
+                                            minute="2026-09-02T12:09:00Z",
+                                            recovered=True,
+                                            recovered_minute=the_minute_it_came_back))
+
+        Scenario() \
+            .given(
+                the_report := StatusChanged(
+                    incident_id=incident_id,
+                    to_status=IncidentStatus.RESOLVED,
+                    reported=Report(by="some person", channel=ReportChannel.ARGUS_UI)
+                )
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, the_report)
+            ) \
+            .then(
+                _carries_the_recovery(parse_iso(the_minute_it_came_back))
+            )
+
+
+@pytest.mark.component
+def test_an_ending_argus_reached_itself_dates_no_recovery(a_clean_database: None) -> None:
+    # Only a person's report stands in for a measurement. Argus's own move to an
+    # ending is not a claim that the service came back, and the document
+    # measures its own answer from the series there.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_no_recovery()
+            )
+
+
+@pytest.mark.component
+def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_database: None) -> None:
+    # After a resolution nothing is unwound, so a flag Argus turned off is off
+    # when the document is written - and a responder reading it needs to know
+    # there is a change of Argus's still standing in production.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.CONFIRMED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _mentions_among(lambda evidence: evidence.actions, "still in place")
+            )
+
+
+@pytest.mark.component
+def test_an_action_that_did_not_help_is_said_to_be_put_back(a_clean_database: None) -> None:
+    # Mitigation puts a refuted change back itself, before the walk moves on.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.REFUTED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _mentions_among(lambda evidence: evidence.actions, "put back")
+            )
+
+
+@pytest.mark.component
+def test_an_action_with_no_way_back_is_said_to_leave_nothing_to_put_back(
+        a_clean_database: None) -> None:
+    # A discard of stale cached figures changed something real and owes nothing
+    # back. "Still in place" would send somebody looking for a change to undo.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, DISCARD_CACHE_ENTRIES, Verdict.CONFIRMED, None))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _mentions_among(lambda evidence: evidence.actions, "nothing to put back")
             )
 
 
@@ -547,6 +695,37 @@ def _one_client_was_asked_for(
             raise AssertionError(
                 f"Expected exactly one client to be asked for, "
                 f"{len(clients_asked_for)} were.")
+
+        return True
+
+    return assertion
+
+
+def _an_action_taken(conn: psycopg.Connection,
+                     incident_id: str,
+                     action_type: ActionType,
+                     outcome: Verdict,
+                     undo_descriptor: FlagUndo | None) -> None:
+    """One finished action, on a candidate of its own."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary="dont care",
+                           failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.record(conn, incident_id,
+                         hypothesis_id=candidate.id,
+                         action_type=action_type,
+                         subject=SOME_FLAG,
+                         outcome=outcome,
+                         undo_descriptor=undo_descriptor)
+
+
+def _carries_no_recovery() -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.recorded_recovery_at is not None:
+            raise AssertionError(
+                f"Expected no recovery recorded, got [{evidence.recorded_recovery_at}].")
 
         return True
 

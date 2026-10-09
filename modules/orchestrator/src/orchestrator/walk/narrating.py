@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
 
 from argus_core.events import StatusChanged
 from argus_core.models import IncidentStatus
-from argus_incidents import IsStillWanted
+from argus_incidents import EndedByAPerson
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import TransitionIncident
@@ -22,12 +22,20 @@ from orchestrator.walk.state import IncidentState, status_after
 
 logger = logging.getLogger(__name__)
 
+# Every ending a person writes from outside the walk. What every node but the
+# postmortem stops for: a withdrawal and a resolution are equally reasons not
+# to take the next step.
+EVERY_PERSONS_ENDING: Final = frozenset(
+    status for status in IncidentStatus if status.is_a_persons_ending()
+)
+
 
 def with_status(
     node: Callable[[IncidentState], StateDelta],
     max_rounds: int,
     transition_incident: TransitionIncident,
-    still_wanted: IsStillWanted,
+    ended_by_a_person: EndedByAPerson,
+    stops_for: frozenset[IncidentStatus] = EVERY_PERSONS_ENDING,
 ) -> Callable[..., dict[str, Any]]:
     """Wraps a node so that the status it implies is derived, written and
     published in one place (spec §7.1, §10).
@@ -72,36 +80,53 @@ def with_status(
     would become a field of `IncidentState`, checkpointed with the incident
     forever, describing whichever node happened to run last.
 
-    It is also where a walk finds out it is no longer wanted, for the same
-    reason it is where a status is written: every node passes through here, so
-    one question asked once stops all of them. Asked before the node rather
-    than after - a node that has already toggled a flag cannot be stopped by
-    anything done with its return value.
+    It is also where a walk finds out a person has ended the incident, for the
+    same reason it is where a status is written: every node passes through
+    here, so one question asked once stops all of them. Asked before the node
+    rather than after - a node that has already toggled a flag cannot be
+    stopped by anything done with its return value.
+
+    `stops_for` is which endings stop this node, and it is every person's
+    ending for every node but one. The postmortem stops only for a withdrawal:
+    a person who reported the incident resolved is owed the write-up, and the
+    person who took it back is not waiting to be told what Argus made of it.
+    A node that runs on an incident a person already ended moves it nowhere -
+    the row says how it ended, and nothing the node did changes that.
 
     The answer is reported into the state rather than swallowed. A node that
     quietly did nothing leaves every field as it was, and the routers decide
     from those fields - so the same route would be chosen again, and again,
-    until LangGraph's recursion limit ended the run as failed. `withdrawn` in
-    the state is what `stopping_when_withdrawn` reads to route out of the walk.
-    No transition is written for it: the row already says `withdrawn`, and
-    whoever withdrew it recorded that.
+    until LangGraph's recursion limit ended the run as failed. The ending in
+    the state is what `stopping_when_a_person_ended_it` reads to route the walk
+    where that ending sends it. No transition is written for it: the row
+    already says it, and whoever ended the incident recorded that.
     """
     def run(state: IncidentState) -> dict[str, Any]:
-        if not still_wanted(state.incident_id):
-            return StateDelta(status=IncidentStatus.WITHDRAWN).as_updates()
+        ending = ended_by_a_person(state.incident_id)
+
+        if ending in stops_for:
+            return StateDelta(status=ending).as_updates()
 
         delta = node(state)
         updates = delta.as_updates()
 
-        # Asked again now the node has returned. A step that stopped because
-        # nobody wants the incident hands back nothing, so it implies no move
+        # Asked again now the node has returned. A step that stopped because a
+        # person ended the incident hands back nothing, so it implies no move
         # for the row to refuse below - and without this the routers would read
         # an unchanged status and carry on. Nothing is written: the row already
         # says why the walk is over.
-        if not still_wanted(state.incident_id):
-            logger.info("withdrawn while a step ran",
-                        extra={"from_status": state.status})
-            return {**updates, "status": IncidentStatus.WITHDRAWN}
+        ending = ended_by_a_person(state.incident_id)
+
+        if ending in stops_for:
+            logger.info("ended by a person while a step ran",
+                        extra={"from_status": state.status, "ending": ending})
+            return {**updates, "status": ending}
+
+        # A node this ending does not stop, running on an incident a person
+        # has already ended. The status is theirs, and stays.
+        if ending is not None:
+            return updates
+
         narration = delta.narration
         next_status = status_after(state.model_copy(update=updates), max_rounds)
 
@@ -130,13 +155,17 @@ def with_status(
             ),
         )
 
-        # Withdrawn while the node ran, which the question asked before it was
-        # too early to hear. The row refused the move, so the walk routes out
-        # as it would have had the answer come in time.
+        # Ended while the node ran, after the question asked after it - the row
+        # refused the move, so the walk asks which ending it was and goes
+        # where that sends it, as it would have had the answer come in time.
+        # A refusal with no ending behind it is a row that has gone, which the
+        # question itself reads as withdrawn; the fallback says the same.
         if not moved:
-            logger.info("withdrawn while a step ran",
-                        extra={"from_status": state.status, "to_status": next_status})
-            return {**updates, "status": IncidentStatus.WITHDRAWN}
+            ending = ended_by_a_person(state.incident_id) or IncidentStatus.WITHDRAWN
+            logger.info("ended by a person while a step ran",
+                        extra={"from_status": state.status, "to_status": next_status,
+                               "ending": ending})
+            return {**updates, "status": ending}
 
         logger.info("status changed", extra={"from_status": state.status,
                                              "to_status": next_status,

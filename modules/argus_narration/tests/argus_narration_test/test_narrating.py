@@ -79,6 +79,8 @@ from argus_core.models import (
     PodPlacement,
     RecordedPlacement,
     Refusal,
+    Report,
+    ReportChannel,
     RetrievalChannel,
     Undone,
     Verdict,
@@ -452,6 +454,47 @@ def test_a_status_change_marks_the_status_it_moved_to() -> None:
         .given(some_move) \
         .when(lambda: build_narration([some_move])) \
         .then(_the_only_line_marks(str(IncidentStatus.MITIGATING).upper()))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ending", [IncidentStatus.RESOLVED, IncidentStatus.WITHDRAWN])
+def test_a_status_change_a_person_reported_is_said_in_their_name(ending: IncidentStatus) -> None:
+    # The one move Argus did not make. Credited to Argus, the account would
+    # say Argus decided the incident was over - and the person, the door they
+    # came through and what they added are the whole of what a reader of this
+    # line is owed.
+    some_report = StatusChanged(
+        incident_id=new_id(),
+        to_status=ending,
+        reported=Report(by="some person", channel=ReportChannel.ARGUS_UI,
+                        note="rolled the flag back by hand")
+    )
+
+    Scenario() \
+        .given(some_report) \
+        .when(lambda: build_narration([some_report])) \
+        .then(all_of(
+            _the_lines_are_credited_to(["some person"]),
+            _the_only_line_marks(str(ending).upper()),
+            _the_only_line_says("the Argus UI", "rolled the flag back by hand")
+        ))
+
+
+@pytest.mark.unit
+def test_a_report_without_a_note_says_nothing_in_its_place() -> None:
+    # Most people press the button and type nothing. A line that printed the
+    # absence, or left a dash hanging where the note would go, would read as
+    # something lost.
+    some_report = StatusChanged(
+        incident_id=new_id(),
+        to_status=IncidentStatus.RESOLVED,
+        reported=Report(by="some person", channel=ReportChannel.ARGUS_UI)
+    )
+
+    Scenario() \
+        .given(some_report) \
+        .when(lambda: build_narration([some_report])) \
+        .then(_the_only_line_does_not_say("None", " - "))
 
 
 @pytest.mark.unit

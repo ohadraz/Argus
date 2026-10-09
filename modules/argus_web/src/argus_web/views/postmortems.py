@@ -7,10 +7,13 @@ field is one the Postmortem agent wrote down, carried across unchanged.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 
-from argus_core.models import OpenedPullRequest, Postmortem
+from argus_core.events import IncidentEvent, StatusChanged
+from argus_core.models import IncidentStatus, OpenedPullRequest, Postmortem
+from argus_narration import where_a_report_came_from
 from pydantic import BaseModel
 
 
@@ -59,3 +62,43 @@ def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
         checklist_complete=postmortem.checklist_complete,
         created_at=postmortem.created_at,
     )
+
+
+class ResolutionView(BaseModel):
+    """Who reported the incident resolved, through which door, when, and what
+    they said.
+
+    Beside the postmortem rather than inside it. A document written before the
+    report is not rewritten, and one written after is the model's prose - so
+    what the person did is read off the account and shown as it was recorded,
+    whichever came first.
+    """
+
+    by: str
+    channel: str
+    at: datetime
+    note: str | None
+
+
+def build_resolution_view(recorded: Sequence[IncidentEvent]) -> ResolutionView | None:
+    """The person's resolution among an incident's events, if a person
+    resolved it.
+
+    The last, though an incident is resolved at most once: the row refuses a
+    second, so there is one to find or none.
+    """
+    resolutions = [event for event in recorded
+                   if isinstance(event, StatusChanged)
+                   and event.to_status is IncidentStatus.RESOLVED
+                   and event.reported is not None]
+
+    if not resolutions:
+        return None
+
+    resolution = resolutions[-1]
+    assert resolution.reported is not None
+
+    return ResolutionView(by=resolution.reported.by,
+                          channel=where_a_report_came_from(resolution.reported.channel),
+                          at=resolution.at,
+                          note=resolution.reported.note)

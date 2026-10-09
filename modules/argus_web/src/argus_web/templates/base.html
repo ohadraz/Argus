@@ -380,6 +380,22 @@
      mark as well as the word, because the mark is what reads at that distance
      and the word is what removes any doubt about which kind of stop it is. */
   .withdraw-slot { margin-left: auto; }
+  /* Resolving is the quieter of the two: it ends nothing Argus is doing that
+     needs stopping in a hurry, so it carries no stop mark and no alarm colour,
+     and sits before the withdraw button rather than taking its place. */
+  .resolve-slot { margin-left: auto; }
+  .resolve-slot + .withdraw-slot { margin-left: 8px; }
+  .resolve-form { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+  .resolve-note { font: inherit; font-size: .72em; padding: 4px 8px; width: 16em;
+                  color: #e8e8ea; background: rgba(255,255,255,.05);
+                  border: 1px solid var(--line); border-radius: 3px; }
+  .resolve { padding: 4px 14px; border-radius: 3px;
+             font: inherit; font-size: .72em; letter-spacing: .12em;
+             text-transform: uppercase; cursor: pointer;
+             color: #e8e8ea; background: rgba(255,255,255,.07);
+             border: 1px solid transparent; }
+  .resolve:hover, .resolve:focus-visible { background: var(--good); color: #fff; }
+  .resolution { margin: 0 0 1em; }
   .withdraw { padding: 4px 14px 4px 11px; border-radius: 3px;
               font: inherit; font-size: .72em; letter-spacing: .12em;
               text-transform: uppercase; cursor: pointer;

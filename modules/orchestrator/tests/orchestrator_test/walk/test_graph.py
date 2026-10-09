@@ -78,6 +78,10 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     # An action the gate declined because nothing could confirm it: the
     # mitigation phase is over and the fault is still in the code.
     (TIER_GATE_NODE, CODEFIX_NODE),
+    # A person reported the incident resolved: past anything still to try, on
+    # to be remembered and written up. Every router carries the edge; the
+    # investigator, mitigation and Code-Fix already had it.
+    (TIER_GATE_NODE, REMEMBERING_NODE),
     (TIER_GATE_NODE, END),
 
     # A mitigation that worked still goes looking for a permanent fix: the flag
@@ -95,6 +99,7 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     (NEXT_CANDIDATE_NODE, MITIGATION_PROPOSAL_NODE),
     (NEXT_CANDIDATE_NODE, INVESTIGATOR_NODE),
     (NEXT_CANDIDATE_NODE, CODEFIX_NODE),
+    (NEXT_CANDIDATE_NODE, REMEMBERING_NODE),
     (NEXT_CANDIDATE_NODE, END),
 
     (CODEFIX_NODE, REMEMBERING_NODE),

@@ -104,3 +104,41 @@ class IncidentStatus(StrEnum):
             IncidentStatus.DISPROVEN,
             IncidentStatus.WITHDRAWN
         )
+
+    def is_a_persons_ending(self) -> bool:
+        """Whether a person writes this status, from outside the walk.
+
+        `withdrawn` and `resolved`, and nothing else. The walk never derives
+        either (`status_after` reaches `mitigated` at furthest), so finding one
+        on the row means somebody put it there - which is why nothing the walk
+        writes afterwards may replace it, and why the walk stops for both.
+
+        Argus's own endings are not among them. A mitigated incident read as
+        ended by a person would have the walk skip the Code-Fix it goes on to.
+        """
+        return self in (IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED)
+
+    def accepts_resolution(self) -> bool:
+        """Whether a person may report the incident resolved from here.
+
+        Every status but three, the terminal endings Argus reached by stopping
+        included: `mitigated`, `escalated` and `recommended` each leave
+        something owed, and a person who went on to finish the job is reporting
+        exactly that. Taking the report from any of them is also what keeps a
+        person from racing the walk - whichever status the incident has reached
+        by the time they press, the report is accepted.
+
+        The three it refuses are the endings a resolution would contradict.
+        `resolved` already is. `withdrawn` was taken back, and resolving it
+        would rewrite why it ended after its changes were put back. `disproven`
+        had no incident to resolve.
+
+        On the status for the reason `is_terminal` is: the store that refuses
+        the write and the page that hides the control both ask, and two copies
+        of the rule are two that can disagree.
+        """
+        return self not in (
+            IncidentStatus.RESOLVED,
+            IncidentStatus.WITHDRAWN,
+            IncidentStatus.DISPROVEN
+        )

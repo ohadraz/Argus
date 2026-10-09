@@ -25,9 +25,17 @@ from argus_core.events import (
     LogsRetrieved,
     OnsetDetected,
     RecoveryChecked,
+    StatusChanged,
 )
 from argus_core.llm import ClientFor
-from argus_core.models import Alert, OpenedPullRequest, PostmortemDocument
+from argus_core.models import (
+    Alert,
+    IncidentStatus,
+    OpenedPullRequest,
+    PostmortemDocument,
+    TakenAction,
+    Verdict,
+)
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from argus_incidents.repository import (
@@ -192,17 +200,34 @@ def _when_it_came_back(conn: psycopg.Connection,
     mitigates again - so what stands is the confirmation the incident actually
     ended on, which is the last.
 
-    `None` where no look ever carried a minute, which is three ordinary cases
-    rather than a failure: an incident that escalated, one nobody mitigated, and
-    a confirmation reached on a window with nothing in it to date. The document
+    Where no look carried one, a person reporting the incident resolved dates
+    it: their report is the fact (spec §16), and searching the series for a
+    level falling would be Argus corroborating a claim it does not test. Second
+    to a minute Argus measured, not over it - a recovery confirmed before the
+    report is an earlier answer to when the service came back, not a
+    contradiction of it.
+
+    `None` where neither exists, which is three ordinary cases rather than a
+    failure: an incident that escalated, one nobody mitigated, and a
+    confirmation reached on a window with nothing in it to date. The document
     measures its own answer from the series there.
     """
+    recorded = events.get_by_incident(conn, incident_id)
     recoveries = [event.recovered_minute
-                  for event in events.get_by_incident(conn, incident_id)
+                  for event in recorded
                   if isinstance(event, RecoveryChecked)
                   and event.recovered_minute is not None]
 
-    return parse_iso(recoveries[-1]) if recoveries else None
+    if recoveries:
+        return parse_iso(recoveries[-1])
+
+    resolved_by_a_person = [event.at
+                            for event in recorded
+                            if isinstance(event, StatusChanged)
+                            and event.to_status is IncidentStatus.RESOLVED
+                            and event.reported is not None]
+
+    return resolved_by_a_person[-1] if resolved_by_a_person else None
 
 
 def _the_rule_that_paged(alert_payload: dict[str, object]) -> str | None:
@@ -264,11 +289,36 @@ def _what_was_considered(conn: psycopg.Connection, incident_id: str) -> list[str
 
 
 def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[str]:
+    """Every action, with what it came to and whether it still stands.
+
+    Whether it still stands because a person who resolved the incident left
+    every change in place, so a flag Argus turned off is off when this is
+    written - and a responder reading the document has to know there is a
+    change of Argus's standing in production.
+    """
     return [
         f"{taken_action.type} on {taken_action.subject} - "
-        f"{taken_action.outcome or 'no verdict recorded'}"
+        f"{taken_action.outcome or 'no verdict recorded'}, "
+        f"{_what_became_of(taken_action)}"
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
+
+
+def _what_became_of(taken_action: TakenAction) -> str:
+    """Whether an action's change still stands as the document is written.
+
+    Nothing that ends in a postmortem is unwound, so the only change put back is
+    one Mitigation undid itself, having found it did not help. A change with no
+    way back - a discard of cached figures - owes nothing, and calling it still
+    in place would send somebody looking for something to undo.
+    """
+    if not taken_action.has_a_way_back:
+        return "nothing to put back"
+
+    if taken_action.outcome is Verdict.REFUTED:
+        return "put back when it did not help"
+
+    return "still in place"
 
 
 def _what_was_read(conn: psycopg.Connection, incident_id: str) -> list[str]:

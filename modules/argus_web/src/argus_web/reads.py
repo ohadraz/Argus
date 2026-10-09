@@ -25,11 +25,13 @@ from argus_web.views import (
     IncidentSummary,
     LiveIncident,
     PostmortemView,
+    ResolutionView,
     Story,
     build_incident_detail,
     build_incident_summary,
     build_live_incident,
     build_postmortem_view,
+    build_resolution_view,
     build_story,
 )
 
@@ -102,3 +104,8 @@ def read_postmortem(conn: psycopg.Connection, incident_id: str) -> PostmortemVie
     postmortem = postmortems.get_by_incident(conn, incident_id)
 
     return build_postmortem_view(postmortem) if postmortem is not None else None
+
+
+def read_resolution(conn: psycopg.Connection, incident_id: str) -> ResolutionView | None:
+    """Who resolved the incident, where a person did."""
+    return build_resolution_view(events.get_by_incident(conn, incident_id))

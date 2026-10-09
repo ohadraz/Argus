@@ -51,7 +51,7 @@ from argus_core.models import (
     Verdict,
     the_actions_through,
 )
-from argus_incidents.withdrawal import IsStillWanted
+from argus_incidents import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta

@@ -21,7 +21,7 @@
 
   </p>
 
-  {# The withdraw button lives in the sticky header, not here - but it is this
+  {# The resolve and withdraw controls live in the sticky header, not here - but it is this
      fragment that is polled, so this is what keeps it right. Swapped out of
      band into the slot the header holds, which is how the button disappears on
      its own when the incident ends.
@@ -30,7 +30,7 @@
      out-of-band swap in what it swaps in, and ignores it on a page it merely
      loaded - so rendering this inside the full page would leave two buttons on
      screen, the header's and this one. #}
-  {% if polled %}{% with oob = true %}{% include "withdraw.html" %}{% endwith %}{% endif %}
+  {% if polled %}{% with oob = true %}{% include "resolve.html" %}{% include "withdraw.html" %}{% endwith %}{% endif %}
 
   {# The account of the work, beside the conclusions it produced. The walk says
      which candidate was blamed; this says how that was arrived at, and for a

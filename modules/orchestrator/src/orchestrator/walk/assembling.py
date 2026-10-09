@@ -55,11 +55,11 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import ModelPolicy
 from argus_core.replay import Recorder
 from argus_incidents import (
-    IsStillWanted,
+    EndedByAPerson,
     calls_into,
+    ended_by_a_person_via,
     events_into,
     events_into_connection,
-    wanted_via,
 )
 from incident_memory.records import RememberedIncident
 
@@ -130,7 +130,10 @@ class Collaborators:
     transition_incident: TransitionIncident
     publisher: Publisher
     recorder: Recorder
-    still_wanted: IsStillWanted
+    # Whether a person has ended the incident, and how. Asked before and after
+    # every node and by the agents between their steps, and the one thing a
+    # walk's own state cannot tell it.
+    ended_by_a_person: EndedByAPerson
     # How many times one incident may be investigated. On the record
     # rather than read by the graph, because it is a fact about the
     # deployment and `build_graph` is where a walk is assembled, not
@@ -355,7 +358,7 @@ def against(connections: Connections,
         transition_incident=records.transition,
         publisher=events_into(connections),
         recorder=recorder,
-        still_wanted=wanted_via(connections),
+        ended_by_a_person=ended_by_a_person_via(connections),
         max_rounds=settings.investigation_max_rounds
     )
 

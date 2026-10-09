@@ -300,9 +300,11 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
                 undo=an_undo_nobody_calls()
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.WITHDRAWN)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.WITHDRAWN),
+            _the_detail_mentions("a person ended the incident"),
+            _the_detail_does_not_mention("withdrawn")
+        ))
 
 
 @pytest.mark.unit
@@ -331,7 +333,11 @@ def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
         .then(all_of(
             the_verdict_is(Verdict.WITHDRAWN),
             _the_flag_was_never_set(set_state),
-            _it_carries_nothing_to_put_back()
+            _it_carries_nothing_to_put_back(),
+            # The agent holds a yes-or-no and cannot tell a withdrawal from a
+            # resolution, so it says what it knows and claims neither.
+            _the_detail_mentions("a person ended the incident"),
+            _the_detail_does_not_mention("withdrawn")
         ))
 
 

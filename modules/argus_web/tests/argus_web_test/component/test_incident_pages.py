@@ -14,6 +14,7 @@ from http import HTTPStatus as HttpStatus
 import psycopg
 import pytest
 from argus_core import connect_from_env
+from argus_core.events import StatusChanged
 from argus_core.models import (
     Alert,
     Evidence,
@@ -22,9 +23,11 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     PostmortemDocument,
+    Report,
+    ReportChannel,
     Verdict,
 )
-from argus_incidents.repository import hypotheses, incidents, postmortems, taken_actions
+from argus_incidents.repository import events, hypotheses, incidents, postmortems, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
@@ -442,6 +445,122 @@ def test_a_finished_incident_offers_no_way_to_withdraw_it() -> None:
         .then(
             _the_page_shows_no("withdraw")
         )
+
+
+@pytest.mark.component
+def test_a_running_incident_can_be_resolved_from_its_page() -> None:
+    # The other thing a person may tell Argus: that it is over. Offered beside
+    # the withdraw button, because the two are the two ways a person ends an
+    # incident.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says(f"/incidents/{incident_id}/resolve"),
+            the_page_shows("resolve", incident_id)
+        ))
+
+
+@pytest.mark.component
+def test_an_incident_argus_escalated_can_still_be_resolved_and_not_withdrawn() -> None:
+    # Argus stopped and somebody carried on - exactly the person who comes back
+    # to report it over. Withdrawing it is another matter: there is nothing of
+    # Argus's left running to stop.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_shows("resolve", incident_id),
+            _the_page_shows_no("withdraw")
+        ))
+
+
+@pytest.mark.component
+def test_a_withdrawn_incident_offers_no_way_to_resolve_it() -> None:
+    # It ended for its own reason, and the answer to a press would be a 409
+    # nobody had reason to expect.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        incidents.withdraw(conn, incident_id)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_shows_no("resolve")
+        )
+
+
+@pytest.mark.component
+def test_the_postmortem_page_says_who_resolved_the_incident_and_what_they_said() -> None:
+    # Beside the document rather than in it. A postmortem written before the
+    # person reported the incident over is not rewritten, and one written after
+    # is the model's prose - either way, who ended it, through which door, when
+    # and in what words is read off the account and shown as it was recorded.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_person = "Kuki Buki"
+    some_note = "rolled the flag back by hand"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(
+            conn,
+            incident_id,
+            PostmortemDocument(
+                root_cause="dont care",
+                executive_summary="dont care",
+                customer_loss_estimate=None,
+                estimate_currency="usd",
+                engineer_minutes=None,
+                responders=None,
+                tokens_spent=None,
+                assumptions=["dont care"],
+                checklist_complete=True
+            )
+        )
+        events.record(conn, StatusChanged(
+            incident_id=incident_id,
+            to_status=IncidentStatus.RESOLVED,
+            reported=Report(by=some_person, channel=ReportChannel.ARGUS_UI, note=some_note)
+        ))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says(some_person),
+            the_page_says("the Argus UI"),
+            the_page_says(some_note)
+        ))
 
 
 @pytest.mark.component

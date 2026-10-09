@@ -18,7 +18,12 @@ from argus_web.views.incidents import (
     build_incident_detail,
     build_incident_summary,
 )
-from argus_web.views.postmortems import PostmortemView, build_postmortem_view
+from argus_web.views.postmortems import (
+    PostmortemView,
+    ResolutionView,
+    build_postmortem_view,
+    build_resolution_view,
+)
 from argus_web.views.storytelling import (
     LiveIncident,
     Story,
@@ -33,10 +38,12 @@ __all__ = [
     "IncidentSummary",
     "LiveIncident",
     "PostmortemView",
+    "ResolutionView",
     "Story",
     "build_incident_detail",
     "build_incident_summary",
     "build_live_incident",
     "build_postmortem_view",
+    "build_resolution_view",
     "build_story"
 ]

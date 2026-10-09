@@ -7,7 +7,8 @@ from typing import Any, Final
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
 # holds both.
-from argus_core.models import Actor
+from argus_core.models import Actor, IncidentStatus
+from argus_incidents import wanted_until_a_person_ends_it
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -18,6 +19,7 @@ from orchestrator.walk.choosing import (
     route_after_next_candidate,
 )
 from orchestrator.walk.closing import postmortem_node
+from orchestrator.walk.ending import stopping_when_a_person_ended_it
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.investigating import (
@@ -35,11 +37,11 @@ from orchestrator.walk.routes import (
     MITIGATING_ROUTE,
     NEXT_CANDIDATE_ROUTE,
     POSTMORTEM_ROUTE,
+    RESOLVED_ROUTE,
     WITHDRAWN_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
 from orchestrator.walk.tracing import traced
-from orchestrator.walk.withdrawing import stopping_when_withdrawn
 
 # The names LangGraph knows each node by. Every one is stated twice - once
 # where the node is registered, and once as the destination a router's map
@@ -111,8 +113,11 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         with_status,
         max_rounds=collaborators.max_rounds,
         transition_incident=collaborators.transition_incident,
-        still_wanted=collaborators.still_wanted
+        ended_by_a_person=collaborators.ended_by_a_person
     )
+    # The yes-or-no the nodes hand their agents. Either ending is a reason not
+    # to take the next step; where the walk goes after stopping is the routers'.
+    still_wanted = wanted_until_a_person_ends_it(collaborators.ended_by_a_person)
 
     step(
         INVESTIGATOR_NODE, Actor.INVESTIGATOR,
@@ -126,7 +131,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     fetch_deployments=collaborators.fetch_deployments,
                     publisher=collaborators.publisher,
                     recorder=collaborators.recorder,
-                    still_wanted=collaborators.still_wanted)
+                    still_wanted=still_wanted)
         )
     )
     step(
@@ -153,7 +158,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     already_taken=collaborators.already_taken,
                     change_landed=collaborators.change_landed,
                     record_outcome=collaborators.record_outcome,
-                    still_wanted=collaborators.still_wanted,
+                    still_wanted=still_wanted,
                     publisher=collaborators.publisher)
         )
     )
@@ -171,7 +176,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
             partial(codefix_node,
                     propose_fix=collaborators.propose_fix,
                     publisher=collaborators.publisher,
-                    still_wanted=collaborators.still_wanted)
+                    still_wanted=still_wanted)
         )
     )
     # Not wrapped in `deciding_status`, unlike every node above it. Filing what
@@ -185,26 +190,32 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                 remember=collaborators.remember_incident,
                 publisher=collaborators.publisher)
     )
+    # Stopped only by a withdrawal. A person who reported the incident resolved
+    # is owed the write-up; the person who took it back is not waiting to be
+    # told what Argus made of it.
     step(
         POSTMORTEM_NODE, Actor.POSTMORTEM,
         deciding_status(
             partial(postmortem_node,
                     write=collaborators.write_postmortem,
-                    record=collaborators.record_postmortem)
+                    record=collaborators.record_postmortem),
+            stops_for=frozenset({IncidentStatus.WITHDRAWN})
         )
     )
 
     graph.add_edge(START, INVESTIGATOR_NODE)
-    # Every router is wrapped so a withdrawn incident leaves the graph from
-    # wherever it happens to be, and every mapping carries the destination for
-    # that - the walk is over, and the nodes that write an ending are for
-    # endings Argus reached.
+    # Every router is wrapped so an incident a person ended goes where that
+    # ending sends it from wherever the walk happens to be, and every mapping
+    # carries both destinations. A withdrawn incident leaves the graph - the
+    # walk is over, and nothing is written up for it. A resolved one goes on to
+    # be remembered and written up, past anything still to try.
     graph.add_conditional_edges(
         INVESTIGATOR_NODE,
-        stopping_when_withdrawn(route_after_investigation),
+        stopping_when_a_person_ended_it(route_after_investigation),
         {
             MITIGATING_ROUTE: MITIGATION_PROPOSAL_NODE,
             ESCALATED_ROUTE: REMEMBERING_NODE,
+            RESOLVED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )
@@ -214,7 +225,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     graph.add_edge(MITIGATION_PROPOSAL_NODE, TIER_GATE_NODE)
     graph.add_conditional_edges(
         TIER_GATE_NODE,
-        stopping_when_withdrawn(route_after_gate),
+        stopping_when_a_person_ended_it(route_after_gate),
         {
             MITIGATING_ROUTE: MITIGATION_NODE,
             NEXT_CANDIDATE_ROUTE: NEXT_CANDIDATE_NODE,
@@ -223,12 +234,13 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
             # any more confirmable - and what is left is the fault in the code,
             # which is where a mitigation that worked goes too.
             FIXING_ROUTE: CODEFIX_NODE,
+            RESOLVED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )
     graph.add_conditional_edges(
         MITIGATION_NODE,
-        stopping_when_withdrawn(route_after_mitigation),
+        stopping_when_a_person_ended_it(route_after_mitigation),
         {
             # A mitigation that worked goes on to Code-Fix rather than to the
             # postmortem. The symptom is gone; the fault it exposed is still in
@@ -237,6 +249,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
             FIXING_ROUTE: CODEFIX_NODE,
             NEXT_CANDIDATE_ROUTE: NEXT_CANDIDATE_NODE,
             ESCALATED_ROUTE: REMEMBERING_NODE,
+            RESOLVED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )
@@ -246,19 +259,21 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     # out of moves" actually means.
     graph.add_conditional_edges(
         NEXT_CANDIDATE_NODE,
-        stopping_when_withdrawn(route_after_next_candidate),
+        stopping_when_a_person_ended_it(route_after_next_candidate),
         {
             MITIGATING_ROUTE: MITIGATION_PROPOSAL_NODE,
             INVESTIGATING_ROUTE: INVESTIGATOR_NODE,
             FIXING_ROUTE: CODEFIX_NODE,
+            RESOLVED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )
     graph.add_conditional_edges(
         CODEFIX_NODE,
-        stopping_when_withdrawn(route_after_codefix),
+        stopping_when_a_person_ended_it(route_after_codefix),
         {
             POSTMORTEM_ROUTE: REMEMBERING_NODE,
+            RESOLVED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END
         }
     )

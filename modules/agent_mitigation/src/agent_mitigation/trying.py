@@ -216,7 +216,7 @@ def take_action(action: Action,
 
         return Outcome(
             verdict=Verdict.WITHDRAWN,
-            detail="the incident was withdrawn before the action was taken",
+            detail="a person ended the incident before the action was taken",
             undo_descriptor=None,
             measured=False
         )
@@ -358,7 +358,7 @@ def take_action(action: Action,
         return Outcome(
             verdict=Verdict.WITHDRAWN,
             detail=(
-                f"{performed.said}, and the incident was withdrawn before the "
+                f"{performed.said}, and a person ended the incident before the "
                 f"service could answer for it"
             ),
             undo_descriptor=performed.undo_descriptor,
@@ -914,7 +914,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             if not still_wanted():
                 return _Settled(
                     Verdict.WITHDRAWN,
-                    "the incident was withdrawn before the service could answer"
+                    "a person ended the incident before the service could answer"
                 )
 
             if resolved:
@@ -1036,7 +1036,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         if not still_wanted():
             return _Settled(
                 Verdict.WITHDRAWN,
-                "the incident was withdrawn before the service could answer"
+                "a person ended the incident before the service could answer"
             )
 
         if recovered:

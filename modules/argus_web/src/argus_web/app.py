@@ -10,18 +10,19 @@ from typing import Annotated, Any, Final
 import psycopg
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.events import Publisher
-from argus_core.models import IncidentStatus
+from argus_core.models import IncidentStatus, Report, ReportChannel
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import (
     events_into,
     events_into_connection,
     inside_the_incidents_trace,
+    resolve_incident,
     start_incident,
     withdraw_incident,
 )
 from code_index.records import record_pushed
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -41,13 +42,20 @@ from argus_web.views import IncidentDetail
 
 logger = logging.getLogger(__name__)
 
-# The instrumentation scope this app's spans are reported under, and the two
+# The instrumentation scope this app's spans are reported under, and the
 # requests that are spans at all: the one an incident's trace begins in, and a
-# person stopping the response. Every other route renders a page, and the
+# person ending the response. Every other route renders a page, and the
 # dashboard polls, so a span for each would be noise nobody reads.
 _SCOPE: Final = __name__
 RECEIVE_ALERT_SPAN: Final = "receive alert"
 WITHDRAW_SPAN: Final = "withdraw incident"
+RESOLVE_SPAN: Final = "resolve incident"
+
+# Who a person ending an incident from this page is recorded as. Argus has no
+# users yet, so whoever pressed the button is the one person the demo has - and
+# is recorded all the same, because the account must say a person did it and
+# through which door, and a real name arrives with the day somebody can sign in.
+THE_DEMO_USER: Final = "demo user"
 
 
 @asynccontextmanager
@@ -291,7 +299,12 @@ def withdraw(incident_id: str,
 
     with inside_the_incidents_trace(incident_id, kept, WITHDRAW_SPAN,
                                     kind=SpanKind.SERVER, tracer=tracer):
-        withdrawn = withdraw_incident(incident_id, connections, publisher)
+        withdrawn = withdraw_incident(
+            incident_id,
+            Report(by=THE_DEMO_USER, channel=ReportChannel.ARGUS_UI),
+            connections,
+            publisher
+        )
 
         if not withdrawn:
             # Inside the trace, so the line carries the incident it is about.
@@ -303,6 +316,61 @@ def withdraw(incident_id: str,
         )
 
     return {"incident_id": incident_id, "status": IncidentStatus.WITHDRAWN}
+
+
+@app.post("/incidents/{incident_id}/resolve")
+def resolve(incident_id: str,
+            response: Response,
+            connections: UsingConnections,
+            publisher: Publishing,
+            tracer: Tracing,
+            note: Annotated[str, Form()] = "") -> dict[str, str]:
+    """Records that a person reports the incident over, at their say-so.
+
+    The withdrawal's sibling, and the same arrangement: the incident is named,
+    the person and what they wrote are passed on, and the incident record
+    answers. Whether a resolution is accepted is a fact about the incident.
+
+    The note is optional and arrives as a form field, because that is what the
+    page's control sends. A box left empty, or holding only spaces, is a person
+    who said nothing - recorded as no note rather than as an empty one.
+
+    A refusal is a `409`. An incident withdrawn, disproven or already resolved
+    has ended for its own reason, and answering "done" would have somebody
+    believe they had closed it.
+
+    The page is told to reload on success. An incident Argus had already ended
+    has a page that stopped polling, so without it nothing would show the
+    person what their press did.
+    """
+    with connections() as conn:
+        kept = reads.read_trace_context(conn, incident_id)
+
+    if kept is None:
+        raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
+
+    with inside_the_incidents_trace(incident_id, kept, RESOLVE_SPAN,
+                                    kind=SpanKind.SERVER, tracer=tracer):
+        resolved = resolve_incident(
+            incident_id,
+            Report(by=THE_DEMO_USER, channel=ReportChannel.ARGUS_UI,
+                   note=note.strip() or None),
+            connections,
+            publisher
+        )
+
+        if not resolved:
+            # Inside the trace, so the line carries the incident it is about.
+            logger.info("resolution refused")
+
+    if not resolved:
+        raise HTTPException(
+            status_code=409, detail=f"incident {incident_id} cannot be resolved"
+        )
+
+    response.headers["HX-Refresh"] = "true"
+
+    return {"incident_id": incident_id, "status": IncidentStatus.RESOLVED}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -413,15 +481,20 @@ def postmortem_page(request: Request,
     body Argus writes, and the page beside it is polled every two seconds. An
     incident with none renders the page saying so - absence is an answer here,
     not a failure.
+
+    A person's resolution is shown beside the document, whichever came first:
+    one written before the report is not rewritten, and the person who ended
+    the incident is part of what a reader of its write-up is owed.
     """
     with connections() as conn:
         incident = _an_incident_or_404(conn, incident_id)
         postmortem = reads.read_postmortem(conn, incident_id)
+        resolution = reads.read_resolution(conn, incident_id)
 
     return templates.TemplateResponse(
         request,
         "postmortem.html",
-        {"incident": incident, "postmortem": postmortem},
+        {"incident": incident, "postmortem": postmortem, "resolution": resolution},
     )
 
 

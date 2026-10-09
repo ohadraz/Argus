@@ -43,11 +43,11 @@ from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_RUN_ID
 from argus_incidents import (
-    IsStillWanted,
+    EndedByAPerson,
+    ended_by_a_person_via,
     events_into,
     events_into_connection,
     inside_the_incidents_trace,
-    wanted_via,
 )
 from argus_incidents.repository import incidents, runs
 from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
@@ -148,7 +148,7 @@ def take_one_run(conn: psycopg.Connection,
                  lease: timedelta,
                  walk: Walk,
                  unwind: Unwind,
-                 still_wanted: IsStillWanted,
+                 ended_by_a_person: EndedByAPerson,
                  connections: Connections = connect_from_env,
                  tracer: Tracer | None = None) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
@@ -168,13 +168,20 @@ def take_one_run(conn: psycopg.Connection,
     written and nothing remembered, and no later run is coming to tidy up
     after the one that died.
 
-    The same question is asked either side of the walk, and three cases fall
-    out of the two. An incident withdrawn before anybody claimed it is never
-    walked - `run_incident`'s first act is to mark it `investigating`, which
-    would take an incident a human had ended and put it back on the board. One
-    withdrawn partway through is walked, stops at its next node boundary, and is
-    unwound on the way out. One nobody stopped is walked and leaves the world as
-    the walk left it.
+    The same question is asked either side of the walk: has a person ended
+    this incident, and how. An incident withdrawn before anybody claimed it is
+    never walked - `run_incident`'s first act is to mark it `investigating`,
+    which would take an incident a human had ended and put it back on the
+    board. One withdrawn partway through is walked, stops at its next node
+    boundary, and is unwound on the way out. One nobody stopped is walked and
+    leaves the world as the walk left it.
+
+    A resolution is walked whenever it came, and never unwound. The person who
+    reported the incident over is owed the write-up, which only the walk
+    writes, and has the world as it is - putting Argus's changes back behind
+    them would be Argus second-guessing the one report it does not test. That
+    holds for a run that failed too, which is the one place it could slip: a
+    failed run is otherwise unwound.
 
     Unwinding here rather than inside the walk because it is not part of
     investigating anything: it is what the process does with an incident that
@@ -210,17 +217,17 @@ def take_one_run(conn: psycopg.Connection,
 
         try:
             with _the_claim_kept_alive(claimed.id, lease, connections):
-                walked = still_wanted(claimed.incident_id)
+                walked = ended_by_a_person(claimed.incident_id) is not IncidentStatus.WITHDRAWN
 
                 if walked:
                     walk(claimed.incident_id)
 
-                if not still_wanted(claimed.incident_id):
+                if ended_by_a_person(claimed.incident_id) is IncidentStatus.WITHDRAWN:
                     logger.info("incident withdrawn, unwinding", extra={"walked": walked})
                     unwind(claimed.incident_id)
         except Exception as failure:
             logger.exception("run failed")
-            _put_back_what_it_changed(unwind, claimed.incident_id)
+            _put_back_what_it_changed(unwind, ended_by_a_person, claimed.incident_id)
             runs.fail(conn, claimed.id, f"{type(failure).__name__}: {failure}")
             _the_incident_needs_a_person(conn, claimed.incident_id, failure)
         else:
@@ -301,8 +308,17 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
         logger.exception("incident could not be marked escalated after its run failed")
 
 
-def _put_back_what_it_changed(unwind: Unwind, incident_id: str) -> None:
+def _put_back_what_it_changed(unwind: Unwind,
+                              ended_by_a_person: EndedByAPerson,
+                              incident_id: str) -> None:
     """Unwinds an incident whose run failed, and survives failing to.
+
+    Unless a person resolved it. The resolution promised to leave every change
+    in place, and a write-up that raised after the report is a failed run like
+    any other - so this is the one place the promise could be broken. Where the
+    ending cannot be read, nothing is put back either: a change left in place
+    is one a person can put right, and undoing a resolution's mitigations is
+    the error the check exists to prevent.
 
     Guarded because this runs inside the handler for a failure that has
     already happened. An unwind that raised from there would take the whole
@@ -317,6 +333,17 @@ def _put_back_what_it_changed(unwind: Unwind, incident_id: str) -> None:
     belong in the queue in place of it.
     """
     try:
+        ending = ended_by_a_person(incident_id)
+    except Exception:
+        logger.exception("whether a person ended the incident could not be read "
+                         "after a failed run, so nothing was put back")
+        return
+
+    if ending is IncidentStatus.RESOLVED:
+        logger.info("incident resolved by a person, leaving its changes in place")
+        return
+
+    try:
         unwind(incident_id)
     except Exception:
         logger.exception("changes could not be put back after a failed run")
@@ -325,7 +352,7 @@ def _put_back_what_it_changed(unwind: Unwind, incident_id: str) -> None:
 def work_forever(connections: Connections,
                  walk: Walk,
                  unwind: Unwind,
-                 still_wanted: IsStillWanted) -> None:
+                 ended_by_a_person: EndedByAPerson) -> None:
     """Takes runs for as long as the process lives.
 
     Looks again immediately after taking work and waits only when it found
@@ -344,7 +371,7 @@ def work_forever(connections: Connections,
 
     with connections() as conn:
         while True:
-            if not take_one_run(conn, me, lease, walk, unwind, still_wanted,
+            if not take_one_run(conn, me, lease, walk, unwind, ended_by_a_person,
                                 connections):
                 time.sleep(idle_wait)
 
@@ -402,7 +429,7 @@ def main() -> None:
                            undo=an_undo_over(write, mitigation),
                            taken_actions_of=taken_actions_from(connections),
                            publisher=events_into(connections)),
-            still_wanted=wanted_via(connections),
+            ended_by_a_person=ended_by_a_person_via(connections),
         )
 
 

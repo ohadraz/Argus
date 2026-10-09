@@ -57,11 +57,13 @@ def transition(
     recording and moved nothing is published as the acting node's own event,
     and writes nothing here at all.
 
-    Never over a withdrawal. A person withdraws an incident from outside the
-    walk, so the walk can be halfway through a step when it happens - and the
-    step finishing afterwards would write its own status over that person's
-    decision, leaving an incident nobody wants being walked and nothing ever
-    put back. The guard is in the statement rather than in a read before it,
+    Never over a person's ending - a withdrawal or a resolution. A person ends
+    an incident from outside the walk, so the walk can be halfway through a
+    step when it happens - and the step finishing afterwards would write its
+    own status over that person's decision: a withdrawn incident walked on with
+    nothing ever put back, or a resolved one reported as still mitigating, or
+    escalated by a walk that failed after the person had already finished the
+    job. The guard is in the statement rather than in a read before it,
     because a read and a write are two moments and a withdrawal can land
     between them. `False` is how the caller learns the incident was not
     moved, and that nothing is to be said about a move that did not happen.
@@ -84,13 +86,14 @@ def transition(
     beyond reach of the account before the account existed.
     """
     ends_the_incident = to_status.is_terminal()
+    a_persons_endings = [status for status in IncidentStatus if status.is_a_persons_ending()]
 
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE incident "
             "   SET status = %s, ended_at = CASE WHEN %s THEN now() ELSE ended_at END "
-            " WHERE id = %s AND status <> %s",
-            (to_status, ends_the_incident, incident_id, IncidentStatus.WITHDRAWN)
+            " WHERE id = %s AND status <> ALL(%s)",
+            (to_status, ends_the_incident, incident_id, a_persons_endings)
         )
 
         return cursor.rowcount == 1
@@ -133,6 +136,42 @@ def withdraw(conn: psycopg.Connection, incident_id: str) -> bool:
     conn.commit()
 
     return withdrawn
+
+
+def resolve(conn: psycopg.Connection, incident_id: str) -> bool:
+    """Records that a person reported the incident resolved, and says whether
+    it took effect.
+
+    Written here rather than derived by the walk, for the reason a withdrawal
+    is: the walk never concludes `resolved` (spec §10), and what this records -
+    that somebody finished the job - is a fact its own state cannot hold. The
+    walk finds out by reading it back.
+
+    Accepted from every status `accepts_resolution` names, the terminal endings
+    Argus reached by stopping included, and refused for the rest in the same
+    statement that would have made the change - a read followed by a write
+    would let the walk land a status in between.
+
+    The end an incident already had is kept. Argus having escalated it is when
+    its part ended, the postmortem was written to that end and is not
+    rewritten, and an end restamped here would put the document out of step
+    with its own durations. An incident still running ends now.
+
+    Commits, as `withdraw` does: the caller is a door outside the walk, with no
+    transaction of its own for this to join.
+    """
+    resolvable = [status for status in IncidentStatus if status.accepts_resolution()]
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE incident SET status = %s, ended_at = COALESCE(ended_at, now()) "
+            " WHERE id = %s AND status = ANY(%s)",
+            (IncidentStatus.RESOLVED, incident_id, resolvable)
+        )
+        resolved = cursor.rowcount == 1
+    conn.commit()
+
+    return resolved
 
 
 def get_recent(conn: psycopg.Connection) -> list[Incident]:

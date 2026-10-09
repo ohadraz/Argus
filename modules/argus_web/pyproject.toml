@@ -14,6 +14,9 @@ dependencies = [
     "fastapi>=0.115",
     "jinja2>=3.1",
     "psycopg[binary]>=3.1",
+    # What reads a form's fields. The resolve control posts its note as one,
+    # which is what a browser sends without a line of script to say otherwise.
+    "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",
 ]
 

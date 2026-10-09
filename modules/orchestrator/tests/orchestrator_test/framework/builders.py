@@ -22,7 +22,7 @@ from argus_core.models import (
     PodPlacement,
     RecordedPlacement,
 )
-from argus_incidents.withdrawal import IsStillWanted
+from argus_incidents.ending import EndedByAPerson
 from orchestrator.walk.state import IncidentState
 
 
@@ -125,19 +125,6 @@ def discarding(service: str) -> ActionIdentity:
     action and the cap on repeating one unreachable.
     """
     return an_identity(DISCARD_CACHE_ENTRIES, service)
-
-
-def the_incident_was_withdrawn() -> IsStillWanted:
-    """A world in which a human has taken the incident back.
-
-    Answers `False` to every id rather than to a particular one: what the walk
-    does with a withdrawal is the subject, and a stub that could say yes to the
-    wrong incident would be testing the id-matching of the double instead.
-    """
-    def still_wanted(dont_care_incident_id: str) -> bool:
-        return False
-
-    return still_wanted
 
 
 def a_candidate_blaming(incident_id: str, flag: str) -> Hypothesis:
@@ -274,14 +261,26 @@ def a_placement() -> RecordedPlacement:
     )
 
 
-def the_incident_is_still_wanted() -> IsStillWanted:
-    """A world in which nobody has taken the incident back.
+def nobody_ended_the_incident() -> EndedByAPerson:
+    """A world in which no person has withdrawn the incident or resolved it.
 
-    The counterpart of `the_incident_was_withdrawn`, and the one most tests
-    need: a walk has to be allowed to proceed before anything about how it
-    proceeds can be asked.
+    The one most tests need: a walk has to be allowed to proceed before
+    anything about how it proceeds can be asked.
     """
-    def still_wanted(dont_care_incident_id: str) -> bool:
-        return True
+    def ended_by_a_person(dont_care_incident_id: str, /) -> IncidentStatus | None:
+        return None
 
-    return still_wanted
+    return ended_by_a_person
+
+
+def a_person_ended_the_incident(ending: IncidentStatus) -> EndedByAPerson:
+    """A world in which a person has ended the incident, as `ending`.
+
+    Answers the same for every id rather than for a particular one: what the
+    walk does with the ending is the subject, and a stub that could answer for
+    the wrong incident would be testing the id-matching of the double instead.
+    """
+    def ended_by_a_person(dont_care_incident_id: str, /) -> IncidentStatus | None:
+        return ending
+
+    return ended_by_a_person

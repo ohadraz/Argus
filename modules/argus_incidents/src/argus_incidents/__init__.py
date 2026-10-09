@@ -23,6 +23,12 @@ refactor gets to make on the way past.
 
 from __future__ import annotations
 
+from argus_incidents.ending import (
+    EndedByAPerson,
+    IsStillWanted,
+    ended_by_a_person_via,
+    wanted_until_a_person_ends_it,
+)
 from argus_incidents.intake import start_incident
 from argus_incidents.publishing import (
     PublisherFor,
@@ -32,19 +38,23 @@ from argus_incidents.publishing import (
     events_into_connection,
     publish_beside,
 )
+from argus_incidents.resolution import resolve_incident
 from argus_incidents.tracing import inside_the_incidents_trace
-from argus_incidents.withdrawal import IsStillWanted, wanted_via, withdraw_incident
+from argus_incidents.withdrawal import withdraw_incident
 
 __all__ = [
+    "EndedByAPerson",
     "IsStillWanted",
     "PublisherFor",
     "acknowledge_alert",
     "calls_into",
+    "ended_by_a_person_via",
     "events_into",
     "events_into_connection",
     "inside_the_incidents_trace",
     "publish_beside",
+    "resolve_incident",
     "start_incident",
-    "wanted_via",
+    "wanted_until_a_person_ends_it",
     "withdraw_incident"
 ]

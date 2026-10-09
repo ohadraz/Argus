@@ -22,4 +22,7 @@ NEXT_CANDIDATE_ROUTE: Final = "next_candidate"
 # outcome is the status's to carry and every one of them gets written up - the
 # incident nothing could be done for most of all.
 POSTMORTEM_ROUTE: Final = "postmortem"
+# Where an incident a person reported resolved goes from wherever the walk was:
+# on to be remembered and written up, past anything still to try.
+RESOLVED_ROUTE: Final = "resolved"
 WITHDRAWN_ROUTE: Final = "withdrawn"

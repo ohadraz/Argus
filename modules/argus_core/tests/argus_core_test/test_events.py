@@ -30,6 +30,7 @@ from argus_core.events import (
     Publisher,
     RetrievalRequested,
     SimilarIncidentsRecalled,
+    StatusChanged,
     VerdictReached,
     parse_event,
     publish,
@@ -42,8 +43,11 @@ from argus_core.models import (
     RESTART_SERVICE,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
+    IncidentStatus,
     PodPlacement,
     RecordedPlacement,
+    Report,
+    ReportChannel,
     the_actions_through,
 )
 from argus_core.models.action import Verdict
@@ -364,6 +368,46 @@ def test_a_recorded_placement_reads_back_with_the_onset_it_was_recorded_against(
 
 
 @pytest.mark.unit
+def test_a_status_change_a_person_reported_reads_back_with_who_how_and_what_they_said() -> None:
+    # A person's ending is the one status change Argus did not decide, so who
+    # made it, where they said it and what they added travel with the change
+    # itself - the account is where a reader looks, months later, without the
+    # page that took the report.
+    the_report = Report(
+        by="some person",
+        channel=ReportChannel.ARGUS_UI,
+        note="rolled the flag back by hand"
+    )
+
+    Scenario() \
+        .given(
+            published := StatusChanged(
+                incident_id=new_id(),
+                to_status=IncidentStatus.RESOLVED,
+                reported=the_report
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(all_of(_it_is(published), _it_was_reported_as(the_report)))
+
+
+@pytest.mark.unit
+def test_a_status_change_stored_before_anybody_reported_one_reads_back_naming_nobody() -> None:
+    # Every row written before a person could be named has no such field. It
+    # must still read, and read as Argus's own move rather than as a report
+    # from somebody whose name was lost.
+    stored_without_a_reporter = StatusChanged(
+        incident_id=new_id(),
+        to_status=IncidentStatus.ESCALATED
+    ).model_dump(mode="json", exclude={"reported"})
+
+    Scenario() \
+        .given(stored_without_a_reporter) \
+        .when(lambda: parse_event(stored_without_a_reporter)) \
+        .then(_nobody_reported_it())
+
+
+@pytest.mark.unit
 def test_an_event_reaches_the_publisher_it_was_given() -> None:
     everything_published: list[IncidentEvent] = []
     an_event = AgentInvoked(incident_id=new_id(), agent=Actor.MITIGATION)
@@ -578,6 +622,34 @@ def _it_is(published: IncidentEvent) -> Assertion[object]:
     def assertion(read_back: object) -> bool:
         if read_back != published:
             raise AssertionError(f"Expected [{published}], got [{read_back}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_reported_as(expected: Report) -> Assertion[object]:
+    def assertion(read_back: object) -> bool:
+        reported = getattr(read_back, "reported", None)
+
+        if reported != expected:
+            raise AssertionError(
+                f"Expected the status change to carry the report [{expected}], "
+                f"it carries [{reported}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nobody_reported_it() -> Assertion[object]:
+    def assertion(read_back: object) -> bool:
+        if not isinstance(read_back, StatusChanged) or read_back.reported is not None:
+            raise AssertionError(
+                f"Expected a status change naming nobody as having reported it, "
+                f"got [{read_back}]."
+            )
 
         return True
 

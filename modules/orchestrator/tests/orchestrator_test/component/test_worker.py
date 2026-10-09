@@ -11,8 +11,8 @@ from argus_core import connect_from_env
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
+from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
 from argus_incidents.repository import events, incidents, runs
-from argus_incidents.withdrawal import wanted_via
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from opentelemetry import baggage
 from orchestrator import worker
@@ -68,7 +68,7 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker(a_clean_database: None
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -100,7 +100,7 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking(a_clean_datab
                     A_GENEROUS_LEASE,
                     walk=walk_that_must_not_be_called,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
@@ -139,7 +139,7 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -197,7 +197,7 @@ def test_an_incident_whose_walk_failed_is_escalated_rather_than_left_mid_walk(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -245,7 +245,7 @@ def test_a_run_that_failed_has_its_changes_put_back(a_clean_database: None) -> N
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -293,7 +293,7 @@ def test_an_unwind_that_fails_after_a_failed_run_still_records_the_failure(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=unwind_that_fails,
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
@@ -328,7 +328,7 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: No
                     dont_care_worker,
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
-                    still_wanted=wanted_via(connect_from_env),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
                     unwind=_an_unwind_recording_what_it_was_given([])
                 )
             ) \
@@ -363,7 +363,7 @@ def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_must_not_be_called(),
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
@@ -400,7 +400,7 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_partway,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -438,12 +438,172 @@ def test_a_withdrawn_incident_whose_walk_then_failed_is_not_announced_escalated(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_and_then_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
                 _the_account_never_said_it_was(conn, incident_id, IncidentStatus.ESCALATED)
             )
+
+
+@pytest.mark.component
+def test_a_run_whose_incident_was_resolved_before_it_was_claimed_is_walked(
+    a_clean_database: None
+) -> None:
+    # Resolved while it was still queued. Unlike a withdrawal, the person is
+    # owed a write-up, and the walk is what writes one - so it is walked, and
+    # it goes straight to remembering and the postmortem.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    walked: list[str] = []
+    unwound: list[str] = []
+
+    def walk_recording_what_it_was_given(incident_id: str) -> None:
+        walked.append(incident_id)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incidents.resolve(conn, incident_id)
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_recording_what_it_was_given,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_incident_walked_was(walked, incident_id),
+                _nothing_was_unwound(unwound),
+                _the_run_is_done(conn, incident_id)
+            ))
+
+
+@pytest.mark.component
+def test_an_incident_resolved_while_it_was_walked_is_not_unwound(
+    a_clean_database: None
+) -> None:
+    # The person who reported it over has the world as it is. Putting Argus's
+    # changes back behind them would be Argus second-guessing the one report it
+    # does not test.
+    dont_care_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    unwound: list[str] = []
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        def walk_that_is_resolved_partway(resolved_id: str) -> None:
+            incidents.resolve(conn, resolved_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_is_resolved_partway,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _nothing_was_unwound(unwound),
+                _the_run_is_done(conn, incident_id)
+            ))
+
+
+@pytest.mark.component
+def test_a_resolved_incident_whose_walk_then_failed_is_not_unwound(
+    a_clean_database: None
+) -> None:
+    # The one place a resolution could undo what it promised to leave alone: a
+    # failed run is unwound, and a write-up that raised after the person
+    # reported the incident over is a failed run. The run is still recorded as
+    # failed, and the incident stays as the person left it.
+    dont_care_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "the postmortem's model refused"
+    unwound: list[str] = []
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        def walk_that_is_resolved_and_then_fails(resolved_id: str) -> None:
+            incidents.resolve(conn, resolved_id)
+            raise RuntimeError(what_went_wrong)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_is_resolved_and_then_fails,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _nothing_was_unwound(unwound),
+                _the_run_is_failed(conn, incident_id, what_went_wrong),
+                _the_incident_is(conn, incident_id, IncidentStatus.RESOLVED)
+            ))
+
+
+@pytest.mark.component
+def test_a_failed_run_whose_ending_cannot_be_read_is_not_unwound(
+    a_clean_database: None
+) -> None:
+    # The database went away with the walk. Unwinding blind could undo the
+    # mitigations of an incident a person resolved, which is the error a
+    # resolution exists to prevent; leaving a change in place is the one of the
+    # two a person can put right.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "the database went away"
+    unwound: list[str] = []
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError(what_went_wrong)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=_readable_only_before_the_walk()
+                )
+            ) \
+            .then(all_of(
+                _nothing_was_unwound(unwound),
+                _the_run_is_failed(conn, incident_id, what_went_wrong)
+            ))
 
 
 @pytest.mark.component
@@ -476,7 +636,7 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_data
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
                     unwind=_an_unwind_that_must_not_be_called(),
-                    still_wanted=wanted_via(connect_from_env),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
                 )
             ) \
             .then(all_of(
@@ -528,7 +688,7 @@ def test_a_run_still_being_walked_keeps_its_claim(a_clean_database: None) -> Non
                     A_LEASE_SHORTER_THAN_THE_WALK,
                     walk=walk_outlasting_its_lease,
                     unwind=_an_unwind_that_must_not_be_called(),
-                    still_wanted=wanted_via(connect_from_env),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
                     connections=connect_from_env,
                 )
             ) \
@@ -559,7 +719,7 @@ def test_a_run_is_worked_inside_the_trace_its_incident_kept(a_clean_database: No
                     A_GENEROUS_LEASE,
                     walk=lambda dont_care_incident_id: None,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
                     tracer=observed.tracer
                 )
             ) \
@@ -597,7 +757,7 @@ def test_a_walk_runs_with_its_incident_and_its_run_in_the_baggage(
                     A_GENEROUS_LEASE,
                     walk=walk_recording_the_baggage,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
@@ -630,7 +790,7 @@ def test_a_run_is_logged_as_it_is_claimed_and_as_it_finishes(
                     A_GENEROUS_LEASE,
                     walk=lambda dont_care_incident_id: None,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(all_of(
@@ -666,7 +826,7 @@ def test_a_run_whose_walk_failed_is_logged_with_what_failed(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
@@ -705,13 +865,90 @@ def test_an_unwind_that_failed_after_a_failed_run_is_logged_with_what_failed(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=unwind_that_fails,
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
                 one_record_was_logged(caplog, THE_WORKER, logging.ERROR,
                                       "changes could not be put back after a failed run",
                                       failure=ConnectionError)
+            )
+
+
+@pytest.mark.component
+def test_a_failed_run_left_alone_because_a_person_resolved_it_is_logged(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A failed run is otherwise put back, so a reader of the log seeing a
+    # failure and no unwind needs to be told it was deliberate.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        def walk_that_is_resolved_and_then_fails(resolved_id: str) -> None:
+            incidents.resolve(conn, resolved_id)
+            raise RuntimeError("some failure nobody planned for")
+
+        Scenario() \
+            .given(
+                calling(lambda: caplog.set_level(logging.INFO)),
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_is_resolved_and_then_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(
+                one_record_was_logged(caplog, THE_WORKER, logging.INFO,
+                                      "incident resolved by a person, leaving its changes "
+                                      "in place")
+            )
+
+
+@pytest.mark.component
+def test_a_failed_run_whose_ending_cannot_be_read_is_logged_with_what_failed(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Nothing was put back, and whether anything should have been is unknown -
+    # a change of Argus's may still be standing, and somebody has to look.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError("some failure nobody planned for")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert)
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=_readable_only_before_the_walk()
+                )
+            ) \
+            .then(
+                one_record_was_logged(caplog, THE_WORKER, logging.ERROR,
+                                      "whether a person ended the incident could not be "
+                                      "read after a failed run, so nothing was put back",
+                                      failure=RuntimeError)
             )
 
 
@@ -748,7 +985,7 @@ def test_a_withdrawn_incident_is_logged_as_it_is_unwound(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_partway,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
@@ -788,7 +1025,7 @@ def test_a_walk_runs_with_no_transaction_left_open_on_the_workers_connection(
                     A_GENEROUS_LEASE,
                     walk=walk_recording_the_connection,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    still_wanted=wanted_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
                 )
             ) \
             .then(
@@ -990,6 +1227,34 @@ def _the_incident_unwound_was(unwound: list[str],
         return True
 
     return assertion
+
+
+def _nothing_was_unwound(unwound: list[str]) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        if unwound:
+            raise AssertionError(
+                f"Expected nothing to be put back for an incident a person "
+                f"resolved, got {unwound}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _readable_only_before_the_walk() -> EndedByAPerson:
+    """Nobody's ending when the run is claimed, and unreadable after."""
+    asked: list[str] = []
+
+    def ended_by_a_person(incident_id: str, /) -> IncidentStatus | None:
+        asked.append(incident_id)
+
+        if len(asked) > 1:
+            raise RuntimeError("the database went away")
+
+        return None
+
+    return ended_by_a_person
 
 
 def _an_unwind_that_must_not_be_called() -> Callable[[str], None]:
