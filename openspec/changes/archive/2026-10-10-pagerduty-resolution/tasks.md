@@ -112,4 +112,4 @@ incident record, the adapter, the web, engagement, the double, e2e.
       missing logs, or wrong log level
 - [x] 10.4 Module suites, typecheck, lint, guard_layering green
 - [x] 10.5 `e2e_replay(mode='both')` green, in the background
-- [ ] 10.6 Specs synced on archive
+- [x] 10.6 Specs synced on archive
