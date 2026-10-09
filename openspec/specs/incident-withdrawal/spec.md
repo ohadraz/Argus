@@ -4,18 +4,17 @@
 The one ending Argus does not decide. A human takes the incident back, and
 everything Argus was doing about it stops - reachable from every phase the walk
 passes through, because the moment somebody wants it back is not one Argus gets
-to choose. It is the single transition recorded against a human actor rather
-than an agent, and the status derivation never returns it: it is written from
-outside the walk, and the walk finds out by reading the incident back.
+to choose. Like a resolution a person reports, it is recorded with who made it
+and through which channel, and the status derivation never returns it: it is
+written from outside the walk, and the walk finds out by reading the incident
+back.
 
 Marking and stopping are separate, and that separation is what keeps one writer
 on an incident. The endpoint only writes the status; the walk asks before each
 node whether the incident is still wanted, stops where it is not, and puts back
 what it changed itself - conditionally, since a person who withdrew an incident
 may already have changed the subject by hand.
-
 ## Requirements
-
 ### Requirement: A live incident can be withdrawn
 
 The system SHALL allow a live incident to be withdrawn, meaning a human has
@@ -25,12 +24,15 @@ withdrawal cannot undo a mitigation that is confirmed and holding the service
 up. Withdrawing an already-withdrawn incident SHALL be accepted and change
 nothing further.
 
+The withdrawal SHALL record who withdrew the incident and the channel it came
+through. From the Argus UI that is "demo user".
+
 #### Scenario: A running incident is withdrawn
 
 - **GIVEN** an incident that has not reached a terminal status
-- **WHEN** it is withdrawn
-- **THEN** its status becomes `withdrawn` and its timeline records that a human
-  withdrew it
+- **WHEN** it is withdrawn from the Argus UI
+- **THEN** its status becomes `withdrawn`, and its timeline records that "demo
+  user" withdrew it from the Argus UI
 
 #### Scenario: A finished incident cannot be withdrawn
 
@@ -189,3 +191,4 @@ silent about it would read as an undo that was skipped.
 - **WHEN** the incident's timeline is read
 - **THEN** it records the discard, that nothing was written back, and that the
   entries the service needed have been rebuilt from data that never changed
+

@@ -91,4 +91,4 @@ incident record, narration, the walk, the worker, the web.
       missing, redundant or weak; verify no missing logs, or wrong log level. 
 - [x] 9.3 Module suites, typecheck, lint, guard_layering green
 - [x] 9.4 `e2e_replay(mode='both')` green, in the background
-- [ ] 9.5 Specs synced on archive
+- [x] 9.5 Specs synced on archive
